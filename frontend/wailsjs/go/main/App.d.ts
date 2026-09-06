@@ -52,9 +52,17 @@ export function SaveDeepSeekModel(arg1:string):Promise<void>;
 
 export function SaveGitAuth(arg1:string,arg2:string):Promise<void>;
 
+export function SaveLayoutSizes(arg1:number,arg2:number,arg3:number,arg4:number):Promise<void>;
+
 export function SaveShowFiles(arg1:boolean):Promise<void>;
 
+export function SaveShowSettings(arg1:boolean):Promise<void>;
+
 export function SaveShowTerminal(arg1:boolean):Promise<void>;
+
+export function SaveTheme(arg1:string):Promise<void>;
+
+export function SaveWindowGeometry():Promise<void>;
 
 export function StartTerminal():Promise<void>;
 

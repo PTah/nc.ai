@@ -14,27 +14,69 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
+// Service talks to remote hosts. Keys are resolved from ~/.ssh first
+// (Cursor-like), then from the optional app-local Dir.
 type Service struct {
-	Dir string
+	Dir string // optional app-local fallback (NotCursor/ssh)
 }
 
 func New(dir string) *Service {
 	return &Service{Dir: dir}
 }
 
-func (s *Service) ensureDir() error {
-	if s.Dir == "" {
-		return fmt.Errorf("ssh dir not configured")
+func userSSHDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
 	}
-	return os.MkdirAll(s.Dir, 0o700)
+	return filepath.Join(home, ".ssh")
 }
 
+func (s *Service) keySearchDirs() []string {
+	dirs := make([]string, 0, 2)
+	if d := userSSHDir(); d != "" {
+		dirs = append(dirs, d)
+	}
+	if s.Dir != "" && s.Dir != userSSHDir() {
+		dirs = append(dirs, s.Dir)
+	}
+	return dirs
+}
+
+func (s *Service) resolveKeyPath(name string) (string, error) {
+	if name == "" {
+		return "", fmt.Errorf("key name required")
+	}
+	if filepath.IsAbs(name) {
+		if _, err := os.Stat(name); err != nil {
+			return "", err
+		}
+		return name, nil
+	}
+	for _, dir := range s.keySearchDirs() {
+		p := filepath.Join(dir, name)
+		if _, err := os.Stat(p); err == nil {
+			return p, nil
+		}
+	}
+	return "", fmt.Errorf("key %q not found in ~/.ssh (or app ssh dir)", name)
+}
+
+// Keygen writes an ed25519 key into ~/.ssh (creates the dir if needed).
 func (s *Service) Keygen(name string) (string, error) {
 	if name == "" {
 		return "", fmt.Errorf("key name required")
 	}
-	if err := s.ensureDir(); err != nil {
+	dir := userSSHDir()
+	if dir == "" {
+		return "", fmt.Errorf("cannot resolve home directory")
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
+	}
+	privPath := filepath.Join(dir, name)
+	if _, err := os.Stat(privPath); err == nil {
+		return "", fmt.Errorf("key already exists: %s", privPath)
 	}
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -44,7 +86,6 @@ func (s *Service) Keygen(name string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	privPath := filepath.Join(s.Dir, name)
 	if err := os.WriteFile(privPath, pem.EncodeToMemory(block), 0o600); err != nil {
 		return "", err
 	}
@@ -59,12 +100,26 @@ func (s *Service) Keygen(name string) (string, error) {
 	return string(pubBytes), nil
 }
 
+func loadSigner(path string) (ssh.Signer, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	return ssh.ParsePrivateKey(data)
+}
+
 func (s *Service) Exec(host, user string, port int, keyName, password, command string, timeout time.Duration) (string, error) {
 	if host == "" || command == "" {
 		return "", fmt.Errorf("host and command required")
 	}
 	if user == "" {
-		user = "root"
+		user = os.Getenv("USER")
+		if user == "" {
+			user = os.Getenv("USERNAME")
+		}
+		if user == "" {
+			user = "git"
+		}
 	}
 	if port <= 0 {
 		port = 22
@@ -78,27 +133,32 @@ func (s *Service) Exec(host, user string, port int, keyName, password, command s
 		auth = append(auth, ssh.Password(password))
 	}
 	if keyName != "" {
-		keyPath := filepath.Join(s.Dir, keyName)
-		keyData, err := os.ReadFile(keyPath)
+		keyPath, err := s.resolveKeyPath(keyName)
 		if err != nil {
-			return "", fmt.Errorf("read key: %w", err)
+			return "", err
 		}
-		signer, err := ssh.ParsePrivateKey(keyData)
+		signer, err := loadSigner(keyPath)
 		if err != nil {
 			return "", fmt.Errorf("parse key: %w", err)
 		}
 		auth = append(auth, ssh.PublicKeys(signer))
 	}
 	if len(auth) == 0 {
-		def := filepath.Join(s.Dir, "id_ed25519")
-		if data, err := os.ReadFile(def); err == nil {
-			if signer, err := ssh.ParsePrivateKey(data); err == nil {
-				auth = append(auth, ssh.PublicKeys(signer))
+		for _, name := range []string{"id_ed25519", "id_rsa", "id_ecdsa"} {
+			for _, dir := range s.keySearchDirs() {
+				p := filepath.Join(dir, name)
+				if signer, err := loadSigner(p); err == nil {
+					auth = append(auth, ssh.PublicKeys(signer))
+					break
+				}
+			}
+			if len(auth) > 0 {
+				break
 			}
 		}
 	}
 	if len(auth) == 0 {
-		return "", fmt.Errorf("no SSH auth: provide password or key_name")
+		return "", fmt.Errorf("no SSH auth: add a key under ~/.ssh (id_ed25519) or pass key_name/password")
 	}
 
 	cfg := &ssh.ClientConfig{
@@ -132,23 +192,27 @@ func (s *Service) Exec(host, user string, port int, keyName, password, command s
 }
 
 func (s *Service) ListKeys() ([]string, error) {
-	if err := s.ensureDir(); err != nil {
-		return nil, err
-	}
-	entries, err := os.ReadDir(s.Dir)
-	if err != nil {
-		return nil, err
-	}
+	seen := map[string]struct{}{}
 	names := make([]string, 0)
-	for _, e := range entries {
-		if e.IsDir() {
+	for _, dir := range s.keySearchDirs() {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
 			continue
 		}
-		name := e.Name()
-		if filepath.Ext(name) == ".pub" {
-			continue
+		for _, e := range entries {
+			if e.IsDir() {
+				continue
+			}
+			name := e.Name()
+			if filepath.Ext(name) == ".pub" {
+				continue
+			}
+			if _, ok := seen[name]; ok {
+				continue
+			}
+			seen[name] = struct{}{}
+			names = append(names, name)
 		}
-		names = append(names, name)
 	}
 	return names, nil
 }

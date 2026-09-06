@@ -172,26 +172,26 @@ func Specs() []llm.ToolSpec {
 			},
 			"required": []string{"message"},
 		}),
-		fn("git_push", "Push to remote (Gitea/GitHub/etc)", map[string]any{
+		fn("git_push", "Push to remote using OS git (credential helper / SSH keys in ~/.ssh — no in-app passwords)", map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"remote": map[string]any{"type": "string"},
 				"branch": map[string]any{"type": "string"},
 			},
 		}),
-		fn("ssh_exec", "Run command on remote host via SSH", map[string]any{
+		fn("ssh_exec", "Run command on remote host via SSH (keys from ~/.ssh)", map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"host":     map[string]any{"type": "string"},
 				"command":  map[string]any{"type": "string"},
 				"user":     map[string]any{"type": "string"},
 				"port":     map[string]any{"type": "integer"},
-				"key_name": map[string]any{"type": "string"},
+				"key_name": map[string]any{"type": "string", "description": "Key filename under ~/.ssh, e.g. id_ed25519"},
 				"password": map[string]any{"type": "string"},
 			},
 			"required": []string{"host", "command"},
 		}),
-		fn("ssh_keygen", "Generate ed25519 SSH key pair in app ssh dir", map[string]any{
+		fn("ssh_keygen", "Generate ed25519 SSH key pair in ~/.ssh", map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"name": map[string]any{"type": "string"},

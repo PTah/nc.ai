@@ -17,10 +17,15 @@
 - Layout «как Cursor»: проекты | дерево файлов (опц.) | чат | настройки (опц.) | терминал (опц.)
 - Размер релиза не жёстко ограничен (сейчас порядка десятков МБ; по мере функций может расти); macOS **не** кросс-компилируется с Windows (нужен macOS-хост)
 - Бренд-иконка: `build/appicon.png` + multi-size `build/windows/icon.ico` (16…256, для списка в Explorer)
-- Версия продукта в свойствах exe: `wails.json` → `info.productVersion` (сейчас `0.1.7`)
-- Внутри приложения: анимированный mark в топбаре (`BrandMark`, кадры `frontend/public/brand/frame-1…6.png`, ~280 мс) — сгенерированы по AppIcon (glass multi-layer `>`, cyan/purple/green glow)
-- **macOS Dock:** пока агент активен — цикл `frame1…frame6` через `NSApp.applicationIconImage` (`internal/dockicon`, interval 300 мс); по стопу возвращается default. На Windows — no-op stub
+- Версия продукта в свойствах exe: `wails.json` → `info.productVersion`
+- Внутри приложения: анимированный mark в топбаре (`BrandMark`, кадры `frontend/public/brand/frame-1…6.png`, ~560 мс)
+- **macOS Dock:** пока агент активен — цикл `frame1…frame6` через `NSApp.applicationIconImage` (`internal/dockicon`, interval 600 мс); по стопу возвращается default. На Windows — no-op stub
 - Пересборка ассетов: `python scripts/build_brand_assets.py`
+
+### Окно, layout, тема
+- Геометрия главного окна (размер, позиция, maximised) сохраняется при закрытии → `%APPDATA%/NotCursor/settings.json`
+- Ширины панелей (projects / files / settings) и высота терминала — ресайз за край + persist
+- Темы **Dark** / **Light** (светлая в духе Cursor); выбор в Settings → Interface
 
 ### DeepSeek / agent loop
 - Провайдер: OpenAI-compatible `POST https://api.deepseek.com/chat/completions`
@@ -29,7 +34,7 @@
   - assistant message пишется as-is (`content` + `reasoning_content` + `tool_calls`)
   - цикл продолжается, пока есть `tool_calls` (не выходим на `finish_reason=stop`, если tools есть)
   - `thinking: enabled`, `reasoning_effort: high`
-- Лимит шагов агента: **40** (раньше 12); при упоре — soft wrap-up: финальный ответ **без tools**, без дубля ошибки в UI
+- Лимит шагов агента: **40**; при упоре — soft wrap-up: финальный ответ **без tools**, без дубля ошибки в UI
 
 ### Tools
 | Tool | Назначение |
@@ -37,8 +42,8 @@
 | `read_file` / `write_file` | чтение/запись в sandbox workspace |
 | `list_dir` / `search_files` | обход и поиск |
 | `run_terminal` | скрытый PowerShell (`CREATE_NO_WINDOW`), UTF-8 / CP866 |
-| `git_*` | status / diff / commit / push (go-git + credentials) |
-| `ssh_*` | exec + keygen |
+| `git_*` | status / diff / commit / push через **системный `git`** (credential helper / GCM / SSH) |
+| `ssh_*` | exec + keygen по ключам из **`~/.ssh`** (как в Cursor; пароли в приложении не хранятся) |
 
 - `read_file` при not-found подсказывает соседние файлы (siblings)
 - Пути песочницы относительно корня проекта
@@ -55,19 +60,18 @@
 - Несколько независимых сессий на проект (`internal/chatstore`)
 - UI: вкладки `+` / `×`, отдельные истории и busy-статус
 - События агента помечены `sessionId` — параллельные прогоны не смешивают ответы
-- Миграция со старого single-chat JSON → multi-session bundle (**с записью на диск** и стабильным session id; иначе List/Get расходились и UI показывал пустой чат)
+- Миграция со старого single-chat JSON → multi-session bundle (**с записью на диск** и стабильным session id)
 
 ### Вложения и vision (скриншоты / файлы)
 - **Ctrl+V**, drag-drop, кнопка **Attach**
 - Картинки → `data:` URL → multimodal `image_url` → автопереключение на vision-модель
 - Текстовые файлы → inline в user message
 - Бинарники → подсказка положить в workspace и читать tools
-- Как это работает: модель «видит» пиксели через multimodal content, не через отдельный OCR
 
-### Прочее в кодовой базе
-- `internal/costing` — расчёт $ по usage DeepSeek (заготовка под счётчик стоимости в UI, ещё не в шапке)
+### Прочее
+- `internal/costing` — расчёт $ по usage DeepSeek (счётчик в топбаре)
 - Shell/терминал скрыт по умолчанию; Xterm стартует только при показе панели
-- API key / git / SSH локально в AppData, не в репозитории
+- API key локально в AppData, не в репозитории; Git/SSH — через ОС, не через Settings
 
 ---
 
@@ -121,11 +125,11 @@ Windows: `build/bin/NotCursor.exe`.
 ## Settings (UI)
 
 - DeepSeek API key, model (в т.ч. vision)
-- Git username / password|token (Gitea)
-- SSH keygen + список ключей
-- Показ терминала / дерева файлов
+- Theme: Dark / Light
+- Показ терминала / дерева файлов / панели Settings
+- Git & SSH: **без логинов в UI** — системный `git` + `~/.ssh` / ssh-agent (подсказка в панели)
 
-Ключи: `%APPDATA%/NotCursor/` (не коммитить).
+Данные: `%APPDATA%/NotCursor/` (не коммитить).
 
 ---
 
@@ -133,16 +137,18 @@ Windows: `build/bin/NotCursor.exe`.
 
 ```
 app.go                 # Wails façade / bindings
-frontend/src/          # React UI (чат, вкладки, вложения)
+main.go                # окно: размер/позиция/maximised из settings
+frontend/src/          # React UI (чат, вкладки, вложения, темы)
 internal/agent/        # agent loop + attachments + wrap-up
 internal/llm/          # типы, multimodal JSON, DeepSeek client
 internal/tools/        # registry + executor
 internal/workspace/    # проекты, FS sandbox
 internal/chatstore/    # multi-session persistence
 internal/shell/        # PowerShell / oneshot
-internal/sshx/         # SSH
-internal/config/       # settings store
-internal/costing/      # token → USD (WIP UI)
+internal/gitx/         # OS git (status/diff/commit/push)
+internal/sshx/         # SSH (~/.ssh)
+internal/config/       # settings store (окно, layout, theme, API)
+internal/costing/      # token → USD
 docs/                  # ТЗ + протоколы
 ```
 
@@ -150,7 +156,6 @@ docs/                  # ТЗ + протоколы
 
 ## TODO / дальше (черновик)
 
-- [ ] Счётчик стоимости в UI (`internal/costing`)
 - [ ] Streaming SSE ответов
 - [ ] Diff viewer / встроенный редактор
 - [ ] macOS `.app` на mac-хосте

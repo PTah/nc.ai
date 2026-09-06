@@ -20,10 +20,29 @@ type Settings struct {
 	ShowTerminal   bool     `json:"showTerminal"`
 	// ShowFiles: nil = default true (visible). Explicit false remembers Hide files.
 	ShowFiles *bool `json:"showFiles,omitempty"`
+	// ShowSettings remembers the right settings pane visibility.
+	ShowSettings bool `json:"showSettings"`
+
+	// Theme: "dark" (default) or "light".
+	Theme string `json:"theme,omitempty"`
+
+	// Main window geometry (logical pixels). Zero width/height → defaults.
+	WindowWidth     int  `json:"windowWidth,omitempty"`
+	WindowHeight    int  `json:"windowHeight,omitempty"`
+	WindowX         int  `json:"windowX,omitempty"`
+	WindowY         int  `json:"windowY,omitempty"`
+	WindowPosSet    bool `json:"windowPosSet,omitempty"`
+	WindowMaximised bool `json:"windowMaximised,omitempty"`
+
+	// Inner layout sizes (px). Zero → CSS defaults.
+	LayoutProjectsW  int `json:"layoutProjectsW,omitempty"`
+	LayoutTreeW      int `json:"layoutTreeW,omitempty"`
+	LayoutSettingsW  int `json:"layoutSettingsW,omitempty"`
+	LayoutTerminalH  int `json:"layoutTerminalH,omitempty"`
 
 	// All-time API usage counters backing the USD spend counter in the top bar.
-	TotalCostUSD  float64 `json:"totalCostUsd"`
-	TotalInputTokens int     `json:"totalInputTokens"`
+	TotalCostUSD      float64 `json:"totalCostUsd"`
+	TotalInputTokens  int     `json:"totalInputTokens"`
 	TotalOutputTokens int     `json:"totalOutputTokens"`
 }
 
@@ -157,6 +176,71 @@ func (s *Store) SetShowFiles(show bool) error {
 	s.mu.Lock()
 	v := show
 	s.settings.ShowFiles = &v
+	s.mu.Unlock()
+	return s.Save()
+}
+
+func (s *Store) SetShowSettings(show bool) error {
+	s.mu.Lock()
+	s.settings.ShowSettings = show
+	s.mu.Unlock()
+	return s.Save()
+}
+
+func (s *Store) SetTheme(theme string) error {
+	switch theme {
+	case "light", "dark":
+	default:
+		theme = "dark"
+	}
+	s.mu.Lock()
+	s.settings.Theme = theme
+	s.mu.Unlock()
+	return s.Save()
+}
+
+func (s *Store) Theme() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.settings.Theme == "light" {
+		return "light"
+	}
+	return "dark"
+}
+
+func (s *Store) SetWindowGeometry(width, height, x, y int, maximised bool) error {
+	s.mu.Lock()
+	// While maximised, keep the last normal size/position for restore after restart.
+	if !maximised {
+		if width > 0 {
+			s.settings.WindowWidth = width
+		}
+		if height > 0 {
+			s.settings.WindowHeight = height
+		}
+		s.settings.WindowX = x
+		s.settings.WindowY = y
+		s.settings.WindowPosSet = true
+	}
+	s.settings.WindowMaximised = maximised
+	s.mu.Unlock()
+	return s.Save()
+}
+
+func (s *Store) SetLayoutSizes(projectsW, treeW, settingsW, terminalH int) error {
+	s.mu.Lock()
+	if projectsW > 0 {
+		s.settings.LayoutProjectsW = projectsW
+	}
+	if treeW > 0 {
+		s.settings.LayoutTreeW = treeW
+	}
+	if settingsW > 0 {
+		s.settings.LayoutSettingsW = settingsW
+	}
+	if terminalH > 0 {
+		s.settings.LayoutTerminalH = terminalH
+	}
 	s.mu.Unlock()
 	return s.Save()
 }

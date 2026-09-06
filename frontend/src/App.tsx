@@ -1,4 +1,4 @@
-import {FormEvent, useCallback, useEffect, useRef, useState} from 'react'
+import {FormEvent, MouseEvent as ReactMouseEvent, useCallback, useEffect, useRef, useState} from 'react'
 import {Terminal} from '@xterm/xterm'
 import {FitAddon} from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
@@ -20,14 +20,14 @@ import {
   RunShell,
   SaveDeepSeekKey,
   SaveDeepSeekModel,
-  SaveGitAuth,
   SaveShowTerminal,
   SaveShowFiles,
+  SaveShowSettings,
+  SaveLayoutSizes,
+  SaveTheme,
   SaveChat,
   SaveChatSession,
   LoadChat,
-  SSHKeygen,
-  SSHListKeys,
   StartTerminal,
   StopAgent,
   StopTerminal,
@@ -252,6 +252,13 @@ export default function App() {
   const [showTree, setShowTree] = useState(true)
   const [showTerm, setShowTerm] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
+  const [layout, setLayout] = useState({
+    projectsW: 200,
+    treeW: 220,
+    settingsW: 230,
+    terminalH: 160,
+  })
+  const layoutRef = useRef(layout)
   const [sessions, setSessions] = useState<ChatSessionMeta[]>([])
   const [activeSessionId, setActiveSessionId] = useState('')
   const [itemsBySession, setItemsBySession] = useState<Record<string, ChatItem[]>>({})
@@ -262,9 +269,7 @@ export default function App() {
   const [apiKey, setApiKey] = useState('')
   const [model, setModel] = useState('deepseek-v4-flash')
   const [keySet, setKeySet] = useState(false)
-  const [gitUser, setGitUser] = useState('')
-  const [gitPass, setGitPass] = useState('')
-  const [sshKeys, setSshKeys] = useState<string[]>([])
+  const [theme, setTheme] = useState<'dark' | 'light'>('dark')
   const [termCmd, setTermCmd] = useState('')
   const chatRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<HTMLDivElement>(null)
@@ -315,6 +320,65 @@ export default function App() {
   }, [])
 
   useEffect(() => {
+    layoutRef.current = layout
+  }, [layout])
+
+  const persistLayout = useCallback((next = layoutRef.current) => {
+    SaveLayoutSizes(next.projectsW, next.treeW, next.settingsW, next.terminalH).catch(() => undefined)
+  }, [])
+
+  const beginResize = useCallback((kind: 'projects' | 'tree' | 'settings' | 'terminal', e: ReactMouseEvent) => {
+    e.preventDefault()
+    const startX = e.clientX
+    const startY = e.clientY
+    const start = layoutRef.current
+    const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, Math.round(v)))
+    const onMove = (ev: MouseEvent) => {
+      let next = layoutRef.current
+      if (kind === 'projects') {
+        next = {...start, projectsW: clamp(start.projectsW + (ev.clientX - startX), 140, 420)}
+      } else if (kind === 'tree') {
+        next = {...start, treeW: clamp(start.treeW + (ev.clientX - startX), 140, 480)}
+      } else if (kind === 'settings') {
+        next = {...start, settingsW: clamp(start.settingsW - (ev.clientX - startX), 180, 420)}
+      } else {
+        next = {...start, terminalH: clamp(start.terminalH - (ev.clientY - startY), 90, 480)}
+      }
+      layoutRef.current = next
+      setLayout(next)
+    }
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+      persistLayout(layoutRef.current)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }, [persistLayout])
+
+  const setSettingsVisible = useCallback((next: boolean | ((v: boolean) => boolean)) => {
+    setShowSettings((prev) => {
+      const value = typeof next === 'function' ? next(prev) : next
+      SaveShowSettings(value).catch(() => undefined)
+      return value
+    })
+  }, [])
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme)
+  }, [theme])
+
+  const applyTheme = useCallback(async (next: 'dark' | 'light') => {
+    setTheme(next)
+    document.documentElement.setAttribute('data-theme', next)
+    try {
+      await SaveTheme(next)
+    } catch {
+      /* ignore */
+    }
+  }, [])
+
+  useEffect(() => {
     try {
       AppInfo().then((v) => setInfo(v as typeof info)).catch(() => undefined)
       void applyUsageStats()
@@ -322,12 +386,21 @@ export default function App() {
         if (!s) return
         setKeySet(Boolean(s.deepseekKeySet))
         if (typeof s.deepseekModel === 'string' && s.deepseekModel) setModel(s.deepseekModel)
-        if (typeof s.gitUsername === 'string') setGitUser(s.gitUsername)
         setShowTerm(Boolean(s.showTerminal))
         if (typeof s.showFiles === 'boolean') setShowTree(s.showFiles)
+        if (typeof s.showSettings === 'boolean') setShowSettings(s.showSettings)
+        if (s.theme === 'light' || s.theme === 'dark') {
+          setTheme(s.theme)
+          document.documentElement.setAttribute('data-theme', s.theme)
+        }
+        setLayout({
+          projectsW: Number(s.layoutProjectsW) || 200,
+          treeW: Number(s.layoutTreeW) || 220,
+          settingsW: Number(s.layoutSettingsW) || 230,
+          terminalH: Number(s.layoutTerminalH) || 160,
+        })
       }).catch(() => undefined)
       ListProjects().then((v) => setProjects(asList(v))).catch(() => undefined)
-      SSHListKeys().then((v) => setSshKeys(asList(v))).catch(() => undefined)
     } catch {
       // window.go / runtime may be missing until Wails injects bindings
     }
@@ -737,10 +810,7 @@ export default function App() {
     }
     await SaveDeepSeekModel(model.trim() || 'deepseek-v4-flash')
     await SaveShowTerminal(showTerm)
-    if (gitUser || gitPass) {
-      await SaveGitAuth(gitUser, gitPass)
-      setGitPass('')
-    }
+    await SaveTheme(theme)
     if (activeSessionId) setSessionItems(activeSessionId, (m) => [...m, {kind: 'system', content: 'Settings saved'}])
   }
 
@@ -806,14 +876,6 @@ export default function App() {
     setTermCmd('')
   }
 
-  async function genKey() {
-    const name = prompt('SSH key name', 'id_ed25519')
-    if (!name) return
-    const pub = await SSHKeygen(name)
-    setSshKeys(asList(await SSHListKeys()))
-    if (activeSessionId) setSessionItems(activeSessionId, (m) => [...m, {kind: 'system', content: `SSH key created:\n${pub}`}])
-  }
-
   function renderTree(entries: FileEntry[], depth = 0) {
     return asList(entries).map((f) => (
       <div key={f.path} className="tree-row" style={{paddingLeft: 8 + depth * 12}}>
@@ -832,7 +894,7 @@ export default function App() {
   }
 
   return (
-    <div className="nc-app">
+    <div className="nc-app" data-theme={theme}>
       <header className="nc-topbar">
         <BrandMark size={34} />
         <strong>{info.name}</strong>
@@ -860,11 +922,18 @@ export default function App() {
           <span className="nc-cost-sep">·</span>
           <span className="nc-cost-total">{fmtUsd(usage.costUsd)}</span>
         </span>
-        <button type="button" className="nc-ghost" onClick={() => setShowSettings((v) => !v)}>
+        <button type="button" className="nc-ghost" onClick={() => setSettingsVisible((v) => !v)}>
           {showSettings ? 'Hide settings' : 'Settings'}
         </button>
       </header>
-      <div className={`nc-root ${showTree ? '' : 'no-tree'} ${showSettings ? '' : 'no-settings'}`}>
+      <div
+        className={`nc-root ${showTree ? '' : 'no-tree'} ${showSettings ? '' : 'no-settings'}`}
+        style={{
+          ['--layout-projects' as string]: `${layout.projectsW}px`,
+          ['--layout-tree' as string]: `${layout.treeW}px`,
+          ['--layout-settings' as string]: `${layout.settingsW}px`,
+        }}
+      >
         <aside className="nc-projects">
           <button type="button" onClick={openPicked}>Open Project…</button>
           <div className="nc-section-label">Projects</div>
@@ -887,6 +956,7 @@ export default function App() {
           }}>
             {showTree ? 'Hide files' : 'Show files'}
           </button>
+          <div className="nc-vsplit" onMouseDown={(e) => beginResize('projects', e)} />
         </aside>
 
         {showTree && (
@@ -897,10 +967,14 @@ export default function App() {
               {active && asList(files).length === 0 && <div className="nc-empty">Пустая папка</div>}
               {renderTree(files)}
             </div>
+            <div className="nc-vsplit" onMouseDown={(e) => beginResize('tree', e)} />
           </aside>
         )}
 
-        <main className={`nc-main ${showTerm ? '' : 'no-term'}`}>
+        <main
+          className={`nc-main ${showTerm ? '' : 'no-term'}`}
+          style={{['--layout-terminal' as string]: `${layout.terminalH}px`}}
+        >
           <section className="nc-chat">
             <header className="nc-chat-head">
               <div className="nc-tabs">
@@ -1070,6 +1144,7 @@ export default function App() {
 
           {showTerm && (
             <section className="nc-terminal">
+              <div className="nc-hsplit" onMouseDown={(e) => beginResize('terminal', e)} />
               <div className="nc-term-head">
                 <span>Terminal</span>
                 <div className="nc-term-run">
@@ -1084,9 +1159,10 @@ export default function App() {
 
         {showSettings && (
           <aside className="nc-settings">
+            <div className="nc-vsplit leading" onMouseDown={(e) => beginResize('settings', e)} />
             <div className="nc-settings-head">
               <div className="nc-section-label">Settings</div>
-              <button type="button" className="nc-ghost" onClick={() => setShowSettings(false)}>Close</button>
+              <button type="button" className="nc-ghost" onClick={() => setSettingsVisible(false)}>Close</button>
             </div>
             <div className="nc-section-label">DeepSeek</div>
             <label>
@@ -1105,6 +1181,16 @@ export default function App() {
             <button type="button" className="nc-ghost" onClick={testConnect}>Test connect</button>
 
             <div className="nc-section-label">Interface</div>
+            <label>
+              Theme
+              <select
+                value={theme}
+                onChange={(e) => void applyTheme(e.target.value === 'light' ? 'light' : 'dark')}
+              >
+                <option value="dark">Dark</option>
+                <option value="light">Light</option>
+              </select>
+            </label>
             <label className="nc-check">
               <input
                 type="checkbox"
@@ -1113,24 +1199,14 @@ export default function App() {
               />
               Показывать терминал
             </label>
-            <p className="nc-muted">По умолчанию скрыт — как в Cursor: задачи делает агент через tools.</p>
+            <p className="nc-help">По умолчанию скрыт — как в Cursor: задачи делает агент через tools.</p>
 
-            <div className="nc-section-label">Git / Gitea</div>
-            <label>
-              Username
-              <input value={gitUser} onChange={(e) => setGitUser(e.target.value)} />
-            </label>
-            <label>
-              Password / token
-              <input type="password" value={gitPass} onChange={(e) => setGitPass(e.target.value)} />
-            </label>
-
-            <div className="nc-section-label">SSH</div>
-            <button type="button" className="nc-ghost" onClick={genKey}>Generate key</button>
-            <ul className="nc-list compact">
-              {asList(sshKeys).length === 0 && <li className="nc-empty">Ключей нет</li>}
-              {asList(sshKeys).map((k) => <li key={k}>{k}</li>)}
-            </ul>
+            <div className="nc-section-label">Git &amp; SSH</div>
+            <p className="nc-help">
+              Как в Cursor: логины не хранятся в приложении. Push/pull идут через системный{' '}
+              <code>git</code> (credential helper / Git Credential Manager). SSH — ключи из{' '}
+              <code>~/.ssh</code> или ssh-agent. Настройте доступ один раз в системе — агент подхватит его сам.
+            </p>
           </aside>
         )}
       </div>

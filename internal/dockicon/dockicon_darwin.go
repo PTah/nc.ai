@@ -43,7 +43,7 @@ import (
 //go:embed frames/frame1.png frames/frame2.png frames/frame3.png frames/frame4.png frames/frame5.png frames/frame6.png frames/default.png
 var frameFS embed.FS
 
-const frameInterval = 300 * time.Millisecond
+const frameInterval = 600 * time.Millisecond
 
 var (
 	animMu   sync.Mutex

@@ -59,21 +59,47 @@ func (a *App) startup(ctx context.Context) {
 		a.chats, _ = chatstore.New(base)
 	}
 	a.tools = tools.NewRegistry(a.ws, a.sshDir)
-	a.applyGitAuth()
 	a.refreshProvider()
+	// Drop legacy in-app Git passwords (auth is OS git / ~/.ssh now).
+	if s := a.cfg.Get(); s.GitUsername != "" || s.GitPassword != "" {
+		_ = a.cfg.SetGitAuth("", "")
+	}
 
 	for _, p := range a.cfg.Get().RecentProjects {
 		_, _ = a.ws.Open(p)
 	}
 }
 
-func (a *App) applyGitAuth() {
-	if a.tools == nil || a.tools.Git == nil {
+func (a *App) domReady(ctx context.Context) {
+	s := a.cfg.Get()
+	if s.WindowMaximised {
+		runtime.WindowMaximise(ctx)
 		return
 	}
-	s := a.cfg.Get()
-	a.tools.Git.Username = s.GitUsername
-	a.tools.Git.Password = s.GitPassword
+	if s.WindowPosSet {
+		runtime.WindowSetPosition(ctx, s.WindowX, s.WindowY)
+	}
+}
+
+func (a *App) saveWindowGeometry() {
+	if a.ctx == nil || a.cfg == nil {
+		return
+	}
+	w, h := runtime.WindowGetSize(a.ctx)
+	x, y := runtime.WindowGetPosition(a.ctx)
+	max := runtime.WindowIsMaximised(a.ctx)
+	_ = a.cfg.SetWindowGeometry(w, h, x, y, max)
+}
+
+func (a *App) beforeClose(ctx context.Context) (prevent bool) {
+	a.ctx = ctx
+	a.saveWindowGeometry()
+	return false
+}
+
+func (a *App) shutdown(ctx context.Context) {
+	a.ctx = ctx
+	a.saveWindowGeometry()
 }
 
 func (a *App) refreshProvider() {
@@ -117,16 +143,27 @@ func (a *App) AppInfo() map[string]string {
 func (a *App) GetSettings() map[string]any {
 	s := a.cfg.Get()
 	return map[string]any{
-		"deepseekModel":  s.DeepSeekModel,
-		"deepseekKeySet": s.DeepSeekAPIKey != "",
-		"shell":          s.Shell,
-		"recentProjects": s.RecentProjects,
-		"gitUsername":    s.GitUsername,
-		"gitPasswordSet": s.GitPassword != "",
-		"showTerminal":   s.ShowTerminal,
-		"showFiles":      a.cfg.FilesVisible(),
-		"visionModel":    deepseek.VisionModel,
+		"deepseekModel":   s.DeepSeekModel,
+		"deepseekKeySet":  s.DeepSeekAPIKey != "",
+		"shell":           s.Shell,
+		"recentProjects":  s.RecentProjects,
+		"showTerminal":    s.ShowTerminal,
+		"showFiles":       a.cfg.FilesVisible(),
+		"showSettings":    s.ShowSettings,
+		"theme":           a.cfg.Theme(),
+		"visionModel":     deepseek.VisionModel,
+		"layoutProjectsW": nonzero(s.LayoutProjectsW, 200),
+		"layoutTreeW":     nonzero(s.LayoutTreeW, 220),
+		"layoutSettingsW": nonzero(s.LayoutSettingsW, 230),
+		"layoutTerminalH": nonzero(s.LayoutTerminalH, 160),
 	}
+}
+
+func nonzero(v, def int) int {
+	if v > 0 {
+		return v
+	}
+	return def
 }
 
 // GetUsageStats returns all-time spend plus the active chat spend (if any).
@@ -171,6 +208,21 @@ func (a *App) SaveShowFiles(show bool) error {
 	return a.cfg.SetShowFiles(show)
 }
 
+func (a *App) SaveShowSettings(show bool) error {
+	return a.cfg.SetShowSettings(show)
+}
+
+// SaveLayoutSizes persists inner pane widths/heights (projects/tree/settings/terminal).
+func (a *App) SaveLayoutSizes(projectsW, treeW, settingsW, terminalH int) error {
+	return a.cfg.SetLayoutSizes(projectsW, treeW, settingsW, terminalH)
+}
+
+// SaveWindowGeometry flushes the OS window size/position (also on close).
+func (a *App) SaveWindowGeometry() error {
+	a.saveWindowGeometry()
+	return nil
+}
+
 func (a *App) SaveDeepSeekKey(apiKey string) error {
 	if err := a.cfg.SetDeepSeekAPIKey(apiKey); err != nil {
 		return err
@@ -187,12 +239,14 @@ func (a *App) SaveDeepSeekModel(model string) error {
 	return nil
 }
 
-func (a *App) SaveGitAuth(username, password string) error {
-	if err := a.cfg.SetGitAuth(username, password); err != nil {
-		return err
-	}
-	a.applyGitAuth()
-	return nil
+func (a *App) SaveTheme(theme string) error {
+	return a.cfg.SetTheme(theme)
+}
+
+// SaveGitAuth is deprecated: Git uses OS credential helpers / SSH keys.
+// Calling it clears any leftover in-app secrets.
+func (a *App) SaveGitAuth(_, _ string) error {
+	return a.cfg.SetGitAuth("", "")
 }
 
 // --- workspace ---

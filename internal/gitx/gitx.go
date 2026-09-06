@@ -1,136 +1,102 @@
 package gitx
 
 import (
+	"bytes"
 	"fmt"
+	"os/exec"
 	"strings"
-	"time"
-
-	"github.com/go-git/go-git/v5"
-	"github.com/go-git/go-git/v5/plumbing/object"
-	"github.com/go-git/go-git/v5/plumbing/transport/http"
 
 	"notcursor.ai/app/internal/workspace"
 )
 
+// Service runs the OS `git` binary in the active workspace so auth comes from
+// the user's credential helper / ssh-agent / ~/.ssh — same model as Cursor.
 type Service struct {
-	WS       *workspace.Manager
-	Username string
-	Password string
+	WS *workspace.Manager
 }
 
 func New(ws *workspace.Manager) *Service {
 	return &Service{WS: ws}
 }
 
-func (s *Service) open() (*git.Repository, error) {
+func (s *Service) run(args ...string) (string, error) {
 	root, err := s.WS.ActiveRoot()
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-	repo, err := git.PlainOpen(root)
+	cmd := exec.Command("git", args...)
+	cmd.Dir = root
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err = cmd.Run()
+	out := strings.TrimSpace(stdout.String())
+	errText := strings.TrimSpace(stderr.String())
 	if err != nil {
-		return nil, fmt.Errorf("not a git repo (%s): %w", root, err)
+		msg := errText
+		if msg == "" {
+			msg = out
+		}
+		if msg == "" {
+			msg = err.Error()
+		}
+		return "", fmt.Errorf("git %s: %s", strings.Join(args, " "), msg)
 	}
-	return repo, nil
+	if out == "" {
+		return errText, nil
+	}
+	if errText != "" {
+		return out + "\n" + errText, nil
+	}
+	return out, nil
 }
 
 func (s *Service) Status() (string, error) {
-	repo, err := s.open()
-	if err != nil {
-		return "", err
-	}
-	w, err := repo.Worktree()
-	if err != nil {
-		return "", err
-	}
-	st, err := w.Status()
-	if err != nil {
-		return "", err
-	}
-	head, herr := repo.Head()
-	var ref string
-	if herr == nil {
-		ref = head.Name().Short() + " " + head.Hash().String()[:7]
-	}
-	if st.IsClean() {
-		return fmt.Sprintf("%s\nclean", ref), nil
-	}
-	return fmt.Sprintf("%s\n%s", ref, st.String()), nil
+	return s.run("status", "--short", "--branch")
 }
 
 func (s *Service) Diff(path string, staged bool) (string, error) {
-	_ = staged
-	st, err := s.Status()
+	args := []string{"diff"}
+	if staged {
+		args = append(args, "--cached")
+	}
+	if path != "" {
+		args = append(args, "--", path)
+	}
+	out, err := s.run(args...)
 	if err != nil {
 		return "", err
 	}
-	if path == "" {
-		return st, nil
+	if strings.TrimSpace(out) == "" {
+		return "(no diff)", nil
 	}
-	var b strings.Builder
-	for _, line := range strings.Split(st, "\n") {
-		if strings.Contains(line, path) || strings.HasPrefix(line, path) {
-			b.WriteString(line)
-			b.WriteByte('\n')
-		}
-	}
-	if b.Len() == 0 {
-		return st, nil
-	}
-	return b.String(), nil
+	return out, nil
 }
 
 func (s *Service) Commit(message string) (string, error) {
 	if strings.TrimSpace(message) == "" {
 		return "", fmt.Errorf("empty commit message")
 	}
-	repo, err := s.open()
-	if err != nil {
+	if _, err := s.run("add", "-A"); err != nil {
 		return "", err
 	}
-	w, err := repo.Worktree()
-	if err != nil {
-		return "", err
-	}
-	if err := w.AddWithOptions(&git.AddOptions{All: true}); err != nil {
-		return "", err
-	}
-	hash, err := w.Commit(message, &git.CommitOptions{
-		Author: &object.Signature{
-			Name:  "NotCursor",
-			Email: "notcursor@local",
-			When:  time.Now(),
-		},
-	})
-	if err != nil {
-		return "", err
-	}
-	return hash.String(), nil
+	return s.run("commit", "-m", message)
 }
 
 func (s *Service) Push(remote, branch string) (string, error) {
 	if remote == "" {
 		remote = "origin"
 	}
-	_ = branch
-	repo, err := s.open()
+	args := []string{"push", remote}
+	if branch != "" {
+		args = append(args, branch)
+	}
+	out, err := s.run(args...)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("%w\n(hint: configure OS git credentials / SSH keys — NotCursor does not store Git passwords)", err)
 	}
-	opts := &git.PushOptions{RemoteName: remote}
-	if s.Username != "" || s.Password != "" {
-		user := s.Username
-		if user == "" {
-			user = "git"
-		}
-		opts.Auth = &http.BasicAuth{Username: user, Password: s.Password}
+	if out == "" {
+		return fmt.Sprintf("pushed to %s", remote), nil
 	}
-	err = repo.Push(opts)
-	if err == git.NoErrAlreadyUpToDate {
-		return "already up-to-date", nil
-	}
-	if err != nil {
-		return "", err
-	}
-	return fmt.Sprintf("pushed to %s", remote), nil
+	return out, nil
 }

@@ -98,12 +98,28 @@ export function SaveGitAuth(arg1, arg2) {
   return window['go']['main']['App']['SaveGitAuth'](arg1, arg2);
 }
 
+export function SaveLayoutSizes(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['SaveLayoutSizes'](arg1, arg2, arg3, arg4);
+}
+
 export function SaveShowFiles(arg1) {
   return window['go']['main']['App']['SaveShowFiles'](arg1);
 }
 
+export function SaveShowSettings(arg1) {
+  return window['go']['main']['App']['SaveShowSettings'](arg1);
+}
+
 export function SaveShowTerminal(arg1) {
   return window['go']['main']['App']['SaveShowTerminal'](arg1);
+}
+
+export function SaveTheme(arg1) {
+  return window['go']['main']['App']['SaveTheme'](arg1);
+}
+
+export function SaveWindowGeometry() {
+  return window['go']['main']['App']['SaveWindowGeometry']();
 }
 
 export function StartTerminal() {
