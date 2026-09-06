@@ -53,7 +53,13 @@ textarea { resize: none; }
   border-radius: 6px;
   padding: 0.2rem 0.5rem;
   white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
 }
+.nc-cost-chat { color: #8ee59b; }
+.nc-cost-total { color: #9ab; }
+.nc-cost-sep { color: var(--muted); }
 .nc-root {
   display: grid;
   grid-template-columns: 200px 220px minmax(0, 1fr) minmax(200px, 230px);

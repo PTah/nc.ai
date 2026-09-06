@@ -159,32 +159,6 @@ type DisplayRow =
   | { key: string; kind: 'item'; item: ChatItem }
   | { key: string; kind: 'tool_group'; tools: Extract<ChatItem, {kind: 'tool'}>[]; summary: string }
 
-/** Collapse consecutive completed tools into one Cursor-like summary (running tools stay visible). */
-function buildDisplayRows(items: ChatItem[]): DisplayRow[] {
-  const rows: DisplayRow[] = []
-  let i = 0
-  const list = asList(items)
-  while (i < list.length) {
-    const m = list[i]
-    if (m.kind === 'tool' && m.phase === 'done') {
-      const group: Extract<ChatItem, {kind: 'tool'}>[] = []
-      while (i < list.length && list[i].kind === 'tool' && (list[i] as Extract<ChatItem, {kind: 'tool'}>).phase === 'done') {
-        group.push(list[i] as Extract<ChatItem, {kind: 'tool'}>)
-        i++
-      }
-      if (group.length === 1) {
-        rows.push({key: `t-${i - 1}`, kind: 'item', item: group[0]})
-      } else {
-        rows.push({key: `g-${i - group.length}`, kind: 'tool_group', tools: group, summary: summarizeTools(group)})
-      }
-      continue
-    }
-    rows.push({key: `i-${i}`, kind: 'item', item: m})
-    i++
-  }
-  return rows
-}
-
 function ToolGroup({summary, tools}: {summary: string; tools: Extract<ChatItem, {kind: 'tool'}>[]}) {
   return (
     <details className="nc-msg tool-group">
@@ -200,13 +174,39 @@ function ToolGroup({summary, tools}: {summary: string; tools: Extract<ChatItem, 
   )
 }
 
-function ThinkingBlock({content}: {content: string}) {
+function ThinkingBlock({content, collapsed}: {content: string; collapsed?: boolean}) {
   return (
-    <details className="nc-msg reasoning" open>
+    <details className="nc-msg reasoning" open={!collapsed}>
       <summary className="nc-think-sum">Thinking</summary>
       <pre className="nc-think-body">{content}</pre>
     </details>
   )
+}
+
+/** Collapse consecutive completed tools; when compact, even a single tool becomes a summary group. */
+function buildDisplayRows(items: ChatItem[], compact = false): DisplayRow[] {
+  const rows: DisplayRow[] = []
+  let i = 0
+  const list = asList(items)
+  while (i < list.length) {
+    const m = list[i]
+    if (m.kind === 'tool' && m.phase === 'done') {
+      const group: Extract<ChatItem, {kind: 'tool'}>[] = []
+      while (i < list.length && list[i].kind === 'tool' && (list[i] as Extract<ChatItem, {kind: 'tool'}>).phase === 'done') {
+        group.push(list[i] as Extract<ChatItem, {kind: 'tool'}>)
+        i++
+      }
+      if (!compact && group.length === 1) {
+        rows.push({key: `t-${i - 1}`, kind: 'item', item: group[0]})
+      } else {
+        rows.push({key: `g-${i - group.length}`, kind: 'tool_group', tools: group, summary: summarizeTools(group)})
+      }
+      continue
+    }
+    rows.push({key: `i-${i}`, kind: 'item', item: m})
+    i++
+  }
+  return rows
 }
 
 function parseAgentEvent(...args: unknown[]): AgentEvent | null {
@@ -237,7 +237,14 @@ function parseAgentEvent(...args: unknown[]): AgentEvent | null {
 
 export default function App() {
   const [info, setInfo] = useState({name: 'NotCursor.ai', version: '0.1.7'})
-  const [usage, setUsage] = useState({costUsd: 0, inputTokens: 0, outputTokens: 0})
+  const [usage, setUsage] = useState({
+    costUsd: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    chatCostUsd: 0,
+    chatInputTokens: 0,
+    chatOutputTokens: 0,
+  })
   const [projects, setProjects] = useState<Project[]>([])
   const [active, setActive] = useState<Project | null>(null)
   const [files, setFiles] = useState<FileEntry[]>([])
@@ -290,10 +297,27 @@ export default function App() {
     }
   }, [])
 
+  const applyUsageStats = useCallback(async () => {
+    try {
+      const u = await GetUsageStats()
+      if (!u) return
+      setUsage({
+        costUsd: Number(u.costUsd) || 0,
+        inputTokens: Number(u.inputTokens) || 0,
+        outputTokens: Number(u.outputTokens) || 0,
+        chatCostUsd: Number(u.chatCostUsd) || 0,
+        chatInputTokens: Number(u.chatInputTokens) || 0,
+        chatOutputTokens: Number(u.chatOutputTokens) || 0,
+      })
+    } catch {
+      /* ignore */
+    }
+  }, [])
+
   useEffect(() => {
     try {
       AppInfo().then((v) => setInfo(v as typeof info)).catch(() => undefined)
-      GetUsageStats().then((u) => setUsage(u as typeof usage)).catch(() => undefined)
+      void applyUsageStats()
       GetSettings().then((s) => {
         if (!s) return
         setKeySet(Boolean(s.deepseekKeySet))
@@ -376,9 +400,14 @@ export default function App() {
           } else if (ev.type === 'usage') {
             try {
               const u = JSON.parse(ev.content || '{}')
-              if (typeof u.costUsd === 'number') {
-                setUsage({costUsd: u.costUsd, inputTokens: Number(u.inputTokens) || 0, outputTokens: Number(u.outputTokens) || 0})
-              }
+              setUsage({
+                costUsd: Number(u.costUsd) || 0,
+                inputTokens: Number(u.inputTokens) || 0,
+                outputTokens: Number(u.outputTokens) || 0,
+                chatCostUsd: Number(u.chatCostUsd) || 0,
+                chatInputTokens: Number(u.chatInputTokens) || 0,
+                chatOutputTokens: Number(u.chatOutputTokens) || 0,
+              })
             } catch {
               /* ignore */
             }
@@ -462,6 +491,7 @@ export default function App() {
       } else if (list[0]) {
         setItemsBySession((prev) => ({...prev, [list[0].id]: chatItems}))
       }
+      await applyUsageStats()
     } catch {
       setItemsBySession({})
       setSessions([])
@@ -487,6 +517,7 @@ export default function App() {
       setSessions((prev) => prev.map((s) => s.id === id ? s : s))
       await refreshSessions()
       setActiveSessionId(id)
+      await applyUsageStats()
     } catch (e) {
       setSessionItems(activeSessionId, (m) => [...m, {kind: 'system', content: String(e)}])
     }
@@ -504,6 +535,7 @@ export default function App() {
     setActiveSessionId(id)
     await refreshSessions()
     setActiveSessionId(id)
+    await applyUsageStats()
   }
 
   async function removeSession(id: string) {
@@ -820,8 +852,13 @@ export default function App() {
         </label>
         <button type="button" onClick={saveSettings}>Save</button>
         <span className={`nc-pill ${keySet ? 'ok' : ''}`}>{keySet ? 'key OK' : 'no key'}</span>
-        <span className="nc-cost" title={`${usage.inputTokens} input · ${usage.outputTokens} output tokens`}>
-          {fmtUsd(usage.costUsd)}
+        <span
+          className="nc-cost"
+          title={`Чат: ${usage.chatInputTokens} in / ${usage.chatOutputTokens} out · Всего: ${usage.inputTokens} in / ${usage.outputTokens} out`}
+        >
+          <span className="nc-cost-chat">{fmtUsd(usage.chatCostUsd)}</span>
+          <span className="nc-cost-sep">·</span>
+          <span className="nc-cost-total">{fmtUsd(usage.costUsd)}</span>
         </span>
         <button type="button" className="nc-ghost" onClick={() => setShowSettings((v) => !v)}>
           {showSettings ? 'Hide settings' : 'Settings'}
@@ -896,13 +933,14 @@ export default function App() {
                   const empty: ChatItem[] = [{kind: 'system', content: 'Чат очищен'}]
                   if (activeSessionId) setSessionItems(activeSessionId, () => empty)
                   await SaveChat(JSON.stringify(empty)).catch(() => undefined)
+                  await applyUsageStats()
                 }}>Clear</button>
                 <button type="button" className="nc-ghost" disabled={!busy} onClick={() => StopAgent()}>Stop</button>
               </div>
             </header>
             <div className="nc-thread" ref={chatRef}>
               <div className="nc-thread-inner">
-                {buildDisplayRows(items).map((row) => {
+                {buildDisplayRows(items, !busy).map((row) => {
                   if (row.kind === 'tool_group') {
                     return <ToolGroup key={row.key} summary={row.summary} tools={row.tools} />
                   }
@@ -922,7 +960,7 @@ export default function App() {
                     )
                   }
                   if (m.kind === 'reasoning') {
-                    return <ThinkingBlock key={row.key} content={m.content} />
+                    return <ThinkingBlock key={row.key} content={m.content} collapsed={!busy} />
                   }
                   return (
                     <div key={row.key} className={`nc-msg ${m.kind}`}>

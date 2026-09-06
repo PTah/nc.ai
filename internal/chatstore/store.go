@@ -22,6 +22,10 @@ type Session struct {
 	ItemsJSON string        `json:"itemsJson"`
 	History   []llm.Message `json:"history"`
 	UpdatedAt time.Time     `json:"updatedAt"`
+	// Per-chat API spend (survives restarts with the session JSON).
+	CostUSD       float64 `json:"costUsd,omitempty"`
+	InputTokens   int     `json:"inputTokens,omitempty"`
+	OutputTokens  int     `json:"outputTokens,omitempty"`
 }
 
 // ProjectBundle holds all sessions for one workspace.
@@ -334,5 +338,35 @@ func (s *Store) Clear(project string) error {
 	sess.ItemsJSON = "[]"
 	sess.History = nil
 	sess.Title = "Chat"
+	sess.CostUSD = 0
+	sess.InputTokens = 0
+	sess.OutputTokens = 0
 	return s.SaveSession(project, sess)
+}
+
+// AddUsage accumulates per-chat spend counters on the given session and persists.
+func (s *Store) AddUsage(project, sessionID string, costUSD float64, inputTokens, outputTokens int) (*Session, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	b, err := s.loadBundle(project)
+	if err != nil {
+		return nil, err
+	}
+	if sessionID == "" {
+		sessionID = b.ActiveID
+	}
+	for i := range b.Sessions {
+		if b.Sessions[i].ID == sessionID {
+			b.Sessions[i].CostUSD += costUSD
+			b.Sessions[i].InputTokens += inputTokens
+			b.Sessions[i].OutputTokens += outputTokens
+			b.Sessions[i].UpdatedAt = time.Now()
+			if err := s.saveBundle(b); err != nil {
+				return nil, err
+			}
+			cp := b.Sessions[i]
+			return &cp, nil
+		}
+	}
+	return nil, fmt.Errorf("session not found")
 }

@@ -48,6 +48,8 @@
 - Скролл треда, Clear / Stop
 - Персистентность чата на проект в `%APPDATA%/NotCursor/chats/`
 - Настройки UI: Hide files / Hide terminal / Hide settings — сохраняются
+- После финального ответа Thinking и tools сжимаются (closed summary / Explored), как в Cursor
+- Счётчики $: **чат** · **всего** (live во время run + persist; per-chat в session JSON)
 
 ### Multitasking (вкладки чата)
 - Несколько независимых сессий на проект (`internal/chatstore`)

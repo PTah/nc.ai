@@ -129,14 +129,32 @@ func (a *App) GetSettings() map[string]any {
 	}
 }
 
-// GetUsageStats returns the all-time API spend counters shown in the top bar.
+// GetUsageStats returns all-time spend plus the active chat spend (if any).
 func (a *App) GetUsageStats() map[string]any {
 	s := a.cfg.Get()
-	return map[string]any{
-		"costUsd":      s.TotalCostUSD,
-		"inputTokens":  s.TotalInputTokens,
-		"outputTokens": s.TotalOutputTokens,
+	out := map[string]any{
+		"costUsd":          s.TotalCostUSD,
+		"inputTokens":      s.TotalInputTokens,
+		"outputTokens":     s.TotalOutputTokens,
+		"chatCostUsd":      0.0,
+		"chatInputTokens":  0,
+		"chatOutputTokens": 0,
 	}
+	if a.chats == nil {
+		return out
+	}
+	a.mu.Lock()
+	sid := a.sessionID
+	a.mu.Unlock()
+	if sid == "" {
+		return out
+	}
+	if sess, err := a.chats.Get(a.projectKey(), sid); err == nil && sess != nil {
+		out["chatCostUsd"] = sess.CostUSD
+		out["chatInputTokens"] = sess.InputTokens
+		out["chatOutputTokens"] = sess.OutputTokens
+	}
+	return out
 }
 
 func (a *App) SaveShowTerminal(show bool) error {
@@ -497,6 +515,18 @@ func (a *App) RunAgentWithAttachments(userMessage string, attachments []agent.At
 		costUSD += costing.Cost(model, u)
 		inTokens += u.PromptTokens
 		outTokens += u.CompletionTokens
+		// Live preview in the top bar (totals not yet persisted until the run ends).
+		base := a.cfg.Get()
+		chatCost, chatIn, chatOut := 0.0, 0, 0
+		if a.chats != nil {
+			if sess, err := a.chats.Get(a.projectKey(), sid); err == nil && sess != nil {
+				chatCost, chatIn, chatOut = sess.CostUSD, sess.InputTokens, sess.OutputTokens
+			}
+		}
+		a.emitFor(sid, agent.Event{Type: "usage", Content: usagePayload(
+			base.TotalCostUSD+costUSD, base.TotalInputTokens+inTokens, base.TotalOutputTokens+outTokens,
+			chatCost+costUSD, chatIn+inTokens, chatOut+outTokens,
+		)})
 	}
 
 	go func() {
@@ -530,20 +560,32 @@ func (a *App) RunAgentWithAttachments(userMessage string, attachments []agent.At
 			}
 		}
 		if inTokens+outTokens > 0 {
-			if a.cfg.AddUsage(costUSD, inTokens, outTokens) == nil {
-				a.emitFor(sid, agent.Event{Type: "usage", Content: usagePayload(a.cfg.Get())})
+			_ = a.cfg.AddUsage(costUSD, inTokens, outTokens)
+			chatCost, chatIn, chatOut := costUSD, inTokens, outTokens
+			if a.chats != nil {
+				if sess, uerr := a.chats.AddUsage(a.projectKey(), sid, costUSD, inTokens, outTokens); uerr == nil && sess != nil {
+					chatCost, chatIn, chatOut = sess.CostUSD, sess.InputTokens, sess.OutputTokens
+				}
 			}
+			tot := a.cfg.Get()
+			a.emitFor(sid, agent.Event{Type: "usage", Content: usagePayload(
+				tot.TotalCostUSD, tot.TotalInputTokens, tot.TotalOutputTokens,
+				chatCost, chatIn, chatOut,
+			)})
 		}
 		a.emitFor(sid, agent.Event{Type: "persist", Content: "1"})
 	}()
 	return nil
 }
 
-func usagePayload(s config.Settings) string {
+func usagePayload(totalCost float64, totalIn, totalOut int, chatCost float64, chatIn, chatOut int) string {
 	b, _ := json.Marshal(map[string]any{
-		"costUsd":      s.TotalCostUSD,
-		"inputTokens":  s.TotalInputTokens,
-		"outputTokens": s.TotalOutputTokens,
+		"costUsd":          totalCost,
+		"inputTokens":      totalIn,
+		"outputTokens":     totalOut,
+		"chatCostUsd":      chatCost,
+		"chatInputTokens":  chatIn,
+		"chatOutputTokens": chatOut,
 	})
 	return string(b)
 }
