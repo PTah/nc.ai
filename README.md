@@ -2,7 +2,7 @@
 
 Лёгкий нативный AI-IDE агент (аналог Cursor) на **Wails v2 + Go + React/TypeScript**.
 
-**Версия UI/бинаря:** `0.1.7`  
+**Версия UI/бинаря:** `0.1.8`  
 **Репозиторий:** https://git.papatramp.ru/PapaTramp/nc.ai  
 **Артефакт Windows:** `build/bin/NotCursor.exe`
 
@@ -18,7 +18,7 @@
 - Размер релиза не жёстко ограничен (сейчас порядка десятков МБ; по мере функций может расти); macOS **не** кросс-компилируется с Windows (нужен macOS-хост)
 - Бренд-иконка: `build/appicon.png` + multi-size `build/windows/icon.ico` (16…256, для списка в Explorer)
 - Версия продукта в свойствах exe: `wails.json` → `info.productVersion` (сейчас `0.1.7`)
-- Внутри приложения: анимированный mark в топбаре (`BrandMark`, кадры `frontend/public/brand/frame-1…6.png`, 300 мс)
+- Внутри приложения: анимированный mark в топбаре (`BrandMark`, кадры `frontend/public/brand/frame-1…6.png`, ~280 мс) — сгенерированы по AppIcon (glass multi-layer `>`, cyan/purple/green glow)
 - **macOS Dock:** пока агент активен — цикл `frame1…frame6` через `NSApp.applicationIconImage` (`internal/dockicon`, interval 300 мс); по стопу возвращается default. На Windows — no-op stub
 - Пересборка ассетов: `python scripts/build_brand_assets.py`
 

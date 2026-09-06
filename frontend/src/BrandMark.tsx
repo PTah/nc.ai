@@ -2,7 +2,7 @@ import {useEffect, useState} from 'react'
 
 /** Served from frontend/public/brand (stable for Vite/Wails asset pipeline). */
 const FRAMES = [1, 2, 3, 4, 5, 6].map((n) => `./brand/frame-${n}.png`)
-const FRAME_MS = 300
+const FRAME_MS = 280
 
 type Props = {
   size?: number
