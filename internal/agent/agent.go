@@ -153,7 +153,7 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 			emit(Event{Type: "error", Content: err.Error()})
 			return messages, err
 		}
-		r.reportUsage(resp.Model, resp.Usage)
+		r.reportUsage(billingModel(resp.Model, r.ModelOverride), resp.Usage)
 		if len(resp.Choices) == 0 {
 			err = fmt.Errorf("empty model response")
 			emit(Event{Type: "error", Content: err.Error()})
@@ -223,7 +223,7 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 		emit(Event{Type: "error", Content: fmt.Sprintf("лимит шагов (%d); финальный ответ не получен: %v", max, err)})
 		return messages, err
 	}
-	r.reportUsage(resp.Model, resp.Usage)
+	r.reportUsage(billingModel(resp.Model, r.ModelOverride), resp.Usage)
 	if len(resp.Choices) == 0 {
 		emit(Event{Type: "error", Content: fmt.Sprintf("лимит шагов (%d); пустой финальный ответ", max)})
 		return messages, fmt.Errorf("max agent steps (%d) exceeded", max)
@@ -248,4 +248,13 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n] + "…"
+}
+
+// billingModel prefers the model id DeepSeek returned; falls back to the
+// request override so costing still keys the right rate card.
+func billingModel(respModel, override string) string {
+	if strings.TrimSpace(respModel) != "" {
+		return respModel
+	}
+	return override
 }

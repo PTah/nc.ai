@@ -13,9 +13,9 @@ import (
 )
 
 const (
-	DefaultBaseURL   = "https://api.deepseek.com"
-	DefaultModel     = "deepseek-v4-flash"
-	VisionModel      = "deepseek-v4-flash-vision-exp"
+	DefaultBaseURL = "https://api.deepseek.com"
+	DefaultModel   = "deepseek-v4-flash"
+	VisionModel    = "deepseek-v4-flash-vision-exp"
 )
 
 // Client talks to DeepSeek OpenAI-compatible Chat Completions API.
@@ -137,6 +137,9 @@ func (c *Client) ChatCompletion(ctx context.Context, req *llm.ChatRequest) (*llm
 	var out llm.ChatResponse
 	if err := json.Unmarshal(data, &out); err != nil {
 		return nil, fmt.Errorf("deepseek: decode: %w", err)
+	}
+	if out.Model == "" {
+		out.Model = model
 	}
 	return &out, nil
 }

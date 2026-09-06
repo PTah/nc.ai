@@ -1,8 +1,8 @@
-# NotCursor.ai
+﻿# NotCursor.ai
 
 Лёгкий нативный AI-IDE агент (аналог Cursor) на **Wails v2 + Go + React/TypeScript**.
 
-**Версия UI/бинаря:** `0.1.8`  
+**Версия UI/бинаря:** `0.1.10`  
 **Репозиторий:** https://git.papatramp.ru/PapaTramp/nc.ai  
 **Артефакт Windows:** `build/bin/NotCursor.exe`
 
@@ -69,7 +69,7 @@
 - Бинарники → подсказка положить в workspace и читать tools
 
 ### Прочее
-- `internal/costing` — расчёт $ по usage DeepSeek (счётчик в топбаре)
+- `internal/costing` — USD из `usage` DeepSeek: cache hit/miss + completion, peak/off-peak (Beijing)
 - Shell/терминал скрыт по умолчанию; Xterm стартует только при показе панели
 - API key локально в AppData, не в репозитории; Git/SSH — через ОС, не через Settings
 

@@ -135,7 +135,7 @@ func (a *App) emitTerm(data string) {
 func (a *App) AppInfo() map[string]string {
 	return map[string]string{
 		"name":    "NotCursor.ai",
-		"version": "0.1.8",
+		"version": "0.1.10",
 		"stage":   "1-deepseek-agent",
 	}
 }
@@ -166,16 +166,25 @@ func nonzero(v, def int) int {
 	return def
 }
 
+// UsageStats is the top-bar spend counter (all-time + active chat).
+// Typed struct (not map[string]any) so Wails/WebKit on macOS reliably
+// delivers numeric fields to the frontend.
+type UsageStats struct {
+	CostUsd          float64 `json:"costUsd"`
+	InputTokens      int     `json:"inputTokens"`
+	OutputTokens     int     `json:"outputTokens"`
+	ChatCostUsd      float64 `json:"chatCostUsd"`
+	ChatInputTokens  int     `json:"chatInputTokens"`
+	ChatOutputTokens int     `json:"chatOutputTokens"`
+}
+
 // GetUsageStats returns all-time spend plus the active chat spend (if any).
-func (a *App) GetUsageStats() map[string]any {
+func (a *App) GetUsageStats() UsageStats {
 	s := a.cfg.Get()
-	out := map[string]any{
-		"costUsd":          s.TotalCostUSD,
-		"inputTokens":      s.TotalInputTokens,
-		"outputTokens":     s.TotalOutputTokens,
-		"chatCostUsd":      0.0,
-		"chatInputTokens":  0,
-		"chatOutputTokens": 0,
+	out := UsageStats{
+		CostUsd:      s.TotalCostUSD,
+		InputTokens:  s.TotalInputTokens,
+		OutputTokens: s.TotalOutputTokens,
 	}
 	if a.chats == nil {
 		return out
@@ -187,9 +196,9 @@ func (a *App) GetUsageStats() map[string]any {
 		return out
 	}
 	if sess, err := a.chats.Get(a.projectKey(), sid); err == nil && sess != nil {
-		out["chatCostUsd"] = sess.CostUSD
-		out["chatInputTokens"] = sess.InputTokens
-		out["chatOutputTokens"] = sess.OutputTokens
+		out.ChatCostUsd = sess.CostUSD
+		out.ChatInputTokens = sess.InputTokens
+		out.ChatOutputTokens = sess.OutputTokens
 	}
 	return out
 }
@@ -567,8 +576,8 @@ func (a *App) RunAgentWithAttachments(userMessage string, attachments []agent.At
 			return
 		}
 		costUSD += costing.Cost(model, u)
-		inTokens += u.PromptTokens
-		outTokens += u.CompletionTokens
+		inTokens += costing.InputTokens(u)
+		outTokens += max(u.CompletionTokens, 0)
 		// Live preview in the top bar (totals not yet persisted until the run ends).
 		base := a.cfg.Get()
 		chatCost, chatIn, chatOut := 0.0, 0, 0
@@ -615,18 +624,21 @@ func (a *App) RunAgentWithAttachments(userMessage string, attachments []agent.At
 		}
 		if inTokens+outTokens > 0 {
 			_ = a.cfg.AddUsage(costUSD, inTokens, outTokens)
-			chatCost, chatIn, chatOut := costUSD, inTokens, outTokens
 			if a.chats != nil {
-				if sess, uerr := a.chats.AddUsage(a.projectKey(), sid, costUSD, inTokens, outTokens); uerr == nil && sess != nil {
-					chatCost, chatIn, chatOut = sess.CostUSD, sess.InputTokens, sess.OutputTokens
-				}
+				_, _ = a.chats.AddUsage(a.projectKey(), sid, costUSD, inTokens, outTokens)
 			}
-			tot := a.cfg.Get()
-			a.emitFor(sid, agent.Event{Type: "usage", Content: usagePayload(
-				tot.TotalCostUSD, tot.TotalInputTokens, tot.TotalOutputTokens,
-				chatCost, chatIn, chatOut,
-			)})
 		}
+		tot := a.cfg.Get()
+		chatCost, chatIn, chatOut := 0.0, 0, 0
+		if a.chats != nil {
+			if sess, gerr := a.chats.Get(a.projectKey(), sid); gerr == nil && sess != nil {
+				chatCost, chatIn, chatOut = sess.CostUSD, sess.InputTokens, sess.OutputTokens
+			}
+		}
+		a.emitFor(sid, agent.Event{Type: "usage", Content: usagePayload(
+			tot.TotalCostUSD, tot.TotalInputTokens, tot.TotalOutputTokens,
+			chatCost, chatIn, chatOut,
+		)})
 		a.emitFor(sid, agent.Event{Type: "persist", Content: "1"})
 	}()
 	return nil

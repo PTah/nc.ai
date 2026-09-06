@@ -1,4 +1,4 @@
-import {FormEvent, MouseEvent as ReactMouseEvent, useCallback, useEffect, useRef, useState} from 'react'
+﻿import {FormEvent, MouseEvent as ReactMouseEvent, useCallback, useEffect, useRef, useState} from 'react'
 import {Terminal} from '@xterm/xterm'
 import {FitAddon} from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
@@ -70,8 +70,74 @@ type AgentEvent = {
   sessionId?: string
 }
 
+type UsageSnapshot = {
+  costUsd: number
+  inputTokens: number
+  outputTokens: number
+  chatCostUsd: number
+  chatInputTokens: number
+  chatOutputTokens: number
+}
+
+const emptyUsage: UsageSnapshot = {
+  costUsd: 0,
+  inputTokens: 0,
+  outputTokens: 0,
+  chatCostUsd: 0,
+  chatInputTokens: 0,
+  chatOutputTokens: 0,
+}
+
 function asList<T>(v: T[] | null | undefined): T[] {
   return Array.isArray(v) ? v : []
+}
+
+function pickNum(u: Record<string, unknown>, ...keys: string[]): number {
+  for (const k of keys) {
+    const v = u[k]
+    if (v == null || v === '') continue
+    const n = typeof v === 'number' ? v : Number(v)
+    if (Number.isFinite(n)) return n
+  }
+  return 0
+}
+
+function eventText(v: unknown): string {
+  if (v == null) return ''
+  if (typeof v === 'string') return v
+  if (typeof v === 'object') {
+    try {
+      return JSON.stringify(v)
+    } catch {
+      return ''
+    }
+  }
+  return String(v)
+}
+
+function usageFromUnknown(raw: unknown): UsageSnapshot | null {
+  let u: Record<string, unknown> | null = null
+  if (typeof raw === 'string') {
+    const t = raw.trim()
+    if (!t || t === '[object Object]') return null
+    try {
+      const parsed = JSON.parse(t) as unknown
+      if (parsed && typeof parsed === 'object') u = parsed as Record<string, unknown>
+    } catch {
+      return null
+    }
+  } else if (raw && typeof raw === 'object') {
+    u = raw as Record<string, unknown>
+  }
+  if (!u) return null
+  return {
+    costUsd: pickNum(u, 'costUsd', 'CostUsd', 'CostUSD'),
+    inputTokens: pickNum(u, 'inputTokens', 'InputTokens'),
+    outputTokens: pickNum(u, 'outputTokens', 'OutputTokens'),
+    chatCostUsd: pickNum(u, 'chatCostUsd', 'ChatCostUsd', 'ChatCostUSD'),
+    chatInputTokens: pickNum(u, 'chatInputTokens', 'ChatInputTokens'),
+    chatOutputTokens: pickNum(u, 'chatOutputTokens', 'ChatOutputTokens'),
+  }
 }
 
 function previewLen(text: string, max = 160): string {
@@ -226,25 +292,18 @@ function parseAgentEvent(...args: unknown[]): AgentEvent | null {
     if (!type) continue
     return {
       type,
-      content: inner.content != null ? String(inner.content) : inner.Content != null ? String(inner.Content) : '',
+      content: eventText(inner.content ?? inner.Content),
       name: inner.name != null ? String(inner.name) : inner.Name != null ? String(inner.Name) : '',
       ok: Boolean(inner.ok ?? inner.OK),
-      sessionId: inner.sessionId != null ? String(inner.sessionId) : inner.SessionID != null ? String(inner.SessionID) : '',
+      sessionId: eventText(inner.sessionId ?? inner.SessionID ?? inner.SessionId),
     }
   }
   return null
 }
 
 export default function App() {
-  const [info, setInfo] = useState({name: 'NotCursor.ai', version: '0.1.8'})
-  const [usage, setUsage] = useState({
-    costUsd: 0,
-    inputTokens: 0,
-    outputTokens: 0,
-    chatCostUsd: 0,
-    chatInputTokens: 0,
-    chatOutputTokens: 0,
-  })
+  const [info, setInfo] = useState({name: 'NotCursor.ai', version: '0.1.10'})
+  const [usage, setUsage] = useState<UsageSnapshot>(emptyUsage)
   const [projects, setProjects] = useState<Project[]>([])
   const [active, setActive] = useState<Project | null>(null)
   const [files, setFiles] = useState<FileEntry[]>([])
@@ -304,16 +363,8 @@ export default function App() {
 
   const applyUsageStats = useCallback(async () => {
     try {
-      const u = await GetUsageStats()
-      if (!u) return
-      setUsage({
-        costUsd: Number(u.costUsd) || 0,
-        inputTokens: Number(u.inputTokens) || 0,
-        outputTokens: Number(u.outputTokens) || 0,
-        chatCostUsd: Number(u.chatCostUsd) || 0,
-        chatInputTokens: Number(u.chatInputTokens) || 0,
-        chatOutputTokens: Number(u.chatOutputTokens) || 0,
-      })
+      const next = usageFromUnknown(await GetUsageStats())
+      if (next) setUsage(next)
     } catch {
       /* ignore */
     }
@@ -412,6 +463,12 @@ export default function App() {
         try {
           const ev = parseAgentEvent(...args)
           if (!ev) return
+          if (ev.type === 'usage') {
+            const next = usageFromUnknown(ev.content)
+            if (next) setUsage(next)
+            else void applyUsageStats()
+            return
+          }
           const sid = ev.sessionId || activeSessionRef.current
           if (!sid) return
           if (ev.type === 'delta') {
@@ -470,23 +527,10 @@ export default function App() {
                 ok: ev.ok,
               }]
             })
-          } else if (ev.type === 'usage') {
-            try {
-              const u = JSON.parse(ev.content || '{}')
-              setUsage({
-                costUsd: Number(u.costUsd) || 0,
-                inputTokens: Number(u.inputTokens) || 0,
-                outputTokens: Number(u.outputTokens) || 0,
-                chatCostUsd: Number(u.chatCostUsd) || 0,
-                chatInputTokens: Number(u.chatInputTokens) || 0,
-                chatOutputTokens: Number(u.chatOutputTokens) || 0,
-              })
-            } catch {
-              /* ignore */
-            }
           } else if (ev.type === 'done' || ev.type === 'persist') {
             assistantBuf.current[sid] = ''
             setBusyBySession((b) => ({...b, [sid]: false}))
+            void applyUsageStats()
           } else if (ev.type === 'error') {
             assistantBuf.current[sid] = ''
             setBusyBySession((b) => ({...b, [sid]: false}))
@@ -518,7 +562,7 @@ export default function App() {
         /* ignore */
       }
     }
-  }, [setSessionItems])
+  }, [setSessionItems, applyUsageStats])
 
   useEffect(() => {
     const el = chatRef.current
@@ -916,11 +960,11 @@ export default function App() {
         <span className={`nc-pill ${keySet ? 'ok' : ''}`}>{keySet ? 'key OK' : 'no key'}</span>
         <span
           className="nc-cost"
-          title={`Чат: ${usage.chatInputTokens} in / ${usage.chatOutputTokens} out · Всего: ${usage.inputTokens} in / ${usage.outputTokens} out`}
+          title={`Этот чат: ${usage.chatInputTokens} in / ${usage.chatOutputTokens} out (${fmtUsd(usage.chatCostUsd)}) · Всего на этом компьютере: ${usage.inputTokens} in / ${usage.outputTokens} out (${fmtUsd(usage.costUsd)})`}
         >
-          <span className="nc-cost-chat">{fmtUsd(usage.chatCostUsd)}</span>
+          <span className="nc-cost-chat">chat {fmtUsd(usage.chatCostUsd)}</span>
           <span className="nc-cost-sep">·</span>
-          <span className="nc-cost-total">{fmtUsd(usage.costUsd)}</span>
+          <span className="nc-cost-total">total {fmtUsd(usage.costUsd)}</span>
         </span>
         <button type="button" className="nc-ghost" onClick={() => setSettingsVisible((v) => !v)}>
           {showSettings ? 'Hide settings' : 'Settings'}

@@ -249,6 +249,33 @@ export namespace llm {
 
 }
 
+export namespace main {
+	
+	export class UsageStats {
+	    costUsd: number;
+	    inputTokens: number;
+	    outputTokens: number;
+	    chatCostUsd: number;
+	    chatInputTokens: number;
+	    chatOutputTokens: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new UsageStats(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.costUsd = source["costUsd"];
+	        this.inputTokens = source["inputTokens"];
+	        this.outputTokens = source["outputTokens"];
+	        this.chatCostUsd = source["chatCostUsd"];
+	        this.chatInputTokens = source["chatInputTokens"];
+	        this.chatOutputTokens = source["chatOutputTokens"];
+	    }
+	}
+
+}
+
 export namespace workspace {
 	
 	export class Entry {
