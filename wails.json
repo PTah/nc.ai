@@ -9,5 +9,12 @@
   "author": {
     "name": "PapaTramp",
     "email": "papatramp@gmail.com"
+  },
+  "info": {
+    "companyName": "PapaTramp",
+    "productName": "NotCursor.ai",
+    "productVersion": "0.1.7.0",
+    "copyright": "Copyright © 2026 PapaTramp",
+    "comments": "NotCursor.ai — lightweight native AI IDE agent"
   }
 }

@@ -236,7 +236,7 @@ function parseAgentEvent(...args: unknown[]): AgentEvent | null {
 }
 
 export default function App() {
-  const [info, setInfo] = useState({name: 'NotCursor.ai', version: '0.1.6'})
+  const [info, setInfo] = useState({name: 'NotCursor.ai', version: '0.1.7'})
   const [usage, setUsage] = useState({costUsd: 0, inputTokens: 0, outputTokens: 0})
   const [projects, setProjects] = useState<Project[]>([])
   const [active, setActive] = useState<Project | null>(null)

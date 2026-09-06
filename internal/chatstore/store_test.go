@@ -68,6 +68,64 @@ func TestMigrationFromSingleState(t *testing.T) {
 	if b.ActiveID == "" {
 		t.Fatal("activeId empty after migration")
 	}
+
+	// Migration must be persisted so List → Get (separate loads) keep the same id.
+	raw, err := os.ReadFile(legacyPath(appData, "/proj"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var probe map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &probe); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := probe["sessions"]; !ok {
+		t.Fatal("legacy file was not rewritten as multi-session")
+	}
+	if _, err := os.Stat(legacyPath(appData, "/proj") + ".legacy.bak"); err != nil {
+		t.Fatalf("legacy backup missing: %v", err)
+	}
+
+	b2, err := s.List("/proj")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b2.ActiveID != b.ActiveID {
+		t.Fatalf("activeId changed across List: %q → %q", b.ActiveID, b2.ActiveID)
+	}
+	got, err := s.Get("/proj", b.ActiveID)
+	if err != nil {
+		t.Fatalf("Get after migrate: %v", err)
+	}
+	if got.ItemsJSON != old.ItemsJSON {
+		t.Fatalf("Get itemsJson = %q, want legacy content", got.ItemsJSON)
+	}
+}
+
+func TestMigrationListThenGetStable(t *testing.T) {
+	// Reproduces the UI restoreChat path: ListChatSessions then LoadChat/Get.
+	appData := t.TempDir()
+	legacy := []byte(`{"project":"/p","itemsJson":"[{\"kind\":\"user\",\"content\":\"keep me\"}]","history":[{"role":"user","content":"keep me"}]}`)
+	if err := os.MkdirAll(filepath.Dir(legacyPath(appData, "/p")), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(legacyPath(appData, "/p"), legacy, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, err := New(appData)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := s.List("/p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess, err := s.Get("/p", b.ActiveID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sess.ItemsJSON == "" || sess.ItemsJSON == "[]" {
+		t.Fatalf("restored empty transcript: %q", sess.ItemsJSON)
+	}
 }
 
 func TestSessionCRUD(t *testing.T) {

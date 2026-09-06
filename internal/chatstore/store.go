@@ -64,7 +64,7 @@ func (s *Store) loadBundle(project string) (*ProjectBundle, error) {
 		}
 		return nil, err
 	}
-	// Migrate old single-State format
+	// Migrate old single-State format → multi-session and persist once.
 	var probe map[string]json.RawMessage
 	if err := json.Unmarshal(data, &probe); err != nil {
 		return nil, err
@@ -80,7 +80,11 @@ func (s *Store) loadBundle(project string) (*ProjectBundle, error) {
 			return nil, err
 		}
 		id := uuid.NewString()
-		return &ProjectBundle{
+		updated := old.UpdatedAt
+		if updated.IsZero() {
+			updated = time.Now()
+		}
+		b := &ProjectBundle{
 			Project:  project,
 			ActiveID: id,
 			Sessions: []Session{{
@@ -88,9 +92,15 @@ func (s *Store) loadBundle(project string) (*ProjectBundle, error) {
 				Title:     "Chat 1",
 				ItemsJSON: old.ItemsJSON,
 				History:   old.History,
-				UpdatedAt: old.UpdatedAt,
+				UpdatedAt: updated,
 			}},
-		}, nil
+		}
+		// Keep a one-shot backup of the legacy file, then rewrite as multi-session.
+		_ = os.WriteFile(s.path(project)+".legacy.bak", data, 0o600)
+		if err := s.saveBundle(b); err != nil {
+			return nil, fmt.Errorf("migrate legacy chat: %w", err)
+		}
+		return b, nil
 	}
 	var b ProjectBundle
 	if err := json.Unmarshal(data, &b); err != nil {
@@ -193,6 +203,19 @@ func (s *Store) Get(project, sessionID string) (*Session, error) {
 			return &cp, nil
 		}
 	}
+	// Stale id from a pre-persist migration attempt: fall back to active / first tab.
+	if b.ActiveID != "" && b.ActiveID != sessionID {
+		for i := range b.Sessions {
+			if b.Sessions[i].ID == b.ActiveID {
+				cp := b.Sessions[i]
+				return &cp, nil
+			}
+		}
+	}
+	if len(b.Sessions) > 0 {
+		cp := b.Sessions[0]
+		return &cp, nil
+	}
 	return nil, fmt.Errorf("session not found")
 }
 
@@ -255,13 +278,21 @@ type State struct {
 }
 
 func (s *Store) Load(project string) (*State, error) {
-	b, err := s.List(project)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	b, err := s.loadBundle(project)
 	if err != nil {
 		return nil, err
 	}
-	sess, err := s.Get(project, b.ActiveID)
-	if err != nil {
+	if len(b.Sessions) == 0 {
 		return &State{Project: project, ItemsJSON: "[]"}, nil
+	}
+	sess := b.Sessions[0]
+	for i := range b.Sessions {
+		if b.Sessions[i].ID == b.ActiveID {
+			sess = b.Sessions[i]
+			break
+		}
 	}
 	return &State{
 		Project:   project,

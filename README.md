@@ -2,9 +2,9 @@
 
 Лёгкий нативный AI-IDE агент (аналог Cursor) на **Wails v2 + Go + React/TypeScript**.
 
-**Версия UI/бинаря:** `0.1.6`  
+**Версия UI/бинаря:** `0.1.7`  
 **Репозиторий:** https://git.papatramp.ru/PapaTramp/nc.ai  
-**Артефакт Windows:** `build/bin/NotCursor.exe` (~16 МБ)
+**Артефакт Windows:** `build/bin/NotCursor.exe`
 
 ---
 
@@ -15,8 +15,9 @@
 ### Стек и каркас
 - Wails v2: Go backend + React/TS frontend (системный WebView, без Electron)
 - Layout «как Cursor»: проекты | дерево файлов (опц.) | чат | настройки (опц.) | терминал (опц.)
-- Целевой размер релиза ~15–20 МБ; macOS **не** кросс-компилируется с Windows (нужен macOS-хост)
-- Бренд-иконка: `build/appicon.png` + `build/windows/icon.ico` (рабочий стол / exe)
+- Размер релиза не жёстко ограничен (сейчас порядка десятков МБ; по мере функций может расти); macOS **не** кросс-компилируется с Windows (нужен macOS-хост)
+- Бренд-иконка: `build/appicon.png` + multi-size `build/windows/icon.ico` (16…256, для списка в Explorer)
+- Версия продукта в свойствах exe: `wails.json` → `info.productVersion` (сейчас `0.1.7`)
 - Внутри приложения: анимированный mark в топбаре (`BrandMark`, кадры `frontend/public/brand/frame-1…6.png`, 300 мс)
 - **macOS Dock:** пока агент активен — цикл `frame1…frame6` через `NSApp.applicationIconImage` (`internal/dockicon`, interval 300 мс); по стопу возвращается default. На Windows — no-op stub
 - Пересборка ассетов: `python scripts/build_brand_assets.py`
@@ -52,7 +53,7 @@
 - Несколько независимых сессий на проект (`internal/chatstore`)
 - UI: вкладки `+` / `×`, отдельные истории и busy-статус
 - События агента помечены `sessionId` — параллельные прогоны не смешивают ответы
-- Миграция со старого single-chat JSON → multi-session bundle
+- Миграция со старого single-chat JSON → multi-session bundle (**с записью на диск** и стабильным session id; иначе List/Get расходились и UI показывал пустой чат)
 
 ### Вложения и vision (скриншоты / файлы)
 - **Ctrl+V**, drag-drop, кнопка **Attach**

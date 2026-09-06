@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import struct
+from io import BytesIO
 from pathlib import Path
 
 from PIL import Image
@@ -30,6 +32,9 @@ DOCK = ROOT / "internal" / "dockicon" / "frames"
 BUILD = ROOT / "build"
 WIN = BUILD / "windows"
 
+# Explorer list/details views use 16/32; shell overlays use 48; desktop uses 256.
+ICO_SIZES = (16, 24, 32, 48, 64, 128, 256)
+
 
 def center_square(im: Image.Image) -> Image.Image:
     w, h = im.size
@@ -47,25 +52,44 @@ def save_png(im: Image.Image, path: Path, size: int | None = None) -> None:
     out.save(path, format="PNG", optimize=True)
 
 
+def save_multi_size_ico(im: Image.Image, path: Path, sizes: tuple[int, ...] = ICO_SIZES) -> None:
+    """Write a real multi-resolution ICO (Pillow's sizes= often keeps only one bitmap)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    png_blobs: list[tuple[int, bytes]] = []
+    base = im.convert("RGBA")
+    for s in sizes:
+        buf = BytesIO()
+        base.resize((s, s), Image.Resampling.LANCZOS).save(buf, format="PNG", optimize=True)
+        png_blobs.append((s, buf.getvalue()))
+
+    # ICONDIR + ICONDIRENTRY*n + PNG payloads (Vista+ PNG-in-ICO).
+    header = struct.pack("<HHH", 0, 1, len(png_blobs))
+    entries = bytearray()
+    offset = 6 + 16 * len(png_blobs)
+    payloads = bytearray()
+    for s, blob in png_blobs:
+        w = 0 if s >= 256 else s
+        h = 0 if s >= 256 else s
+        entries += struct.pack("<BBBBHHII", w, h, 0, 0, 1, 32, len(blob), offset)
+        payloads += blob
+        offset += len(blob)
+
+    path.write_bytes(header + entries + payloads)
+
+
 def main() -> None:
     BRAND.mkdir(parents=True, exist_ok=True)
 
     app = center_square(Image.open(SRC["appicon"]))
     save_png(app, BUILD / "appicon.png", 1024)
     save_png(app, BRAND / "app-icon.png", 512)
-
-    # Pillow embeds the requested sizes into a single .ico.
-    ico_sizes = [(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)]
-    app.save(WIN / "icon.ico", format="ICO", sizes=ico_sizes)
+    save_multi_size_ico(app, WIN / "icon.ico")
 
     frames: list[Image.Image] = []
     for i in range(1, 7):
         sq = center_square(Image.open(SRC[i]))
-        # UI mark is ~34–48 CSS px; 96 keeps retina sharp without bloating the bundle.
         save_png(sq, BRAND / f"frame-{i}.png", 96)
-        # Copied into Vite public/ for in-app <img src="./brand/..."> (no bundler import).
         save_png(sq, ROOT / "frontend" / "public" / "brand" / f"frame-{i}.png", 96)
-        # macOS Dock animation (NSApp.applicationIconImage), names match frame1…frame6.
         save_png(sq, DOCK / f"frame{i}.png", 256)
         frames.append(sq.resize((256, 256), Image.Resampling.LANCZOS).convert("RGBA"))
 
@@ -91,6 +115,11 @@ def main() -> None:
         disposal=2,
         optimize=True,
     )
+
+    # Verify ICO entries
+    raw = (WIN / "icon.ico").read_bytes()
+    _reserved, itype, count = struct.unpack_from("<HHH", raw, 0)
+    print(f"ico entries={count} type={itype} size={len(raw)/1024:.1f} KB")
 
     print("done")
     for p in sorted(BRAND.iterdir()):
