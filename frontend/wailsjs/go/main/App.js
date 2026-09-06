@@ -66,12 +66,20 @@ export function SaveGitAuth(arg1, arg2) {
   return window['go']['main']['App']['SaveGitAuth'](arg1, arg2);
 }
 
+export function SaveShowTerminal(arg1) {
+  return window['go']['main']['App']['SaveShowTerminal'](arg1);
+}
+
 export function StartTerminal() {
   return window['go']['main']['App']['StartTerminal']();
 }
 
 export function StopAgent() {
   return window['go']['main']['App']['StopAgent']();
+}
+
+export function StopTerminal() {
+  return window['go']['main']['App']['StopTerminal']();
 }
 
 export function TerminalWrite(arg1) {

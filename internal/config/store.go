@@ -17,6 +17,7 @@ type Settings struct {
 	GitUsername    string   `json:"gitUsername"`
 	GitPassword    string   `json:"gitPassword"`
 	SSHUser        string   `json:"sshUser"`
+	ShowTerminal   bool     `json:"showTerminal"`
 }
 
 type Store struct {
@@ -125,6 +126,13 @@ func (s *Store) SetGitAuth(user, pass string) error {
 	s.mu.Lock()
 	s.settings.GitUsername = user
 	s.settings.GitPassword = pass
+	s.mu.Unlock()
+	return s.Save()
+}
+
+func (s *Store) SetShowTerminal(show bool) error {
+	s.mu.Lock()
+	s.settings.ShowTerminal = show
 	s.mu.Unlock()
 	return s.Save()
 }

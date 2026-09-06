@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"encoding/json"
 	"testing"
 
 	"notcursor.ai/app/internal/llm"
@@ -44,5 +45,61 @@ func TestDecideNext(t *testing.T) {
 				t.Fatalf("got %v want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+// TestOfficialSampleAppendShape mirrors DeepSeek docs:
+// messages.append({role, content, reasoning_content, tool_calls})
+func TestOfficialSampleAppendShape(t *testing.T) {
+	msg := llm.Message{
+		Role:             "assistant",
+		Content:          "Let me check.",
+		ReasoningContent: "Need date then weather.",
+		ToolCalls: []llm.ToolCall{{
+			ID:   "call_00_kw66",
+			Type: "function",
+			Function: llm.FunctionCall{
+				Name:      "get_date",
+				Arguments: "{}",
+			},
+		}},
+	}
+	b, err := json.Marshal(msg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(b, &raw); err != nil {
+		t.Fatal(err)
+	}
+	if raw["role"] != "assistant" {
+		t.Fatalf("role=%v", raw["role"])
+	}
+	if raw["content"] != "Let me check." {
+		t.Fatalf("content=%v", raw["content"])
+	}
+	if raw["reasoning_content"] != "Need date then weather." {
+		t.Fatalf("reasoning_content=%v", raw["reasoning_content"])
+	}
+	calls, _ := raw["tool_calls"].([]any)
+	if len(calls) != 1 {
+		t.Fatalf("tool_calls=%v", raw["tool_calls"])
+	}
+	// Intermediate content + tool_calls ⇒ still execute tools
+	action, _ := DecideNext(msg, "stop")
+	if action != ActionExecuteTools {
+		t.Fatalf("action=%v want ExecuteTools", action)
+	}
+}
+
+func TestFinalWhenToolCallsNil(t *testing.T) {
+	msg := llm.Message{
+		Role:             "assistant",
+		Content:          "Done.",
+		ReasoningContent: "share result",
+	}
+	action, _ := DecideNext(msg, "stop")
+	if action != ActionFinal {
+		t.Fatalf("action=%v", action)
 	}
 }

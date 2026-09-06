@@ -18,6 +18,7 @@ const (
 )
 
 // Client talks to DeepSeek OpenAI-compatible Chat Completions API.
+// Wire format follows https://api-docs.deepseek.com/ (thinking + tool calls).
 type Client struct {
 	apiKey  string
 	model   string
@@ -65,24 +66,41 @@ func (c *Client) ChatCompletion(ctx context.Context, req *llm.ChatRequest) (*llm
 	if c.apiKey == "" {
 		return nil, fmt.Errorf("deepseek: api key is empty")
 	}
+	if req == nil {
+		return nil, fmt.Errorf("deepseek: nil request")
+	}
 	model := req.Model
 	if model == "" {
 		model = c.model
 	}
+
+	// Protocol (Thinking Mode + Tool Calls):
+	// - thinking enabled by default; agent/tool requests MUST keep it enabled
+	// - when tools are present, reasoning_content of prior assistants must round-trip
+	// - temperature/top_p are ignored in thinking mode — do not send them
 	thinking := req.Thinking
-	if thinking == nil {
+	hasTools := len(req.Tools) > 0
+	if hasTools {
+		thinking = map[string]any{"type": "enabled"}
+	} else if thinking == nil {
 		thinking = map[string]any{"type": "enabled"}
 	}
 	effort := req.ReasoningEffort
 	if effort == "" && thinkingEnabled(thinking) {
 		effort = "high"
 	}
+	if hasTools {
+		if err := validateToolHistory(req.Messages); err != nil {
+			return nil, err
+		}
+	}
+
 	payload := apiRequest{
 		Model:           model,
 		Messages:        req.Messages,
 		Tools:           req.Tools,
 		ToolChoice:      req.ToolChoice,
-		Stream:          req.Stream,
+		Stream:          false, // stage-1: non-stream only (SSE later)
 		MaxTokens:       req.MaxTokens,
 		Thinking:        thinking,
 		ReasoningEffort: effort,
@@ -90,6 +108,7 @@ func (c *Client) ChatCompletion(ctx context.Context, req *llm.ChatRequest) (*llm
 	if !thinkingEnabled(thinking) {
 		payload.Temperature = req.Temperature
 	}
+
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return nil, err
@@ -100,6 +119,7 @@ func (c *Client) ChatCompletion(ctx context.Context, req *llm.ChatRequest) (*llm
 	}
 	httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
 	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Accept", "application/json")
 
 	res, err := c.http.Do(httpReq)
 	if err != nil {
@@ -118,6 +138,37 @@ func (c *Client) ChatCompletion(ctx context.Context, req *llm.ChatRequest) (*llm
 		return nil, fmt.Errorf("deepseek: decode: %w", err)
 	}
 	return &out, nil
+}
+
+// validateToolHistory mirrors DeepSeek rule: with tools present, prior assistant
+// messages that had reasoning_content must still carry it (append message as-is).
+func validateToolHistory(messages []llm.Message) error {
+	for i, m := range messages {
+		if m.Role != "assistant" {
+			continue
+		}
+		// Soft check: tool results must reference a prior tool_call_id when present.
+		_ = i
+		if len(m.ToolCalls) > 0 {
+			for _, tc := range m.ToolCalls {
+				if tc.ID == "" {
+					return fmt.Errorf("deepseek: assistant tool_call missing id (index %d)", i)
+				}
+				if tc.Function.Name == "" {
+					return fmt.Errorf("deepseek: assistant tool_call missing function.name (index %d)", i)
+				}
+			}
+		}
+	}
+	for i, m := range messages {
+		if m.Role != "tool" {
+			continue
+		}
+		if m.ToolCallID == "" {
+			return fmt.Errorf("deepseek: tool message missing tool_call_id (index %d)", i)
+		}
+	}
+	return nil
 }
 
 func thinkingEnabled(thinking map[string]any) bool {

@@ -19,6 +19,11 @@ type Result struct {
 	ExitCode int    `json:"exitCode"`
 }
 
+const psUTF8Prelude = "[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false; " +
+	"[Console]::InputEncoding = New-Object System.Text.UTF8Encoding $false; " +
+	"$OutputEncoding = [Console]::OutputEncoding; " +
+	"chcp 65001 | Out-Null"
+
 // Run executes a command in cwd with timeout.
 func Run(ctx context.Context, command, cwd string, timeout time.Duration) (*Result, error) {
 	if timeout <= 0 {
@@ -29,13 +34,15 @@ func Run(ctx context.Context, command, cwd string, timeout time.Duration) (*Resu
 
 	var cmd *exec.Cmd
 	if runtime.GOOS == "windows" {
-		cmd = exec.CommandContext(ctx, "powershell", "-NoProfile", "-NonInteractive", "-Command", command)
+		script := psUTF8Prelude + "; " + command
+		cmd = exec.CommandContext(ctx, "powershell", "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script)
 	} else {
 		cmd = exec.CommandContext(ctx, "bash", "-lc", command)
 	}
 	if cwd != "" {
 		cmd.Dir = cwd
 	}
+	configureCmd(cmd)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -48,7 +55,11 @@ func Run(ctx context.Context, command, cwd string, timeout time.Duration) (*Resu
 			return nil, fmt.Errorf("shell: %w", err)
 		}
 	}
-	return &Result{Stdout: stdout.String(), Stderr: stderr.String(), ExitCode: code}, nil
+	return &Result{
+		Stdout:   decodeShellBytes(stdout.Bytes()),
+		Stderr:   decodeShellBytes(stderr.Bytes()),
+		ExitCode: code,
+	}, nil
 }
 
 // Session is a long-lived interactive shell for the Xterm panel.
@@ -73,11 +84,21 @@ func (s *Session) Start() error {
 	}
 	var cmd *exec.Cmd
 	if runtime.GOOS == "windows" {
-		cmd = exec.Command("powershell", "-NoExit", "-NoProfile")
+		// -NoLogo: no copyright banner (often CP866 → mojibake in xterm)
+		// prelude forces UTF-8 for subsequent output
+		cmd = exec.Command(
+			"powershell",
+			"-NoLogo",
+			"-NoExit",
+			"-NoProfile",
+			"-Command",
+			psUTF8Prelude,
+		)
 	} else {
 		cmd = exec.Command("bash", "-i")
 	}
 	cmd.Dir = s.cwd
+	configureCmd(cmd)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return err
@@ -103,7 +124,7 @@ func (s *Session) readLoop() {
 	for {
 		n, err := reader.Read(buf)
 		if n > 0 && s.onOut != nil {
-			s.onOut(string(buf[:n]))
+			s.onOut(decodeShellBytes(buf[:n]))
 		}
 		if err != nil {
 			if s.onOut != nil {

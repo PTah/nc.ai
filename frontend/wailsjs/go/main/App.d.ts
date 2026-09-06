@@ -34,9 +34,13 @@ export function SaveDeepSeekModel(arg1:string):Promise<void>;
 
 export function SaveGitAuth(arg1:string,arg2:string):Promise<void>;
 
+export function SaveShowTerminal(arg1:boolean):Promise<void>;
+
 export function StartTerminal():Promise<void>;
 
 export function StopAgent():Promise<void>;
+
+export function StopTerminal():Promise<void>;
 
 export function TerminalWrite(arg1:string):Promise<void>;
 

@@ -109,7 +109,18 @@ func (a *App) GetSettings() map[string]any {
 		"recentProjects": s.RecentProjects,
 		"gitUsername":    s.GitUsername,
 		"gitPasswordSet": s.GitPassword != "",
+		"showTerminal":   s.ShowTerminal,
 	}
+}
+
+func (a *App) SaveShowTerminal(show bool) error {
+	if err := a.cfg.SetShowTerminal(show); err != nil {
+		return err
+	}
+	if !show {
+		a.StopTerminal()
+	}
+	return nil
 }
 
 func (a *App) SaveDeepSeekKey(apiKey string) error {
@@ -154,7 +165,7 @@ func (a *App) OpenProject(path string) (*workspace.Project, error) {
 		return nil, err
 	}
 	_ = a.cfg.AddRecentProject(p.Path)
-	a.ensureTerminal(p.Path)
+	// Interactive PowerShell session starts only when terminal panel is shown.
 	return p, nil
 }
 
@@ -273,6 +284,13 @@ func (a *App) StartTerminal() error {
 	}
 	a.ensureTerminal(root)
 	return nil
+}
+
+func (a *App) StopTerminal() {
+	if a.term != nil {
+		a.term.Stop()
+		a.term = nil
+	}
 }
 
 func (a *App) TerminalWrite(data string) error {

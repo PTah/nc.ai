@@ -17,10 +17,12 @@ import {
   SaveDeepSeekKey,
   SaveDeepSeekModel,
   SaveGitAuth,
+  SaveShowTerminal,
   SSHKeygen,
   SSHListKeys,
   StartTerminal,
   StopAgent,
+  StopTerminal,
   TerminalWrite,
   ListProjects,
 } from '../wailsjs/go/main/App'
@@ -30,7 +32,7 @@ type Project = { name: string; path: string; opened?: string }
 type FileEntry = { name: string; path: string; isDir: boolean }
 type ChatItem =
   | { kind: 'user' | 'assistant' | 'system' | 'reasoning'; content: string }
-  | { kind: 'tool'; name: string; content: string; phase: 'start' | 'end'; ok?: boolean }
+  | { kind: 'tool'; name: string; args: string; result?: string; phase: 'running' | 'done'; ok?: boolean }
   | { kind: 'file'; path: string; content: string }
 
 type AgentEvent = {
@@ -42,6 +44,62 @@ type AgentEvent = {
 
 function asList<T>(v: T[] | null | undefined): T[] {
   return Array.isArray(v) ? v : []
+}
+
+function previewLen(text: string, max = 160): string {
+  const t = text.replace(/\s+/g, ' ').trim()
+  if (t.length <= max) return t
+  return t.slice(0, max) + '…'
+}
+
+function toolTitle(name: string, phase: 'running' | 'done', ok?: boolean): string {
+  const labels: Record<string, string> = {
+    read_file: 'Reading file',
+    write_file: 'Writing file',
+    list_dir: 'Listing directory',
+    search_files: 'Searching files',
+    run_terminal: 'Running terminal',
+    git_status: 'Git status',
+    git_diff: 'Git diff',
+    git_commit: 'Git commit',
+    git_push: 'Git push',
+    ssh_exec: 'SSH exec',
+    ssh_keygen: 'SSH keygen',
+  }
+  const base = labels[name] || name
+  if (phase === 'running') return `${base}…`
+  if (ok === false) return `${base} failed`
+  return base
+}
+
+function ToolCard({item}: {item: Extract<ChatItem, {kind: 'tool'}>}) {
+  const title = toolTitle(item.name, item.phase, item.ok)
+  const hasBody = Boolean(item.args || item.result)
+  return (
+    <div className={`nc-msg tool ${item.phase}${item.ok === false ? ' fail' : ''}`}>
+      <div className="nc-tool-line">
+        <span className="nc-tool-icon">{item.phase === 'running' ? '◉' : item.ok === false ? '✗' : '✓'}</span>
+        <span className="nc-tool-title">{title}</span>
+        <span className="nc-tool-name">{item.name}</span>
+      </div>
+      {hasBody && (
+        <details className="nc-tool-details">
+          <summary>подробности</summary>
+          {item.args ? <pre className="nc-tool-pre"><span className="nc-k">args</span>{'\n'}{item.args}</pre> : null}
+          {item.result != null ? <pre className="nc-tool-pre"><span className="nc-k">result</span>{'\n'}{item.result}</pre> : null}
+        </details>
+      )}
+    </div>
+  )
+}
+
+function ThinkingBlock({content}: {content: string}) {
+  return (
+    <details className="nc-msg reasoning" open>
+      <summary className="nc-think-sum">Thinking</summary>
+      <pre className="nc-think-body">{content}</pre>
+    </details>
+  )
 }
 
 function parseAgentEvent(...args: unknown[]): AgentEvent | null {
@@ -76,10 +134,10 @@ export default function App() {
   const [files, setFiles] = useState<FileEntry[]>([])
   const [expanded, setExpanded] = useState<Record<string, FileEntry[]>>({})
   const [showTree, setShowTree] = useState(true)
-  const [showTerm, setShowTerm] = useState(true)
+  const [showTerm, setShowTerm] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [items, setItems] = useState<ChatItem[]>([
-    {kind: 'system', content: 'Чат с агентом. Откройте проект слева, вставьте API key сверху и задайте вопрос — как в этом диалоге.'},
+    {kind: 'system', content: 'Чат с агентом. Откройте проект, сохраните API key и дайте задачу — агент сам работает с файлами, git и shell через tools.'},
   ])
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
@@ -112,6 +170,7 @@ export default function App() {
         setKeySet(Boolean(s.deepseekKeySet))
         if (typeof s.deepseekModel === 'string' && s.deepseekModel) setModel(s.deepseekModel)
         if (typeof s.gitUsername === 'string') setGitUser(s.gitUsername)
+        setShowTerm(Boolean(s.showTerminal))
       }).catch(() => undefined)
       ListProjects().then((v) => setProjects(asList(v))).catch(() => undefined)
       SSHListKeys().then((v) => setSshKeys(asList(v))).catch(() => undefined)
@@ -139,12 +198,50 @@ export default function App() {
               return [...copy, {kind: 'assistant', content: text}]
             })
           } else if (ev.type === 'reasoning') {
-            setItems((prev) => [...asList(prev), {kind: 'reasoning', content: ev.content || ''}])
+            setItems((prev) => {
+              const copy = [...asList(prev)]
+              const last = copy[copy.length - 1]
+              // Append into last thinking block of this sub-turn if present
+              if (last && last.kind === 'reasoning') {
+                copy[copy.length - 1] = {kind: 'reasoning', content: last.content + (ev.content || '')}
+                return copy
+              }
+              return [...copy, {kind: 'reasoning', content: ev.content || ''}]
+            })
           } else if (ev.type === 'tool_start') {
             assistantBuf.current = ''
-            setItems((prev) => [...asList(prev), {kind: 'tool', name: ev.name || 'tool', content: ev.content || '', phase: 'start'}])
+            setItems((prev) => [...asList(prev), {
+              kind: 'tool',
+              name: ev.name || 'tool',
+              args: ev.content || '',
+              phase: 'running',
+            }])
           } else if (ev.type === 'tool_end') {
-            setItems((prev) => [...asList(prev), {kind: 'tool', name: ev.name || 'tool', content: ev.content || '', phase: 'end', ok: ev.ok}])
+            setItems((prev) => {
+              const copy = [...asList(prev)]
+              for (let i = copy.length - 1; i >= 0; i--) {
+                const it = copy[i]
+                if (it.kind === 'tool' && it.phase === 'running' && it.name === (ev.name || it.name)) {
+                  copy[i] = {
+                    kind: 'tool',
+                    name: it.name,
+                    args: it.args,
+                    result: ev.content || '',
+                    phase: 'done',
+                    ok: ev.ok,
+                  }
+                  return copy
+                }
+              }
+              return [...copy, {
+                kind: 'tool',
+                name: ev.name || 'tool',
+                args: '',
+                result: ev.content || '',
+                phase: 'done',
+                ok: ev.ok,
+              }]
+            })
           } else if (ev.type === 'done') {
             assistantBuf.current = ''
             setBusy(false)
@@ -182,11 +279,21 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    chatRef.current?.scrollTo({top: chatRef.current.scrollHeight})
-  }, [items])
+    const el = chatRef.current
+    if (!el) return
+    el.scrollTop = el.scrollHeight
+  }, [items, busy])
 
   useEffect(() => {
-    if (!showTerm) return
+    if (!showTerm) {
+      StopTerminal().catch(() => undefined)
+      if (xtermRef.current) {
+        xtermRef.current.dispose()
+        xtermRef.current = null
+        fitRef.current = null
+      }
+      return
+    }
     if (!termRef.current || xtermRef.current) {
       requestAnimationFrame(() => {
         try {
@@ -247,8 +354,10 @@ export default function App() {
     setActive(p)
     setProjects(asList(await ListProjects()))
     await refreshFiles('.')
-    xtermRef.current?.writeln(`\r\n$ cd ${p.path}`)
-    await StartTerminal()
+    if (showTerm) {
+      xtermRef.current?.writeln(`\r\n$ cd ${p.path}`)
+      await StartTerminal()
+    }
     setItems((m) => [...asList(m), {kind: 'system', content: `Проект открыт: ${p.name}\n${p.path}`}])
   }
 
@@ -282,11 +391,21 @@ export default function App() {
       setKeySet(true)
     }
     await SaveDeepSeekModel(model.trim() || 'deepseek-v4-flash')
+    await SaveShowTerminal(showTerm)
     if (gitUser || gitPass) {
       await SaveGitAuth(gitUser, gitPass)
       setGitPass('')
     }
     setItems((m) => [...asList(m), {kind: 'system', content: 'Settings saved'}])
+  }
+
+  async function toggleTerminal(next: boolean) {
+    setShowTerm(next)
+    try {
+      await SaveShowTerminal(next)
+    } catch {
+      /* ignore */
+    }
   }
 
   async function testConnect() {
@@ -390,9 +509,6 @@ export default function App() {
           <button type="button" className="nc-ghost" onClick={() => setShowTree((v) => !v)}>
             {showTree ? 'Hide files' : 'Show files'}
           </button>
-          <button type="button" className="nc-ghost" onClick={() => setShowTerm((v) => !v)}>
-            {showTerm ? 'Hide terminal' : 'Show terminal'}
-          </button>
         </aside>
 
         {showTree && (
@@ -420,28 +536,38 @@ export default function App() {
               <div className="nc-thread-inner">
                 {asList(items).map((m, i) => {
                   if (m.kind === 'tool') {
-                    return (
-                      <div key={i} className={`nc-msg tool ${m.phase}`}>
-                        <div className="nc-role">tool · {m.name} · {m.phase}{m.phase === 'end' ? (m.ok ? ' ✓' : ' ✗') : ''}</div>
-                        <pre>{m.content}</pre>
-                      </div>
-                    )
+                    return <ToolCard key={i} item={m} />
                   }
                   if (m.kind === 'file') {
                     return (
                       <div key={i} className="nc-msg file">
                         <div className="nc-role">файл · {m.path}</div>
-                        <pre>{m.content}</pre>
+                        <details open>
+                          <summary>{previewLen(m.content, 80)}</summary>
+                          <pre>{m.content}</pre>
+                        </details>
                       </div>
                     )
                   }
+                  if (m.kind === 'reasoning') {
+                    return <ThinkingBlock key={i} content={m.content} />
+                  }
                   return (
                     <div key={i} className={`nc-msg ${m.kind}`}>
-                      <div className="nc-role">{m.kind === 'user' ? 'вы' : m.kind === 'assistant' ? 'агент' : m.kind}</div>
-                      <pre>{m.content}</pre>
+                      <div className="nc-role">
+                        {m.kind === 'user' ? 'Вы' : m.kind === 'assistant' ? 'Агент' : 'Система'}
+                      </div>
+                      <pre className={m.kind === 'assistant' ? 'nc-answer' : undefined}>{m.content}</pre>
                     </div>
                   )
                 })}
+                {busy && (
+                  <div className="nc-msg status">
+                    <div className="nc-role">статус</div>
+                    <pre>думает…</pre>
+                  </div>
+                )}
+                <div aria-hidden className="nc-thread-end" />
               </div>
             </div>
             <div className="nc-composer-wrap">
@@ -500,6 +626,17 @@ export default function App() {
             </label>
             <button type="button" onClick={saveSettings}>Save settings</button>
             <button type="button" className="nc-ghost" onClick={testConnect}>Test connect</button>
+
+            <div className="nc-section-label">Interface</div>
+            <label className="nc-check">
+              <input
+                type="checkbox"
+                checked={showTerm}
+                onChange={(e) => void toggleTerminal(e.target.checked)}
+              />
+              Показывать терминал
+            </label>
+            <p className="nc-muted">По умолчанию скрыт — как в Cursor: задачи делает агент через tools.</p>
 
             <div className="nc-section-label">Git / Gitea</div>
             <label>

@@ -34,6 +34,14 @@ type Runner struct {
 	MaxSteps int
 }
 
+// Run implements DeepSeek Thinking+Tool Calls loop exactly:
+//
+//	messages.append(response.choices[0].message)  // content + reasoning_content + tool_calls
+//	if tool_calls is empty: stop
+//	else: execute tools, append role=tool, continue
+//
+// See docs/exchange-protocols/deepseek.md and
+// https://api-docs.deepseek.com/guides/tool_calls + thinking_mode.
 func (r *Runner) Run(ctx context.Context, history []llm.Message, userText string, emit EmitFunc) ([]llm.Message, error) {
 	if r.Provider == nil {
 		return history, fmt.Errorf("provider is nil")
@@ -68,12 +76,14 @@ func (r *Runner) Run(ctx context.Context, history []llm.Message, userText string
 			return messages, ctx.Err()
 		}
 
+		// Sub-turn request: always carry tools + thinking (DeepSeek V4 agent canon).
 		resp, err := r.Provider.ChatCompletion(ctx, &llm.ChatRequest{
 			Messages:        messages,
 			Tools:           tools.Specs(),
 			ToolChoice:      "auto",
 			Thinking:        map[string]any{"type": "enabled"},
 			ReasoningEffort: "high",
+			Stream:          false,
 		})
 		if err != nil {
 			emit(Event{Type: "error", Content: err.Error()})
@@ -87,15 +97,15 @@ func (r *Runner) Run(ctx context.Context, history []llm.Message, userText string
 
 		msg := resp.Choices[0].Message
 		msg.Role = "assistant"
-		msg.ToolCalls = normalizeToolCalls(msg.ToolCalls, step)
 		finish := strings.TrimSpace(resp.Choices[0].FinishReason)
 
-		// DeepSeek: append the assistant message as returned (content + reasoning_content + tool_calls).
+		// CRITICAL: append assistant message AS RETURNED (do not drop reasoning_content).
 		messages = append(messages, msg)
 
 		if strings.TrimSpace(msg.ReasoningContent) != "" {
 			emit(Event{Type: "reasoning", Content: msg.ReasoningContent})
 		}
+		// Intermediate content alongside tool_calls is normal (DeepSeek sample Turn 1.1).
 		if strings.TrimSpace(msg.Content) != "" {
 			emit(Event{Type: "delta", Content: msg.Content})
 		}
@@ -107,6 +117,10 @@ func (r *Runner) Run(ctx context.Context, history []llm.Message, userText string
 			return messages, fmt.Errorf("%s", detail)
 		case ActionExecuteTools:
 			for _, call := range msg.ToolCalls {
+				if call.ID == "" {
+					emit(Event{Type: "error", Content: "tool_call without id — protocol violation"})
+					return messages, fmt.Errorf("tool_call without id")
+				}
 				name := call.Function.Name
 				emit(Event{Type: "tool_start", Name: name, Content: call.Function.Arguments})
 				result, execErr := r.Tools.Execute(ctx, call)
@@ -115,14 +129,16 @@ func (r *Runner) Run(ctx context.Context, history []llm.Message, userText string
 					result = fmt.Sprintf("ERROR: %v", execErr)
 				}
 				emit(Event{Type: "tool_end", Name: name, Content: truncate(result, 4000), OK: ok})
+				// Protocol tool result shape:
+				// {"role":"tool","tool_call_id":"...","content":"..."}
 				messages = append(messages, llm.ToolResultMessage(call.ID, result))
 			}
 			continue
 		default:
-			if strings.TrimSpace(msg.Content) == "" && strings.TrimSpace(msg.ReasoningContent) == "" {
+			// tool_calls empty → final answer (may still have empty content; surface that)
+			if strings.TrimSpace(msg.Content) == "" {
 				emit(Event{Type: "error", Content: fmt.Sprintf("пустой финальный ответ (finish=%s)", finish)})
-			}
-			if finish == "length" {
+			} else if finish == "length" {
 				emit(Event{Type: "error", Content: "ответ обрезан (finish=length)"})
 			}
 			emit(Event{Type: "done", Content: finish})
@@ -133,23 +149,6 @@ func (r *Runner) Run(ctx context.Context, history []llm.Message, userText string
 	err := fmt.Errorf("max agent steps (%d) exceeded", max)
 	emit(Event{Type: "error", Content: err.Error()})
 	return messages, err
-}
-
-func normalizeToolCalls(calls []llm.ToolCall, step int) []llm.ToolCall {
-	if len(calls) == 0 {
-		return calls
-	}
-	out := make([]llm.ToolCall, len(calls))
-	for i, c := range calls {
-		if c.ID == "" {
-			c.ID = fmt.Sprintf("call_%d_%d", step, i)
-		}
-		if c.Type == "" {
-			c.Type = "function"
-		}
-		out[i] = c
-	}
-	return out
 }
 
 func truncate(s string, n int) string {
