@@ -12,11 +12,12 @@
 type Provider interface {
     Name() string
     ChatCompletion(ctx context.Context, req *ChatRequest) (*ChatResponse, error)
-    ChatCompletionStream(ctx context.Context, req *ChatRequest, out chan<- StreamEvent) error
 }
 ```
 
-Адаптеры в `internal/llm/providers/*` переводят канон ↔ нативный API провайдера.
+`ChatCompletionStream` — этап 2. Пока канон агента — **non-stream** `ChatCompletion` + loop по `tool_calls`.
+
+Код в `internal/llm/providers/*` и `internal/agent` **следует документам этой папки**. Если поведение API изменилось — сначала обновить протокол, потом код.
 
 ## Документы
 

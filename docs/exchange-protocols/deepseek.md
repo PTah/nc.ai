@@ -208,11 +208,23 @@ Default в NotCursor (этап 1): `deepseek-v4-flash` (скорость) с в�
 
 | Значение | Действие NotCursor |
 |---|---|
-| `stop` | Показать финальный текст, завершить loop |
-| `length` | Обрезанный ответ; можно продолжить / предупредить |
-| `tool_calls` | Исполнить tools и продолжить agent loop |
-| `content_filter` | Показать ошибку безопасности |
-| `insufficient_system_resource` | Retry / fallback model |
+| `tool_calls` | Исполнить **все** `message.tool_calls`, дописать `role=tool`, повторить запрос |
+| `stop` | Если `tool_calls` **не пустой** — то же, что `tool_calls`. Если пустой — финальный текст, выход из loop |
+| `length` | Ответ обрезан; если есть `tool_calls` — исполнить, иначе показать частичный текст + предупреждение |
+| `content_filter` | Ошибка безопасности, loop стоп |
+| `insufficient_system_resource` | Ошибка инфраструктуры, loop стоп |
+
+**Канон решения (как в официальном Tool Calls / Thinking sample):**
+
+```
+messages.append(assistant_message)          // целиком: content + reasoning_content + tool_calls
+if assistant_message.tool_calls is empty:
+    stop  # финальный ответ
+else:
+    execute tools → append role=tool → continue
+```
+
+`finish_reason` **нельзя** использовать как «выходим из loop», если `tool_calls` уже есть. DeepSeek часто отдаёт промежуточный текст (`content`) вместе с вызовом tool.
 
 ---
 
@@ -255,6 +267,8 @@ DeepSeek возвращает:
 
 ## 9. Thinking mode
 
+Thinking **включён по умолчанию** на `deepseek-v4-flash` / `deepseek-v4-pro`. Default effort — `high`.
+
 ```json
 "thinking": { "type": "enabled" },
 "reasoning_effort": "high"
@@ -262,9 +276,28 @@ DeepSeek возвращает:
 
 В ответе:
 
-- `message.reasoning_content` — внутренние рассуждения
-- UI может показывать их отдельным сворачиваемым блоком
-- В следующий turn обычно **не** нужно слать reasoning обратно, если docs не требуют иначе; следовать актуальной DeepSeek Tool Calls Guide
+- `message.reasoning_content` — chain-of-thought (nullable)
+- `message.content` — ответ пользователю (на промежуточных tool-ходах часто `""` / `null` — это норма)
+- UI показывает reasoning отдельным сворачиваемым блоком
+
+В thinking mode параметры `temperature` / `top_p` / `presence_penalty` / `frequency_penalty` **игнорируются** (ошибки нет).
+
+### Когда слать `reasoning_content` обратно
+
+Источник: [Thinking Mode](https://api-docs.deepseek.com/guides/thinking_mode/) и [Tool Calls](https://api-docs.deepseek.com/guides/tool_calls).
+
+| Следующий запрос содержит `tools`? | `reasoning_content` прошлых assistant-ходов |
+|---|---|
+| **Да** (agent loop Always) | **Обязательно** вернуть полностью. Иначе HTTP 400: *reasoning_content in thinking mode must be passed back* |
+| Нет | Можно не слать; если слать — API игнорирует |
+
+Практическое правило NotCursor: **agent loop всегда шлёт `tools` → всегда round-trip `reasoning_content`**. Проще всего:
+
+```
+messages.append(response.choices[0].message)
+```
+
+то есть assistant-сообщение целиком: `role`, `content`, `reasoning_content`, `tool_calls`.
 
 ---
 
@@ -315,10 +348,50 @@ curl https://api.deepseek.com/chat/completions \
 
 ## 12. Реализация в коде
 
-Планируемые файлы:
+Код **обязан** следовать этому документу, а не наоборот.
 
-- `internal/llm/providers/deepseek/client.go` — HTTP + SSE
-- `internal/llm/providers/deepseek/models.go` — список моделей
-- `internal/config` — `providers.deepseek.api_key`, `default_model`
+| Файл | Роль |
+|---|---|
+| `internal/llm/providers/deepseek/client.go` | `POST /chat/completions`, thinking default `enabled`, effort `high` |
+| `internal/llm/message_json.go` | `content` string\|null\|parts; `arguments` string\|object; round-trip `reasoning_content` |
+| `internal/agent/protocol.go` | `DecideNext`: loop пока `tool_calls` не пуст |
+| `internal/agent/agent.go` | канон хода: append assistant целиком → tools → `role=tool` → снова API |
+| `internal/config` | API key, model |
 
-Первый рабочий путь UI → Go → DeepSeek → stream → UI.
+Этап 1: non-stream. SSE — этап 2 (`ChatCompletionStream`).
+
+---
+
+## 13. Канон хода агента (каждый момент)
+
+Один user-вопрос = один **turn**. Внутри turn — N **sub-turn** к API.
+
+```
+T0  UI → Go.RunAgent(userText)
+T1  messages = [system, …history, user]
+T2  POST /chat/completions
+      model, messages, tools, tool_choice=auto,
+      thinking.enabled, reasoning_effort=high, stream=false
+T3  HTTP 200 → choice.message
+T4  append message КАК ЕСТЬ (content + reasoning_content + tool_calls)
+T5  UI: reasoning (если есть), content (если есть)
+T6  DecideNext:
+      tool_calls не пуст → T7
+      content_filter / insufficient_system_resource → ошибка, стоп
+      иначе → T9 финал
+T7  для каждого tool_call:
+      UI tool_start → Execute → UI tool_end
+      append {role:tool, tool_call_id, content}
+T8  goto T2  (те же tools; reasoning_content предыдущих assistant обязателен)
+T9  UI chat:done. content — ответ пользователю.
+    Пустой content на промежуточном sub-turn (есть tool_calls) — норма.
+    Пустой content на финале (нет tool_calls) — ошибка в UI.
+```
+
+Запрещено в loop:
+
+- выходить по `finish_reason=stop`, если есть `tool_calls`;
+- выкидывать `reasoning_content` из history, пока в запросе есть `tools`;
+- вставлять фейковый `role=user` «ответь текстом» вместо продолжения sub-turn;
+- слать `thinking: disabled` в agent loop (ломает tool follow-up на V4).
+

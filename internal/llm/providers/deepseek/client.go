@@ -69,16 +69,26 @@ func (c *Client) ChatCompletion(ctx context.Context, req *llm.ChatRequest) (*llm
 	if model == "" {
 		model = c.model
 	}
+	thinking := req.Thinking
+	if thinking == nil {
+		thinking = map[string]any{"type": "enabled"}
+	}
+	effort := req.ReasoningEffort
+	if effort == "" && thinkingEnabled(thinking) {
+		effort = "high"
+	}
 	payload := apiRequest{
 		Model:           model,
 		Messages:        req.Messages,
 		Tools:           req.Tools,
 		ToolChoice:      req.ToolChoice,
-		Stream:          false,
-		Temperature:     req.Temperature,
+		Stream:          req.Stream,
 		MaxTokens:       req.MaxTokens,
-		Thinking:        req.Thinking,
-		ReasoningEffort: req.ReasoningEffort,
+		Thinking:        thinking,
+		ReasoningEffort: effort,
+	}
+	if !thinkingEnabled(thinking) {
+		payload.Temperature = req.Temperature
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -108,6 +118,14 @@ func (c *Client) ChatCompletion(ctx context.Context, req *llm.ChatRequest) (*llm
 		return nil, fmt.Errorf("deepseek: decode: %w", err)
 	}
 	return &out, nil
+}
+
+func thinkingEnabled(thinking map[string]any) bool {
+	if thinking == nil {
+		return true
+	}
+	t, _ := thinking["type"].(string)
+	return t != "disabled"
 }
 
 func truncate(s string, n int) string {

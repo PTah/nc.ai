@@ -82,33 +82,40 @@ User → [messages + tools] → Provider
 
 ---
 
-## 4. Псевдокод loop
+## 4. Псевдокод loop (канон)
+
+Решение «продолжать / стоп» — **только** по `tool_calls`, как в DeepSeek Thinking/Tool Calls sample.
 
 ```go
 func (a *Agent) Run(ctx context.Context, userMsg string) error {
     messages := a.seedMessages(userMsg)
     for step := 0; step < a.MaxSteps; step++ {
-        resp, err := a.Provider.Chat(ctx, &llm.ChatRequest{
-            Model:    a.Model,
-            Messages: messages,
-            Tools:    a.ToolSpecs(),
-            Stream:   true,
+        resp, err := a.Provider.ChatCompletion(ctx, &llm.ChatRequest{
+            Messages:        messages,
+            Tools:           a.ToolSpecs(),
+            ToolChoice:      "auto",
+            Thinking:        map[string]any{"type": "enabled"},
+            ReasoningEffort: "high",
         })
         if err != nil {
             return err
         }
-        messages = append(messages, resp.AssistantMessage)
-        if len(resp.AssistantMessage.ToolCalls) == 0 {
-            return nil // final answer
+        msg := resp.Choices[0].Message
+        messages = append(messages, msg) // content + reasoning_content + tool_calls
+        if len(msg.ToolCalls) == 0 {
+            return nil // финальный ответ
         }
-        for _, call := range resp.AssistantMessage.ToolCalls {
+        for _, call := range msg.ToolCalls {
             result := a.Tools.Execute(ctx, call)
-            messages = append(messages, llm.ToolMessage(call.ID, result))
+            messages = append(messages, llm.ToolResultMessage(call.ID, result))
         }
     }
     return ErrMaxSteps
 }
 ```
+
+См. также таблицу `finish_reason` и §13 в [deepseek.md](./deepseek.md).
+
 
 ---
 
