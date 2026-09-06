@@ -32,6 +32,9 @@ export namespace chatstore {
 	    history: llm.Message[];
 	    // Go type: time
 	    updatedAt: any;
+	    costUsd?: number;
+	    inputTokens?: number;
+	    outputTokens?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new Session(source);
@@ -44,6 +47,9 @@ export namespace chatstore {
 	        this.itemsJson = source["itemsJson"];
 	        this.history = this.convertValues(source["history"], llm.Message);
 	        this.updatedAt = this.convertValues(source["updatedAt"], null);
+	        this.costUsd = source["costUsd"];
+	        this.inputTokens = source["inputTokens"];
+	        this.outputTokens = source["outputTokens"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
