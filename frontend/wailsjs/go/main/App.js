@@ -22,6 +22,10 @@ export function GetSettings() {
   return window['go']['main']['App']['GetSettings']();
 }
 
+export function GetUsageStats() {
+  return window['go']['main']['App']['GetUsageStats']();
+}
+
 export function ListChatSessions() {
   return window['go']['main']['App']['ListChatSessions']();
 }

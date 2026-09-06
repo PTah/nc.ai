@@ -14,6 +14,8 @@ export function DeleteChatSession(arg1:string):Promise<string>;
 
 export function GetSettings():Promise<Record<string, any>>;
 
+export function GetUsageStats():Promise<Record<string, any>>;
+
 export function ListChatSessions():Promise<chatstore.ProjectBundle>;
 
 export function ListDir(arg1:string):Promise<Array<workspace.Entry>>;

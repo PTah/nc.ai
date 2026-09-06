@@ -9,6 +9,7 @@ import {
   ClearChat,
   DeleteChatSession,
   GetSettings,
+  GetUsageStats,
   ListChatSessions,
   ListDir,
   NewChatSession,
@@ -76,6 +77,10 @@ function previewLen(text: string, max = 160): string {
   const t = text.replace(/\s+/g, ' ').trim()
   if (t.length <= max) return t
   return t.slice(0, max) + '…'
+}
+
+function fmtUsd(c: number): string {
+  return `$${Number(c || 0).toFixed(4)}`
 }
 
 function toolTitle(name: string, phase: 'running' | 'done', ok?: boolean): string {
@@ -231,6 +236,7 @@ function parseAgentEvent(...args: unknown[]): AgentEvent | null {
 
 export default function App() {
   const [info, setInfo] = useState({name: 'NotCursor.ai', version: '0.1.6'})
+  const [usage, setUsage] = useState({costUsd: 0, inputTokens: 0, outputTokens: 0})
   const [projects, setProjects] = useState<Project[]>([])
   const [active, setActive] = useState<Project | null>(null)
   const [files, setFiles] = useState<FileEntry[]>([])
@@ -286,6 +292,7 @@ export default function App() {
   useEffect(() => {
     try {
       AppInfo().then((v) => setInfo(v as typeof info)).catch(() => undefined)
+      GetUsageStats().then((u) => setUsage(u as typeof usage)).catch(() => undefined)
       GetSettings().then((s) => {
         if (!s) return
         setKeySet(Boolean(s.deepseekKeySet))
@@ -365,6 +372,15 @@ export default function App() {
                 ok: ev.ok,
               }]
             })
+          } else if (ev.type === 'usage') {
+            try {
+              const u = JSON.parse(ev.content || '{}')
+              if (typeof u.costUsd === 'number') {
+                setUsage({costUsd: u.costUsd, inputTokens: Number(u.inputTokens) || 0, outputTokens: Number(u.outputTokens) || 0})
+              }
+            } catch {
+              /* ignore */
+            }
           } else if (ev.type === 'done' || ev.type === 'persist') {
             assistantBuf.current[sid] = ''
             setBusyBySession((b) => ({...b, [sid]: false}))
@@ -803,6 +819,9 @@ export default function App() {
         </label>
         <button type="button" onClick={saveSettings}>Save</button>
         <span className={`nc-pill ${keySet ? 'ok' : ''}`}>{keySet ? 'key OK' : 'no key'}</span>
+        <span className="nc-cost" title={`${usage.inputTokens} input · ${usage.outputTokens} output tokens`}>
+          {fmtUsd(usage.costUsd)}
+        </span>
         <button type="button" className="nc-ghost" onClick={() => setShowSettings((v) => !v)}>
           {showSettings ? 'Hide settings' : 'Settings'}
         </button>

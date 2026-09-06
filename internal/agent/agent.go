@@ -53,6 +53,16 @@ type Runner struct {
 	MaxSteps int
 	// ModelOverride forces a model for this run (e.g. vision).
 	ModelOverride string
+	// OnUsage, when set, is called after each provider response with the model
+	// that produced it and its token usage (usage may be nil for some providers).
+	OnUsage func(model string, u *llm.Usage)
+}
+
+func (r *Runner) reportUsage(model string, u *llm.Usage) {
+	if r.OnUsage == nil {
+		return
+	}
+	r.OnUsage(model, u)
 }
 
 func (r *Runner) Run(ctx context.Context, history []llm.Message, userText string, emit EmitFunc) ([]llm.Message, error) {
@@ -143,6 +153,7 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 			emit(Event{Type: "error", Content: err.Error()})
 			return messages, err
 		}
+		r.reportUsage(resp.Model, resp.Usage)
 		if len(resp.Choices) == 0 {
 			err = fmt.Errorf("empty model response")
 			emit(Event{Type: "error", Content: err.Error()})
@@ -212,6 +223,7 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 		emit(Event{Type: "error", Content: fmt.Sprintf("лимит шагов (%d); финальный ответ не получен: %v", max, err)})
 		return messages, err
 	}
+	r.reportUsage(resp.Model, resp.Usage)
 	if len(resp.Choices) == 0 {
 		emit(Event{Type: "error", Content: fmt.Sprintf("лимит шагов (%d); пустой финальный ответ", max)})
 		return messages, fmt.Errorf("max agent steps (%d) exceeded", max)

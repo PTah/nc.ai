@@ -46,6 +46,14 @@ textarea { resize: none; }
 }
 .nc-top-field input, .nc-top-field select { width: auto; min-width: 180px; }
 .nc-pill.ok { color: #8ee59b; border-color: #2a5; }
+.nc-cost {
+  font-size: 0.78rem;
+  color: #8ee59b;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.2rem 0.5rem;
+  white-space: nowrap;
+}
 .nc-root {
   display: grid;
   grid-template-columns: 200px 220px minmax(0, 1fr) minmax(200px, 230px);

@@ -11,6 +11,7 @@ import (
 	"notcursor.ai/app/internal/agent"
 	"notcursor.ai/app/internal/chatstore"
 	"notcursor.ai/app/internal/config"
+	"notcursor.ai/app/internal/costing"
 	"notcursor.ai/app/internal/llm"
 	"notcursor.ai/app/internal/llm/providers/deepseek"
 	"notcursor.ai/app/internal/shell"
@@ -124,6 +125,16 @@ func (a *App) GetSettings() map[string]any {
 		"showTerminal":   s.ShowTerminal,
 		"showFiles":      a.cfg.FilesVisible(),
 		"visionModel":    deepseek.VisionModel,
+	}
+}
+
+// GetUsageStats returns the all-time API spend counters shown in the top bar.
+func (a *App) GetUsageStats() map[string]any {
+	s := a.cfg.Get()
+	return map[string]any{
+		"costUsd":      s.TotalCostUSD,
+		"inputTokens":  s.TotalInputTokens,
+		"outputTokens": s.TotalOutputTokens,
 	}
 }
 
@@ -476,6 +487,17 @@ func (a *App) RunAgentWithAttachments(userMessage string, attachments []agent.At
 		MaxSteps: agent.DefaultMaxSteps,
 	}
 
+	var costUSD float64
+	var inTokens, outTokens int
+	runner.OnUsage = func(model string, u *llm.Usage) {
+		if u == nil {
+			return
+		}
+		costUSD += costing.Cost(model, u)
+		inTokens += u.PromptTokens
+		outTokens += u.CompletionTokens
+	}
+
 	go func() {
 		emit := func(evt agent.Event) {
 			a.emitFor(sid, evt)
@@ -503,9 +525,23 @@ func (a *App) RunAgentWithAttachments(userMessage string, attachments []agent.At
 				_ = a.chats.SaveSession(a.projectKey(), sess)
 			}
 		}
+		if inTokens+outTokens > 0 {
+			if a.cfg.AddUsage(costUSD, inTokens, outTokens) == nil {
+				a.emitFor(sid, agent.Event{Type: "usage", Content: usagePayload(a.cfg.Get())})
+			}
+		}
 		a.emitFor(sid, agent.Event{Type: "persist", Content: "1"})
 	}()
 	return nil
+}
+
+func usagePayload(s config.Settings) string {
+	b, _ := json.Marshal(map[string]any{
+		"costUsd":      s.TotalCostUSD,
+		"inputTokens":  s.TotalInputTokens,
+		"outputTokens": s.TotalOutputTokens,
+	})
+	return string(b)
 }
 
 // loadActiveIntoMemoryUnlocked assumes caller may or may not hold lock — only used carefully.

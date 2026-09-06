@@ -141,24 +141,23 @@ func (c *Client) ChatCompletion(ctx context.Context, req *llm.ChatRequest) (*llm
 	return &out, nil
 }
 
-// validateToolHistory mirrors DeepSeek rule: with tools present, prior assistant
-// messages that had reasoning_content must still carry it (append message as-is).
+// validateToolHistory mirrors the DeepSeek tool-call protocol:
+// assistant tool_calls must carry id + function.name, and every tool result
+// must reference a tool_call_id that an earlier assistant message actually issued.
 func validateToolHistory(messages []llm.Message) error {
+	known := map[string]bool{}
 	for i, m := range messages {
 		if m.Role != "assistant" {
 			continue
 		}
-		// Soft check: tool results must reference a prior tool_call_id when present.
-		_ = i
-		if len(m.ToolCalls) > 0 {
-			for _, tc := range m.ToolCalls {
-				if tc.ID == "" {
-					return fmt.Errorf("deepseek: assistant tool_call missing id (index %d)", i)
-				}
-				if tc.Function.Name == "" {
-					return fmt.Errorf("deepseek: assistant tool_call missing function.name (index %d)", i)
-				}
+		for _, tc := range m.ToolCalls {
+			if tc.ID == "" {
+				return fmt.Errorf("deepseek: assistant tool_call missing id (index %d)", i)
 			}
+			if tc.Function.Name == "" {
+				return fmt.Errorf("deepseek: assistant tool_call missing function.name (index %d)", i)
+			}
+			known[tc.ID] = true
 		}
 	}
 	for i, m := range messages {
@@ -167,6 +166,9 @@ func validateToolHistory(messages []llm.Message) error {
 		}
 		if m.ToolCallID == "" {
 			return fmt.Errorf("deepseek: tool message missing tool_call_id (index %d)", i)
+		}
+		if !known[m.ToolCallID] {
+			return fmt.Errorf("deepseek: tool message references unknown tool_call_id %q (index %d)", m.ToolCallID, i)
 		}
 	}
 	return nil

@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -105,11 +106,14 @@ func (m *Manager) Resolve(rel string) (string, error) {
 	if rel == "" || rel == "." {
 		return root, nil
 	}
-	clean := filepath.Clean("/" + strings.ReplaceAll(rel, "\\", "/"))
-	clean = strings.TrimPrefix(clean, "/")
+	clean := filepath.Clean(strings.ReplaceAll(rel, "\\", "/"))
+	if clean == ".." || strings.HasPrefix(clean, "../") ||
+		filepath.IsAbs(clean) || strings.HasPrefix(clean, "/") {
+		return "", fmt.Errorf("path escapes workspace: %s", rel)
+	}
 	full := filepath.Clean(filepath.Join(root, clean))
 	relToRoot, err := filepath.Rel(root, full)
-	if err != nil || strings.HasPrefix(relToRoot, "..") {
+	if err != nil || relToRoot == ".." || strings.HasPrefix(relToRoot, ".."+string(filepath.Separator)) {
 		return "", fmt.Errorf("path escapes workspace")
 	}
 	return full, nil
@@ -149,6 +153,9 @@ func (m *Manager) ListDir(rel string) ([]Entry, error) {
 }
 
 const maxReadBytes = 512 * 1024
+
+// errSearchLimit stops the file walk early once enough results are collected.
+var errSearchLimit = errors.New("search limit reached")
 
 func (m *Manager) ReadFile(rel string) (string, error) {
 	full, err := m.Resolve(rel)
@@ -253,7 +260,7 @@ func (m *Manager) SearchFiles(query string, limit int) ([]string, error) {
 		if strings.Contains(strings.ToLower(rel), q) {
 			hits = append(hits, rel)
 			if len(hits) >= limit {
-				return fmt.Errorf("done")
+				return errSearchLimit
 			}
 			return nil
 		}
@@ -269,12 +276,12 @@ func (m *Manager) SearchFiles(query string, limit int) ([]string, error) {
 		if strings.Contains(strings.ToLower(string(data)), q) {
 			hits = append(hits, rel)
 			if len(hits) >= limit {
-				return fmt.Errorf("done")
+				return errSearchLimit
 			}
 		}
 		return nil
 	})
-	if err != nil && err.Error() != "done" {
+	if err != nil && !errors.Is(err, errSearchLimit) {
 		return hits, err
 	}
 	return hits, nil
