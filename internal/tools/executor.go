@@ -122,10 +122,10 @@ func (r *Registry) Execute(ctx context.Context, call llm.ToolCall) (string, erro
 // Specs returns OpenAI-shaped tool definitions.
 func Specs() []llm.ToolSpec {
 	return []llm.ToolSpec{
-		fn("read_file", "Read a file from the workspace", map[string]any{
+		fn("read_file", "Read a file from the workspace. Path must exist — if unsure, list_dir or search_files first. On not found, the tool returns sibling filenames.", map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"path": map[string]any{"type": "string", "description": "Relative path"},
+				"path": map[string]any{"type": "string", "description": "Existing relative path, e.g. internal/config/store.go"},
 			},
 			"required": []string{"path"},
 		}),

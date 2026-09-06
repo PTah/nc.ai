@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
 	"notcursor.ai/app/internal/agent"
+	"notcursor.ai/app/internal/chatstore"
 	"notcursor.ai/app/internal/config"
 	"notcursor.ai/app/internal/llm"
 	"notcursor.ai/app/internal/llm/providers/deepseek"
@@ -25,12 +27,14 @@ type App struct {
 	ws    *workspace.Manager
 	tools *tools.Registry
 	llm   llm.Provider
+	chats *chatstore.Store
 
-	mu       sync.Mutex
-	cancel   context.CancelFunc
-	history  []llm.Message
-	term     *shell.Session
-	sshDir   string
+	mu        sync.Mutex
+	cancels   map[string]context.CancelFunc
+	sessionID string
+	history   []llm.Message
+	term      *shell.Session
+	sshDir    string
 }
 
 func NewApp() *App {
@@ -38,6 +42,7 @@ func NewApp() *App {
 		cfg:     config.NewStore(),
 		ws:      workspace.NewManager(),
 		history: []llm.Message{},
+		cancels: map[string]context.CancelFunc{},
 	}
 }
 
@@ -48,11 +53,13 @@ func (a *App) startup(ctx context.Context) {
 	if err == nil {
 		a.sshDir = sshDir
 	}
+	if base, err := a.cfg.AppDataDir(); err == nil {
+		a.chats, _ = chatstore.New(base)
+	}
 	a.tools = tools.NewRegistry(a.ws, a.sshDir)
 	a.applyGitAuth()
 	a.refreshProvider()
 
-	// restore recent projects into workspace list (not auto-active)
 	for _, p := range a.cfg.Get().RecentProjects {
 		_, _ = a.ws.Open(p)
 	}
@@ -83,6 +90,11 @@ func (a *App) emit(evt agent.Event) {
 	runtime.EventsEmit(a.ctx, "agent:event", evt)
 }
 
+func (a *App) emitFor(sessionID string, evt agent.Event) {
+	evt.SessionID = sessionID
+	a.emit(evt)
+}
+
 func (a *App) emitTerm(data string) {
 	if a.ctx == nil {
 		return
@@ -95,7 +107,7 @@ func (a *App) emitTerm(data string) {
 func (a *App) AppInfo() map[string]string {
 	return map[string]string{
 		"name":    "NotCursor.ai",
-		"version": "0.1.5",
+		"version": "0.1.6",
 		"stage":   "1-deepseek-agent",
 	}
 }
@@ -110,6 +122,8 @@ func (a *App) GetSettings() map[string]any {
 		"gitUsername":    s.GitUsername,
 		"gitPasswordSet": s.GitPassword != "",
 		"showTerminal":   s.ShowTerminal,
+		"showFiles":      a.cfg.FilesVisible(),
+		"visionModel":    deepseek.VisionModel,
 	}
 }
 
@@ -121,6 +135,10 @@ func (a *App) SaveShowTerminal(show bool) error {
 		a.StopTerminal()
 	}
 	return nil
+}
+
+func (a *App) SaveShowFiles(show bool) error {
+	return a.cfg.SetShowFiles(show)
 }
 
 func (a *App) SaveDeepSeekKey(apiKey string) error {
@@ -165,7 +183,6 @@ func (a *App) OpenProject(path string) (*workspace.Project, error) {
 		return nil, err
 	}
 	_ = a.cfg.AddRecentProject(p.Path)
-	// Interactive PowerShell session starts only when terminal panel is shown.
 	return p, nil
 }
 
@@ -181,41 +198,275 @@ func (a *App) WriteFile(rel, content string) error {
 	return a.ws.WriteFile(rel, content)
 }
 
-// --- agent ---
+// --- chat sessions (multitasking) ---
+
+func (a *App) projectKey() string {
+	root, err := a.ws.ActiveRoot()
+	if err != nil {
+		return ""
+	}
+	return root
+}
+
+func (a *App) loadActiveIntoMemory() error {
+	if a.chats == nil {
+		a.mu.Lock()
+		a.history = nil
+		a.sessionID = ""
+		a.mu.Unlock()
+		return nil
+	}
+	b, err := a.chats.List(a.projectKey())
+	if err != nil {
+		return err
+	}
+	sess, err := a.chats.Get(a.projectKey(), b.ActiveID)
+	if err != nil {
+		return err
+	}
+	a.mu.Lock()
+	a.sessionID = sess.ID
+	a.history = append([]llm.Message{}, sess.History...)
+	a.mu.Unlock()
+	return nil
+}
+
+// ListChatSessions returns all chat tabs for the active project.
+func (a *App) ListChatSessions() (*chatstore.ProjectBundle, error) {
+	if a.chats == nil {
+		return &chatstore.ProjectBundle{Sessions: nil}, nil
+	}
+	b, err := a.chats.List(a.projectKey())
+	if err != nil {
+		return nil, err
+	}
+	_ = a.loadActiveIntoMemory()
+	return b, nil
+}
+
+// NewChatSession creates a new empty chat tab and makes it active.
+func (a *App) NewChatSession(title string) (*chatstore.Session, error) {
+	if a.chats == nil {
+		return nil, fmt.Errorf("chat store unavailable")
+	}
+	sess, err := a.chats.NewSession(a.projectKey(), title)
+	if err != nil {
+		return nil, err
+	}
+	a.mu.Lock()
+	a.sessionID = sess.ID
+	a.history = nil
+	a.mu.Unlock()
+	return sess, nil
+}
+
+// SwitchChatSession activates a tab and returns its UI transcript JSON.
+func (a *App) SwitchChatSession(sessionID string) (string, error) {
+	if a.chats == nil {
+		return "[]", nil
+	}
+	if err := a.chats.SetActive(a.projectKey(), sessionID); err != nil {
+		return "[]", err
+	}
+	sess, err := a.chats.Get(a.projectKey(), sessionID)
+	if err != nil {
+		return "[]", err
+	}
+	a.mu.Lock()
+	a.sessionID = sess.ID
+	a.history = append([]llm.Message{}, sess.History...)
+	a.mu.Unlock()
+	if sess.ItemsJSON == "" {
+		return "[]", nil
+	}
+	return sess.ItemsJSON, nil
+}
+
+// DeleteChatSession removes a tab; returns the new active transcript JSON.
+func (a *App) DeleteChatSession(sessionID string) (string, error) {
+	if a.chats == nil {
+		return "[]", nil
+	}
+	a.StopAgentSession(sessionID)
+	if err := a.chats.DeleteSession(a.projectKey(), sessionID); err != nil {
+		return "[]", err
+	}
+	b, err := a.chats.List(a.projectKey())
+	if err != nil {
+		return "[]", err
+	}
+	return a.SwitchChatSession(b.ActiveID)
+}
 
 func (a *App) ClearChat() {
 	a.mu.Lock()
+	sid := a.sessionID
 	a.history = nil
 	a.mu.Unlock()
+	a.StopAgentSession(sid)
+	if a.chats != nil {
+		_ = a.chats.Clear(a.projectKey())
+		_ = a.loadActiveIntoMemory()
+	}
+}
+
+// LoadChat returns persisted UI transcript JSON for the active (or given) project.
+func (a *App) LoadChat(projectPath string) (string, error) {
+	if a.chats == nil {
+		return "[]", nil
+	}
+	if projectPath == "" {
+		projectPath = a.projectKey()
+	}
+	b, err := a.chats.List(projectPath)
+	if err != nil {
+		return "[]", err
+	}
+	sess, err := a.chats.Get(projectPath, b.ActiveID)
+	if err != nil {
+		return "[]", err
+	}
+	a.mu.Lock()
+	a.sessionID = sess.ID
+	a.history = append([]llm.Message{}, sess.History...)
+	a.mu.Unlock()
+	if sess.ItemsJSON == "" {
+		return "[]", nil
+	}
+	return sess.ItemsJSON, nil
+}
+
+// SaveChat persists UI transcript + current LLM history for the active session.
+func (a *App) SaveChat(itemsJSON string) error {
+	if a.chats == nil {
+		return nil
+	}
+	a.mu.Lock()
+	hist := append([]llm.Message{}, a.history...)
+	sid := a.sessionID
+	a.mu.Unlock()
+	if sid == "" {
+		return a.chats.Save(&chatstore.State{
+			Project:   a.projectKey(),
+			ItemsJSON: itemsJSON,
+			History:   hist,
+		})
+	}
+	sess, err := a.chats.Get(a.projectKey(), sid)
+	if err != nil {
+		return a.chats.Save(&chatstore.State{
+			Project:   a.projectKey(),
+			ItemsJSON: itemsJSON,
+			History:   hist,
+		})
+	}
+	sess.ItemsJSON = itemsJSON
+	sess.History = hist
+	if sess.Title == "" || sess.Title == "Chat" || sess.Title == "Chat 1" {
+		if t := titleFromItemsJSON(itemsJSON); t != "" {
+			sess.Title = t
+		}
+	}
+	return a.chats.SaveSession(a.projectKey(), sess)
+}
+
+// SaveChatSession persists a specific session transcript from the UI (multitasking).
+func (a *App) SaveChatSession(sessionID, itemsJSON string) error {
+	if a.chats == nil || sessionID == "" {
+		return nil
+	}
+	sess, err := a.chats.Get(a.projectKey(), sessionID)
+	if err != nil {
+		return err
+	}
+	sess.ItemsJSON = itemsJSON
+	a.mu.Lock()
+	if a.sessionID == sessionID {
+		sess.History = append([]llm.Message{}, a.history...)
+	}
+	a.mu.Unlock()
+	if t := titleFromItemsJSON(itemsJSON); t != "" && (sess.Title == "" || sess.Title == "Chat" || sess.Title == "Chat 1") {
+		sess.Title = t
+	}
+	return a.chats.SaveSession(a.projectKey(), sess)
+}
+
+func titleFromItemsJSON(itemsJSON string) string {
+	type peek struct {
+		Kind    string `json:"kind"`
+		Content string `json:"content"`
+	}
+	var items []peek
+	if err := json.Unmarshal([]byte(itemsJSON), &items); err != nil {
+		return ""
+	}
+	for _, it := range items {
+		if it.Kind == "user" && it.Content != "" {
+			runes := []rune(it.Content)
+			if len(runes) > 40 {
+				return string(runes[:40]) + "…"
+			}
+			return string(runes)
+		}
+	}
+	return ""
 }
 
 func (a *App) StopAgent() {
 	a.mu.Lock()
-	if a.cancel != nil {
-		a.cancel()
-		a.cancel = nil
-	}
+	sid := a.sessionID
 	a.mu.Unlock()
+	a.StopAgentSession(sid)
+}
+
+func (a *App) StopAgentSession(sessionID string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if sessionID == "" {
+		for id, c := range a.cancels {
+			if c != nil {
+				c()
+			}
+			delete(a.cancels, id)
+		}
+		return
+	}
+	if c := a.cancels[sessionID]; c != nil {
+		c()
+		delete(a.cancels, sessionID)
+	}
 }
 
 // RunAgent starts the DeepSeek tool-using agent loop. Progress via event "agent:event".
 func (a *App) RunAgent(userMessage string) error {
+	return a.RunAgentWithAttachments(userMessage, nil)
+}
+
+// RunAgentWithAttachments accepts pasted/dropped images and files (multimodal + text inline).
+func (a *App) RunAgentWithAttachments(userMessage string, attachments []agent.Attachment) error {
 	if a.cfg.Get().DeepSeekAPIKey == "" {
 		return fmt.Errorf("DeepSeek API key is not set")
 	}
 	if a.llm == nil {
 		return fmt.Errorf("LLM provider is not configured")
 	}
-	if _, err := a.ws.ActiveRoot(); err != nil {
-		// allow chat without project, but tools needing workspace will fail
-	}
+	_, _ = a.ws.ActiveRoot()
 
 	a.mu.Lock()
-	if a.cancel != nil {
-		a.cancel()
+	sid := a.sessionID
+	if sid == "" && a.chats != nil {
+		_ = a.loadActiveIntoMemoryUnlocked()
+		sid = a.sessionID
+	}
+	if sid == "" {
+		sid = "default"
+		a.sessionID = sid
+	}
+	if old := a.cancels[sid]; old != nil {
+		old()
 	}
 	ctx, cancel := context.WithCancel(a.ctx)
-	a.cancel = cancel
+	a.cancels[sid] = cancel
 	hist := append([]llm.Message{}, a.history...)
 	a.mu.Unlock()
 
@@ -226,19 +477,52 @@ func (a *App) RunAgent(userMessage string) error {
 	}
 
 	go func() {
-		newHist, err := runner.Run(ctx, hist, userMessage, a.emit)
+		emit := func(evt agent.Event) {
+			a.emitFor(sid, evt)
+		}
+		var newHist []llm.Message
+		var err error
+		if len(attachments) > 0 {
+			newHist, err = runner.RunWithAttachments(ctx, hist, userMessage, attachments, emit)
+		} else {
+			newHist, err = runner.Run(ctx, hist, userMessage, emit)
+		}
 		a.mu.Lock()
-		if err == nil {
-			a.history = newHist
-		} else if len(newHist) > 0 {
-			a.history = newHist
+		if a.sessionID == sid {
+			if err == nil || len(newHist) > 0 {
+				a.history = newHist
+			}
 		}
-		a.cancel = nil
+		delete(a.cancels, sid)
 		a.mu.Unlock()
-		if err != nil && ctx.Err() == nil {
-			a.emit(agent.Event{Type: "error", Content: err.Error()})
+
+		// Persist LLM history into the session even if UI switched away.
+		if a.chats != nil && (err == nil || len(newHist) > 0) {
+			if sess, gerr := a.chats.Get(a.projectKey(), sid); gerr == nil {
+				sess.History = newHist
+				_ = a.chats.SaveSession(a.projectKey(), sess)
+			}
 		}
+		a.emitFor(sid, agent.Event{Type: "persist", Content: "1"})
 	}()
+	return nil
+}
+
+// loadActiveIntoMemoryUnlocked assumes caller may or may not hold lock — only used carefully.
+func (a *App) loadActiveIntoMemoryUnlocked() error {
+	if a.chats == nil {
+		return nil
+	}
+	b, err := a.chats.List(a.projectKey())
+	if err != nil {
+		return err
+	}
+	sess, err := a.chats.Get(a.projectKey(), b.ActiveID)
+	if err != nil {
+		return err
+	}
+	a.sessionID = sess.ID
+	a.history = append([]llm.Message{}, sess.History...)
 	return nil
 }
 

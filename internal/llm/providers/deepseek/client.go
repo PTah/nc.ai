@@ -13,8 +13,9 @@ import (
 )
 
 const (
-	DefaultBaseURL = "https://api.deepseek.com"
-	DefaultModel   = "deepseek-v4-flash"
+	DefaultBaseURL   = "https://api.deepseek.com"
+	DefaultModel     = "deepseek-v4-flash"
+	VisionModel      = "deepseek-v4-flash-vision-exp"
 )
 
 // Client talks to DeepSeek OpenAI-compatible Chat Completions API.

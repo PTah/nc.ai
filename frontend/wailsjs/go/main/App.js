@@ -14,8 +14,16 @@ export function ClearChat() {
   return window['go']['main']['App']['ClearChat']();
 }
 
+export function DeleteChatSession(arg1) {
+  return window['go']['main']['App']['DeleteChatSession'](arg1);
+}
+
 export function GetSettings() {
   return window['go']['main']['App']['GetSettings']();
+}
+
+export function ListChatSessions() {
+  return window['go']['main']['App']['ListChatSessions']();
 }
 
 export function ListDir(arg1) {
@@ -24,6 +32,14 @@ export function ListDir(arg1) {
 
 export function ListProjects() {
   return window['go']['main']['App']['ListProjects']();
+}
+
+export function LoadChat(arg1) {
+  return window['go']['main']['App']['LoadChat'](arg1);
+}
+
+export function NewChatSession(arg1) {
+  return window['go']['main']['App']['NewChatSession'](arg1);
 }
 
 export function OpenProject(arg1) {
@@ -42,6 +58,10 @@ export function RunAgent(arg1) {
   return window['go']['main']['App']['RunAgent'](arg1);
 }
 
+export function RunAgentWithAttachments(arg1, arg2) {
+  return window['go']['main']['App']['RunAgentWithAttachments'](arg1, arg2);
+}
+
 export function RunShell(arg1) {
   return window['go']['main']['App']['RunShell'](arg1);
 }
@@ -52,6 +72,14 @@ export function SSHKeygen(arg1) {
 
 export function SSHListKeys() {
   return window['go']['main']['App']['SSHListKeys']();
+}
+
+export function SaveChat(arg1) {
+  return window['go']['main']['App']['SaveChat'](arg1);
+}
+
+export function SaveChatSession(arg1, arg2) {
+  return window['go']['main']['App']['SaveChatSession'](arg1, arg2);
 }
 
 export function SaveDeepSeekKey(arg1) {
@@ -66,6 +94,10 @@ export function SaveGitAuth(arg1, arg2) {
   return window['go']['main']['App']['SaveGitAuth'](arg1, arg2);
 }
 
+export function SaveShowFiles(arg1) {
+  return window['go']['main']['App']['SaveShowFiles'](arg1);
+}
+
 export function SaveShowTerminal(arg1) {
   return window['go']['main']['App']['SaveShowTerminal'](arg1);
 }
@@ -78,8 +110,16 @@ export function StopAgent() {
   return window['go']['main']['App']['StopAgent']();
 }
 
+export function StopAgentSession(arg1) {
+  return window['go']['main']['App']['StopAgentSession'](arg1);
+}
+
 export function StopTerminal() {
   return window['go']['main']['App']['StopTerminal']();
+}
+
+export function SwitchChatSession(arg1) {
+  return window['go']['main']['App']['SwitchChatSession'](arg1);
 }
 
 export function TerminalWrite(arg1) {

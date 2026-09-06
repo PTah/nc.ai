@@ -18,6 +18,13 @@ type Settings struct {
 	GitPassword    string   `json:"gitPassword"`
 	SSHUser        string   `json:"sshUser"`
 	ShowTerminal   bool     `json:"showTerminal"`
+	// ShowFiles: nil = default true (visible). Explicit false remembers Hide files.
+	ShowFiles *bool `json:"showFiles,omitempty"`
+
+	// All-time API usage counters backing the USD spend counter in the top bar.
+	TotalCostUSD  float64 `json:"totalCostUsd"`
+	TotalInputTokens int     `json:"totalInputTokens"`
+	TotalOutputTokens int     `json:"totalOutputTokens"`
 }
 
 type Store struct {
@@ -137,6 +144,23 @@ func (s *Store) SetShowTerminal(show bool) error {
 	return s.Save()
 }
 
+func (s *Store) FilesVisible() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.settings.ShowFiles == nil {
+		return true
+	}
+	return *s.settings.ShowFiles
+}
+
+func (s *Store) SetShowFiles(show bool) error {
+	s.mu.Lock()
+	v := show
+	s.settings.ShowFiles = &v
+	s.mu.Unlock()
+	return s.Save()
+}
+
 func (s *Store) AddRecentProject(path string) error {
 	s.mu.Lock()
 	out := []string{path}
@@ -149,6 +173,17 @@ func (s *Store) AddRecentProject(path string) error {
 		out = out[:20]
 	}
 	s.settings.RecentProjects = out
+	s.mu.Unlock()
+	return s.Save()
+}
+
+// AddUsage accumulates all-time API spend (USD) and token counters and
+// persists them to settings.json so the counter survives app restarts.
+func (s *Store) AddUsage(costUSD float64, inputTokens, outputTokens int) error {
+	s.mu.Lock()
+	s.settings.TotalCostUSD += costUSD
+	s.settings.TotalInputTokens += inputTokens
+	s.settings.TotalOutputTokens += outputTokens
 	s.mu.Unlock()
 	return s.Save()
 }

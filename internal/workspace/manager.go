@@ -157,12 +157,46 @@ func (m *Manager) ReadFile(rel string) (string, error) {
 	}
 	data, err := os.ReadFile(full)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return "", m.notFoundHint(rel, full)
+		}
 		return "", err
 	}
 	if len(data) > maxReadBytes {
 		return string(data[:maxReadBytes]) + "\n\n/* truncated */", nil
 	}
 	return string(data), nil
+}
+
+func (m *Manager) notFoundHint(rel, full string) error {
+	dir := filepath.Dir(full)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return fmt.Errorf("file not found: %s (and directory listing failed: %v)", rel, err)
+	}
+	want := strings.ToLower(filepath.Base(rel))
+	var names []string
+	var similar []string
+	for _, e := range entries {
+		n := e.Name()
+		names = append(names, n)
+		ln := strings.ToLower(n)
+		if strings.Contains(ln, strings.TrimSuffix(want, filepath.Ext(want))) ||
+			strings.Contains(want, strings.TrimSuffix(ln, filepath.Ext(ln))) {
+			similar = append(similar, n)
+		}
+	}
+	msg := fmt.Sprintf("file not found: %s", rel)
+	if len(similar) > 0 {
+		msg += fmt.Sprintf("\nDid you mean: %s", strings.Join(similar, ", "))
+	}
+	if len(names) > 0 {
+		msg += fmt.Sprintf("\nFiles in %s: %s", filepath.ToSlash(filepath.Dir(rel)), strings.Join(names, ", "))
+	} else {
+		msg += "\nDirectory is empty or missing."
+	}
+	msg += "\nUse list_dir or search_files — do not invent paths."
+	return fmt.Errorf("%s", msg)
 }
 
 func (m *Manager) WriteFile(rel, content string) error {

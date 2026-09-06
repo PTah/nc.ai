@@ -23,7 +23,7 @@ func (m *Message) UnmarshalJSON(data []byte) error {
 	m.Name = w.Name
 	m.ToolCallID = w.ToolCallID
 	m.ToolCalls = w.ToolCalls
-	m.Content = parseContent(w.Content)
+	m.Content, m.Parts = parseContentParts(w.Content)
 	if w.ReasoningContent != nil {
 		m.ReasoningContent = *w.ReasoningContent
 	} else {
@@ -33,13 +33,13 @@ func (m *Message) UnmarshalJSON(data []byte) error {
 }
 
 func (m Message) MarshalJSON() ([]byte, error) {
-	// DeepSeek canon: append assistant message as returned.
-	// - content may be null when tool_calls present and text empty
-	// - reasoning_content must round-trip whenever tools are used in the request
 	var content any
-	if m.Role == "assistant" && len(m.ToolCalls) > 0 && m.Content == "" {
+	switch {
+	case len(m.Parts) > 0:
+		content = m.Parts
+	case m.Role == "assistant" && len(m.ToolCalls) > 0 && m.Content == "":
 		content = nil
-	} else {
+	default:
 		content = m.Content
 	}
 
@@ -58,34 +58,31 @@ func (m Message) MarshalJSON() ([]byte, error) {
 		ToolCallID: m.ToolCallID,
 		ToolCalls:  m.ToolCalls,
 	}
-	// Always include reasoning_content for assistant turns when non-empty
-	// (required when subsequent requests carry tools).
 	if m.Role == "assistant" && m.ReasoningContent != "" {
 		out.ReasoningContent = m.ReasoningContent
 	}
 	return json.Marshal(out)
 }
 
-func parseContent(raw json.RawMessage) string {
+func parseContentParts(raw json.RawMessage) (string, []ContentPart) {
 	if len(raw) == 0 || string(raw) == "null" {
-		return ""
+		return "", nil
 	}
 	var s string
 	if err := json.Unmarshal(raw, &s); err == nil {
-		return s
+		return s, nil
 	}
-	var parts []struct {
-		Type string `json:"type"`
-		Text string `json:"text"`
-	}
+	var parts []ContentPart
 	if err := json.Unmarshal(raw, &parts); err == nil {
 		var b strings.Builder
 		for _, p := range parts {
-			b.WriteString(p.Text)
+			if p.Type == "text" {
+				b.WriteString(p.Text)
+			}
 		}
-		return b.String()
+		return b.String(), parts
 	}
-	return strings.TrimSpace(string(raw))
+	return strings.TrimSpace(string(raw)), nil
 }
 
 func (f *FunctionCall) UnmarshalJSON(data []byte) error {
@@ -106,7 +103,6 @@ func (f *FunctionCall) UnmarshalJSON(data []byte) error {
 		f.Arguments = s
 		return nil
 	}
-	// Some gateways return arguments as object — canonicalize to JSON string.
 	f.Arguments = string(w.Arguments)
 	return nil
 }
@@ -116,7 +112,6 @@ func (f FunctionCall) MarshalJSON() ([]byte, error) {
 	if args == "" {
 		args = "{}"
 	}
-	// Protocol: arguments MUST be a JSON string, never a nested object.
 	return json.Marshal(struct {
 		Name      string `json:"name"`
 		Arguments string `json:"arguments"`

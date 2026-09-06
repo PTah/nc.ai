@@ -7,22 +7,30 @@ import {
   AppInfo,
   ChatOnce,
   ClearChat,
+  DeleteChatSession,
   GetSettings,
+  ListChatSessions,
   ListDir,
+  NewChatSession,
   OpenProject,
   PickProjectDir,
   ReadFile,
-  RunAgent,
+  RunAgentWithAttachments,
   RunShell,
   SaveDeepSeekKey,
   SaveDeepSeekModel,
   SaveGitAuth,
   SaveShowTerminal,
+  SaveShowFiles,
+  SaveChat,
+  SaveChatSession,
+  LoadChat,
   SSHKeygen,
   SSHListKeys,
   StartTerminal,
   StopAgent,
   StopTerminal,
+  SwitchChatSession,
   TerminalWrite,
   ListProjects,
 } from '../wailsjs/go/main/App'
@@ -31,15 +39,33 @@ import {EventsOn, EventsOff} from '../wailsjs/runtime/runtime'
 type Project = { name: string; path: string; opened?: string }
 type FileEntry = { name: string; path: string; isDir: boolean }
 type ChatItem =
-  | { kind: 'user' | 'assistant' | 'system' | 'reasoning'; content: string }
+  | { kind: 'user' | 'assistant' | 'system' | 'reasoning'; content: string; attachments?: ChatAttPreview[] }
   | { kind: 'tool'; name: string; args: string; result?: string; phase: 'running' | 'done'; ok?: boolean }
   | { kind: 'file'; path: string; content: string }
+
+type ChatAttPreview = {
+  name: string
+  mime?: string
+  isImage: boolean
+  dataUrl?: string
+}
+
+type PendingAtt = ChatAttPreview & {
+  id: string
+  text?: string
+}
+
+type ChatSessionMeta = {
+  id: string
+  title: string
+}
 
 type AgentEvent = {
   type: string
   content?: string
   name?: string
   ok?: boolean
+  sessionId?: string
 }
 
 function asList<T>(v: T[] | null | undefined): T[] {
@@ -93,6 +119,81 @@ function ToolCard({item}: {item: Extract<ChatItem, {kind: 'tool'}>}) {
   )
 }
 
+function summarizeTools(tools: Extract<ChatItem, {kind: 'tool'}>[]): string {
+  const counts: Record<string, number> = {}
+  let failed = 0
+  for (const t of tools) {
+    counts[t.name] = (counts[t.name] || 0) + 1
+    if (t.ok === false) failed++
+  }
+  const labels: Record<string, [string, string]> = {
+    read_file: ['file read', 'files read'],
+    list_dir: ['dir listed', 'dirs listed'],
+    write_file: ['file written', 'files written'],
+    search_files: ['search', 'searches'],
+    run_terminal: ['command', 'commands'],
+    git_status: ['git status', 'git status'],
+    git_diff: ['git diff', 'git diffs'],
+    git_commit: ['commit', 'commits'],
+    git_push: ['push', 'pushes'],
+    ssh_exec: ['ssh', 'ssh'],
+    ssh_keygen: ['key', 'keys'],
+  }
+  const parts: string[] = []
+  for (const [name, n] of Object.entries(counts)) {
+    const [one, many] = labels[name] || [name, name]
+    parts.push(`${n} ${n === 1 ? one : many}`)
+  }
+  let s = `Explored · ${parts.join(', ')}`
+  if (failed) s += ` · ${failed} failed`
+  return s
+}
+
+type DisplayRow =
+  | { key: string; kind: 'item'; item: ChatItem }
+  | { key: string; kind: 'tool_group'; tools: Extract<ChatItem, {kind: 'tool'}>[]; summary: string }
+
+/** Collapse consecutive completed tools into one Cursor-like summary (running tools stay visible). */
+function buildDisplayRows(items: ChatItem[]): DisplayRow[] {
+  const rows: DisplayRow[] = []
+  let i = 0
+  const list = asList(items)
+  while (i < list.length) {
+    const m = list[i]
+    if (m.kind === 'tool' && m.phase === 'done') {
+      const group: Extract<ChatItem, {kind: 'tool'}>[] = []
+      while (i < list.length && list[i].kind === 'tool' && (list[i] as Extract<ChatItem, {kind: 'tool'}>).phase === 'done') {
+        group.push(list[i] as Extract<ChatItem, {kind: 'tool'}>)
+        i++
+      }
+      if (group.length === 1) {
+        rows.push({key: `t-${i - 1}`, kind: 'item', item: group[0]})
+      } else {
+        rows.push({key: `g-${i - group.length}`, kind: 'tool_group', tools: group, summary: summarizeTools(group)})
+      }
+      continue
+    }
+    rows.push({key: `i-${i}`, kind: 'item', item: m})
+    i++
+  }
+  return rows
+}
+
+function ToolGroup({summary, tools}: {summary: string; tools: Extract<ChatItem, {kind: 'tool'}>[]}) {
+  return (
+    <details className="nc-msg tool-group">
+      <summary className="nc-tool-group-sum">
+        <span className="nc-tool-icon">✓</span>
+        <span className="nc-tool-title">{summary}</span>
+        <span className="nc-tool-name">{tools.length} steps</span>
+      </summary>
+      <div className="nc-tool-group-body">
+        {tools.map((t, idx) => <ToolCard key={idx} item={t} />)}
+      </div>
+    </details>
+  )
+}
+
 function ThinkingBlock({content}: {content: string}) {
   return (
     <details className="nc-msg reasoning" open>
@@ -122,13 +223,14 @@ function parseAgentEvent(...args: unknown[]): AgentEvent | null {
       content: inner.content != null ? String(inner.content) : inner.Content != null ? String(inner.Content) : '',
       name: inner.name != null ? String(inner.name) : inner.Name != null ? String(inner.Name) : '',
       ok: Boolean(inner.ok ?? inner.OK),
+      sessionId: inner.sessionId != null ? String(inner.sessionId) : inner.SessionID != null ? String(inner.SessionID) : '',
     }
   }
   return null
 }
 
 export default function App() {
-  const [info, setInfo] = useState({name: 'NotCursor.ai', version: '0.1.5'})
+  const [info, setInfo] = useState({name: 'NotCursor.ai', version: '0.1.6'})
   const [projects, setProjects] = useState<Project[]>([])
   const [active, setActive] = useState<Project | null>(null)
   const [files, setFiles] = useState<FileEntry[]>([])
@@ -136,11 +238,13 @@ export default function App() {
   const [showTree, setShowTree] = useState(true)
   const [showTerm, setShowTerm] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
-  const [items, setItems] = useState<ChatItem[]>([
-    {kind: 'system', content: 'Чат с агентом. Откройте проект, сохраните API key и дайте задачу — агент сам работает с файлами, git и shell через tools.'},
-  ])
+  const [sessions, setSessions] = useState<ChatSessionMeta[]>([])
+  const [activeSessionId, setActiveSessionId] = useState('')
+  const [itemsBySession, setItemsBySession] = useState<Record<string, ChatItem[]>>({})
+  const [busyBySession, setBusyBySession] = useState<Record<string, boolean>>({})
+  const [pendingAtts, setPendingAtts] = useState<PendingAtt[]>([])
+  const [dragOver, setDragOver] = useState(false)
   const [input, setInput] = useState('')
-  const [busy, setBusy] = useState(false)
   const [apiKey, setApiKey] = useState('')
   const [model, setModel] = useState('deepseek-v4-flash')
   const [keySet, setKeySet] = useState(false)
@@ -150,9 +254,26 @@ export default function App() {
   const [termCmd, setTermCmd] = useState('')
   const chatRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<HTMLDivElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const xtermRef = useRef<Terminal | null>(null)
   const fitRef = useRef<FitAddon | null>(null)
-  const assistantBuf = useRef('')
+  const assistantBuf = useRef<Record<string, string>>({})
+  const activeSessionRef = useRef('')
+
+  const items = asList(activeSessionId ? itemsBySession[activeSessionId] : undefined)
+  const busy = Boolean(activeSessionId && busyBySession[activeSessionId])
+
+  useEffect(() => {
+    activeSessionRef.current = activeSessionId
+  }, [activeSessionId])
+
+  const setSessionItems = useCallback((sessionId: string, updater: (prev: ChatItem[]) => ChatItem[]) => {
+    if (!sessionId) return
+    setItemsBySession((prev) => ({
+      ...prev,
+      [sessionId]: updater(asList(prev[sessionId])),
+    }))
+  }, [])
 
   const refreshFiles = useCallback(async (root = '.') => {
     try {
@@ -171,6 +292,7 @@ export default function App() {
         if (typeof s.deepseekModel === 'string' && s.deepseekModel) setModel(s.deepseekModel)
         if (typeof s.gitUsername === 'string') setGitUser(s.gitUsername)
         setShowTerm(Boolean(s.showTerminal))
+        if (typeof s.showFiles === 'boolean') setShowTree(s.showFiles)
       }).catch(() => undefined)
       ListProjects().then((v) => setProjects(asList(v))).catch(() => undefined)
       SSHListKeys().then((v) => setSshKeys(asList(v))).catch(() => undefined)
@@ -185,11 +307,13 @@ export default function App() {
         try {
           const ev = parseAgentEvent(...args)
           if (!ev) return
+          const sid = ev.sessionId || activeSessionRef.current
+          if (!sid) return
           if (ev.type === 'delta') {
-            assistantBuf.current += ev.content || ''
-            const text = assistantBuf.current
-            setItems((prev) => {
-              const copy = [...asList(prev)]
+            assistantBuf.current[sid] = (assistantBuf.current[sid] || '') + (ev.content || '')
+            const text = assistantBuf.current[sid]
+            setSessionItems(sid, (prev) => {
+              const copy = [...prev]
               const last = copy[copy.length - 1]
               if (last && last.kind === 'assistant') {
                 copy[copy.length - 1] = {kind: 'assistant', content: text}
@@ -198,10 +322,9 @@ export default function App() {
               return [...copy, {kind: 'assistant', content: text}]
             })
           } else if (ev.type === 'reasoning') {
-            setItems((prev) => {
-              const copy = [...asList(prev)]
+            setSessionItems(sid, (prev) => {
+              const copy = [...prev]
               const last = copy[copy.length - 1]
-              // Append into last thinking block of this sub-turn if present
               if (last && last.kind === 'reasoning') {
                 copy[copy.length - 1] = {kind: 'reasoning', content: last.content + (ev.content || '')}
                 return copy
@@ -209,16 +332,16 @@ export default function App() {
               return [...copy, {kind: 'reasoning', content: ev.content || ''}]
             })
           } else if (ev.type === 'tool_start') {
-            assistantBuf.current = ''
-            setItems((prev) => [...asList(prev), {
+            assistantBuf.current[sid] = ''
+            setSessionItems(sid, (prev) => [...prev, {
               kind: 'tool',
               name: ev.name || 'tool',
               args: ev.content || '',
               phase: 'running',
             }])
           } else if (ev.type === 'tool_end') {
-            setItems((prev) => {
-              const copy = [...asList(prev)]
+            setSessionItems(sid, (prev) => {
+              const copy = [...prev]
               for (let i = copy.length - 1; i >= 0; i--) {
                 const it = copy[i]
                 if (it.kind === 'tool' && it.phase === 'running' && it.name === (ev.name || it.name)) {
@@ -242,13 +365,13 @@ export default function App() {
                 ok: ev.ok,
               }]
             })
-          } else if (ev.type === 'done') {
-            assistantBuf.current = ''
-            setBusy(false)
+          } else if (ev.type === 'done' || ev.type === 'persist') {
+            assistantBuf.current[sid] = ''
+            setBusyBySession((b) => ({...b, [sid]: false}))
           } else if (ev.type === 'error') {
-            assistantBuf.current = ''
-            setBusy(false)
-            setItems((prev) => [...asList(prev), {kind: 'system', content: `Error: ${ev.content || 'unknown'}`}])
+            assistantBuf.current[sid] = ''
+            setBusyBySession((b) => ({...b, [sid]: false}))
+            setSessionItems(sid, (prev) => [...prev, {kind: 'system', content: `Error: ${ev.content || 'unknown'}`}])
           }
         } catch (err) {
           console.error('agent event', err)
@@ -276,13 +399,183 @@ export default function App() {
         /* ignore */
       }
     }
-  }, [])
+  }, [setSessionItems])
 
   useEffect(() => {
     const el = chatRef.current
     if (!el) return
     el.scrollTop = el.scrollHeight
-  }, [items, busy])
+  }, [items, busy, activeSessionId])
+
+  // Persist active chat after quiet period
+  useEffect(() => {
+    if (!active || !activeSessionId) return
+    const t = window.setTimeout(() => {
+      SaveChatSession(activeSessionId, JSON.stringify(items)).catch(() => undefined)
+    }, 600)
+    return () => window.clearTimeout(t)
+  }, [items, active, activeSessionId])
+
+  async function refreshSessions() {
+    try {
+      const bundle = await ListChatSessions()
+      const list = asList(bundle?.sessions).map((s) => ({
+        id: String(s.id),
+        title: String(s.title || 'Chat'),
+      }))
+      setSessions(list)
+      const aid = String(bundle?.activeId || list[0]?.id || '')
+      if (aid) setActiveSessionId(aid)
+      return {list, activeId: aid, bundle}
+    } catch {
+      return {list: [] as ChatSessionMeta[], activeId: '', bundle: null}
+    }
+  }
+
+  async function restoreChat(projectPath: string) {
+    try {
+      const {list, activeId} = await refreshSessions()
+      const raw = await LoadChat(projectPath)
+      const parsed = JSON.parse(raw || '[]')
+      const chatItems: ChatItem[] = Array.isArray(parsed) && parsed.length > 0
+        ? parsed as ChatItem[]
+        : [{kind: 'system', content: 'Чат с агентом. История пуста — задайте задачу. Можно вставить скриншот (Ctrl+V) или перетащить файл.'}]
+      if (activeId) {
+        setItemsBySession((prev) => ({...prev, [activeId]: chatItems}))
+      } else if (list[0]) {
+        setItemsBySession((prev) => ({...prev, [list[0].id]: chatItems}))
+      }
+    } catch {
+      setItemsBySession({})
+      setSessions([])
+      setActiveSessionId('')
+    }
+  }
+
+  async function switchSession(id: string) {
+    if (!id || id === activeSessionId) return
+    if (activeSessionId) {
+      try {
+        await SaveChatSession(activeSessionId, JSON.stringify(items))
+      } catch { /* ignore */ }
+    }
+    try {
+      const raw = await SwitchChatSession(id)
+      const parsed = JSON.parse(raw || '[]')
+      const chatItems: ChatItem[] = Array.isArray(parsed) && parsed.length > 0
+        ? parsed as ChatItem[]
+        : [{kind: 'system', content: 'Новый чат. Задайте задачу или вставьте файл/скриншот.'}]
+      setActiveSessionId(id)
+      setItemsBySession((prev) => ({...prev, [id]: chatItems}))
+      setSessions((prev) => prev.map((s) => s.id === id ? s : s))
+      await refreshSessions()
+      setActiveSessionId(id)
+    } catch (e) {
+      setSessionItems(activeSessionId, (m) => [...m, {kind: 'system', content: String(e)}])
+    }
+  }
+
+  async function createSession() {
+    if (activeSessionId) {
+      try { await SaveChatSession(activeSessionId, JSON.stringify(items)) } catch { /* ignore */ }
+    }
+    const sess = await NewChatSession('')
+    const id = String(sess.id)
+    const empty: ChatItem[] = [{kind: 'system', content: 'Новый чат. Можно вести параллельные задачи в разных вкладках.'}]
+    setSessions((prev) => [...prev, {id, title: String(sess.title || 'Chat')}])
+    setItemsBySession((prev) => ({...prev, [id]: empty}))
+    setActiveSessionId(id)
+    await refreshSessions()
+    setActiveSessionId(id)
+  }
+
+  async function removeSession(id: string) {
+    if (sessions.length <= 1) {
+      await ClearChat()
+      const empty: ChatItem[] = [{kind: 'system', content: 'Чат очищен'}]
+      setSessionItems(id, () => empty)
+      return
+    }
+    const raw = await DeleteChatSession(id)
+    const parsed = JSON.parse(raw || '[]')
+    const {activeId} = await refreshSessions()
+    const chatItems: ChatItem[] = Array.isArray(parsed) && parsed.length > 0
+      ? parsed as ChatItem[]
+      : [{kind: 'system', content: 'Чат с агентом.'}]
+    if (activeId) {
+      setItemsBySession((prev) => {
+        const next = {...prev}
+        delete next[id]
+        next[activeId] = chatItems
+        return next
+      })
+      setActiveSessionId(activeId)
+    }
+  }
+
+  function readFileAsPending(file: File): Promise<PendingAtt> {
+    return new Promise((resolve, reject) => {
+      const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+      const isImage = file.type.startsWith('image/') || /\.(png|jpe?g|gif|webp|bmp)$/i.test(file.name)
+      if (isImage) {
+        const reader = new FileReader()
+        reader.onload = () => resolve({
+          id,
+          name: file.name || 'image.png',
+          mime: file.type || 'image/png',
+          isImage: true,
+          dataUrl: String(reader.result || ''),
+        })
+        reader.onerror = () => reject(reader.error)
+        reader.readAsDataURL(file)
+        return
+      }
+      // text-ish files inline; binary kept as name-only hint
+      const textLike = file.type.startsWith('text/')
+        || /\.(txt|md|json|ya?ml|toml|csv|go|ts|tsx|js|jsx|py|rs|java|c|cpp|h|cs|html|css|xml|sql|sh|ps1|log)$/i.test(file.name)
+        || file.type === 'application/json'
+        || file.type === 'application/xml'
+      if (textLike && file.size <= 512_000) {
+        const reader = new FileReader()
+        reader.onload = () => resolve({
+          id,
+          name: file.name || 'file.txt',
+          mime: file.type || 'text/plain',
+          isImage: false,
+          text: String(reader.result || ''),
+        })
+        reader.onerror = () => reject(reader.error)
+        reader.readAsText(file)
+        return
+      }
+      resolve({
+        id,
+        name: file.name || 'file.bin',
+        mime: file.type || 'application/octet-stream',
+        isImage: false,
+        text: `(binary file ${file.name}, ${file.size} bytes — save into the workspace and use tools)`,
+      })
+    })
+  }
+
+  async function addFiles(fileList: FileList | File[]) {
+    const arr = Array.from(fileList || [])
+    if (!arr.length) return
+    const next: PendingAtt[] = []
+    for (const f of arr) {
+      try {
+        next.push(await readFileAsPending(f))
+      } catch {
+        /* skip bad file */
+      }
+    }
+    if (next.length) setPendingAtts((p) => [...p, ...next])
+  }
+
+  useEffect(() => {
+    void restoreChat('')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
     if (!showTerm) {
@@ -345,20 +638,23 @@ export default function App() {
       if (!dir) return
       await openProject(dir)
     } catch (e) {
-      setItems((m) => [...asList(m), {kind: 'system', content: String(e)}])
+      if (activeSessionId) setSessionItems(activeSessionId, (m) => [...m, {kind: 'system', content: String(e)}])
     }
   }
 
   async function openProject(path: string) {
+    if (active && activeSessionId) {
+      try { await SaveChatSession(activeSessionId, JSON.stringify(items)) } catch { /* ignore */ }
+    }
     const p = await OpenProject(path)
     setActive(p)
     setProjects(asList(await ListProjects()))
     await refreshFiles('.')
+    await restoreChat(p.path)
     if (showTerm) {
       xtermRef.current?.writeln(`\r\n$ cd ${p.path}`)
       await StartTerminal()
     }
-    setItems((m) => [...asList(m), {kind: 'system', content: `Проект открыт: ${p.name}\n${p.path}`}])
   }
 
   async function toggleDir(path: string) {
@@ -378,9 +674,9 @@ export default function App() {
     try {
       const content = await ReadFile(path)
       const preview = content.length > 4000 ? content.slice(0, 4000) + '\n…' : content
-      setItems((m) => [...asList(m), {kind: 'file', path, content: preview}])
+      if (activeSessionId) setSessionItems(activeSessionId, (m) => [...m, {kind: 'file', path, content: preview}])
     } catch (e) {
-      setItems((m) => [...asList(m), {kind: 'system', content: String(e)}])
+      if (activeSessionId) setSessionItems(activeSessionId, (m) => [...m, {kind: 'system', content: String(e)}])
     }
   }
 
@@ -396,7 +692,7 @@ export default function App() {
       await SaveGitAuth(gitUser, gitPass)
       setGitPass('')
     }
-    setItems((m) => [...asList(m), {kind: 'system', content: 'Settings saved'}])
+    if (activeSessionId) setSessionItems(activeSessionId, (m) => [...m, {kind: 'system', content: 'Settings saved'}])
   }
 
   async function toggleTerminal(next: boolean) {
@@ -411,25 +707,43 @@ export default function App() {
   async function testConnect() {
     try {
       const r = await ChatOnce('ping')
-      setItems((m) => [...asList(m), {kind: 'system', content: `DeepSeek connect OK: ${r || '(empty content)'}`}])
+      if (activeSessionId) setSessionItems(activeSessionId, (m) => [...m, {kind: 'system', content: `DeepSeek connect OK: ${r || '(empty content)'}`}])
     } catch (e) {
-      setItems((m) => [...asList(m), {kind: 'system', content: `Connect failed: ${String(e)}`}])
+      if (activeSessionId) setSessionItems(activeSessionId, (m) => [...m, {kind: 'system', content: `Connect failed: ${String(e)}`}])
     }
   }
 
   async function sendChat(e?: FormEvent) {
     e?.preventDefault()
     const text = input.trim()
-    if (!text || busy) return
+    const atts = pendingAtts
+    if ((!text && atts.length === 0) || busy || !activeSessionId) return
     setInput('')
-    assistantBuf.current = ''
-    setItems((m) => [...asList(m), {kind: 'user', content: text}])
-    setBusy(true)
+    setPendingAtts([])
+    assistantBuf.current[activeSessionId] = ''
+    const previewAtts: ChatAttPreview[] = atts.map((a) => ({
+      name: a.name,
+      mime: a.mime,
+      isImage: a.isImage,
+      dataUrl: a.isImage ? a.dataUrl : undefined,
+    }))
+    setSessionItems(activeSessionId, (m) => [...m, {
+      kind: 'user',
+      content: text || (atts.some((a) => a.isImage) ? '(изображение)' : '(файл)'),
+      attachments: previewAtts.length ? previewAtts : undefined,
+    }])
+    setBusyBySession((b) => ({...b, [activeSessionId]: true}))
     try {
-      await RunAgent(text)
+      await RunAgentWithAttachments(text, atts.map((a) => ({
+        name: a.name,
+        mime: a.mime || '',
+        dataUrl: a.dataUrl || '',
+        text: a.text || '',
+        isImage: a.isImage,
+      })))
     } catch (err) {
-      setBusy(false)
-      setItems((m) => [...asList(m), {kind: 'system', content: String(err)}])
+      setBusyBySession((b) => ({...b, [activeSessionId]: false}))
+      setSessionItems(activeSessionId, (m) => [...m, {kind: 'system', content: String(err)}])
     }
   }
 
@@ -448,7 +762,7 @@ export default function App() {
     if (!name) return
     const pub = await SSHKeygen(name)
     setSshKeys(asList(await SSHListKeys()))
-    setItems((m) => [...asList(m), {kind: 'system', content: `SSH key created:\n${pub}`}])
+    if (activeSessionId) setSessionItems(activeSessionId, (m) => [...m, {kind: 'system', content: `SSH key created:\n${pub}`}])
   }
 
   function renderTree(entries: FileEntry[], depth = 0) {
@@ -484,6 +798,7 @@ export default function App() {
           <select value={model} onChange={(e) => setModel(e.target.value)}>
             <option value="deepseek-v4-flash">deepseek-v4-flash</option>
             <option value="deepseek-v4-pro">deepseek-v4-pro</option>
+            <option value="deepseek-v4-flash-vision-exp">deepseek-v4-flash-vision-exp</option>
           </select>
         </label>
         <button type="button" onClick={saveSettings}>Save</button>
@@ -506,7 +821,13 @@ export default function App() {
               </li>
             ))}
           </ul>
-          <button type="button" className="nc-ghost" onClick={() => setShowTree((v) => !v)}>
+          <button type="button" className="nc-ghost" onClick={() => {
+            setShowTree((v) => {
+              const next = !v
+              SaveShowFiles(next).catch(() => undefined)
+              return next
+            })
+          }}>
             {showTree ? 'Hide files' : 'Show files'}
           </button>
         </aside>
@@ -525,24 +846,55 @@ export default function App() {
         <main className={`nc-main ${showTerm ? '' : 'no-term'}`}>
           <section className="nc-chat">
             <header className="nc-chat-head">
-              <span>Чат · {active?.name || 'агент'}</span>
+              <div className="nc-tabs">
+                {sessions.map((s) => (
+                  <button
+                    key={s.id}
+                    type="button"
+                    className={`nc-tab ${s.id === activeSessionId ? 'active' : ''} ${busyBySession[s.id] ? 'busy' : ''}`}
+                    onClick={() => void switchSession(s.id)}
+                    title={s.title}
+                  >
+                    <span className="nc-tab-title">{s.title || 'Chat'}</span>
+                    {sessions.length > 1 && (
+                      <span
+                        className="nc-tab-x"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          void removeSession(s.id)
+                        }}
+                      >×</span>
+                    )}
+                  </button>
+                ))}
+                <button type="button" className="nc-tab add" onClick={() => void createSession()} title="Новый чат">+</button>
+              </div>
               <div className="nc-actions">
                 <span className="nc-pill">{busy ? 'думает…' : keySet ? 'key OK' : 'no key'}</span>
-                <button type="button" className="nc-ghost" onClick={() => { ClearChat(); setItems([{kind: 'system', content: 'Чат очищен'}]) }}>Clear</button>
+                <button type="button" className="nc-ghost" onClick={async () => {
+                  await ClearChat()
+                  const empty: ChatItem[] = [{kind: 'system', content: 'Чат очищен'}]
+                  if (activeSessionId) setSessionItems(activeSessionId, () => empty)
+                  await SaveChat(JSON.stringify(empty)).catch(() => undefined)
+                }}>Clear</button>
                 <button type="button" className="nc-ghost" disabled={!busy} onClick={() => StopAgent()}>Stop</button>
               </div>
             </header>
             <div className="nc-thread" ref={chatRef}>
               <div className="nc-thread-inner">
-                {asList(items).map((m, i) => {
+                {buildDisplayRows(items).map((row) => {
+                  if (row.kind === 'tool_group') {
+                    return <ToolGroup key={row.key} summary={row.summary} tools={row.tools} />
+                  }
+                  const m = row.item
                   if (m.kind === 'tool') {
-                    return <ToolCard key={i} item={m} />
+                    return <ToolCard key={row.key} item={m} />
                   }
                   if (m.kind === 'file') {
                     return (
-                      <div key={i} className="nc-msg file">
+                      <div key={row.key} className="nc-msg file">
                         <div className="nc-role">файл · {m.path}</div>
-                        <details open>
+                        <details>
                           <summary>{previewLen(m.content, 80)}</summary>
                           <pre>{m.content}</pre>
                         </details>
@@ -550,13 +902,22 @@ export default function App() {
                     )
                   }
                   if (m.kind === 'reasoning') {
-                    return <ThinkingBlock key={i} content={m.content} />
+                    return <ThinkingBlock key={row.key} content={m.content} />
                   }
                   return (
-                    <div key={i} className={`nc-msg ${m.kind}`}>
+                    <div key={row.key} className={`nc-msg ${m.kind}`}>
                       <div className="nc-role">
                         {m.kind === 'user' ? 'Вы' : m.kind === 'assistant' ? 'Агент' : 'Система'}
                       </div>
+                      {m.kind === 'user' && m.attachments && m.attachments.length > 0 && (
+                        <div className="nc-att-row">
+                          {m.attachments.map((a, i) => (
+                            a.isImage && a.dataUrl
+                              ? <img key={i} className="nc-att-thumb" src={a.dataUrl} alt={a.name} />
+                              : <span key={i} className="nc-att-chip">{a.name}</span>
+                          ))}
+                        </div>
+                      )}
                       <pre className={m.kind === 'assistant' ? 'nc-answer' : undefined}>{m.content}</pre>
                     </div>
                   )
@@ -571,12 +932,56 @@ export default function App() {
               </div>
             </div>
             <div className="nc-composer-wrap">
-              <form className="nc-composer" onSubmit={sendChat}>
+              <form
+                className={`nc-composer ${dragOver ? 'drag' : ''}`}
+                onSubmit={sendChat}
+                onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
+                onDragLeave={() => setDragOver(false)}
+                onDrop={(e) => {
+                  e.preventDefault()
+                  setDragOver(false)
+                  void addFiles(e.dataTransfer.files)
+                }}
+              >
+                {pendingAtts.length > 0 && (
+                  <div className="nc-att-pending">
+                    {pendingAtts.map((a) => (
+                      <div key={a.id} className="nc-att-chip pending">
+                        {a.isImage && a.dataUrl
+                          ? <img src={a.dataUrl} alt={a.name} />
+                          : <span>{a.name}</span>}
+                        <button type="button" className="nc-att-rm" onClick={() => setPendingAtts((p) => p.filter((x) => x.id !== a.id))}>×</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 <textarea
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
-                  placeholder="Спросите агента: прочитай проект и скажи, о чём он…"
+                  placeholder="Спросите агента… Ctrl+V / drag-drop — скриншот или файл"
                   rows={3}
+                  onPaste={(e) => {
+                    const files = e.clipboardData?.files
+                    if (files && files.length > 0) {
+                      e.preventDefault()
+                      void addFiles(files)
+                      return
+                    }
+                    const items = e.clipboardData?.items
+                    if (!items) return
+                    const collected: File[] = []
+                    for (let i = 0; i < items.length; i++) {
+                      const it = items[i]
+                      if (it.kind === 'file') {
+                        const f = it.getAsFile()
+                        if (f) collected.push(f)
+                      }
+                    }
+                    if (collected.length) {
+                      e.preventDefault()
+                      void addFiles(collected)
+                    }
+                  }}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && !e.shiftKey) {
                       e.preventDefault()
@@ -585,8 +990,21 @@ export default function App() {
                   }}
                 />
                 <div className="nc-composer-bar">
-                  <span className="nc-hint">Enter — отправить, Shift+Enter — новая строка</span>
-                  <button type="submit" disabled={busy}>{busy ? '…' : 'Send'}</button>
+                  <div className="nc-composer-left">
+                    <button type="button" className="nc-ghost" onClick={() => fileInputRef.current?.click()}>Attach</button>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      multiple
+                      hidden
+                      onChange={(e) => {
+                        if (e.target.files) void addFiles(e.target.files)
+                        e.target.value = ''
+                      }}
+                    />
+                    <span className="nc-hint">Enter — отправить · картинки → vision</span>
+                  </div>
+                  <button type="submit" disabled={busy || (!input.trim() && pendingAtts.length === 0)}>{busy ? '…' : 'Send'}</button>
                 </div>
               </form>
             </div>
@@ -618,6 +1036,7 @@ export default function App() {
               <select value={model} onChange={(e) => setModel(e.target.value)}>
                 <option value="deepseek-v4-flash">deepseek-v4-flash</option>
                 <option value="deepseek-v4-pro">deepseek-v4-pro</option>
+                <option value="deepseek-v4-flash-vision-exp">deepseek-v4-flash-vision-exp</option>
               </select>
             </label>
             <label>
@@ -660,3 +1079,4 @@ export default function App() {
     </div>
   )
 }
+
