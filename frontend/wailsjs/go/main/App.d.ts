@@ -6,6 +6,8 @@ export function AppInfo():Promise<Record<string, string>>;
 
 export function ChatOnce(arg1:string):Promise<string>;
 
+export function ClearChat():Promise<void>;
+
 export function GetSettings():Promise<Record<string, any>>;
 
 export function ListDir(arg1:string):Promise<Array<workspace.Entry>>;
@@ -14,8 +16,28 @@ export function ListProjects():Promise<Array<workspace.Project>>;
 
 export function OpenProject(arg1:string):Promise<workspace.Project>;
 
+export function PickProjectDir():Promise<string>;
+
 export function ReadFile(arg1:string):Promise<string>;
+
+export function RunAgent(arg1:string):Promise<void>;
+
+export function RunShell(arg1:string):Promise<Record<string, any>>;
+
+export function SSHKeygen(arg1:string):Promise<string>;
+
+export function SSHListKeys():Promise<Array<string>>;
 
 export function SaveDeepSeekKey(arg1:string):Promise<void>;
 
 export function SaveDeepSeekModel(arg1:string):Promise<void>;
+
+export function SaveGitAuth(arg1:string,arg2:string):Promise<void>;
+
+export function StartTerminal():Promise<void>;
+
+export function StopAgent():Promise<void>;
+
+export function TerminalWrite(arg1:string):Promise<void>;
+
+export function WriteFile(arg1:string,arg2:string):Promise<void>;

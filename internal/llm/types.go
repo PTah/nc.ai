@@ -24,8 +24,8 @@ type FunctionCall struct {
 }
 
 type ToolSpec struct {
-	Type     string             `json:"type"`
-	Function ToolSpecFunction   `json:"function"`
+	Type     string           `json:"type"`
+	Function ToolSpecFunction `json:"function"`
 }
 
 type ToolSpecFunction struct {
@@ -35,16 +35,16 @@ type ToolSpecFunction struct {
 }
 
 type ChatRequest struct {
-	Model            string         `json:"model,omitempty"`
-	Messages         []Message      `json:"messages"`
-	Tools            []ToolSpec     `json:"tools,omitempty"`
-	ToolChoice       any            `json:"tool_choice,omitempty"`
-	Stream           bool           `json:"stream"`
-	Temperature      *float64       `json:"temperature,omitempty"`
-	MaxTokens        *int           `json:"max_tokens,omitempty"`
-	Thinking         map[string]any `json:"thinking,omitempty"`
-	ReasoningEffort  string         `json:"reasoning_effort,omitempty"`
-	Extra            map[string]any `json:"-"`
+	Model           string         `json:"model,omitempty"`
+	Messages        []Message      `json:"messages"`
+	Tools           []ToolSpec     `json:"tools,omitempty"`
+	ToolChoice      any            `json:"tool_choice,omitempty"`
+	Stream          bool           `json:"stream"`
+	Temperature     *float64       `json:"temperature,omitempty"`
+	MaxTokens       *int           `json:"max_tokens,omitempty"`
+	Thinking        map[string]any `json:"thinking,omitempty"`
+	ReasoningEffort string         `json:"reasoning_effort,omitempty"`
+	Extra           map[string]any `json:"-"`
 }
 
 type ChatResponse struct {
@@ -61,22 +61,26 @@ type Choice struct {
 }
 
 type Usage struct {
-	PromptTokens            int `json:"prompt_tokens"`
-	CompletionTokens        int `json:"completion_tokens"`
-	TotalTokens             int `json:"total_tokens"`
-	PromptCacheHitTokens    int `json:"prompt_cache_hit_tokens,omitempty"`
-	PromptCacheMissTokens   int `json:"prompt_cache_miss_tokens,omitempty"`
+	PromptTokens          int `json:"prompt_tokens"`
+	CompletionTokens      int `json:"completion_tokens"`
+	TotalTokens           int `json:"total_tokens"`
+	PromptCacheHitTokens  int `json:"prompt_cache_hit_tokens,omitempty"`
+	PromptCacheMissTokens int `json:"prompt_cache_miss_tokens,omitempty"`
 }
 
+// StreamEvent is emitted during streaming; Type: delta|reasoning|tool_call|done|error|message
 type StreamEvent struct {
-	Type    string // delta | reasoning | tool_call | done | error
-	Content string
-	Raw     any
+	Type    string `json:"type"`
+	Content string `json:"content,omitempty"`
+	Raw     any    `json:"raw,omitempty"`
 }
 
-// Provider is implemented by DeepSeek, OpenAI, OpenRouter, Ollama, etc.
+// Provider is implemented by DeepSeek and future backends.
 type Provider interface {
 	Name() string
 	ChatCompletion(ctx context.Context, req *ChatRequest) (*ChatResponse, error)
-	ChatCompletionStream(ctx context.Context, req *ChatRequest, out chan<- StreamEvent) error
+}
+
+func ToolResultMessage(callID, content string) Message {
+	return Message{Role: "tool", ToolCallID: callID, Content: content}
 }

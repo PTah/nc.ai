@@ -10,6 +10,10 @@ export function ChatOnce(arg1) {
   return window['go']['main']['App']['ChatOnce'](arg1);
 }
 
+export function ClearChat() {
+  return window['go']['main']['App']['ClearChat']();
+}
+
 export function GetSettings() {
   return window['go']['main']['App']['GetSettings']();
 }
@@ -26,8 +30,28 @@ export function OpenProject(arg1) {
   return window['go']['main']['App']['OpenProject'](arg1);
 }
 
+export function PickProjectDir() {
+  return window['go']['main']['App']['PickProjectDir']();
+}
+
 export function ReadFile(arg1) {
   return window['go']['main']['App']['ReadFile'](arg1);
+}
+
+export function RunAgent(arg1) {
+  return window['go']['main']['App']['RunAgent'](arg1);
+}
+
+export function RunShell(arg1) {
+  return window['go']['main']['App']['RunShell'](arg1);
+}
+
+export function SSHKeygen(arg1) {
+  return window['go']['main']['App']['SSHKeygen'](arg1);
+}
+
+export function SSHListKeys() {
+  return window['go']['main']['App']['SSHListKeys']();
 }
 
 export function SaveDeepSeekKey(arg1) {
@@ -36,4 +60,24 @@ export function SaveDeepSeekKey(arg1) {
 
 export function SaveDeepSeekModel(arg1) {
   return window['go']['main']['App']['SaveDeepSeekModel'](arg1);
+}
+
+export function SaveGitAuth(arg1, arg2) {
+  return window['go']['main']['App']['SaveGitAuth'](arg1, arg2);
+}
+
+export function StartTerminal() {
+  return window['go']['main']['App']['StartTerminal']();
+}
+
+export function StopAgent() {
+  return window['go']['main']['App']['StopAgent']();
+}
+
+export function TerminalWrite(arg1) {
+  return window['go']['main']['App']['TerminalWrite'](arg1);
+}
+
+export function WriteFile(arg1, arg2) {
+  return window['go']['main']['App']['WriteFile'](arg1, arg2);
 }

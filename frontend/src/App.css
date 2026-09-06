@@ -2,130 +2,105 @@
   color-scheme: dark;
   --bg: #121212;
   --panel: #1a1a1a;
-  --panel-2: #161616;
-  --border: #2a2a2a;
+  --panel-2: #151515;
+  --border: #2c2c2c;
   --text: #e8e8e8;
-  --muted: #8a8a8a;
+  --muted: #8d8d8d;
   --accent: #3d8bfd;
   --accent-2: #2f6fed;
-  --user: #1e2a3a;
-  --assistant: #1c1c1c;
-  --system: #222018;
-  font-family: "Segoe UI", "JetBrains Mono", Consolas, monospace;
+  font-family: "Segoe UI", Consolas, monospace;
 }
-
 * { box-sizing: border-box; }
 html, body, #root { margin: 0; height: 100%; background: var(--bg); color: var(--text); }
-button, input, textarea {
-  font: inherit;
-  color: var(--text);
-  background: #101010;
-  border: 1px solid var(--border);
-  border-radius: 6px;
+button, input, textarea, select {
+  font: inherit; color: var(--text); background: #101010;
+  border: 1px solid var(--border); border-radius: 6px;
 }
-button {
-  background: var(--accent);
-  border-color: var(--accent-2);
-  cursor: pointer;
-  padding: 0.4rem 0.75rem;
-}
-button:disabled { opacity: 0.6; cursor: default; }
-input, textarea { width: 100%; padding: 0.45rem 0.6rem; }
-textarea { resize: vertical; }
+button { background: var(--accent); border-color: var(--accent-2); cursor: pointer; padding: 0.4rem 0.7rem; }
+button:disabled { opacity: 0.55; cursor: default; }
+input, textarea, select { width: 100%; padding: 0.4rem 0.55rem; }
+textarea { resize: none; }
 
 .nc-root {
   display: grid;
-  grid-template-columns: 220px 220px 1fr 240px;
-  grid-template-rows: 1fr;
-  height: 100%;
+  grid-template-columns: 200px 220px minmax(0, 1fr) 230px;
+  height: 100vh;
   overflow: hidden;
 }
-.nc-root:has(.nc-tree) { }
+.nc-root.no-tree { grid-template-columns: 200px minmax(0, 1fr) 230px; }
 .nc-projects, .nc-tree, .nc-settings {
-  background: var(--panel);
-  border-right: 1px solid var(--border);
-  padding: 0.75rem;
-  overflow: auto;
+  background: var(--panel); border-right: 1px solid var(--border);
+  padding: 0.7rem; overflow: auto;
 }
-.nc-settings { border-right: none; border-left: 1px solid var(--border); }
-.nc-brand { display: flex; gap: 0.6rem; align-items: center; margin-bottom: 1rem; }
+.nc-settings { border-right: 0; border-left: 1px solid var(--border); }
+.nc-brand { display: flex; gap: 0.55rem; align-items: center; margin-bottom: 0.8rem; }
 .nc-logo {
-  width: 34px; height: 34px; border-radius: 8px;
-  display: grid; place-items: center;
-  background: linear-gradient(135deg, #2f6fed, #1b3f8b);
-  font-weight: 700;
+  width: 32px; height: 32px; border-radius: 8px; display: grid; place-items: center;
+  background: linear-gradient(135deg, #2f6fed, #163a86); font-weight: 700;
 }
-.nc-title { font-weight: 700; }
-.nc-sub, .nc-muted, .nc-hint { color: var(--muted); font-size: 0.8rem; }
+.nc-title { font-weight: 700; font-size: 0.95rem; }
+.nc-sub, .nc-muted { color: var(--muted); font-size: 0.75rem; }
 .nc-section-label {
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  font-size: 0.7rem;
-  color: var(--muted);
-  margin: 0.75rem 0 0.4rem;
+  text-transform: uppercase; letter-spacing: 0.06em; font-size: 0.68rem;
+  color: var(--muted); margin: 0.8rem 0 0.35rem;
 }
-.nc-open-row { display: grid; gap: 0.4rem; }
-.nc-list { list-style: none; padding: 0; margin: 0; }
-.nc-list li { margin: 0.15rem 0; }
+.nc-list { list-style: none; margin: 0; padding: 0; }
 .nc-list button {
-  width: 100%;
-  text-align: left;
-  background: transparent;
-  border: 1px solid transparent;
+  width: 100%; text-align: left; background: transparent; border-color: transparent;
 }
-.nc-list li.active button, .nc-list button:hover {
-  border-color: var(--border);
-  background: #202020;
+.nc-list li.active button, .nc-list button:hover { background: #222; border-color: var(--border); }
+.nc-list.compact li { font-size: 0.8rem; color: #bbb; padding: 0.15rem 0; }
+.nc-ghost { width: 100%; margin-top: 0.5rem; background: transparent; border-color: var(--border); }
+.tree-scroll { font-size: 0.85rem; }
+.tree-btn {
+  background: transparent; border: 0; padding: 0.12rem 0.2rem; text-align: left; width: 100%;
+  color: #cfd8ff;
 }
-.nc-list.compact li { font-size: 0.85rem; padding: 0.15rem 0; color: #cfcfcf; }
-.nc-list.compact li.dir { color: #9ec1ff; }
-.nc-ghost { width: 100%; margin-top: 0.75rem; background: transparent; border-color: var(--border); }
+.tree-btn.file { color: #ddd; }
 
 .nc-main {
   display: grid;
-  grid-template-rows: 1fr 180px;
-  min-width: 0;
-  background: var(--panel-2);
+  grid-template-rows: minmax(140px, 28%) minmax(0, 1fr) 210px;
+  min-width: 0; background: var(--panel-2);
 }
-.nc-chat { display: flex; flex-direction: column; min-height: 0; }
-.nc-chat-head {
+.nc-editor, .nc-chat, .nc-terminal { min-height: 0; display: flex; flex-direction: column; }
+.nc-editor { border-bottom: 1px solid var(--border); }
+.nc-editor header, .nc-chat-head, .nc-term-head {
   display: flex; justify-content: space-between; align-items: center;
-  padding: 0.6rem 0.9rem; border-bottom: 1px solid var(--border);
+  gap: 0.5rem; padding: 0.35rem 0.7rem; border-bottom: 1px solid var(--border);
+  font-size: 0.85rem;
 }
+.nc-editor textarea {
+  flex: 1; border: 0; border-radius: 0; background: #101010;
+  font-family: Consolas, monospace; font-size: 0.85rem; padding: 0.6rem;
+}
+.nc-actions { display: flex; gap: 0.35rem; align-items: center; }
 .nc-pill {
-  font-size: 0.75rem; padding: 0.15rem 0.5rem; border-radius: 999px;
+  font-size: 0.72rem; padding: 0.12rem 0.45rem; border-radius: 999px;
   border: 1px solid var(--border); color: var(--muted);
 }
-.nc-messages { flex: 1; overflow: auto; padding: 0.9rem; display: flex; flex-direction: column; gap: 0.7rem; }
-.nc-msg { border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem 0.75rem; }
-.nc-msg.user { background: var(--user); }
-.nc-msg.assistant { background: var(--assistant); }
-.nc-msg.system { background: var(--system); }
-.nc-role { font-size: 0.7rem; color: var(--muted); margin-bottom: 0.25rem; text-transform: uppercase; }
-.nc-msg pre {
-  margin: 0; white-space: pre-wrap; word-break: break-word;
-  font-family: inherit; font-size: 0.92rem;
-}
+.nc-messages { flex: 1; overflow: auto; padding: 0.7rem; display: flex; flex-direction: column; gap: 0.55rem; }
+.nc-msg { border: 1px solid var(--border); border-radius: 8px; padding: 0.5rem 0.65rem; background: #181818; }
+.nc-msg.user { background: #1c2736; }
+.nc-msg.assistant { background: #171717; }
+.nc-msg.system { background: #221f14; }
+.nc-msg.reasoning { background: #1a1a22; color: #bdbde8; }
+.nc-msg.tool { background: #142018; font-size: 0.82rem; }
+.nc-msg.tool.start { border-color: #3a5; }
+.nc-role { font-size: 0.68rem; color: var(--muted); text-transform: uppercase; margin-bottom: 0.2rem; }
+.nc-msg pre { margin: 0; white-space: pre-wrap; word-break: break-word; font: inherit; }
 .nc-composer {
-  display: grid; grid-template-columns: 1fr auto; gap: 0.5rem;
-  padding: 0.75rem; border-top: 1px solid var(--border);
+  display: grid; grid-template-columns: 1fr auto; gap: 0.45rem;
+  padding: 0.55rem; border-top: 1px solid var(--border);
 }
-.nc-terminal {
-  border-top: 1px solid var(--border);
-  background: #0d0d0d;
-  padding: 0.5rem 0.75rem;
-  overflow: hidden;
-}
-.nc-term-body {
-  margin: 0; height: calc(100% - 1.2rem); overflow: auto;
-  color: #b6f5c6; font-size: 0.82rem;
-}
-.nc-settings label { display: grid; gap: 0.3rem; margin-bottom: 0.75rem; font-size: 0.85rem; }
-.nc-settings button { width: 100%; }
-.nc-hint { margin-top: 1rem; line-height: 1.4; }
-.nc-hint code { color: #cde; }
+.nc-terminal { border-top: 1px solid var(--border); background: #0d0d0d; }
+.nc-term-run { display: flex; gap: 0.35rem; min-width: 0; }
+.nc-term-run input { width: 220px; }
+.nc-xterm { flex: 1; padding: 0.25rem 0.4rem; overflow: hidden; }
+.nc-settings label { display: grid; gap: 0.25rem; margin-bottom: 0.55rem; font-size: 0.82rem; }
+.nc-settings button { width: 100%; margin-bottom: 0.35rem; }
 
-@media (max-width: 1100px) {
-  .nc-root { grid-template-columns: 180px 1fr 200px; }
+@media (max-width: 1200px) {
+  .nc-root { grid-template-columns: 180px minmax(0, 1fr) 200px; }
   .nc-tree { display: none; }
 }

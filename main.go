@@ -15,11 +15,11 @@ func main() {
 	app := NewApp()
 
 	err := wails.Run(&options.App{
-		Title:  "NotCursor.ai",
-		Width:  1400,
-		Height: 900,
-		MinWidth: 1000,
-		MinHeight: 640,
+		Title:     "NotCursor.ai",
+		Width:     1440,
+		Height:    920,
+		MinWidth:  1100,
+		MinHeight: 700,
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},

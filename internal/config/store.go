@@ -9,13 +9,14 @@ import (
 
 const appDirName = "NotCursor"
 
-// Settings holds non-secret and secret local configuration.
-// Secrets are stored in the same file for stage 1; stage 2 moves them to OS keychain/DPAPI.
 type Settings struct {
 	DeepSeekAPIKey string   `json:"deepseekApiKey"`
 	DeepSeekModel  string   `json:"deepseekModel"`
 	Shell          string   `json:"shell"`
 	RecentProjects []string `json:"recentProjects"`
+	GitUsername    string   `json:"gitUsername"`
+	GitPassword    string   `json:"gitPassword"`
+	SSHUser        string   `json:"sshUser"`
 }
 
 type Store struct {
@@ -33,10 +34,7 @@ func NewStore() *Store {
 	}
 }
 
-func (s *Store) configPath() (string, error) {
-	if s.path != "" {
-		return s.path, nil
-	}
+func (s *Store) AppDataDir() (string, error) {
 	base, err := os.UserConfigDir()
 	if err != nil {
 		return "", err
@@ -45,7 +43,30 @@ func (s *Store) configPath() (string, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
 	}
-	s.path = filepath.Join(dir, "settings.json")
+	return dir, nil
+}
+
+func (s *Store) SSHDir() (string, error) {
+	base, err := s.AppDataDir()
+	if err != nil {
+		return "", err
+	}
+	dir := filepath.Join(base, "ssh")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	return dir, nil
+}
+
+func (s *Store) configPath() (string, error) {
+	if s.path != "" {
+		return s.path, nil
+	}
+	base, err := s.AppDataDir()
+	if err != nil {
+		return "", err
+	}
+	s.path = filepath.Join(base, "settings.json")
 	return s.path, nil
 }
 
@@ -96,6 +117,14 @@ func (s *Store) SetDeepSeekAPIKey(key string) error {
 func (s *Store) SetDeepSeekModel(model string) error {
 	s.mu.Lock()
 	s.settings.DeepSeekModel = model
+	s.mu.Unlock()
+	return s.Save()
+}
+
+func (s *Store) SetGitAuth(user, pass string) error {
+	s.mu.Lock()
+	s.settings.GitUsername = user
+	s.settings.GitPassword = pass
 	s.mu.Unlock()
 	return s.Save()
 }
