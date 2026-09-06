@@ -24,12 +24,18 @@ wails dev
 ## Build
 
 ```bash
+# Windows (на этой машине)
 wails build -platform windows/amd64
-wails build -platform darwin/amd64
+
+# macOS — только на macOS-хосте (cross-compile из Windows Wails не поддерживает)
+wails build -platform darwin/universal
+# или:
 wails build -platform darwin/arm64
+wails build -platform darwin/amd64
 ```
 
-Артефакты: `build/bin/`
+Артефакты: `build/bin/`  
+Текущий Windows-релиз: `build/bin/NotCursor.exe` (~16 МБ).
 
 ## Settings
 
