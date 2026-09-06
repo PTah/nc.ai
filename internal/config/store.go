@@ -26,6 +26,9 @@ type Settings struct {
 	// Theme: "dark" (default) or "light".
 	Theme string `json:"theme,omitempty"`
 
+	// AgentMaxSteps caps the tool-using agent loop. 0 means the default (40).
+	AgentMaxSteps int `json:"agentMaxSteps,omitempty"`
+
 	// Main window geometry (logical pixels). Zero width/height → defaults.
 	WindowWidth     int  `json:"windowWidth,omitempty"`
 	WindowHeight    int  `json:"windowHeight,omitempty"`
@@ -57,6 +60,7 @@ func NewStore() *Store {
 		settings: Settings{
 			DeepSeekModel: "deepseek-v4-flash",
 			Shell:         "powershell",
+			AgentMaxSteps: 40,
 		},
 	}
 }
@@ -206,6 +210,28 @@ func (s *Store) Theme() string {
 		return "light"
 	}
 	return "dark"
+}
+
+func (s *Store) MaxAgentSteps() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.settings.AgentMaxSteps <= 0 {
+		return 40
+	}
+	return s.settings.AgentMaxSteps
+}
+
+func (s *Store) SetAgentMaxSteps(steps int) error {
+	if steps <= 0 {
+		steps = 40
+	}
+	if steps > 500 {
+		steps = 500
+	}
+	s.mu.Lock()
+	s.settings.AgentMaxSteps = steps
+	s.mu.Unlock()
+	return s.Save()
 }
 
 func (s *Store) SetWindowGeometry(width, height, x, y int, maximised bool) error {

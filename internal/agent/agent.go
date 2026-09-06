@@ -53,6 +53,8 @@ type Runner struct {
 	MaxSteps int
 	// ModelOverride forces a model for this run (e.g. vision).
 	ModelOverride string
+	// RulesText is appended to the system prompt (Cursor .cursorrules / .cursor/rules).
+	RulesText string
 	// OnUsage, when set, is called after each provider response with the model
 	// that produced it and its token usage (usage may be nil for some providers).
 	OnUsage func(model string, u *llm.Usage)
@@ -63,6 +65,18 @@ func (r *Runner) reportUsage(model string, u *llm.Usage) {
 		return
 	}
 	r.OnUsage(model, u)
+}
+
+func (r *Runner) systemPrompt() string {
+	rules := strings.TrimSpace(r.RulesText)
+	if rules == "" {
+		return SystemPrompt
+	}
+	return SystemPrompt + "\n\n" +
+		"## Cursor rules loaded for this project\n" +
+		"The user has configured rules via Cursor (.cursorrules / .cursor/rules). " +
+		"Apply them when they are relevant to the task and follow them over this base prompt:\n\n" +
+		rules
 }
 
 func (r *Runner) Run(ctx context.Context, history []llm.Message, userText string, emit EmitFunc) ([]llm.Message, error) {
@@ -121,16 +135,15 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 	}
 
 	messages := make([]llm.Message, 0, len(history)+8)
-	hasSystem := false
 	for _, m := range history {
 		if m.Role == "system" {
-			hasSystem = true
+			continue
 		}
 		messages = append(messages, m)
 	}
-	if !hasSystem {
-		messages = append([]llm.Message{{Role: "system", Content: SystemPrompt}}, messages...)
-	}
+	// Always prepend a fresh system prompt so the current Cursor rules are in
+	// effect even when the persisted history already contains an old system message.
+	messages = append([]llm.Message{{Role: "system", Content: r.systemPrompt()}}, messages...)
 	messages = append(messages, userMsg)
 
 	for step := 0; step < max; step++ {

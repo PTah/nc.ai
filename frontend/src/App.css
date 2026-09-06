@@ -518,3 +518,69 @@ textarea { resize: none; }
   }
   .nc-tree { display: none; }
 }
+
+
+.nc-markdown { font-size: 0.95rem; line-height: 1.5; overflow-wrap: anywhere; }
+.nc-markdown > *:first-child { margin-top: 0; }
+.nc-markdown > *:last-child { margin-bottom: 0; }
+.nc-markdown p { margin: 0.4rem 0; }
+.nc-markdown h1, .nc-markdown h2, .nc-markdown h3, .nc-markdown h4, .nc-markdown h5, .nc-markdown h6 { margin: 0.7rem 0 0.3rem; line-height: 1.25; }
+.nc-markdown h1 { font-size: 1.3rem; }
+.nc-markdown h2 { font-size: 1.18rem; }
+.nc-markdown h3 { font-size: 1.05rem; }
+.nc-markdown ul, .nc-markdown ol { margin: 0.4rem 0; padding-left: 1.4rem; }
+.nc-markdown li { margin: 0.15rem 0; }
+.nc-markdown code {
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 0.85em;
+  background: var(--tool-pre-bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.1rem 0.3rem;
+}
+.nc-markdown pre {
+  background: var(--tool-pre-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.6rem 0.7rem;
+  overflow-x: auto;
+  white-space: pre;
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 0.82rem;
+}
+.nc-markdown pre code {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  font-size: inherit;
+  display: block;
+}
+.nc-markdown blockquote {
+  margin: 0.4rem 0;
+  padding: 0.2rem 0.7rem;
+  border-left: 3px solid var(--accent);
+  color: var(--muted);
+}
+.nc-markdown table { border-collapse: collapse; margin: 0.5rem 0; width: 100%; font-size: 0.85rem; }
+.nc-markdown th, .nc-markdown td { border: 1px solid var(--border); padding: 0.3rem 0.5rem; text-align: left; }
+.nc-markdown th { background: var(--panel); }
+.nc-markdown hr { border: 0; border-top: 1px solid var(--border); margin: 0.7rem 0; }
+.nc-markdown a { color: var(--accent); }
+
+.nc-rules-list { list-style: none; margin: 0.4rem 0; padding: 0; display: flex; flex-direction: column; gap: 0.25rem; }
+.nc-rules-item {
+  display: flex; align-items: center; gap: 0.4rem;
+  font-size: 0.75rem; line-height: 1.35;
+  border: 1px solid var(--border); border-radius: 7px;
+  padding: 0.25rem 0.45rem; background: var(--msg-bg);
+}
+.nc-rules-source {
+  text-transform: uppercase; font-size: 0.62rem; letter-spacing: 0.04em;
+  padding: 0.05rem 0.3rem; border-radius: 999px;
+  border: 1px solid var(--border); flex: 0 0 auto;
+}
+.nc-rules-source.global { color: var(--tool-icon-run); }
+.nc-rules-source.project { color: var(--tool-icon-ok); }
+.nc-rules-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.nc-rules-always { flex: 0 0 auto; color: var(--pill-ok); font-size: 0.62rem; }
+.nc-help code { font-family: Consolas, "Courier New", monospace; font-size: 0.85em; background: var(--tool-pre-bg); padding: 0.05rem 0.25rem; border-radius: 4px; }

@@ -15,6 +15,7 @@ import (
 	"notcursor.ai/app/internal/dockicon"
 	"notcursor.ai/app/internal/llm"
 	"notcursor.ai/app/internal/llm/providers/deepseek"
+	"notcursor.ai/app/internal/rules"
 	"notcursor.ai/app/internal/shell"
 	"notcursor.ai/app/internal/sshx"
 	"notcursor.ai/app/internal/tools"
@@ -32,11 +33,14 @@ type App struct {
 	chats *chatstore.Store
 
 	mu        sync.Mutex
+	rulesMu   sync.RWMutex
 	cancels   map[string]context.CancelFunc
 	sessionID string
 	history   []llm.Message
 	term      *shell.Session
 	sshDir    string
+
+	cursorRules rules.Bundle
 }
 
 func NewApp() *App {
@@ -68,6 +72,7 @@ func (a *App) startup(ctx context.Context) {
 	for _, p := range a.cfg.Get().RecentProjects {
 		_, _ = a.ws.Open(p)
 	}
+	a.loadRules()
 }
 
 func (a *App) domReady(ctx context.Context) {
@@ -151,6 +156,7 @@ func (a *App) GetSettings() map[string]any {
 		"showFiles":       a.cfg.FilesVisible(),
 		"showSettings":    s.ShowSettings,
 		"theme":           a.cfg.Theme(),
+		"agentMaxSteps":   a.cfg.MaxAgentSteps(),
 		"visionModel":     deepseek.VisionModel,
 		"layoutProjectsW": nonzero(s.LayoutProjectsW, 200),
 		"layoutTreeW":     nonzero(s.LayoutTreeW, 220),
@@ -164,6 +170,28 @@ func nonzero(v, def int) int {
 		return v
 	}
 	return def
+}
+
+// loadRules re-scans Cursor rules (global + active project) and caches them.
+func (a *App) loadRules() rules.Bundle {
+	root, _ := a.ws.ActiveRoot()
+	b := rules.Load(root)
+	a.rulesMu.Lock()
+	a.cursorRules = b
+	a.rulesMu.Unlock()
+	return b
+}
+
+// GetCursorRules returns the cached Cursor rules bundle for the UI.
+func (a *App) GetCursorRules() rules.Bundle {
+	a.rulesMu.RLock()
+	defer a.rulesMu.RUnlock()
+	return a.cursorRules
+}
+
+// ReloadCursorRules re-scans rules on demand (e.g. after editing them in Cursor).
+func (a *App) ReloadCursorRules() rules.Bundle {
+	return a.loadRules()
 }
 
 // UsageStats is the top-bar spend counter (all-time + active chat).
@@ -252,6 +280,10 @@ func (a *App) SaveTheme(theme string) error {
 	return a.cfg.SetTheme(theme)
 }
 
+func (a *App) SaveAgentMaxSteps(steps int) error {
+	return a.cfg.SetAgentMaxSteps(steps)
+}
+
 // SaveGitAuth is deprecated: Git uses OS credential helpers / SSH keys.
 // Calling it clears any leftover in-app secrets.
 func (a *App) SaveGitAuth(_, _ string) error {
@@ -276,6 +308,7 @@ func (a *App) OpenProject(path string) (*workspace.Project, error) {
 		return nil, err
 	}
 	_ = a.cfg.AddRecentProject(p.Path)
+	a.loadRules()
 	return p, nil
 }
 
@@ -564,9 +597,10 @@ func (a *App) RunAgentWithAttachments(userMessage string, attachments []agent.At
 	a.mu.Unlock()
 
 	runner := &agent.Runner{
-		Provider: a.llm,
-		Tools:    a.tools,
-		MaxSteps: agent.DefaultMaxSteps,
+		Provider:  a.llm,
+		Tools:     a.tools,
+		MaxSteps:  a.cfg.MaxAgentSteps(),
+		RulesText: a.GetCursorRules().CombinedText(),
 	}
 
 	var costUSD float64

@@ -18,6 +18,10 @@ export function DeleteChatSession(arg1) {
   return window['go']['main']['App']['DeleteChatSession'](arg1);
 }
 
+export function GetCursorRules() {
+  return window['go']['main']['App']['GetCursorRules']();
+}
+
 export function GetSettings() {
   return window['go']['main']['App']['GetSettings']();
 }
@@ -58,6 +62,10 @@ export function ReadFile(arg1) {
   return window['go']['main']['App']['ReadFile'](arg1);
 }
 
+export function ReloadCursorRules() {
+  return window['go']['main']['App']['ReloadCursorRules']();
+}
+
 export function RunAgent(arg1) {
   return window['go']['main']['App']['RunAgent'](arg1);
 }
@@ -76,6 +84,10 @@ export function SSHKeygen(arg1) {
 
 export function SSHListKeys() {
   return window['go']['main']['App']['SSHListKeys']();
+}
+
+export function SaveAgentMaxSteps(arg1) {
+  return window['go']['main']['App']['SaveAgentMaxSteps'](arg1);
 }
 
 export function SaveChat(arg1) {

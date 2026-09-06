@@ -9,6 +9,7 @@ import {
   ClearChat,
   DeleteChatSession,
   GetSettings,
+  GetCursorRules,
   GetUsageStats,
   ListChatSessions,
   ListDir,
@@ -16,10 +17,12 @@ import {
   OpenProject,
   PickProjectDir,
   ReadFile,
+  ReloadCursorRules,
   RunAgentWithAttachments,
   RunShell,
   SaveDeepSeekKey,
   SaveDeepSeekModel,
+  SaveAgentMaxSteps,
   SaveShowTerminal,
   SaveShowFiles,
   SaveShowSettings,
@@ -37,6 +40,7 @@ import {
 } from '../wailsjs/go/main/App'
 import {EventsOn, EventsOff} from '../wailsjs/runtime/runtime'
 import BrandMark from './BrandMark'
+import Markdown from './Markdown'
 
 type Project = { name: string; path: string; opened?: string }
 type FileEntry = { name: string; path: string; isDir: boolean }
@@ -77,6 +81,23 @@ type UsageSnapshot = {
   chatCostUsd: number
   chatInputTokens: number
   chatOutputTokens: number
+}
+
+type RuleInfo = {
+  source: string
+  path: string
+  name: string
+  description: string
+  alwaysApply: boolean
+  globs: string
+  content: string
+}
+
+type RulesBundle = {
+  globalDir: string
+  projectDir: string
+  global: RuleInfo[]
+  project: RuleInfo[]
 }
 
 const emptyUsage: UsageSnapshot = {
@@ -304,6 +325,7 @@ function parseAgentEvent(...args: unknown[]): AgentEvent | null {
 export default function App() {
   const [info, setInfo] = useState({name: 'NotCursor.ai', version: '0.1.10'})
   const [usage, setUsage] = useState<UsageSnapshot>(emptyUsage)
+  const [rulesInfo, setRulesInfo] = useState<RulesBundle>({globalDir: '', projectDir: '', global: [], project: []})
   const [projects, setProjects] = useState<Project[]>([])
   const [active, setActive] = useState<Project | null>(null)
   const [files, setFiles] = useState<FileEntry[]>([])
@@ -327,6 +349,7 @@ export default function App() {
   const [input, setInput] = useState('')
   const [apiKey, setApiKey] = useState('')
   const [model, setModel] = useState('deepseek-v4-flash')
+  const [maxSteps, setMaxSteps] = useState(40)
   const [keySet, setKeySet] = useState(false)
   const [theme, setTheme] = useState<'dark' | 'light'>('dark')
   const [termCmd, setTermCmd] = useState('')
@@ -369,6 +392,15 @@ export default function App() {
       /* ignore */
     }
   }, [])
+
+  async function refreshRules() {
+    try {
+      const b = await GetCursorRules()
+      setRulesInfo(b)
+    } catch {
+      /* ignore */
+    }
+  }
 
   useEffect(() => {
     layoutRef.current = layout
@@ -437,6 +469,7 @@ export default function App() {
         if (!s) return
         setKeySet(Boolean(s.deepseekKeySet))
         if (typeof s.deepseekModel === 'string' && s.deepseekModel) setModel(s.deepseekModel)
+        if (typeof s.agentMaxSteps === 'number' && s.agentMaxSteps > 0) setMaxSteps(s.agentMaxSteps)
         setShowTerm(Boolean(s.showTerminal))
         if (typeof s.showFiles === 'boolean') setShowTree(s.showFiles)
         if (typeof s.showSettings === 'boolean') setShowSettings(s.showSettings)
@@ -452,6 +485,7 @@ export default function App() {
         })
       }).catch(() => undefined)
       ListProjects().then((v) => setProjects(asList(v))).catch(() => undefined)
+      GetCursorRules().then((b) => setRulesInfo(b)).catch(() => undefined)
     } catch {
       // window.go / runtime may be missing until Wails injects bindings
     }
@@ -817,6 +851,7 @@ export default function App() {
     setProjects(asList(await ListProjects()))
     await refreshFiles('.')
     await restoreChat(p.path)
+    void refreshRules()
     if (showTerm) {
       xtermRef.current?.writeln(`\r\n$ cd ${p.path}`)
       await StartTerminal()
@@ -853,6 +888,7 @@ export default function App() {
       setKeySet(true)
     }
     await SaveDeepSeekModel(model.trim() || 'deepseek-v4-flash')
+    await SaveAgentMaxSteps(Number(maxSteps) || 40)
     await SaveShowTerminal(showTerm)
     await SaveTheme(theme)
     if (activeSessionId) setSessionItems(activeSessionId, (m) => [...m, {kind: 'system', content: 'Settings saved'}])
@@ -1094,7 +1130,9 @@ export default function App() {
                           ))}
                         </div>
                       )}
-                      <pre className={m.kind === 'assistant' ? 'nc-answer' : undefined}>{m.content}</pre>
+                      {m.kind === 'assistant'
+                        ? <Markdown content={m.content} />
+                        : <pre>{m.content}</pre>}
                     </div>
                   )
                 })}
@@ -1224,6 +1262,19 @@ export default function App() {
             <button type="button" onClick={saveSettings}>Save settings</button>
             <button type="button" className="nc-ghost" onClick={testConnect}>Test connect</button>
 
+            <div className="nc-section-label">Agent</div>
+            <label>
+              Max tool steps
+              <input
+                type="number"
+                min={1}
+                max={500}
+                value={maxSteps}
+                onChange={(e) => setMaxSteps(Number(e.target.value))}
+              />
+            </label>
+            <p className="nc-help">Лимит шагов агента (tool calls) за один запрос. По умолчанию 40.</p>
+
             <div className="nc-section-label">Interface</div>
             <label>
               Theme
@@ -1251,6 +1302,33 @@ export default function App() {
               <code>git</code> (credential helper / Git Credential Manager). SSH — ключи из{' '}
               <code>~/.ssh</code> или ssh-agent. Настройте доступ один раз в системе — агент подхватит его сам.
             </p>
+
+            <div className="nc-section-label">Cursor Rules</div>
+            <p className="nc-help">
+              Правила подгружаются из <code>~/.cursor/rules</code> и{' '}
+              <code>&lt;project&gt;/.cursor/rules</code> (а также legacy <code>~/.cursorrules</code> и{' '}
+              <code>&lt;project&gt;/.cursorrules</code>) и добавляются в системный промпт агента.
+            </p>
+            <ul className="nc-rules-list">
+              {rulesInfo.global.map((r) => (
+                <li key={`g:${r.path}`} className="nc-rules-item" title={r.path}>
+                  <span className="nc-rules-source global">global</span>
+                  <span className="nc-rules-path">{r.name}</span>
+                  {r.alwaysApply && <span className="nc-rules-always">always</span>}
+                </li>
+              ))}
+              {rulesInfo.project.map((r) => (
+                <li key={`p:${r.path}`} className="nc-rules-item" title={r.path}>
+                  <span className="nc-rules-source project">project</span>
+                  <span className="nc-rules-path">{r.name}</span>
+                  {r.alwaysApply && <span className="nc-rules-always">always</span>}
+                </li>
+              ))}
+              {rulesInfo.global.length + rulesInfo.project.length === 0 && (
+                <li className="nc-empty">Правила не найдены.</li>
+              )}
+            </ul>
+            <button type="button" className="nc-ghost" onClick={() => void refreshRules()}>Reload rules</button>
           </aside>
         )}
       </div>
