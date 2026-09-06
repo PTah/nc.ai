@@ -9,3 +9,5 @@ frontend/dist
 .vscode/
 *.log
 secrets.enc
+.cursor/
+.cursorignore

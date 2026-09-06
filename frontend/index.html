@@ -4,9 +4,17 @@
     <meta charset="UTF-8"/>
     <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
     <title>NotCursor.ai</title>
+    <style>html,body,#root{height:100%;margin:0;background:#121212;color:#e8e8e8}</style>
 </head>
 <body>
 <div id="root"></div>
+<script>
+window.addEventListener('error', function (e) {
+  var r = document.getElementById('root');
+  if (!r || r.childElementCount) return;
+  r.textContent = 'UI error: ' + (e.message || e);
+});
+</script>
 <script src="./src/main.tsx" type="module"></script>
 </body>
 </html>

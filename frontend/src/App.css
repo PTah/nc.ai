@@ -21,13 +21,38 @@ button:disabled { opacity: 0.55; cursor: default; }
 input, textarea, select { width: 100%; padding: 0.4rem 0.55rem; }
 textarea { resize: none; }
 
-.nc-root {
+.nc-app {
   display: grid;
-  grid-template-columns: 200px 220px minmax(0, 1fr) 230px;
+  grid-template-rows: 48px minmax(0, 1fr);
   height: 100vh;
   overflow: hidden;
 }
-.nc-root.no-tree { grid-template-columns: 200px minmax(0, 1fr) 230px; }
+.nc-topbar {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0 0.8rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+  min-width: 0;
+}
+.nc-top-sep { flex: 1; }
+.nc-top-field {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+.nc-top-field input, .nc-top-field select { width: auto; min-width: 180px; }
+.nc-pill.ok { color: #8ee59b; border-color: #2a5; }
+.nc-root {
+  display: grid;
+  grid-template-columns: 200px 220px minmax(0, 1fr) minmax(200px, 230px);
+  min-height: 0;
+  overflow: hidden;
+}
+.nc-root.no-tree { grid-template-columns: 200px minmax(0, 1fr) minmax(200px, 230px); }
 .nc-projects, .nc-tree, .nc-settings {
   background: var(--panel); border-right: 1px solid var(--border);
   padding: 0.7rem; overflow: auto;
@@ -99,8 +124,14 @@ textarea { resize: none; }
 .nc-xterm { flex: 1; padding: 0.25rem 0.4rem; overflow: hidden; }
 .nc-settings label { display: grid; gap: 0.25rem; margin-bottom: 0.55rem; font-size: 0.82rem; }
 .nc-settings button { width: 100%; margin-bottom: 0.35rem; }
+.nc-empty { color: var(--muted); font-size: 0.78rem; padding: 0.35rem 0.15rem; line-height: 1.35; }
+.nc-crash { color: #ffb4b4; padding: 16px; white-space: pre-wrap; font: 13px/1.4 Menlo, monospace; }
 
 @media (max-width: 1200px) {
-  .nc-root { grid-template-columns: 180px minmax(0, 1fr) 200px; }
+  .nc-root { grid-template-columns: 180px minmax(0, 1fr) 220px; }
   .nc-tree { display: none; }
+}
+@media (max-width: 900px) {
+  .nc-root { grid-template-columns: 160px minmax(0, 1fr); }
+  .nc-settings { display: none; }
 }

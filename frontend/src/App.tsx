@@ -40,8 +40,12 @@ type AgentEvent = {
   ok?: boolean
 }
 
+function asList<T>(v: T[] | null | undefined): T[] {
+  return Array.isArray(v) ? v : []
+}
+
 export default function App() {
-  const [info, setInfo] = useState({name: 'NotCursor.ai', version: '0.1.0'})
+  const [info, setInfo] = useState({name: 'NotCursor.ai', version: '0.1.1'})
   const [projects, setProjects] = useState<Project[]>([])
   const [active, setActive] = useState<Project | null>(null)
   const [files, setFiles] = useState<FileEntry[]>([])
@@ -50,7 +54,7 @@ export default function App() {
   const [editorPath, setEditorPath] = useState('')
   const [editorContent, setEditorContent] = useState('')
   const [items, setItems] = useState<ChatItem[]>([
-    {kind: 'system', content: 'NotCursor.ai · DeepSeek agent. Откройте проект и сохраните API key.'},
+    {kind: 'system', content: 'NotCursor.ai · DeepSeek agent. Откройте проект слева и вставьте API key справа.'},
   ])
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
@@ -69,62 +73,77 @@ export default function App() {
 
   const refreshFiles = useCallback(async (root = '.') => {
     try {
-      setFiles(await ListDir(root))
+      setFiles(asList(await ListDir(root)))
     } catch {
       setFiles([])
     }
   }, [])
 
   useEffect(() => {
-    AppInfo().then((v) => setInfo(v as typeof info)).catch(() => undefined)
-    GetSettings().then((s) => {
-      setKeySet(Boolean(s.deepseekKeySet))
-      if (typeof s.deepseekModel === 'string' && s.deepseekModel) setModel(s.deepseekModel)
-      if (typeof s.gitUsername === 'string') setGitUser(s.gitUsername)
-    }).catch(() => undefined)
-    ListProjects().then(setProjects).catch(() => undefined)
-    SSHListKeys().then(setSshKeys).catch(() => undefined)
+    try {
+      AppInfo().then((v) => setInfo(v as typeof info)).catch(() => undefined)
+      GetSettings().then((s) => {
+        if (!s) return
+        setKeySet(Boolean(s.deepseekKeySet))
+        if (typeof s.deepseekModel === 'string' && s.deepseekModel) setModel(s.deepseekModel)
+        if (typeof s.gitUsername === 'string') setGitUser(s.gitUsername)
+      }).catch(() => undefined)
+      ListProjects().then((v) => setProjects(asList(v))).catch(() => undefined)
+      SSHListKeys().then((v) => setSshKeys(asList(v))).catch(() => undefined)
+    } catch {
+      // window.go / runtime may be missing until Wails injects bindings
+    }
 
-    const offAgent = EventsOn('agent:event', (raw: AgentEvent) => {
-      const ev = raw
-      if (ev.type === 'delta') {
-        assistantBuf.current += ev.content || ''
-        const text = assistantBuf.current
-        setItems((prev) => {
-          const copy = [...prev]
-          const last = copy[copy.length - 1]
-          if (last && last.kind === 'assistant') {
-            copy[copy.length - 1] = {kind: 'assistant', content: text}
-            return copy
-          }
-          return [...copy, {kind: 'assistant', content: text}]
-        })
-      } else if (ev.type === 'reasoning') {
-        setItems((prev) => [...prev, {kind: 'reasoning', content: ev.content || ''}])
-      } else if (ev.type === 'tool_start') {
-        assistantBuf.current = ''
-        setItems((prev) => [...prev, {kind: 'tool', name: ev.name || 'tool', content: ev.content || '', phase: 'start'}])
-      } else if (ev.type === 'tool_end') {
-        setItems((prev) => [...prev, {kind: 'tool', name: ev.name || 'tool', content: ev.content || '', phase: 'end', ok: ev.ok}])
-      } else if (ev.type === 'done') {
-        assistantBuf.current = ''
-        setBusy(false)
-      } else if (ev.type === 'error') {
-        assistantBuf.current = ''
-        setBusy(false)
-        setItems((prev) => [...prev, {kind: 'system', content: `Error: ${ev.content}`}])
-      }
-    })
+    let offAgent: (() => void) | undefined
+    let offTerm: (() => void) | undefined
+    try {
+      offAgent = EventsOn('agent:event', (raw: AgentEvent) => {
+        const ev = raw
+        if (ev.type === 'delta') {
+          assistantBuf.current += ev.content || ''
+          const text = assistantBuf.current
+          setItems((prev) => {
+            const copy = [...prev]
+            const last = copy[copy.length - 1]
+            if (last && last.kind === 'assistant') {
+              copy[copy.length - 1] = {kind: 'assistant', content: text}
+              return copy
+            }
+            return [...copy, {kind: 'assistant', content: text}]
+          })
+        } else if (ev.type === 'reasoning') {
+          setItems((prev) => [...prev, {kind: 'reasoning', content: ev.content || ''}])
+        } else if (ev.type === 'tool_start') {
+          assistantBuf.current = ''
+          setItems((prev) => [...prev, {kind: 'tool', name: ev.name || 'tool', content: ev.content || '', phase: 'start'}])
+        } else if (ev.type === 'tool_end') {
+          setItems((prev) => [...prev, {kind: 'tool', name: ev.name || 'tool', content: ev.content || '', phase: 'end', ok: ev.ok}])
+        } else if (ev.type === 'done') {
+          assistantBuf.current = ''
+          setBusy(false)
+        } else if (ev.type === 'error') {
+          assistantBuf.current = ''
+          setBusy(false)
+          setItems((prev) => [...prev, {kind: 'system', content: `Error: ${ev.content}`}])
+        }
+      })
 
-    const offTerm = EventsOn('terminal:data', (data: string) => {
-      xtermRef.current?.write(data)
-    })
+      offTerm = EventsOn('terminal:data', (data: string) => {
+        xtermRef.current?.write(data)
+      })
+    } catch {
+      // runtime bindings not ready
+    }
 
     return () => {
-      EventsOff('agent:event')
-      EventsOff('terminal:data')
-      offAgent?.()
-      offTerm?.()
+      try {
+        EventsOff('agent:event')
+        EventsOff('terminal:data')
+        offAgent?.()
+        offTerm?.()
+      } catch {
+        /* ignore */
+      }
     }
   }, [])
 
@@ -134,26 +153,39 @@ export default function App() {
 
   useEffect(() => {
     if (!termRef.current || xtermRef.current) return
-    const term = new Terminal({
-      convertEol: true,
-      fontSize: 13,
-      fontFamily: 'Consolas, "Courier New", monospace',
-      theme: {background: '#0d0d0d', foreground: '#c8f7c5'},
-    })
-    const fit = new FitAddon()
-    term.loadAddon(fit)
-    term.open(termRef.current)
-    fit.fit()
-    term.focus()
-    term.onData((data) => {
-      TerminalWrite(data).catch(() => undefined)
-    })
-    xtermRef.current = term
-    fitRef.current = fit
-    StartTerminal().catch(() => undefined)
-    const onResize = () => fit.fit()
-    window.addEventListener('resize', onResize)
-    return () => window.removeEventListener('resize', onResize)
+    try {
+      const term = new Terminal({
+        convertEol: true,
+        fontSize: 13,
+        fontFamily: 'Menlo, Consolas, "Courier New", monospace',
+        theme: {background: '#0d0d0d', foreground: '#c8f7c5'},
+      })
+      const fit = new FitAddon()
+      term.loadAddon(fit)
+      term.open(termRef.current)
+      try {
+        fit.fit()
+      } catch {
+        /* container may still be 0-sized */
+      }
+      term.onData((data) => {
+        TerminalWrite(data).catch(() => undefined)
+      })
+      xtermRef.current = term
+      fitRef.current = fit
+      StartTerminal().catch(() => undefined)
+      const onResize = () => {
+        try {
+          fit.fit()
+        } catch {
+          /* ignore */
+        }
+      }
+      window.addEventListener('resize', onResize)
+      return () => window.removeEventListener('resize', onResize)
+    } catch (err) {
+      console.error('terminal init failed', err)
+    }
   }, [])
 
   async function openPicked() {
@@ -169,7 +201,7 @@ export default function App() {
   async function openProject(path: string) {
     const p = await OpenProject(path)
     setActive(p)
-    setProjects(await ListProjects())
+    setProjects(asList(await ListProjects()))
     await refreshFiles('.')
     xtermRef.current?.writeln(`\r\n$ cd ${p.path}`)
     await StartTerminal()
@@ -184,7 +216,7 @@ export default function App() {
       })
       return
     }
-    const kids = await ListDir(path)
+    const kids = asList(await ListDir(path))
     setExpanded((e) => ({...e, [path]: kids}))
   }
 
@@ -253,12 +285,12 @@ export default function App() {
     const name = prompt('SSH key name', 'id_ed25519')
     if (!name) return
     const pub = await SSHKeygen(name)
-    setSshKeys(await SSHListKeys())
+    setSshKeys(asList(await SSHListKeys()))
     setItems((m) => [...m, {kind: 'system', content: `SSH key created:\n${pub}`}])
   }
 
   function renderTree(entries: FileEntry[], depth = 0) {
-    return entries.map((f) => (
+    return asList(entries).map((f) => (
       <div key={f.path} className="tree-row" style={{paddingLeft: 8 + depth * 12}}>
         {f.isDir ? (
           <button type="button" className="tree-btn" onClick={() => toggleDir(f.path)}>
@@ -275,7 +307,27 @@ export default function App() {
   }
 
   return (
-    <div className={`nc-root ${showTree ? '' : 'no-tree'}`}>
+    <div className="nc-app">
+      <header className="nc-topbar">
+        <span className="nc-logo">NC</span>
+        <strong>{info.name}</strong>
+        <span className="nc-sub">v{info.version}</span>
+        <span className="nc-top-sep" />
+        <label className="nc-top-field">
+          API key
+          <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={keySet ? '•••• set' : 'sk-...'} />
+        </label>
+        <label className="nc-top-field">
+          Model
+          <select value={model} onChange={(e) => setModel(e.target.value)}>
+            <option value="deepseek-v4-flash">deepseek-v4-flash</option>
+            <option value="deepseek-v4-pro">deepseek-v4-pro</option>
+          </select>
+        </label>
+        <button type="button" onClick={saveSettings}>Save</button>
+        <span className={`nc-pill ${keySet ? 'ok' : ''}`}>{keySet ? 'key OK' : 'no key'}</span>
+      </header>
+      <div className={`nc-root ${showTree ? '' : 'no-tree'}`}>
       <aside className="nc-projects">
         <div className="nc-brand">
           <span className="nc-logo">NC</span>
@@ -287,7 +339,10 @@ export default function App() {
         <button type="button" onClick={openPicked}>Open Project…</button>
         <div className="nc-section-label">Projects</div>
         <ul className="nc-list">
-          {projects.map((p) => (
+          {asList(projects).length === 0 && (
+            <li className="nc-empty">Нет проектов — нажмите Open Project…</li>
+          )}
+          {asList(projects).map((p) => (
             <li key={p.path} className={active?.path === p.path ? 'active' : ''}>
               <button type="button" onClick={() => openProject(p.path)}>{p.name}</button>
             </li>
@@ -301,7 +356,11 @@ export default function App() {
       {showTree && (
         <aside className="nc-tree">
           <div className="nc-section-label">{active?.name || 'Files'}</div>
-          <div className="tree-scroll">{renderTree(files)}</div>
+          <div className="tree-scroll">
+            {!active && <div className="nc-empty">Сначала откройте проект</div>}
+            {active && asList(files).length === 0 && <div className="nc-empty">Пустая папка</div>}
+            {renderTree(files)}
+          </div>
         </aside>
       )}
 
@@ -314,7 +373,7 @@ export default function App() {
           <textarea
             value={editorContent}
             onChange={(e) => setEditorContent(e.target.value)}
-            placeholder="Откройте файл в дереве…"
+            placeholder="Окно текста: откройте файл в дереве слева…"
             spellCheck={false}
           />
         </section>
@@ -350,7 +409,7 @@ export default function App() {
             <textarea
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="Спросите агента: исправь файл, git status, ssh…"
+              placeholder="Чат с агентом: исправь файл, git status, ssh…"
               rows={3}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
@@ -367,7 +426,7 @@ export default function App() {
           <div className="nc-term-head">
             <span>Terminal</span>
             <div className="nc-term-run">
-              <input value={termCmd} onChange={(e) => setTermCmd(e.target.value)} placeholder="oneshot: Get-Date" onKeyDown={(e) => e.key === 'Enter' && void runOneShot()} />
+              <input value={termCmd} onChange={(e) => setTermCmd(e.target.value)} placeholder="oneshot: date" onKeyDown={(e) => e.key === 'Enter' && void runOneShot()} />
               <button type="button" onClick={runOneShot}>Run</button>
             </div>
           </div>
@@ -404,9 +463,11 @@ export default function App() {
         <div className="nc-section-label">SSH</div>
         <button type="button" className="nc-ghost" onClick={genKey}>Generate key</button>
         <ul className="nc-list compact">
-          {sshKeys.map((k) => <li key={k}>{k}</li>)}
+          {asList(sshKeys).length === 0 && <li className="nc-empty">Ключей нет</li>}
+          {asList(sshKeys).map((k) => <li key={k}>{k}</li>)}
         </ul>
       </aside>
+      </div>
     </div>
   )
 }
