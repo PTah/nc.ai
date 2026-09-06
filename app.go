@@ -95,7 +95,7 @@ func (a *App) emitTerm(data string) {
 func (a *App) AppInfo() map[string]string {
 	return map[string]string{
 		"name":    "NotCursor.ai",
-		"version": "0.1.1",
+		"version": "0.1.3",
 		"stage":   "1-deepseek-agent",
 	}
 }

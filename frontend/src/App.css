@@ -53,11 +53,19 @@ textarea { resize: none; }
   overflow: hidden;
 }
 .nc-root.no-tree { grid-template-columns: 200px minmax(0, 1fr) minmax(200px, 230px); }
+.nc-root.no-settings { grid-template-columns: 200px 220px minmax(0, 1fr); }
+.nc-root.no-tree.no-settings { grid-template-columns: 200px minmax(0, 1fr); }
 .nc-projects, .nc-tree, .nc-settings {
   background: var(--panel); border-right: 1px solid var(--border);
   padding: 0.7rem; overflow: auto;
 }
 .nc-settings { border-right: 0; border-left: 1px solid var(--border); }
+.nc-settings-head {
+  display: flex; justify-content: space-between; align-items: center;
+  gap: 0.5rem; margin-bottom: 0.4rem;
+}
+.nc-settings-head .nc-section-label { margin: 0; }
+.nc-topbar .nc-ghost { width: auto; margin: 0; }
 .nc-brand { display: flex; gap: 0.55rem; align-items: center; margin-bottom: 0.8rem; }
 .nc-logo {
   width: 32px; height: 32px; border-radius: 8px; display: grid; place-items: center;
@@ -76,6 +84,9 @@ textarea { resize: none; }
 .nc-list li.active button, .nc-list button:hover { background: #222; border-color: var(--border); }
 .nc-list.compact li { font-size: 0.8rem; color: #bbb; padding: 0.15rem 0; }
 .nc-ghost { width: 100%; margin-top: 0.5rem; background: transparent; border-color: var(--border); }
+.nc-actions .nc-ghost,
+.nc-composer-bar button,
+.nc-term-run button { width: auto; margin: 0; }
 .tree-scroll { font-size: 0.85rem; }
 .tree-btn {
   background: transparent; border: 0; padding: 0.12rem 0.2rem; text-align: left; width: 100%;
@@ -85,39 +96,60 @@ textarea { resize: none; }
 
 .nc-main {
   display: grid;
-  grid-template-rows: minmax(140px, 28%) minmax(0, 1fr) 210px;
+  grid-template-rows: minmax(0, 1fr) 160px;
   min-width: 0; background: var(--panel-2);
 }
-.nc-editor, .nc-chat, .nc-terminal { min-height: 0; display: flex; flex-direction: column; }
-.nc-editor { border-bottom: 1px solid var(--border); }
-.nc-editor header, .nc-chat-head, .nc-term-head {
+.nc-main.no-term { grid-template-rows: minmax(0, 1fr); }
+.nc-chat, .nc-terminal { min-height: 0; display: flex; flex-direction: column; }
+.nc-chat-head, .nc-term-head {
   display: flex; justify-content: space-between; align-items: center;
   gap: 0.5rem; padding: 0.35rem 0.7rem; border-bottom: 1px solid var(--border);
   font-size: 0.85rem;
 }
-.nc-editor textarea {
-  flex: 1; border: 0; border-radius: 0; background: #101010;
-  font-family: Consolas, monospace; font-size: 0.85rem; padding: 0.6rem;
+.nc-thread {
+  flex: 1; overflow: auto; display: flex; justify-content: center;
 }
+.nc-thread-inner {
+  width: min(760px, 100%);
+  padding: 1.1rem 1rem 1.6rem;
+  display: flex; flex-direction: column; gap: 0.7rem;
+}
+.nc-composer-wrap {
+  display: flex; justify-content: center;
+  padding: 0.55rem 1rem 0.9rem;
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+}
+.nc-composer {
+  width: min(760px, 100%);
+  display: flex; flex-direction: column; gap: 0.35rem;
+  background: #141414;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.55rem 0.7rem 0.5rem;
+}
+.nc-composer textarea {
+  border: 0; background: transparent; min-height: 72px; padding: 0.2rem;
+}
+.nc-composer-bar {
+  display: flex; justify-content: space-between; align-items: center; gap: 0.5rem;
+}
+.nc-hint { color: var(--muted); font-size: 0.72rem; }
 .nc-actions { display: flex; gap: 0.35rem; align-items: center; }
 .nc-pill {
   font-size: 0.72rem; padding: 0.12rem 0.45rem; border-radius: 999px;
   border: 1px solid var(--border); color: var(--muted);
 }
-.nc-messages { flex: 1; overflow: auto; padding: 0.7rem; display: flex; flex-direction: column; gap: 0.55rem; }
-.nc-msg { border: 1px solid var(--border); border-radius: 8px; padding: 0.5rem 0.65rem; background: #181818; }
-.nc-msg.user { background: #1c2736; }
+.nc-msg { border: 1px solid var(--border); border-radius: 12px; padding: 0.65rem 0.8rem; background: #181818; max-width: 100%; }
+.nc-msg.user { background: #1c2736; margin-left: 12%; }
 .nc-msg.assistant { background: #171717; }
 .nc-msg.system { background: #221f14; }
 .nc-msg.reasoning { background: #1a1a22; color: #bdbde8; }
 .nc-msg.tool { background: #142018; font-size: 0.82rem; }
 .nc-msg.tool.start { border-color: #3a5; }
-.nc-role { font-size: 0.68rem; color: var(--muted); text-transform: uppercase; margin-bottom: 0.2rem; }
+.nc-msg.file { background: #141820; border-color: #334; }
+.nc-role { font-size: 0.68rem; color: var(--muted); text-transform: uppercase; margin-bottom: 0.25rem; }
 .nc-msg pre { margin: 0; white-space: pre-wrap; word-break: break-word; font: inherit; }
-.nc-composer {
-  display: grid; grid-template-columns: 1fr auto; gap: 0.45rem;
-  padding: 0.55rem; border-top: 1px solid var(--border);
-}
 .nc-terminal { border-top: 1px solid var(--border); background: #0d0d0d; }
 .nc-term-run { display: flex; gap: 0.35rem; min-width: 0; }
 .nc-term-run input { width: 220px; }
@@ -129,9 +161,6 @@ textarea { resize: none; }
 
 @media (max-width: 1200px) {
   .nc-root { grid-template-columns: 180px minmax(0, 1fr) 220px; }
+  .nc-root.no-settings { grid-template-columns: 180px minmax(0, 1fr); }
   .nc-tree { display: none; }
-}
-@media (max-width: 900px) {
-  .nc-root { grid-template-columns: 160px minmax(0, 1fr); }
-  .nc-settings { display: none; }
 }

@@ -22,7 +22,6 @@ import {
   StartTerminal,
   StopAgent,
   TerminalWrite,
-  WriteFile,
   ListProjects,
 } from '../wailsjs/go/main/App'
 import {EventsOn, EventsOff} from '../wailsjs/runtime/runtime'
@@ -32,6 +31,7 @@ type FileEntry = { name: string; path: string; isDir: boolean }
 type ChatItem =
   | { kind: 'user' | 'assistant' | 'system' | 'reasoning'; content: string }
   | { kind: 'tool'; name: string; content: string; phase: 'start' | 'end'; ok?: boolean }
+  | { kind: 'file'; path: string; content: string }
 
 type AgentEvent = {
   type: string
@@ -44,17 +44,42 @@ function asList<T>(v: T[] | null | undefined): T[] {
   return Array.isArray(v) ? v : []
 }
 
+function parseAgentEvent(...args: unknown[]): AgentEvent | null {
+  for (const arg of args) {
+    let raw: unknown = arg
+    if (typeof raw === 'string') {
+      try {
+        raw = JSON.parse(raw)
+      } catch {
+        continue
+      }
+    }
+    if (!raw || typeof raw !== 'object') continue
+    const o = raw as Record<string, unknown>
+    const inner = o.data && typeof o.data === 'object' ? (o.data as Record<string, unknown>) : o
+    const type = String(inner.type ?? inner.Type ?? '')
+    if (!type) continue
+    return {
+      type,
+      content: inner.content != null ? String(inner.content) : inner.Content != null ? String(inner.Content) : '',
+      name: inner.name != null ? String(inner.name) : inner.Name != null ? String(inner.Name) : '',
+      ok: Boolean(inner.ok ?? inner.OK),
+    }
+  }
+  return null
+}
+
 export default function App() {
-  const [info, setInfo] = useState({name: 'NotCursor.ai', version: '0.1.1'})
+  const [info, setInfo] = useState({name: 'NotCursor.ai', version: '0.1.3'})
   const [projects, setProjects] = useState<Project[]>([])
   const [active, setActive] = useState<Project | null>(null)
   const [files, setFiles] = useState<FileEntry[]>([])
   const [expanded, setExpanded] = useState<Record<string, FileEntry[]>>({})
   const [showTree, setShowTree] = useState(true)
-  const [editorPath, setEditorPath] = useState('')
-  const [editorContent, setEditorContent] = useState('')
+  const [showTerm, setShowTerm] = useState(true)
+  const [showSettings, setShowSettings] = useState(false)
   const [items, setItems] = useState<ChatItem[]>([
-    {kind: 'system', content: 'NotCursor.ai · DeepSeek agent. Откройте проект слева и вставьте API key справа.'},
+    {kind: 'system', content: 'Чат с агентом. Откройте проект слева, вставьте API key сверху и задайте вопрос — как в этом диалоге.'},
   ])
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
@@ -97,39 +122,48 @@ export default function App() {
     let offAgent: (() => void) | undefined
     let offTerm: (() => void) | undefined
     try {
-      offAgent = EventsOn('agent:event', (raw: AgentEvent) => {
-        const ev = raw
-        if (ev.type === 'delta') {
-          assistantBuf.current += ev.content || ''
-          const text = assistantBuf.current
-          setItems((prev) => {
-            const copy = [...prev]
-            const last = copy[copy.length - 1]
-            if (last && last.kind === 'assistant') {
-              copy[copy.length - 1] = {kind: 'assistant', content: text}
-              return copy
-            }
-            return [...copy, {kind: 'assistant', content: text}]
-          })
-        } else if (ev.type === 'reasoning') {
-          setItems((prev) => [...prev, {kind: 'reasoning', content: ev.content || ''}])
-        } else if (ev.type === 'tool_start') {
-          assistantBuf.current = ''
-          setItems((prev) => [...prev, {kind: 'tool', name: ev.name || 'tool', content: ev.content || '', phase: 'start'}])
-        } else if (ev.type === 'tool_end') {
-          setItems((prev) => [...prev, {kind: 'tool', name: ev.name || 'tool', content: ev.content || '', phase: 'end', ok: ev.ok}])
-        } else if (ev.type === 'done') {
-          assistantBuf.current = ''
-          setBusy(false)
-        } else if (ev.type === 'error') {
-          assistantBuf.current = ''
-          setBusy(false)
-          setItems((prev) => [...prev, {kind: 'system', content: `Error: ${ev.content}`}])
+      offAgent = EventsOn('agent:event', (...args: unknown[]) => {
+        try {
+          const ev = parseAgentEvent(...args)
+          if (!ev) return
+          if (ev.type === 'delta') {
+            assistantBuf.current += ev.content || ''
+            const text = assistantBuf.current
+            setItems((prev) => {
+              const copy = [...asList(prev)]
+              const last = copy[copy.length - 1]
+              if (last && last.kind === 'assistant') {
+                copy[copy.length - 1] = {kind: 'assistant', content: text}
+                return copy
+              }
+              return [...copy, {kind: 'assistant', content: text}]
+            })
+          } else if (ev.type === 'reasoning') {
+            setItems((prev) => [...asList(prev), {kind: 'reasoning', content: ev.content || ''}])
+          } else if (ev.type === 'tool_start') {
+            assistantBuf.current = ''
+            setItems((prev) => [...asList(prev), {kind: 'tool', name: ev.name || 'tool', content: ev.content || '', phase: 'start'}])
+          } else if (ev.type === 'tool_end') {
+            setItems((prev) => [...asList(prev), {kind: 'tool', name: ev.name || 'tool', content: ev.content || '', phase: 'end', ok: ev.ok}])
+          } else if (ev.type === 'done') {
+            assistantBuf.current = ''
+            setBusy(false)
+          } else if (ev.type === 'error') {
+            assistantBuf.current = ''
+            setBusy(false)
+            setItems((prev) => [...asList(prev), {kind: 'system', content: `Error: ${ev.content || 'unknown'}`}])
+          }
+        } catch (err) {
+          console.error('agent event', err)
         }
       })
 
       offTerm = EventsOn('terminal:data', (data: string) => {
-        xtermRef.current?.write(data)
+        try {
+          if (typeof data === 'string') xtermRef.current?.write(data)
+        } catch {
+          /* ignore */
+        }
       })
     } catch {
       // runtime bindings not ready
@@ -152,7 +186,17 @@ export default function App() {
   }, [items])
 
   useEffect(() => {
-    if (!termRef.current || xtermRef.current) return
+    if (!showTerm) return
+    if (!termRef.current || xtermRef.current) {
+      requestAnimationFrame(() => {
+        try {
+          fitRef.current?.fit()
+        } catch {
+          /* ignore */
+        }
+      })
+      return
+    }
     try {
       const term = new Terminal({
         convertEol: true,
@@ -186,7 +230,7 @@ export default function App() {
     } catch (err) {
       console.error('terminal init failed', err)
     }
-  }, [])
+  }, [showTerm])
 
   async function openPicked() {
     try {
@@ -194,7 +238,7 @@ export default function App() {
       if (!dir) return
       await openProject(dir)
     } catch (e) {
-      setItems((m) => [...m, {kind: 'system', content: String(e)}])
+      setItems((m) => [...asList(m), {kind: 'system', content: String(e)}])
     }
   }
 
@@ -205,6 +249,7 @@ export default function App() {
     await refreshFiles('.')
     xtermRef.current?.writeln(`\r\n$ cd ${p.path}`)
     await StartTerminal()
+    setItems((m) => [...asList(m), {kind: 'system', content: `Проект открыт: ${p.name}\n${p.path}`}])
   }
 
   async function toggleDir(path: string) {
@@ -221,15 +266,13 @@ export default function App() {
   }
 
   async function openFile(path: string) {
-    const content = await ReadFile(path)
-    setEditorPath(path)
-    setEditorContent(content)
-  }
-
-  async function saveEditor() {
-    if (!editorPath) return
-    await WriteFile(editorPath, editorContent)
-    setItems((m) => [...m, {kind: 'system', content: `Saved ${editorPath}`}])
+    try {
+      const content = await ReadFile(path)
+      const preview = content.length > 4000 ? content.slice(0, 4000) + '\n…' : content
+      setItems((m) => [...asList(m), {kind: 'file', path, content: preview}])
+    } catch (e) {
+      setItems((m) => [...asList(m), {kind: 'system', content: String(e)}])
+    }
   }
 
   async function saveSettings() {
@@ -243,31 +286,31 @@ export default function App() {
       await SaveGitAuth(gitUser, gitPass)
       setGitPass('')
     }
-    setItems((m) => [...m, {kind: 'system', content: 'Settings saved'}])
+    setItems((m) => [...asList(m), {kind: 'system', content: 'Settings saved'}])
   }
 
   async function testConnect() {
     try {
       const r = await ChatOnce('ping')
-      setItems((m) => [...m, {kind: 'system', content: `DeepSeek connect OK: ${r || '(empty content)'}`}])
+      setItems((m) => [...asList(m), {kind: 'system', content: `DeepSeek connect OK: ${r || '(empty content)'}`}])
     } catch (e) {
-      setItems((m) => [...m, {kind: 'system', content: `Connect failed: ${String(e)}`}])
+      setItems((m) => [...asList(m), {kind: 'system', content: `Connect failed: ${String(e)}`}])
     }
   }
 
-  async function sendChat(e: FormEvent) {
-    e.preventDefault()
+  async function sendChat(e?: FormEvent) {
+    e?.preventDefault()
     const text = input.trim()
     if (!text || busy) return
     setInput('')
     assistantBuf.current = ''
-    setItems((m) => [...m, {kind: 'user', content: text}])
+    setItems((m) => [...asList(m), {kind: 'user', content: text}])
     setBusy(true)
     try {
       await RunAgent(text)
     } catch (err) {
       setBusy(false)
-      setItems((m) => [...m, {kind: 'system', content: String(err)}])
+      setItems((m) => [...asList(m), {kind: 'system', content: String(err)}])
     }
   }
 
@@ -286,7 +329,7 @@ export default function App() {
     if (!name) return
     const pub = await SSHKeygen(name)
     setSshKeys(asList(await SSHListKeys()))
-    setItems((m) => [...m, {kind: 'system', content: `SSH key created:\n${pub}`}])
+    setItems((m) => [...asList(m), {kind: 'system', content: `SSH key created:\n${pub}`}])
   }
 
   function renderTree(entries: FileEntry[], depth = 0) {
@@ -326,147 +369,156 @@ export default function App() {
         </label>
         <button type="button" onClick={saveSettings}>Save</button>
         <span className={`nc-pill ${keySet ? 'ok' : ''}`}>{keySet ? 'key OK' : 'no key'}</span>
-      </header>
-      <div className={`nc-root ${showTree ? '' : 'no-tree'}`}>
-      <aside className="nc-projects">
-        <div className="nc-brand">
-          <span className="nc-logo">NC</span>
-          <div>
-            <div className="nc-title">{info.name}</div>
-            <div className="nc-sub">v{info.version}</div>
-          </div>
-        </div>
-        <button type="button" onClick={openPicked}>Open Project…</button>
-        <div className="nc-section-label">Projects</div>
-        <ul className="nc-list">
-          {asList(projects).length === 0 && (
-            <li className="nc-empty">Нет проектов — нажмите Open Project…</li>
-          )}
-          {asList(projects).map((p) => (
-            <li key={p.path} className={active?.path === p.path ? 'active' : ''}>
-              <button type="button" onClick={() => openProject(p.path)}>{p.name}</button>
-            </li>
-          ))}
-        </ul>
-        <button type="button" className="nc-ghost" onClick={() => setShowTree((v) => !v)}>
-          {showTree ? 'Hide files' : 'Show files'}
+        <button type="button" className="nc-ghost" onClick={() => setShowSettings((v) => !v)}>
+          {showSettings ? 'Hide settings' : 'Settings'}
         </button>
-      </aside>
-
-      {showTree && (
-        <aside className="nc-tree">
-          <div className="nc-section-label">{active?.name || 'Files'}</div>
-          <div className="tree-scroll">
-            {!active && <div className="nc-empty">Сначала откройте проект</div>}
-            {active && asList(files).length === 0 && <div className="nc-empty">Пустая папка</div>}
-            {renderTree(files)}
-          </div>
+      </header>
+      <div className={`nc-root ${showTree ? '' : 'no-tree'} ${showSettings ? '' : 'no-settings'}`}>
+        <aside className="nc-projects">
+          <button type="button" onClick={openPicked}>Open Project…</button>
+          <div className="nc-section-label">Projects</div>
+          <ul className="nc-list">
+            {asList(projects).length === 0 && (
+              <li className="nc-empty">Нет проектов — нажмите Open Project…</li>
+            )}
+            {asList(projects).map((p) => (
+              <li key={p.path} className={active?.path === p.path ? 'active' : ''}>
+                <button type="button" onClick={() => openProject(p.path)}>{p.name}</button>
+              </li>
+            ))}
+          </ul>
+          <button type="button" className="nc-ghost" onClick={() => setShowTree((v) => !v)}>
+            {showTree ? 'Hide files' : 'Show files'}
+          </button>
+          <button type="button" className="nc-ghost" onClick={() => setShowTerm((v) => !v)}>
+            {showTerm ? 'Hide terminal' : 'Show terminal'}
+          </button>
         </aside>
-      )}
 
-      <main className="nc-main">
-        <section className="nc-editor">
-          <header>
-            <span>{editorPath || 'Editor'}</span>
-            <button type="button" disabled={!editorPath} onClick={saveEditor}>Save</button>
-          </header>
-          <textarea
-            value={editorContent}
-            onChange={(e) => setEditorContent(e.target.value)}
-            placeholder="Окно текста: откройте файл в дереве слева…"
-            spellCheck={false}
-          />
-        </section>
-
-        <section className="nc-chat">
-          <header className="nc-chat-head">
-            <span>Agent · DeepSeek</span>
-            <div className="nc-actions">
-              <span className="nc-pill">{keySet ? 'key OK' : 'no key'}</span>
-              <button type="button" className="nc-ghost" onClick={() => { ClearChat(); setItems([{kind: 'system', content: 'Chat cleared'}]) }}>Clear</button>
-              <button type="button" className="nc-ghost" disabled={!busy} onClick={() => StopAgent()}>Stop</button>
+        {showTree && (
+          <aside className="nc-tree">
+            <div className="nc-section-label">{active?.name || 'Files'}</div>
+            <div className="tree-scroll">
+              {!active && <div className="nc-empty">Сначала откройте проект</div>}
+              {active && asList(files).length === 0 && <div className="nc-empty">Пустая папка</div>}
+              {renderTree(files)}
             </div>
-          </header>
-          <div className="nc-messages" ref={chatRef}>
-            {items.map((m, i) => {
-              if (m.kind === 'tool') {
-                return (
-                  <div key={i} className={`nc-msg tool ${m.phase}`}>
-                    <div className="nc-role">tool · {m.name} · {m.phase}{m.phase === 'end' ? (m.ok ? ' ✓' : ' ✗') : ''}</div>
-                    <pre>{m.content}</pre>
-                  </div>
-                )
-              }
-              return (
-                <div key={i} className={`nc-msg ${m.kind}`}>
-                  <div className="nc-role">{m.kind}</div>
-                  <pre>{m.content}</pre>
+          </aside>
+        )}
+
+        <main className={`nc-main ${showTerm ? '' : 'no-term'}`}>
+          <section className="nc-chat">
+            <header className="nc-chat-head">
+              <span>Чат · {active?.name || 'агент'}</span>
+              <div className="nc-actions">
+                <span className="nc-pill">{busy ? 'думает…' : keySet ? 'key OK' : 'no key'}</span>
+                <button type="button" className="nc-ghost" onClick={() => { ClearChat(); setItems([{kind: 'system', content: 'Чат очищен'}]) }}>Clear</button>
+                <button type="button" className="nc-ghost" disabled={!busy} onClick={() => StopAgent()}>Stop</button>
+              </div>
+            </header>
+            <div className="nc-thread" ref={chatRef}>
+              <div className="nc-thread-inner">
+                {asList(items).map((m, i) => {
+                  if (m.kind === 'tool') {
+                    return (
+                      <div key={i} className={`nc-msg tool ${m.phase}`}>
+                        <div className="nc-role">tool · {m.name} · {m.phase}{m.phase === 'end' ? (m.ok ? ' ✓' : ' ✗') : ''}</div>
+                        <pre>{m.content}</pre>
+                      </div>
+                    )
+                  }
+                  if (m.kind === 'file') {
+                    return (
+                      <div key={i} className="nc-msg file">
+                        <div className="nc-role">файл · {m.path}</div>
+                        <pre>{m.content}</pre>
+                      </div>
+                    )
+                  }
+                  return (
+                    <div key={i} className={`nc-msg ${m.kind}`}>
+                      <div className="nc-role">{m.kind === 'user' ? 'вы' : m.kind === 'assistant' ? 'агент' : m.kind}</div>
+                      <pre>{m.content}</pre>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+            <div className="nc-composer-wrap">
+              <form className="nc-composer" onSubmit={sendChat}>
+                <textarea
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  placeholder="Спросите агента: прочитай проект и скажи, о чём он…"
+                  rows={3}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault()
+                      void sendChat()
+                    }
+                  }}
+                />
+                <div className="nc-composer-bar">
+                  <span className="nc-hint">Enter — отправить, Shift+Enter — новая строка</span>
+                  <button type="submit" disabled={busy}>{busy ? '…' : 'Send'}</button>
                 </div>
-              )
-            })}
-          </div>
-          <form className="nc-composer" onSubmit={sendChat}>
-            <textarea
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder="Чат с агентом: исправь файл, git status, ssh…"
-              rows={3}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault()
-                  void sendChat(e as unknown as FormEvent)
-                }
-              }}
-            />
-            <button type="submit" disabled={busy}>{busy ? '…' : 'Send'}</button>
-          </form>
-        </section>
-
-        <section className="nc-terminal">
-          <div className="nc-term-head">
-            <span>Terminal</span>
-            <div className="nc-term-run">
-              <input value={termCmd} onChange={(e) => setTermCmd(e.target.value)} placeholder="oneshot: date" onKeyDown={(e) => e.key === 'Enter' && void runOneShot()} />
-              <button type="button" onClick={runOneShot}>Run</button>
+              </form>
             </div>
-          </div>
-          <div className="nc-xterm" ref={termRef} />
-        </section>
-      </main>
+          </section>
 
-      <aside className="nc-settings">
-        <div className="nc-section-label">DeepSeek</div>
-        <label>
-          Model
-          <select value={model} onChange={(e) => setModel(e.target.value)}>
-            <option value="deepseek-v4-flash">deepseek-v4-flash</option>
-            <option value="deepseek-v4-pro">deepseek-v4-pro</option>
-          </select>
-        </label>
-        <label>
-          API key
-          <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={keySet ? '•••• set' : 'sk-...'} />
-        </label>
-        <button type="button" onClick={saveSettings}>Save settings</button>
-        <button type="button" className="nc-ghost" onClick={testConnect}>Test connect</button>
+          {showTerm && (
+            <section className="nc-terminal">
+              <div className="nc-term-head">
+                <span>Terminal</span>
+                <div className="nc-term-run">
+                  <input value={termCmd} onChange={(e) => setTermCmd(e.target.value)} placeholder="oneshot: date" onKeyDown={(e) => e.key === 'Enter' && void runOneShot()} />
+                  <button type="button" onClick={runOneShot}>Run</button>
+                </div>
+              </div>
+              <div className="nc-xterm" ref={termRef} />
+            </section>
+          )}
+        </main>
 
-        <div className="nc-section-label">Git / Gitea</div>
-        <label>
-          Username
-          <input value={gitUser} onChange={(e) => setGitUser(e.target.value)} />
-        </label>
-        <label>
-          Password / token
-          <input type="password" value={gitPass} onChange={(e) => setGitPass(e.target.value)} />
-        </label>
+        {showSettings && (
+          <aside className="nc-settings">
+            <div className="nc-settings-head">
+              <div className="nc-section-label">Settings</div>
+              <button type="button" className="nc-ghost" onClick={() => setShowSettings(false)}>Close</button>
+            </div>
+            <div className="nc-section-label">DeepSeek</div>
+            <label>
+              Model
+              <select value={model} onChange={(e) => setModel(e.target.value)}>
+                <option value="deepseek-v4-flash">deepseek-v4-flash</option>
+                <option value="deepseek-v4-pro">deepseek-v4-pro</option>
+              </select>
+            </label>
+            <label>
+              API key
+              <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={keySet ? '•••• set' : 'sk-...'} />
+            </label>
+            <button type="button" onClick={saveSettings}>Save settings</button>
+            <button type="button" className="nc-ghost" onClick={testConnect}>Test connect</button>
 
-        <div className="nc-section-label">SSH</div>
-        <button type="button" className="nc-ghost" onClick={genKey}>Generate key</button>
-        <ul className="nc-list compact">
-          {asList(sshKeys).length === 0 && <li className="nc-empty">Ключей нет</li>}
-          {asList(sshKeys).map((k) => <li key={k}>{k}</li>)}
-        </ul>
-      </aside>
+            <div className="nc-section-label">Git / Gitea</div>
+            <label>
+              Username
+              <input value={gitUser} onChange={(e) => setGitUser(e.target.value)} />
+            </label>
+            <label>
+              Password / token
+              <input type="password" value={gitPass} onChange={(e) => setGitPass(e.target.value)} />
+            </label>
+
+            <div className="nc-section-label">SSH</div>
+            <button type="button" className="nc-ghost" onClick={genKey}>Generate key</button>
+            <ul className="nc-list compact">
+              {asList(sshKeys).length === 0 && <li className="nc-empty">Ключей нет</li>}
+              {asList(sshKeys).map((k) => <li key={k}>{k}</li>)}
+            </ul>
+          </aside>
+        )}
       </div>
     </div>
   )
