@@ -1,0 +1,117 @@
+package config
+
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"sync"
+)
+
+const appDirName = "NotCursor"
+
+// Settings holds non-secret and secret local configuration.
+// Secrets are stored in the same file for stage 1; stage 2 moves them to OS keychain/DPAPI.
+type Settings struct {
+	DeepSeekAPIKey string   `json:"deepseekApiKey"`
+	DeepSeekModel  string   `json:"deepseekModel"`
+	Shell          string   `json:"shell"`
+	RecentProjects []string `json:"recentProjects"`
+}
+
+type Store struct {
+	mu       sync.RWMutex
+	settings Settings
+	path     string
+}
+
+func NewStore() *Store {
+	return &Store{
+		settings: Settings{
+			DeepSeekModel: "deepseek-v4-flash",
+			Shell:         "powershell",
+		},
+	}
+}
+
+func (s *Store) configPath() (string, error) {
+	if s.path != "" {
+		return s.path, nil
+	}
+	base, err := os.UserConfigDir()
+	if err != nil {
+		return "", err
+	}
+	dir := filepath.Join(base, appDirName)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	s.path = filepath.Join(dir, "settings.json")
+	return s.path, nil
+}
+
+func (s *Store) Load() error {
+	path, err := s.configPath()
+	if err != nil {
+		return err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return s.Save()
+		}
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return json.Unmarshal(data, &s.settings)
+}
+
+func (s *Store) Save() error {
+	path, err := s.configPath()
+	if err != nil {
+		return err
+	}
+	s.mu.RLock()
+	data, err := json.MarshalIndent(&s.settings, "", "  ")
+	s.mu.RUnlock()
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0o600)
+}
+
+func (s *Store) Get() Settings {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.settings
+}
+
+func (s *Store) SetDeepSeekAPIKey(key string) error {
+	s.mu.Lock()
+	s.settings.DeepSeekAPIKey = key
+	s.mu.Unlock()
+	return s.Save()
+}
+
+func (s *Store) SetDeepSeekModel(model string) error {
+	s.mu.Lock()
+	s.settings.DeepSeekModel = model
+	s.mu.Unlock()
+	return s.Save()
+}
+
+func (s *Store) AddRecentProject(path string) error {
+	s.mu.Lock()
+	out := []string{path}
+	for _, p := range s.settings.RecentProjects {
+		if p != path {
+			out = append(out, p)
+		}
+	}
+	if len(out) > 20 {
+		out = out[:20]
+	}
+	s.settings.RecentProjects = out
+	s.mu.Unlock()
+	return s.Save()
+}

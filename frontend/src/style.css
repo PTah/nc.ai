@@ -1,0 +1,11 @@
+html {
+  background: #121212;
+  text-align: initial;
+}
+body {
+  margin: 0;
+  font-family: "Segoe UI", "JetBrains Mono", Consolas, monospace;
+}
+#root {
+  height: 100vh;
+}

@@ -1,0 +1,11 @@
+build/bin
+node_modules
+frontend/dist
+.env
+*.exe
+*.app
+.DS_Store
+.idea/
+.vscode/
+*.log
+secrets.enc

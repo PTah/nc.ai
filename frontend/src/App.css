@@ -1,0 +1,131 @@
+:root {
+  color-scheme: dark;
+  --bg: #121212;
+  --panel: #1a1a1a;
+  --panel-2: #161616;
+  --border: #2a2a2a;
+  --text: #e8e8e8;
+  --muted: #8a8a8a;
+  --accent: #3d8bfd;
+  --accent-2: #2f6fed;
+  --user: #1e2a3a;
+  --assistant: #1c1c1c;
+  --system: #222018;
+  font-family: "Segoe UI", "JetBrains Mono", Consolas, monospace;
+}
+
+* { box-sizing: border-box; }
+html, body, #root { margin: 0; height: 100%; background: var(--bg); color: var(--text); }
+button, input, textarea {
+  font: inherit;
+  color: var(--text);
+  background: #101010;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+button {
+  background: var(--accent);
+  border-color: var(--accent-2);
+  cursor: pointer;
+  padding: 0.4rem 0.75rem;
+}
+button:disabled { opacity: 0.6; cursor: default; }
+input, textarea { width: 100%; padding: 0.45rem 0.6rem; }
+textarea { resize: vertical; }
+
+.nc-root {
+  display: grid;
+  grid-template-columns: 220px 220px 1fr 240px;
+  grid-template-rows: 1fr;
+  height: 100%;
+  overflow: hidden;
+}
+.nc-root:has(.nc-tree) { }
+.nc-projects, .nc-tree, .nc-settings {
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+  padding: 0.75rem;
+  overflow: auto;
+}
+.nc-settings { border-right: none; border-left: 1px solid var(--border); }
+.nc-brand { display: flex; gap: 0.6rem; align-items: center; margin-bottom: 1rem; }
+.nc-logo {
+  width: 34px; height: 34px; border-radius: 8px;
+  display: grid; place-items: center;
+  background: linear-gradient(135deg, #2f6fed, #1b3f8b);
+  font-weight: 700;
+}
+.nc-title { font-weight: 700; }
+.nc-sub, .nc-muted, .nc-hint { color: var(--muted); font-size: 0.8rem; }
+.nc-section-label {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 0.7rem;
+  color: var(--muted);
+  margin: 0.75rem 0 0.4rem;
+}
+.nc-open-row { display: grid; gap: 0.4rem; }
+.nc-list { list-style: none; padding: 0; margin: 0; }
+.nc-list li { margin: 0.15rem 0; }
+.nc-list button {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+}
+.nc-list li.active button, .nc-list button:hover {
+  border-color: var(--border);
+  background: #202020;
+}
+.nc-list.compact li { font-size: 0.85rem; padding: 0.15rem 0; color: #cfcfcf; }
+.nc-list.compact li.dir { color: #9ec1ff; }
+.nc-ghost { width: 100%; margin-top: 0.75rem; background: transparent; border-color: var(--border); }
+
+.nc-main {
+  display: grid;
+  grid-template-rows: 1fr 180px;
+  min-width: 0;
+  background: var(--panel-2);
+}
+.nc-chat { display: flex; flex-direction: column; min-height: 0; }
+.nc-chat-head {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 0.6rem 0.9rem; border-bottom: 1px solid var(--border);
+}
+.nc-pill {
+  font-size: 0.75rem; padding: 0.15rem 0.5rem; border-radius: 999px;
+  border: 1px solid var(--border); color: var(--muted);
+}
+.nc-messages { flex: 1; overflow: auto; padding: 0.9rem; display: flex; flex-direction: column; gap: 0.7rem; }
+.nc-msg { border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem 0.75rem; }
+.nc-msg.user { background: var(--user); }
+.nc-msg.assistant { background: var(--assistant); }
+.nc-msg.system { background: var(--system); }
+.nc-role { font-size: 0.7rem; color: var(--muted); margin-bottom: 0.25rem; text-transform: uppercase; }
+.nc-msg pre {
+  margin: 0; white-space: pre-wrap; word-break: break-word;
+  font-family: inherit; font-size: 0.92rem;
+}
+.nc-composer {
+  display: grid; grid-template-columns: 1fr auto; gap: 0.5rem;
+  padding: 0.75rem; border-top: 1px solid var(--border);
+}
+.nc-terminal {
+  border-top: 1px solid var(--border);
+  background: #0d0d0d;
+  padding: 0.5rem 0.75rem;
+  overflow: hidden;
+}
+.nc-term-body {
+  margin: 0; height: calc(100% - 1.2rem); overflow: auto;
+  color: #b6f5c6; font-size: 0.82rem;
+}
+.nc-settings label { display: grid; gap: 0.3rem; margin-bottom: 0.75rem; font-size: 0.85rem; }
+.nc-settings button { width: 100%; }
+.nc-hint { margin-top: 1rem; line-height: 1.4; }
+.nc-hint code { color: #cde; }
+
+@media (max-width: 1100px) {
+  .nc-root { grid-template-columns: 180px 1fr 200px; }
+  .nc-tree { display: none; }
+}
