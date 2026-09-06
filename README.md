@@ -16,6 +16,10 @@
 - Wails v2: Go backend + React/TS frontend (системный WebView, без Electron)
 - Layout «как Cursor»: проекты | дерево файлов (опц.) | чат | настройки (опц.) | терминал (опц.)
 - Целевой размер релиза ~15–20 МБ; macOS **не** кросс-компилируется с Windows (нужен macOS-хост)
+- Бренд-иконка: `build/appicon.png` + `build/windows/icon.ico` (рабочий стол / exe)
+- Внутри приложения: анимированный mark в топбаре (`BrandMark`, кадры `frontend/public/brand/frame-1…6.png`, 100 мс)
+- **macOS Dock:** пока агент активен — цикл `frame1…frame6` через `NSApp.applicationIconImage` (`internal/dockicon`, interval 100 мс); по стопу возвращается default. На Windows — no-op stub
+- Пересборка ассетов: `python scripts/build_brand_assets.py`
 
 ### DeepSeek / agent loop
 - Провайдер: OpenAI-compatible `POST https://api.deepseek.com/chat/completions`

@@ -36,6 +36,7 @@ import {
   ListProjects,
 } from '../wailsjs/go/main/App'
 import {EventsOn, EventsOff} from '../wailsjs/runtime/runtime'
+import BrandMark from './BrandMark'
 
 type Project = { name: string; path: string; opened?: string }
 type FileEntry = { name: string; path: string; isDir: boolean }
@@ -801,7 +802,7 @@ export default function App() {
   return (
     <div className="nc-app">
       <header className="nc-topbar">
-        <span className="nc-logo">NC</span>
+        <BrandMark size={34} />
         <strong>{info.name}</strong>
         <span className="nc-sub">v{info.version}</span>
         <span className="nc-top-sep" />

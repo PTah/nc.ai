@@ -12,6 +12,7 @@ import (
 	"notcursor.ai/app/internal/chatstore"
 	"notcursor.ai/app/internal/config"
 	"notcursor.ai/app/internal/costing"
+	"notcursor.ai/app/internal/dockicon"
 	"notcursor.ai/app/internal/llm"
 	"notcursor.ai/app/internal/llm/providers/deepseek"
 	"notcursor.ai/app/internal/shell"
@@ -499,6 +500,9 @@ func (a *App) RunAgentWithAttachments(userMessage string, attachments []agent.At
 	}
 
 	go func() {
+		dockicon.BeginAgent()
+		defer dockicon.EndAgent()
+
 		emit := func(evt agent.Event) {
 			a.emitFor(sid, evt)
 		}
