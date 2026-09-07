@@ -175,18 +175,30 @@ type WelcomeInfo struct {
 	Show       bool     `json:"show"`
 	Name       string   `json:"name"`
 	Version    string   `json:"version"`
+	Eyebrow    string   `json:"eyebrow"`
+	VersionLbl string   `json:"versionLabel"`
+	WhatsNew   string   `json:"whatsNew"`
+	Continue   string   `json:"continueLabel"`
 	Highlights []string `json:"highlights"`
+	Locale     string   `json:"locale"`
 }
 
 // GetWelcome returns splash data when LastSeenVersion != current app version.
-func (a *App) GetWelcome() WelcomeInfo {
+// lang is a BCP-47 tag from the UI (navigator.language), e.g. "ru-RU" or "en-US".
+func (a *App) GetWelcome(lang string) WelcomeInfo {
 	cur := appmeta.Version
 	seen := a.cfg.LastSeenVersion()
+	copy := appmeta.CopyFor(lang)
 	return WelcomeInfo{
 		Show:       seen != cur,
 		Name:       appmeta.Name,
 		Version:    cur,
-		Highlights: append([]string(nil), appmeta.Highlights...),
+		Eyebrow:    copy.Eyebrow,
+		VersionLbl: copy.Version,
+		WhatsNew:   copy.WhatsNew,
+		Continue:   copy.Continue,
+		Highlights: appmeta.HighlightsFor(lang),
+		Locale:     lang,
 	}
 }
 

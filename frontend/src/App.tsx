@@ -311,6 +311,10 @@ type WelcomeState = {
   show: boolean
   name: string
   version: string
+  eyebrow: string
+  versionLabel: string
+  whatsNew: string
+  continueLabel: string
   highlights: string[]
 }
 
@@ -556,7 +560,7 @@ function parseAgentEvent(...args: unknown[]): AgentEvent | null {
 }
 
 export default function App() {
-  const [info, setInfo] = useState({name: 'NotCursor.ai', version: '0.5.0'})
+  const [info, setInfo] = useState({name: 'NotCursor.ai', version: '0.5.1'})
   const [usage, setUsage] = useState<UsageSnapshot>(emptyUsage)
   const [welcome, setWelcome] = useState<WelcomeState | null>(null)
   const [showPrices, setShowPrices] = useState(false)
@@ -792,7 +796,7 @@ export default function App() {
     try {
       AppInfo().then((v) => setInfo(v as typeof info)).catch(() => undefined)
       void applyUsageStats()
-      GetWelcome().then((w) => {
+      GetWelcome(navigator.language || navigator.languages?.[0] || 'en').then((w) => {
         if (!w || typeof w !== 'object') return
         const show = Boolean((w as {show?: boolean}).show)
         if (!show) return
@@ -800,6 +804,10 @@ export default function App() {
           show: true,
           name: String((w as {name?: string}).name || 'NotCursor.ai'),
           version: String((w as {version?: string}).version || ''),
+          eyebrow: String((w as {eyebrow?: string}).eyebrow || 'Welcome'),
+          versionLabel: String((w as {versionLabel?: string}).versionLabel || 'version'),
+          whatsNew: String((w as {whatsNew?: string}).whatsNew || "What's new"),
+          continueLabel: String((w as {continueLabel?: string}).continueLabel || 'Continue'),
           highlights: asList(
             Array.isArray((w as {highlights?: unknown}).highlights)
               ? ((w as {highlights: unknown[]}).highlights)
@@ -2261,10 +2269,10 @@ export default function App() {
       {welcome?.show && (
         <div className="nc-modal-backdrop" role="presentation">
           <div className="nc-modal nc-welcome" role="dialog" aria-labelledby="nc-welcome-title">
-            <p className="nc-welcome-eyebrow">Welcome</p>
+            <p className="nc-welcome-eyebrow">{welcome.eyebrow}</p>
             <h1 id="nc-welcome-title" className="nc-welcome-title">{welcome.name}</h1>
-            <p className="nc-welcome-ver">версия {welcome.version}</p>
-            <p className="nc-section-label">Что нового</p>
+            <p className="nc-welcome-ver">{welcome.versionLabel} {welcome.version}</p>
+            <p className="nc-section-label">{welcome.whatsNew}</p>
             <ol className="nc-welcome-list">
               {welcome.highlights.map((h, i) => (
                 <li key={`${i}-${h.slice(0, 24)}`}>{h}</li>
@@ -2278,7 +2286,7 @@ export default function App() {
                 void AckWelcome()
               }}
             >
-              Continue
+              {welcome.continueLabel}
             </button>
           </div>
         </div>

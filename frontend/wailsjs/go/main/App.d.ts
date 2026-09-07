@@ -6,11 +6,12 @@ import {main} from '../models';
 import {zai} from '../models';
 import {chatstore} from '../models';
 import {workspace} from '../models';
+import {costing} from '../models';
 import {agent} from '../models';
 
-export function AppInfo():Promise<Record<string, string>>;
-
 export function AckWelcome():Promise<void>;
+
+export function AppInfo():Promise<Record<string, string>>;
 
 export function ArchiveChatSession(arg1:string,arg2:string):Promise<string>;
 
@@ -28,7 +29,7 @@ export function GetSettings():Promise<Record<string, any>>;
 
 export function GetUsageStats():Promise<main.UsageStats>;
 
-export function GetWelcome():Promise<main.WelcomeInfo>;
+export function GetWelcome(arg1:string):Promise<main.WelcomeInfo>;
 
 export function GetZaiBalance():Promise<zai.AccountBalance>;
 
@@ -36,7 +37,7 @@ export function ListChatSessions():Promise<chatstore.ProjectBundle>;
 
 export function ListDir(arg1:string):Promise<Array<workspace.Entry>>;
 
-export function ListModelPrices():Promise<Array<main.ModelPrice>>;
+export function ListModelPrices():Promise<Array<costing.ModelPrice>>;
 
 export function ListOpenRouterModels():Promise<Array<string>>;
 

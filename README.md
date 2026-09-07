@@ -2,7 +2,7 @@
 
 Лёгкий нативный AI-IDE агент (аналог Cursor) на **Wails v2 + Go + React/TypeScript**.
 
-**Версия UI/бинаря:** `0.5.0`  
+**Версия UI/бинаря:** `0.5.1`  
 **Репозиторий:** https://git.papatramp.ru/PapaTramp/nc.ai  
 **Артефакт Windows:** `build/bin/NotCursor.exe`
 

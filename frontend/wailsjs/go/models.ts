@@ -125,6 +125,37 @@ export namespace chatstore {
 
 }
 
+export namespace costing {
+	
+	export class ModelPrice {
+	    provider: string;
+	    model: string;
+	    inputUsd: number;
+	    outputUsd: number;
+	    cacheHitUsd?: number;
+	    strength: number;
+	    note?: string;
+	    free?: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new ModelPrice(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.provider = source["provider"];
+	        this.model = source["model"];
+	        this.inputUsd = source["inputUsd"];
+	        this.outputUsd = source["outputUsd"];
+	        this.cacheHitUsd = source["cacheHitUsd"];
+	        this.strength = source["strength"];
+	        this.note = source["note"];
+	        this.free = source["free"];
+	    }
+	}
+
+}
+
 export namespace llm {
 	
 	export class ImageURL {
@@ -269,32 +300,6 @@ export namespace llm {
 
 export namespace main {
 	
-	export class ModelPrice {
-	    provider: string;
-	    model: string;
-	    inputUsd: number;
-	    outputUsd: number;
-	    cacheHitUsd?: number;
-	    strength: number;
-	    note?: string;
-	    free?: boolean;
-	
-	    static createFrom(source: any = {}) {
-	        return new ModelPrice(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.provider = source["provider"];
-	        this.model = source["model"];
-	        this.inputUsd = source["inputUsd"];
-	        this.outputUsd = source["outputUsd"];
-	        this.cacheHitUsd = source["cacheHitUsd"];
-	        this.strength = source["strength"];
-	        this.note = source["note"];
-	        this.free = source["free"];
-	    }
-	}
 	export class UsageStats {
 	    provider: string;
 	    costUsd: number;
@@ -329,7 +334,12 @@ export namespace main {
 	    show: boolean;
 	    name: string;
 	    version: string;
+	    eyebrow: string;
+	    versionLabel: string;
+	    whatsNew: string;
+	    continueLabel: string;
 	    highlights: string[];
+	    locale: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new WelcomeInfo(source);
@@ -340,34 +350,12 @@ export namespace main {
 	        this.show = source["show"];
 	        this.name = source["name"];
 	        this.version = source["version"];
+	        this.eyebrow = source["eyebrow"];
+	        this.versionLabel = source["versionLabel"];
+	        this.whatsNew = source["whatsNew"];
+	        this.continueLabel = source["continueLabel"];
 	        this.highlights = source["highlights"];
-	    }
-	}
-
-}
-
-export namespace openrouter {
-	
-	export class AccountBalance {
-	    ok: boolean;
-	    availableUsd: number;
-	    usedUsd: number;
-	    totalUsd: number;
-	    source: string;
-	    detail: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new AccountBalance(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.ok = source["ok"];
-	        this.availableUsd = source["availableUsd"];
-	        this.usedUsd = source["usedUsd"];
-	        this.totalUsd = source["totalUsd"];
-	        this.source = source["source"];
-	        this.detail = source["detail"];
+	        this.locale = source["locale"];
 	    }
 	}
 
