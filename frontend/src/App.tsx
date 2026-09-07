@@ -567,7 +567,7 @@ function parseAgentEvent(...args: unknown[]): AgentEvent | null {
 }
 
 export default function App() {
-  const [info, setInfo] = useState({name: 'NotCursor.ai', version: '0.5.6'})
+  const [info, setInfo] = useState({name: 'NotCursor.ai', version: '0.5.7'})
   const [usage, setUsage] = useState<UsageSnapshot>(emptyUsage)
   const [welcome, setWelcome] = useState<WelcomeState | null>(null)
   const [showPrices, setShowPrices] = useState(false)
@@ -2549,7 +2549,6 @@ export default function App() {
           >
             <div className="nc-prices-head">
               <h2 id="nc-prices-title">Model prices</h2>
-              <button type="button" className="nc-ghost" onClick={() => setShowPrices(false)}>Close</button>
             </div>
             <p className="nc-help">
               USD за 1M токенов · от слабых к сильным. DeepSeek — peak (off-peak ≈ ½). OpenRouter mid-market; фактический
@@ -2582,6 +2581,11 @@ export default function App() {
                 </table>
               </div>
             )}
+            <div className="nc-prices-foot">
+              <button type="button" className="nc-prices-close" onClick={() => setShowPrices(false)}>
+                Закрыть
+              </button>
+            </div>
           </div>
         </div>
       )}
