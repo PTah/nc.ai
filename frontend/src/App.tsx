@@ -28,6 +28,7 @@ import {
   SaveZaiEndpoint,
   ListZaiModels,
   PreferZaiModel,
+  GetZaiBalance,
   SaveActiveProvider,
   SaveAutoModels,
   SaveAgentMaxSteps,
@@ -524,6 +525,7 @@ export default function App() {
   const [zaiModel, setZaiModel] = useState('glm-4.7-flash')
   const [zaiEndpoint, setZaiEndpoint] = useState<ZaiEndpointId>('paas')
   const [zaiModels, setZaiModels] = useState<string[]>([...ZAI_MODELS_FALLBACK])
+  const [zaiBalance, setZaiBalance] = useState<{ok: boolean; availableUsd: number; detail: string; source: string} | null>(null)
   const [autoModels, setAutoModels] = useState(false)
   const [maxSteps, setMaxSteps] = useState(40)
   const [deepseekKeySet, setDeepseekKeySet] = useState(false)
@@ -1217,6 +1219,24 @@ export default function App() {
     }
   }
 
+  async function refreshZaiBalance() {
+    try {
+      const b = await GetZaiBalance()
+      if (!b || typeof b !== 'object') {
+        setZaiBalance(null)
+        return
+      }
+      setZaiBalance({
+        ok: Boolean((b as {ok?: boolean}).ok),
+        availableUsd: Number((b as {availableUsd?: number}).availableUsd) || 0,
+        detail: String((b as {detail?: string}).detail || ''),
+        source: String((b as {source?: string}).source || ''),
+      })
+    } catch {
+      setZaiBalance({ok: false, availableUsd: 0, detail: 'Не удалось запросить баланс', source: 'none'})
+    }
+  }
+
   async function refreshZaiModels(opts?: {applyPreferred?: boolean}) {
     try {
       const list = asList(await ListZaiModels()).map(String).filter(Boolean)
@@ -1303,6 +1323,7 @@ export default function App() {
       const r = await ChatOnce('ping')
       if (activeProvider === 'zai') {
         await refreshZaiModels({applyPreferred: true})
+        await refreshZaiBalance()
       }
       if (activeSessionId) setSessionItems(activeSessionId, (m) => [...m, {kind: 'system', content: `${providerLabel} connect OK: ${r || '(empty content)'}`}])
     } catch (e) {
@@ -1831,10 +1852,22 @@ export default function App() {
                   />
                 </label>
                 <button type="button" className="nc-ghost" onClick={() => void refreshZaiModels({applyPreferred: true})}>Refresh models</button>
+                <button type="button" className="nc-ghost" onClick={() => void refreshZaiBalance()}>Refresh balance</button>
+                {zaiBalance && (
+                  <p className="nc-help">
+                    {zaiBalance.ok && zaiBalance.source === 'credit_grants'
+                      ? `Баланс / grants: ${fmtUsd(zaiBalance.availableUsd)} (${zaiBalance.detail})`
+                      : zaiBalance.detail || 'Баланс недоступен через API'}
+                  </p>
+                )}
                 <p className="nc-help">
                   Бесплатно на Pay-as-you-go (по pricing Z.ai): <code>glm-4.7-flash</code>, <code>glm-4.5-flash</code>.
                   Их часто нет в <code>GET /models</code> — мы всё равно добавляем в список. <code>glm-5.3*</code> платные (нужен баланс).
                   Ошибка 1113 = нет денег на payg; либо free-модель, либо пополни баланс, либо Endpoint → Coding Plan (если есть подписка).
+                </p>
+                <p className="nc-help">
+                  Prompt cache у Z.ai <strong>автоматический</strong> (мы не управляем Cached Input Storage). При повторном system/history API может вернуть
+                  <code>cached_tokens</code> — мы учитываем их в оценке USD. Storage сейчас у Z.ai limited-time free.
                 </p>
                 <label>
                   API key

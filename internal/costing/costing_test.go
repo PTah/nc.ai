@@ -14,7 +14,7 @@ func almost(a, b float64) bool {
 
 func TestNormalizeModel(t *testing.T) {
 	cases := map[string]string{
-		"":                             "deepseek-v4-flash",
+		"":                             "",
 		"deepseek-v4-flash":            "deepseek-v4-flash",
 		"deepseek-v4-flash-0731":       "deepseek-v4-flash",
 		"deepseek-v4-flash-vision-exp": "deepseek-v4-flash",
@@ -22,8 +22,10 @@ func TestNormalizeModel(t *testing.T) {
 		"deepseek-v4-pro":              "deepseek-v4-pro",
 		"deepseek-v4-pro-0813":         "deepseek-v4-pro",
 		"DeepSeek-V4-Pro":              "deepseek-v4-pro",
-		"glm-4.5":                      "",
-		"zai/glm-5.1":                  "",
+		"glm-4.5":                      "glm-4.5",
+		"zai/glm-5.1":                  "glm-5.1",
+		"glm-4.7-flash":                "glm-4.7-flash",
+		"glm-5.3-flash":                "glm-5.3-flash",
 	}
 	for in, want := range cases {
 		if got := NormalizeModel(in); got != want {
@@ -116,6 +118,25 @@ func TestCostVisionUsesFlashCard(t *testing.T) {
 func TestCostNilUsage(t *testing.T) {
 	if got := Cost("deepseek-v4-flash", nil); got != 0 {
 		t.Fatalf("nil usage cost = %v, want 0", got)
+	}
+}
+
+func TestCostZaiCacheAndFree(t *testing.T) {
+	at := time.Now().UTC()
+	u := &llm.Usage{
+		PromptTokens:          1_000_000,
+		PromptCacheHitTokens:  800_000,
+		PromptCacheMissTokens: 200_000,
+		CompletionTokens:      100_000,
+	}
+	// glm-5.3: hit 0.26, miss 1.4, out 4.4 per 1M
+	got := CostAt("glm-5.3", u, at)
+	want := 0.8*0.26 + 0.2*1.4 + 0.1*4.4
+	if !almost(got, want) {
+		t.Fatalf("zai cost=%v want %v", got, want)
+	}
+	if got := CostAt("glm-4.7-flash", u, at); got != 0 {
+		t.Fatalf("free model should be 0, got %v", got)
 	}
 }
 

@@ -34,6 +34,10 @@ export function GetUsageStats() {
   return window['go']['main']['App']['GetUsageStats']();
 }
 
+export function GetZaiBalance() {
+  return window['go']['main']['App']['GetZaiBalance']();
+}
+
 export function ListChatSessions() {
   return window['go']['main']['App']['ListChatSessions']();
 }

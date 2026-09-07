@@ -372,6 +372,16 @@ func (a *App) PreferZaiModel(available []string) string {
 	return zai.PreferFreeModel(available, a.cfg.Get().ZaiModel)
 }
 
+// GetZaiBalance best-effort remaining credits / Coding Plan quota for the saved key.
+func (a *App) GetZaiBalance() zai.AccountBalance {
+	key := a.cfg.Get().ZaiAPIKey
+	ctx := a.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return zai.FetchBalance(ctx, key, a.cfg.ZaiEndpoint())
+}
+
 func (a *App) SaveActiveProvider(provider string) error {
 	if err := a.cfg.SetActiveProvider(provider); err != nil {
 		return err

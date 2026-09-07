@@ -1,17 +1,3 @@
-// Package costing converts DeepSeek chat/completions usage into USD spend.
-//
-// Billable formula (official rate card, USD per 1M tokens):
-//
-//	cost = prompt_cache_hit_tokens  * input_hit  +
-//	       prompt_cache_miss_tokens * input_miss +
-//	       completion_tokens        * output
-//
-// Rates depend on model and peak/off-peak. Peak hours (Beijing calendar):
-// Mon–Fri 09:00–12:00 and 14:00–18:00 (= 01:00–04:00 and 06:00–10:00 UTC).
-// Since 2026-08-23 weekends are entirely off-peak (Beijing weekday).
-// Off-peak = half of peak for every token type.
-//
-// Source: https://api-docs.deepseek.com/ + DeepSeek Models & Pricing.
 package costing
 
 import (
@@ -21,14 +7,26 @@ import (
 	"notcursor.ai/app/internal/llm"
 )
 
+// Package costing converts provider usage into USD spend.
+//
+// DeepSeek (peak/off-peak Beijing):
+//
+//	cost = hit * input_hit + miss * input_miss + completion * output
+//
+// Z.ai (no peak schedule in public pricing; cache ≈ 1/5 of input when listed):
+//
+//	cost = hit * cached_input + miss * input + completion * output
+//
+// Free models (glm-4.7-flash, glm-4.5-flash) bill $0.
+
 // Prices is a USD-per-1M-tokens price sheet for one model at one period.
 type Prices struct {
-	InputMiss  float64 // prompt tokens, cache miss
+	InputMiss  float64 // prompt tokens, cache miss / new content
 	InputHit   float64 // prompt tokens, cache hit
 	Completion float64 // completion tokens (incl. reasoning)
 }
 
-// Peak rates (USD / 1M). Off-peak = half.
+// Peak rates (USD / 1M). Off-peak = half. DeepSeek only.
 var peakSheet = map[string]Prices{
 	"deepseek-v4-flash": {
 		InputHit: 0.014, InputMiss: 0.44, Completion: 1.32,
@@ -38,45 +36,104 @@ var peakSheet = map[string]Prices{
 	},
 }
 
+// zaiSheet is USD / 1M from https://docs.z.ai/guides/overview/pricing (pay-as-you-go).
+// Cached Input Storage is billed separately by Z.ai (currently limited-time free) — not modeled here.
+var zaiSheet = map[string]Prices{
+	"glm-5.3": {
+		InputMiss: 1.4, InputHit: 0.26, Completion: 4.4,
+	},
+	"glm-5.3-flash": {
+		InputMiss: 0.15, InputHit: 0.03, Completion: 0.50,
+	},
+	"glm-5.2": {
+		InputMiss: 1.4, InputHit: 0.26, Completion: 4.4,
+	},
+	"glm-5.1": {
+		InputMiss: 1.4, InputHit: 0.26, Completion: 4.4,
+	},
+	"glm-5": {
+		InputMiss: 1.0, InputHit: 0.2, Completion: 3.2,
+	},
+	"glm-5-turbo": {
+		InputMiss: 1.2, InputHit: 0.24, Completion: 4.0,
+	},
+	"glm-4.7": {
+		InputMiss: 0.6, InputHit: 0.11, Completion: 2.2,
+	},
+	"glm-4.7-flash": {}, // free
+	"glm-4.6": {
+		InputMiss: 0.6, InputHit: 0.11, Completion: 2.2,
+	},
+	"glm-4.5": {
+		InputMiss: 0.6, InputHit: 0.11, Completion: 2.2,
+	},
+	"glm-4.5-air": {
+		InputMiss: 0.2, InputHit: 0.03, Completion: 1.1,
+	},
+	"glm-4.5-flash": {}, // free
+}
+
 // weekendOffpeakEffective is when DeepSeek began weekend-wide off-peak
 // (00:00 Beijing 2026-08-23 = 2026-08-22T16:00:00Z).
 var weekendOffpeakEffective = time.Date(2026, 8, 22, 16, 0, 0, 0, time.UTC)
 
-// beijingOffsetHours: CST = UTC+8 (no DST).
 const beijingOffsetHours = 8
 
-// NormalizeModel maps response/request model ids onto the rate-card keys.
-// Non-DeepSeek models return "" (no price sheet yet).
+// NormalizeModel maps response/request model ids onto rate-card keys.
+// Unknown models return "".
 func NormalizeModel(model string) string {
 	m := strings.ToLower(strings.TrimSpace(model))
 	m = strings.TrimPrefix(m, "deepseek/")
+	m = strings.TrimPrefix(m, "zai/")
 	switch {
 	case strings.HasPrefix(m, "deepseek-v4-pro"):
 		return "deepseek-v4-pro"
-	case m == "" || strings.HasPrefix(m, "deepseek-v4-flash"):
-		// flash, flash-0731, flash-vision-exp → flash rate card
+	case strings.HasPrefix(m, "deepseek-v4-flash"), strings.HasPrefix(m, "deepseek"):
 		return "deepseek-v4-flash"
-	case strings.HasPrefix(m, "deepseek"):
-		return "deepseek-v4-flash"
+	case strings.HasPrefix(m, "glm-5.3-flash"):
+		return "glm-5.3-flash"
+	case strings.HasPrefix(m, "glm-5.3"):
+		return "glm-5.3"
+	case strings.HasPrefix(m, "glm-5.2"):
+		return "glm-5.2"
+	case strings.HasPrefix(m, "glm-5.1"):
+		return "glm-5.1"
+	case strings.HasPrefix(m, "glm-5-turbo"):
+		return "glm-5-turbo"
+	case m == "glm-5":
+		return "glm-5"
+	case strings.HasPrefix(m, "glm-4.7-flash"):
+		return "glm-4.7-flash"
+	case strings.HasPrefix(m, "glm-4.7"):
+		return "glm-4.7"
+	case strings.HasPrefix(m, "glm-4.6"):
+		return "glm-4.6"
+	case strings.HasPrefix(m, "glm-4.5-flash"):
+		return "glm-4.5-flash"
+	case strings.HasPrefix(m, "glm-4.5-air"):
+		return "glm-4.5-air"
+	case strings.HasPrefix(m, "glm-4.5"):
+		return "glm-4.5"
 	default:
 		return ""
 	}
 }
 
+func isDeepSeekKey(key string) bool {
+	return strings.HasPrefix(key, "deepseek")
+}
+
 // IsPeak reports whether DeepSeek bills peak rates at the given UTC instant.
-// Weekday is read from Beijing local time (official Chinese wording).
 func IsPeak(at time.Time) bool {
 	at = at.UTC()
 	beijing := at.Add(beijingOffsetHours * time.Hour)
-	// After the weekend rule: Sat/Sun (Beijing) are always off-peak.
 	if !at.Before(weekendOffpeakEffective) {
-		wd := beijing.Weekday() // Sunday=0 … Saturday=6
+		wd := beijing.Weekday()
 		if wd == time.Saturday || wd == time.Sunday {
 			return false
 		}
 	}
 	minute := at.Hour()*60 + at.Minute()
-	// Peak windows in UTC: [01:00, 04:00) and [06:00, 10:00).
 	if (minute >= 60 && minute < 240) || (minute >= 360 && minute < 600) {
 		return true
 	}
@@ -84,15 +141,20 @@ func IsPeak(at time.Time) bool {
 }
 
 // Price returns the rate card for model at the given instant.
-// Unknown / non-DeepSeek models return a zero sheet (Cost = 0).
 func Price(model string, at time.Time) Prices {
 	key := NormalizeModel(model)
 	if key == "" {
 		return Prices{}
 	}
+	if p, ok := zaiSheet[key]; ok {
+		return p
+	}
 	peak, ok := peakSheet[key]
 	if !ok {
 		return Prices{}
+	}
+	if !isDeepSeekKey(key) {
+		return peak
 	}
 	if IsPeak(at) {
 		return peak
@@ -104,7 +166,7 @@ func Price(model string, at time.Time) Prices {
 	}
 }
 
-// Cost returns USD for one API response using usage from DeepSeek and "now".
+// Cost returns USD for one API response using usage and "now".
 func Cost(model string, u *llm.Usage) float64 {
 	return CostAt(model, u, time.Now().UTC())
 }
@@ -135,7 +197,6 @@ func cacheSplit(u *llm.Usage) (hit, miss int) {
 	hit = max(u.PromptCacheHitTokens, 0)
 	miss = max(u.PromptCacheMissTokens, 0)
 	if hit+miss == 0 {
-		// No cache breakdown: bill whole prompt as miss (conservative).
 		miss = max(u.PromptTokens, 0)
 	}
 	return hit, miss
