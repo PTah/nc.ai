@@ -364,6 +364,9 @@ textarea { resize: none; }
   overscroll-behavior: contain;
   display: flex;
   justify-content: center;
+  /* Wails production: show default browser menu when text is selected (Copy). */
+  --default-contextmenu: auto;
+  user-select: text;
 }
 .nc-thread-inner {
   width: min(760px, 100%);
@@ -394,6 +397,7 @@ textarea { resize: none; }
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 0.55rem 0.7rem 0.5rem;
+  --default-contextmenu: auto;
 }
 .nc-composer textarea {
   border: 0; background: transparent; flex: 1 1 auto; min-height: 0; padding: 0.2rem;
@@ -407,7 +411,7 @@ textarea { resize: none; }
   font-size: 0.72rem; padding: 0.12rem 0.45rem; border-radius: 999px;
   border: 1px solid var(--border); color: var(--muted);
 }
-.nc-msg { border: 1px solid var(--border); border-radius: 12px; padding: 0.65rem 0.8rem; background: var(--msg-bg); max-width: 100%; }
+.nc-msg { border: 1px solid var(--border); border-radius: 12px; padding: 0.65rem 0.8rem; background: var(--msg-bg); max-width: 100%; user-select: text; }
 .nc-msg.user { background: var(--msg-user); margin-left: 12%; }
 .nc-msg.assistant { background: var(--msg-assistant); border-color: var(--border); }
 .nc-msg.system { background: var(--msg-system); }

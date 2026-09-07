@@ -530,7 +530,7 @@ function parseAgentEvent(...args: unknown[]): AgentEvent | null {
 }
 
 export default function App() {
-  const [info, setInfo] = useState({name: 'NotCursor.ai', version: '0.4.3'})
+  const [info, setInfo] = useState({name: 'NotCursor.ai', version: '0.4.4'})
   const [usage, setUsage] = useState<UsageSnapshot>(emptyUsage)
   const [rulesInfo, setRulesInfo] = useState<RulesBundle>({globalDir: '', projectDir: '', global: [], project: []})
   const [projects, setProjects] = useState<Project[]>([])

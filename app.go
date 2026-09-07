@@ -164,7 +164,7 @@ func (a *App) emitTerm(data string) {
 func (a *App) AppInfo() map[string]string {
 	return map[string]string{
 		"name":    "NotCursor.ai",
-		"version": "0.4.3",
+		"version": "0.4.4",
 		"stage":   "2-multi-provider",
 	}
 }

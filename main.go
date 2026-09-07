@@ -43,10 +43,13 @@ func main() {
 			Assets: assets,
 		},
 		BackgroundColour: &options.RGBA{R: 18, G: 18, B: 18, A: 1},
-		OnStartup:        app.startup,
-		OnDomReady:       app.domReady,
-		OnShutdown:       app.shutdown,
-		OnBeforeClose:    app.beforeClose,
+		// Production builds hide the browser context menu by default; enable it so
+		// selected chat text can be copied via right-click → Copy (Ctrl+C still works).
+		EnableDefaultContextMenu: true,
+		OnStartup:                app.startup,
+		OnDomReady:               app.domReady,
+		OnShutdown:               app.shutdown,
+		OnBeforeClose:            app.beforeClose,
 		Bind: []interface{}{
 			app,
 		},
