@@ -346,6 +346,7 @@ export default function App() {
   const [busyBySession, setBusyBySession] = useState<Record<string, boolean>>({})
   const [pendingAtts, setPendingAtts] = useState<PendingAtt[]>([])
   const [dragOver, setDragOver] = useState(false)
+  const [retryVisible, setRetryVisible] = useState(false)
   const [input, setInput] = useState('')
   const [apiKey, setApiKey] = useState('')
   const [model, setModel] = useState('deepseek-v4-flash')
@@ -360,6 +361,7 @@ export default function App() {
   const fitRef = useRef<FitAddon | null>(null)
   const assistantBuf = useRef<Record<string, string>>({})
   const activeSessionRef = useRef('')
+  const lastRequestRef = useRef<{text: string; atts: PendingAtt[]} | null>(null)
 
   const items = asList(activeSessionId ? itemsBySession[activeSessionId] : undefined)
   const busy = Boolean(activeSessionId && busyBySession[activeSessionId])
@@ -561,14 +563,18 @@ export default function App() {
                 ok: ev.ok,
               }]
             })
+          } else if (ev.type === 'reconnect') {
+            setSessionItems(sid, (prev) => [...prev, {kind: 'system', content: ev.content || 'reconnecting…'}])
           } else if (ev.type === 'done' || ev.type === 'persist') {
             assistantBuf.current[sid] = ''
             setBusyBySession((b) => ({...b, [sid]: false}))
+            if (sid === activeSessionRef.current) setRetryVisible(false)
             void applyUsageStats()
           } else if (ev.type === 'error') {
             assistantBuf.current[sid] = ''
             setBusyBySession((b) => ({...b, [sid]: false}))
             setSessionItems(sid, (prev) => [...prev, {kind: 'system', content: `Error: ${ev.content || 'unknown'}`}])
+            if (sid === activeSessionRef.current) setRetryVisible(true)
           }
         } catch (err) {
           console.error('agent event', err)
@@ -664,6 +670,7 @@ export default function App() {
         ? parsed as ChatItem[]
         : [{kind: 'system', content: 'Новый чат. Задайте задачу или вставьте файл/скриншот.'}]
       setActiveSessionId(id)
+      setRetryVisible(false)
       setItemsBySession((prev) => ({...prev, [id]: chatItems}))
       setSessions((prev) => prev.map((s) => s.id === id ? s : s))
       await refreshSessions()
@@ -912,13 +919,10 @@ export default function App() {
     }
   }
 
-  async function sendChat(e?: FormEvent) {
-    e?.preventDefault()
-    const text = input.trim()
-    const atts = pendingAtts
+  async function runAgent(text: string, atts: PendingAtt[], skipUserMessage = false) {
     if ((!text && atts.length === 0) || busy || !activeSessionId) return
-    setInput('')
-    setPendingAtts([])
+    lastRequestRef.current = {text, atts}
+    setRetryVisible(false)
     assistantBuf.current[activeSessionId] = ''
     const previewAtts: ChatAttPreview[] = atts.map((a) => ({
       name: a.name,
@@ -926,11 +930,13 @@ export default function App() {
       isImage: a.isImage,
       dataUrl: a.isImage ? a.dataUrl : undefined,
     }))
-    setSessionItems(activeSessionId, (m) => [...m, {
-      kind: 'user',
-      content: text || (atts.some((a) => a.isImage) ? '(изображение)' : '(файл)'),
-      attachments: previewAtts.length ? previewAtts : undefined,
-    }])
+    if (!skipUserMessage) {
+      setSessionItems(activeSessionId, (m) => [...m, {
+        kind: 'user',
+        content: text || (atts.some((a) => a.isImage) ? '(изображение)' : '(файл)'),
+        attachments: previewAtts.length ? previewAtts : undefined,
+      }])
+    }
     setBusyBySession((b) => ({...b, [activeSessionId]: true}))
     try {
       await RunAgentWithAttachments(text, atts.map((a) => ({
@@ -943,7 +949,23 @@ export default function App() {
     } catch (err) {
       setBusyBySession((b) => ({...b, [activeSessionId]: false}))
       setSessionItems(activeSessionId, (m) => [...m, {kind: 'system', content: String(err)}])
+      setRetryVisible(true)
     }
+  }
+
+  async function sendChat(e?: FormEvent) {
+    e?.preventDefault()
+    const text = input.trim()
+    const atts = pendingAtts
+    setInput('')
+    setPendingAtts([])
+    await runAgent(text, atts)
+  }
+
+  async function retryLast() {
+    const req = lastRequestRef.current
+    if (!req) return
+    await runAgent(req.text, req.atts, true)
   }
 
   async function runOneShot() {
@@ -1089,6 +1111,9 @@ export default function App() {
                   await SaveChat(JSON.stringify(empty)).catch(() => undefined)
                   await applyUsageStats()
                 }}>Clear</button>
+                {retryVisible && !busy && (
+                  <button type="button" className="nc-ghost" onClick={() => void retryLast()}>Reconnect</button>
+                )}
                 <button type="button" className="nc-ghost" disabled={!busy} onClick={() => StopAgent()}>Stop</button>
               </div>
             </header>

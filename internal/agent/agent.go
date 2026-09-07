@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"notcursor.ai/app/internal/llm"
 	"notcursor.ai/app/internal/llm/providers/deepseek"
@@ -29,7 +30,7 @@ Prefer small precise edits.`
 
 // Event is pushed to the UI during an agent run.
 type Event struct {
-	Type      string `json:"type"` // delta|reasoning|tool_start|tool_end|done|error|persist
+	Type      string `json:"type"` // delta|reasoning|tool_start|tool_end|reconnect|done|error|persist
 	Content   string `json:"content,omitempty"`
 	Name      string `json:"name,omitempty"`
 	OK        bool   `json:"ok,omitempty"`
@@ -55,6 +56,10 @@ type Runner struct {
 	ModelOverride string
 	// RulesText is appended to the system prompt (Cursor .cursorrules / .cursor/rules).
 	RulesText string
+	// RetryCount is the number of automatic reconnect attempts for transient network errors.
+	RetryCount int
+	// RetryBackoff is the base wait between reconnect attempts (grows linearly per attempt).
+	RetryBackoff time.Duration
 	// OnUsage, when set, is called after each provider response with the model
 	// that produced it and its token usage (usage may be nil for some providers).
 	OnUsage func(model string, u *llm.Usage)
@@ -77,6 +82,59 @@ func (r *Runner) systemPrompt() string {
 		"The user has configured rules via Cursor (.cursorrules / .cursor/rules). " +
 		"Apply them when they are relevant to the task and follow them over this base prompt:\n\n" +
 		rules
+}
+
+func (r *Runner) retryCount() int {
+	if r.RetryCount <= 0 {
+		return 3
+	}
+	return r.RetryCount
+}
+
+func (r *Runner) retryBackoff() time.Duration {
+	if r.RetryBackoff <= 0 {
+		return 2 * time.Second
+	}
+	return r.RetryBackoff
+}
+
+// chat calls the provider and automatically retries transient network errors,
+// emitting a "reconnect" event before each attempt so the UI can show progress.
+func (r *Runner) chat(ctx context.Context, req *llm.ChatRequest, emit EmitFunc) (*llm.ChatResponse, error) {
+	resp, err := r.Provider.ChatCompletion(ctx, req)
+	for attempt := 0; err != nil && isNetworkError(err) && attempt < r.retryCount(); attempt++ {
+		wait := r.retryBackoff() * time.Duration(attempt+1)
+		emit(Event{Type: "reconnect", Content: fmt.Sprintf(
+			"Соединение с DeepSeek потеряно (%v). Повторная попытка %d/%d через %.0f сек…",
+			err, attempt+1, r.retryCount(), wait.Seconds(),
+		)})
+		select {
+		case <-time.After(wait):
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+		resp, err = r.Provider.ChatCompletion(ctx, req)
+	}
+	return resp, err
+}
+
+func isNetworkError(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := strings.ToLower(err.Error())
+	needles := []string{
+		"wsarecv", "wsaetimeout", "connection attempt failed", "connection refused",
+		"connection reset", "no such host", "i/o timeout", "dial tcp", "read tcp",
+		"write tcp", "eof", "context deadline exceeded", "connection was forcibly closed",
+		"server misbehaving", "temporary failure",
+	}
+	for _, n := range needles {
+		if strings.Contains(s, n) {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *Runner) Run(ctx context.Context, history []llm.Message, userText string, emit EmitFunc) ([]llm.Message, error) {
@@ -161,7 +219,7 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 			Stream:          false,
 			Model:           r.ModelOverride,
 		}
-		resp, err := r.Provider.ChatCompletion(ctx, req)
+		resp, err := r.chat(ctx, req, emit)
 		if err != nil {
 			emit(Event{Type: "error", Content: err.Error()})
 			return messages, err
@@ -231,7 +289,7 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 		Stream:          false,
 		Model:           r.ModelOverride,
 	}
-	resp, err := r.Provider.ChatCompletion(ctx, req)
+	resp, err := r.chat(ctx, req, emit)
 	if err != nil {
 		emit(Event{Type: "error", Content: fmt.Sprintf("лимит шагов (%d); финальный ответ не получен: %v", max, err)})
 		return messages, err

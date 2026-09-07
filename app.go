@@ -642,15 +642,16 @@ func (a *App) RunAgentWithAttachments(userMessage string, attachments []agent.At
 		}
 		a.mu.Lock()
 		if a.sessionID == sid {
-			if err == nil || len(newHist) > 0 {
+			if err == nil {
 				a.history = newHist
 			}
 		}
 		delete(a.cancels, sid)
 		a.mu.Unlock()
 
-		// Persist LLM history into the session even if UI switched away.
-		if a.chats != nil && (err == nil || len(newHist) > 0) {
+		// Persist LLM history only on success; on error keep the previous state
+		// so a retry does not duplicate the failed user message.
+		if a.chats != nil && err == nil {
 			if sess, gerr := a.chats.Get(a.projectKey(), sid); gerr == nil {
 				sess.History = newHist
 				_ = a.chats.SaveSession(a.projectKey(), sess)
