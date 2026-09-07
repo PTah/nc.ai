@@ -20,11 +20,17 @@ const (
 	CodingBaseURL = "https://api.z.ai/api/coding/paas/v4"
 	// DefaultBaseURL prefers pay-as-you-go (most common for this app).
 	DefaultBaseURL = PaasBaseURL
-	DefaultModel   = "glm-5.3"
+	DefaultModel   = "glm-4.7-flash"
 
 	EndpointCoding = "coding"
 	EndpointPaas   = "paas"
 )
+
+// FreeModels are $0 on Z.ai pay-as-you-go (preference order for auto-pick).
+var FreeModels = []string{
+	"glm-4.7-flash",
+	"glm-4.5-flash",
+}
 
 // defaultTemperature matches Z.ai coding guidance (low temp for code).
 var defaultTemperature = 0.2
@@ -132,9 +138,10 @@ func (c *Client) ListModels(ctx context.Context) ([]ModelInfo, error) {
 // FallbackModels is used when /models is unavailable (no key / network).
 func FallbackModels() []string {
 	return []string{
+		"glm-4.7-flash",
+		"glm-4.5-flash",
 		"glm-5.3",
 		"glm-5.3-flash",
-		"glm-4.7-flash",
 		"glm-5.2",
 		"glm-5.1",
 		"glm-5",
@@ -142,6 +149,55 @@ func FallbackModels() []string {
 		"glm-4.6",
 		"glm-4.5",
 	}
+}
+
+// PreferModel picks a model from available ids: keep current if still listed,
+// else first free-tier id, else the first available id.
+func PreferModel(available []string, current string) string {
+	if len(available) == 0 {
+		if current != "" {
+			return current
+		}
+		return DefaultModel
+	}
+	seen := map[string]bool{}
+	for _, id := range available {
+		seen[id] = true
+	}
+	if current != "" && seen[current] {
+		return current
+	}
+	for _, free := range FreeModels {
+		if seen[free] {
+			return free
+		}
+	}
+	return available[0]
+}
+
+// OrderModels puts free-tier ids first, then the rest (stable).
+func OrderModels(available []string) []string {
+	if len(available) == 0 {
+		return nil
+	}
+	seen := map[string]bool{}
+	out := make([]string, 0, len(available))
+	for _, free := range FreeModels {
+		for _, id := range available {
+			if id == free && !seen[id] {
+				seen[id] = true
+				out = append(out, id)
+			}
+		}
+	}
+	for _, id := range available {
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		out = append(out, id)
+	}
+	return out
 }
 
 type apiRequest struct {
@@ -169,16 +225,29 @@ func (c *Client) ChatCompletion(ctx context.Context, req *llm.ChatRequest) (*llm
 	}
 
 	thinking := req.Thinking
-	hasTools := len(req.Tools) > 0
-	if hasTools {
-		thinking = map[string]any{"type": "enabled"}
-	} else if thinking == nil {
-		thinking = map[string]any{"type": "enabled"}
-	}
 	effort := req.ReasoningEffort
+	hasTools := len(req.Tools) > 0
 	if hasTools {
 		if err := validateToolHistory(req.Messages); err != nil {
 			return nil, err
+		}
+		thinking = map[string]any{"type": "enabled"}
+		if effort == "" {
+			effort = "high"
+		}
+	} else if thinkingDisabled(thinking) {
+		// GLM-5.3+ always thinks — cannot send type=disabled (API 1210).
+		// Map "disable" requests to the lightest allowed effort.
+		thinking = map[string]any{"type": "enabled"}
+		if effort == "" {
+			effort = "low"
+		}
+	} else {
+		if thinking == nil {
+			thinking = map[string]any{"type": "enabled"}
+		}
+		if effort == "" {
+			effort = "high"
 		}
 	}
 
@@ -261,6 +330,14 @@ func validateToolHistory(messages []llm.Message) error {
 		}
 	}
 	return nil
+}
+
+func thinkingDisabled(thinking map[string]any) bool {
+	if thinking == nil {
+		return false
+	}
+	t, _ := thinking["type"].(string)
+	return t == "disabled"
 }
 
 func truncate(s string, n int) string {

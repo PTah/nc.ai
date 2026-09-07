@@ -46,6 +46,14 @@ export function ListProjects() {
   return window['go']['main']['App']['ListProjects']();
 }
 
+export function ListZaiModels() {
+  return window['go']['main']['App']['ListZaiModels']();
+}
+
+export function PreferZaiModel(arg1) {
+  return window['go']['main']['App']['PreferZaiModel'](arg1);
+}
+
 export function LoadChat(arg1) {
   return window['go']['main']['App']['LoadChat'](arg1);
 }
@@ -94,8 +102,16 @@ export function SSHListKeys() {
   return window['go']['main']['App']['SSHListKeys']();
 }
 
+export function SaveActiveProvider(arg1) {
+  return window['go']['main']['App']['SaveActiveProvider'](arg1);
+}
+
 export function SaveAgentMaxSteps(arg1) {
   return window['go']['main']['App']['SaveAgentMaxSteps'](arg1);
+}
+
+export function SaveAutoModels(arg1) {
+  return window['go']['main']['App']['SaveAutoModels'](arg1);
 }
 
 export function SaveChat(arg1) {
@@ -116,30 +132,6 @@ export function SaveDeepSeekKey(arg1) {
 
 export function SaveDeepSeekModel(arg1) {
   return window['go']['main']['App']['SaveDeepSeekModel'](arg1);
-}
-
-export function ListZaiModels() {
-  return window['go']['main']['App']['ListZaiModels']();
-}
-
-export function SaveZaiKey(arg1) {
-  return window['go']['main']['App']['SaveZaiKey'](arg1);
-}
-
-export function SaveZaiModel(arg1) {
-  return window['go']['main']['App']['SaveZaiModel'](arg1);
-}
-
-export function SaveZaiEndpoint(arg1) {
-  return window['go']['main']['App']['SaveZaiEndpoint'](arg1);
-}
-
-export function SaveActiveProvider(arg1) {
-  return window['go']['main']['App']['SaveActiveProvider'](arg1);
-}
-
-export function SaveAutoModels(arg1) {
-  return window['go']['main']['App']['SaveAutoModels'](arg1);
 }
 
 export function SaveGitAuth(arg1, arg2) {
@@ -168,6 +160,18 @@ export function SaveTheme(arg1) {
 
 export function SaveWindowGeometry() {
   return window['go']['main']['App']['SaveWindowGeometry']();
+}
+
+export function SaveZaiEndpoint(arg1) {
+  return window['go']['main']['App']['SaveZaiEndpoint'](arg1);
+}
+
+export function SaveZaiKey(arg1) {
+  return window['go']['main']['App']['SaveZaiKey'](arg1);
+}
+
+export function SaveZaiModel(arg1) {
+  return window['go']['main']['App']['SaveZaiModel'](arg1);
 }
 
 export function StartTerminal() {

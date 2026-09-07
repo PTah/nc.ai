@@ -27,6 +27,7 @@ import {
   SaveZaiModel,
   SaveZaiEndpoint,
   ListZaiModels,
+  PreferZaiModel,
   SaveActiveProvider,
   SaveAutoModels,
   SaveAgentMaxSteps,
@@ -126,9 +127,10 @@ const DEEPSEEK_MODELS = [
 ] as const
 
 const ZAI_MODELS_FALLBACK = [
+  'glm-4.7-flash',
+  'glm-4.5-flash',
   'glm-5.3',
   'glm-5.3-flash',
-  'glm-4.7-flash',
   'glm-5.2',
   'glm-5.1',
   'glm-5',
@@ -506,7 +508,7 @@ export default function App() {
   const [deepseekKey, setDeepseekKey] = useState('')
   const [zaiKey, setZaiKey] = useState('')
   const [deepseekModel, setDeepseekModel] = useState('deepseek-v4-flash')
-  const [zaiModel, setZaiModel] = useState('glm-5.3')
+  const [zaiModel, setZaiModel] = useState('glm-4.7-flash')
   const [zaiEndpoint, setZaiEndpoint] = useState<ZaiEndpointId>('paas')
   const [zaiModels, setZaiModels] = useState<string[]>([...ZAI_MODELS_FALLBACK])
   const [autoModels, setAutoModels] = useState(false)
@@ -1202,12 +1204,26 @@ export default function App() {
     }
   }
 
-  async function refreshZaiModels() {
+  async function refreshZaiModels(opts?: {applyPreferred?: boolean}) {
     try {
       const list = asList(await ListZaiModels()).map(String).filter(Boolean)
-      if (list.length > 0) setZaiModels(list)
+      if (list.length === 0) return list
+      setZaiModels(list)
+      if (opts?.applyPreferred) {
+        let next = ''
+        try {
+          next = String(await PreferZaiModel(list) || '').trim()
+        } catch {
+          next = list[0] || ''
+        }
+        if (next && next !== zaiModel) {
+          setZaiModel(next)
+          await SaveZaiModel(next)
+        }
+      }
+      return list
     } catch {
-      /* keep current / fallback */
+      return [] as string[]
     }
   }
 
@@ -1215,7 +1231,7 @@ export default function App() {
     setActiveProvider(next)
     try {
       await SaveActiveProvider(next)
-      if (next === 'zai') void refreshZaiModels()
+      if (next === 'zai') void refreshZaiModels({applyPreferred: true})
     } catch {
       /* ignore */
     }
@@ -1248,9 +1264,11 @@ export default function App() {
     }
     await SaveActiveProvider(activeProvider)
     await SaveDeepSeekModel(deepseekModel.trim() || 'deepseek-v4-flash')
-    await SaveZaiModel(zaiModel.trim() || 'glm-5.3')
+    await SaveZaiModel(zaiModel.trim() || 'glm-4.7-flash')
     await SaveZaiEndpoint(zaiEndpoint)
-    await refreshZaiModels()
+    if (activeProvider === 'zai' || zaiKeySet) {
+      await refreshZaiModels({applyPreferred: true})
+    }
     await SaveAutoModels(autoModels)
     await SaveAgentMaxSteps(Number(maxSteps) || 40)
     await SaveShowTerminal(showTerm)
@@ -1270,6 +1288,9 @@ export default function App() {
   async function testConnect() {
     try {
       const r = await ChatOnce('ping')
+      if (activeProvider === 'zai') {
+        await refreshZaiModels({applyPreferred: true})
+      }
       if (activeSessionId) setSessionItems(activeSessionId, (m) => [...m, {kind: 'system', content: `${providerLabel} connect OK: ${r || '(empty content)'}`}])
     } catch (e) {
       if (activeSessionId) setSessionItems(activeSessionId, (m) => [...m, {kind: 'system', content: `Connect failed: ${String(e)}`}])
@@ -1699,95 +1720,103 @@ export default function App() {
                 <option value="zai">Z.ai (GLM)</option>
               </select>
             </label>
-            <p className="nc-help">Ключи хранятся отдельно; чат и агент используют активного провайдера.</p>
+            <p className="nc-help">Ключи хранятся отдельно; ниже — настройки только активного провайдера.</p>
 
-            <div className="nc-section-label">DeepSeek</div>
-            <label>
-              Model
-              <select
-                value={deepseekModel}
-                onChange={(e) => {
-                  const next = e.target.value
-                  setDeepseekModel(next)
-                  if (autoModels) {
-                    setAutoModels(false)
-                    void SaveAutoModels(false)
-                  }
-                  void SaveDeepSeekModel(next)
-                }}
-              >
-                {modelOptions(DEEPSEEK_MODELS, deepseekModel).map((m) => (
-                  <option key={m} value={m}>{m}</option>
-                ))}
-              </select>
-            </label>
-            <label className="nc-top-check">
-              <input
-                type="checkbox"
-                checked={autoModels}
-                onChange={(e) => {
-                  const on = e.target.checked
-                  setAutoModels(on)
-                  void SaveAutoModels(on)
-                }}
-              />
-              Auto-models (flash / pro / vision)
-            </label>
-            <label>
-              API key
-              <input
-                type="password"
-                value={deepseekKey}
-                onChange={(e) => setDeepseekKey(e.target.value)}
-                placeholder={deepseekKeySet ? '•••• set' : 'sk-...'}
-              />
-            </label>
-
-            <div className="nc-section-label">Z.ai</div>
-            <label>
-              Endpoint
-              <select
-                value={zaiEndpoint}
-                onChange={(e) => {
-                  const next = e.target.value === 'paas' ? 'paas' : 'coding'
-                  setZaiEndpoint(next)
-                  void SaveZaiEndpoint(next).then(() => refreshZaiModels())
-                }}
-                title="Coding Plan: api.z.ai/api/coding/paas/v4 · Pay-as-you-go: api.z.ai/api/paas/v4"
-              >
-                <option value="paas">Pay-as-you-go (рекомендуется)</option>
-                <option value="coding">Coding Plan</option>
-              </select>
-            </label>
-            <p className="nc-help">
-              Обычный баланс: <code>…/paas/v4</code>. DevPack / subscription: <code>…/coding/paas/v4</code>.
-            </p>
-            <label>
-              Model
-              <select
-                value={zaiModel}
-                onChange={(e) => {
-                  const next = e.target.value
-                  setZaiModel(next)
-                  void SaveZaiModel(next)
-                }}
-              >
-                {modelOptions(zaiModels, zaiModel).map((m) => (
-                  <option key={m} value={m}>{m}</option>
-                ))}
-              </select>
-            </label>
-            <button type="button" className="nc-ghost" onClick={() => void refreshZaiModels()}>Refresh models</button>
-            <p className="nc-help">Список с <code>GET /models</code> по ключу аккаунта; без ключа — fallback.</p>
-            <label>
-              API key
-              <input
-                type="password"
-                value={zaiKey}
-                onChange={(e) => setZaiKey(e.target.value)}
-                placeholder={zaiKeySet ? '•••• set' : 'zai-...'}
-              />
-            </label>
+            {activeProvider === 'deepseek' ? (
+              <>
+                <div className="nc-section-label">DeepSeek</div>
+                <label>
+                  Model
+                  <select
+                    value={deepseekModel}
+                    onChange={(e) => {
+                      const next = e.target.value
+                      setDeepseekModel(next)
+                      if (autoModels) {
+                        setAutoModels(false)
+                        void SaveAutoModels(false)
+                      }
+                      void SaveDeepSeekModel(next)
+                    }}
+                  >
+                    {modelOptions(DEEPSEEK_MODELS, deepseekModel).map((m) => (
+                      <option key={m} value={m}>{m}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="nc-top-check">
+                  <input
+                    type="checkbox"
+                    checked={autoModels}
+                    onChange={(e) => {
+                      const on = e.target.checked
+                      setAutoModels(on)
+                      void SaveAutoModels(on)
+                    }}
+                  />
+                  Auto-models (flash / pro / vision)
+                </label>
+                <label>
+                  API key
+                  <input
+                    type="password"
+                    value={deepseekKey}
+                    onChange={(e) => setDeepseekKey(e.target.value)}
+                    placeholder={deepseekKeySet ? '•••• set' : 'sk-...'}
+                  />
+                </label>
+              </>
+            ) : (
+              <>
+                <div className="nc-section-label">Z.ai</div>
+                <label>
+                  Endpoint
+                  <select
+                    value={zaiEndpoint}
+                    onChange={(e) => {
+                      const next = e.target.value === 'paas' ? 'paas' : 'coding'
+                      setZaiEndpoint(next)
+                      void SaveZaiEndpoint(next).then(() => refreshZaiModels({applyPreferred: true}))
+                    }}
+                    title="Coding Plan: api.z.ai/api/coding/paas/v4 · Pay-as-you-go: api.z.ai/api/paas/v4"
+                  >
+                    <option value="paas">Pay-as-you-go (рекомендуется)</option>
+                    <option value="coding">Coding Plan</option>
+                  </select>
+                </label>
+                <p className="nc-help">
+                  Обычный баланс: <code>…/paas/v4</code>. DevPack / subscription: <code>…/coding/paas/v4</code>.
+                </p>
+                <label>
+                  Model
+                  <select
+                    value={zaiModel}
+                    onChange={(e) => {
+                      const next = e.target.value
+                      setZaiModel(next)
+                      void SaveZaiModel(next)
+                    }}
+                  >
+                    {modelOptions(zaiModels, zaiModel).map((m) => (
+                      <option key={m} value={m}>{m}</option>
+                    ))}
+                  </select>
+                </label>
+                <button type="button" className="nc-ghost" onClick={() => void refreshZaiModels({applyPreferred: true})}>Refresh models</button>
+                <p className="nc-help">
+                  Список с <code>GET /models</code>. Бесплатные (<code>glm-4.7-flash</code> / <code>glm-4.5-flash</code>) — сверху; если текущая недоступна — выбираем бесплатную.
+                </p>
+                <label>
+                  API key
+                  <input
+                    type="password"
+                    value={zaiKey}
+                    onChange={(e) => setZaiKey(e.target.value)}
+                    placeholder={zaiKeySet ? '•••• set' : 'zai-...'}
+                  />
+                </label>
+              </>
+            )}
             <button type="button" onClick={saveSettings}>Save settings</button>
             <button type="button" className="nc-ghost" onClick={testConnect}>Test connect ({providerLabel})</button>
 

@@ -28,6 +28,10 @@ export function ListDir(arg1:string):Promise<Array<workspace.Entry>>;
 
 export function ListProjects():Promise<Array<workspace.Project>>;
 
+export function ListZaiModels():Promise<Array<string>>;
+
+export function PreferZaiModel(arg1:Array<string>):Promise<string>;
+
 export function LoadChat(arg1:string):Promise<string>;
 
 export function NewChatSession(arg1:string):Promise<chatstore.Session>;
@@ -52,7 +56,11 @@ export function SSHKeygen(arg1:string):Promise<string>;
 
 export function SSHListKeys():Promise<Array<string>>;
 
+export function SaveActiveProvider(arg1:string):Promise<void>;
+
 export function SaveAgentMaxSteps(arg1:number):Promise<void>;
+
+export function SaveAutoModels(arg1:boolean):Promise<void>;
 
 export function SaveChat(arg1:string):Promise<void>;
 
@@ -63,18 +71,6 @@ export function SaveComposerHeight(arg1:number):Promise<void>;
 export function SaveDeepSeekKey(arg1:string):Promise<void>;
 
 export function SaveDeepSeekModel(arg1:string):Promise<void>;
-
-export function ListZaiModels():Promise<Array<string>>;
-
-export function SaveZaiKey(arg1:string):Promise<void>;
-
-export function SaveZaiModel(arg1:string):Promise<void>;
-
-export function SaveZaiEndpoint(arg1:string):Promise<void>;
-
-export function SaveActiveProvider(arg1:string):Promise<void>;
-
-export function SaveAutoModels(arg1:boolean):Promise<void>;
 
 export function SaveGitAuth(arg1:string,arg2:string):Promise<void>;
 
@@ -89,6 +85,12 @@ export function SaveShowTerminal(arg1:boolean):Promise<void>;
 export function SaveTheme(arg1:string):Promise<void>;
 
 export function SaveWindowGeometry():Promise<void>;
+
+export function SaveZaiEndpoint(arg1:string):Promise<void>;
+
+export function SaveZaiKey(arg1:string):Promise<void>;
+
+export function SaveZaiModel(arg1:string):Promise<void>;
 
 export function StartTerminal():Promise<void>;
 

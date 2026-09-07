@@ -80,7 +80,7 @@ func NewStore() *Store {
 		settings: Settings{
 			ActiveProvider: ProviderDeepSeek,
 			DeepSeekModel:  "deepseek-v4-flash",
-			ZaiModel:       "glm-5.3",
+			ZaiModel:       "glm-4.7-flash",
 			ZaiEndpoint:    "paas",
 			Shell:          "powershell",
 			AgentMaxSteps:  40,
@@ -147,7 +147,7 @@ func (s *Store) Load() error {
 		s.settings.ActiveProvider = normalizeProvider(s.settings.ActiveProvider)
 	}
 	if s.settings.ZaiModel == "" {
-		s.settings.ZaiModel = "glm-5.3"
+		s.settings.ZaiModel = "glm-4.7-flash"
 	}
 	if s.settings.ZaiEndpoint == "" {
 		s.settings.ZaiEndpoint = "paas"

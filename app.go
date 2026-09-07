@@ -332,11 +332,11 @@ func (a *App) SaveZaiEndpoint(endpoint string) error {
 }
 
 // ListZaiModels returns model ids from GET {base}/models for the saved Z.ai key.
-// Falls back to a static list when the key is missing or the request fails.
+// Free-tier models are ordered first. Falls back to a static list when needed.
 func (a *App) ListZaiModels() []string {
 	key := a.cfg.Get().ZaiAPIKey
 	if key == "" {
-		return zai.FallbackModels()
+		return zai.OrderModels(zai.FallbackModels())
 	}
 	client := zai.NewWithBaseURL(key, a.cfg.Get().ZaiModel, zai.BaseURLFor(a.cfg.ZaiEndpoint()))
 	ctx := a.ctx
@@ -347,7 +347,7 @@ func (a *App) ListZaiModels() []string {
 	defer cancel()
 	items, err := client.ListModels(ctx)
 	if err != nil || len(items) == 0 {
-		return zai.FallbackModels()
+		return zai.OrderModels(zai.FallbackModels())
 	}
 	out := make([]string, 0, len(items))
 	seen := map[string]bool{}
@@ -360,9 +360,14 @@ func (a *App) ListZaiModels() []string {
 		out = append(out, id)
 	}
 	if len(out) == 0 {
-		return zai.FallbackModels()
+		return zai.OrderModels(zai.FallbackModels())
 	}
-	return out
+	return zai.OrderModels(out)
+}
+
+// PreferZaiModel suggests which model to select given the current list + saved model.
+func (a *App) PreferZaiModel(available []string) string {
+	return zai.PreferModel(available, a.cfg.Get().ZaiModel)
 }
 
 func (a *App) SaveActiveProvider(provider string) error {
@@ -891,13 +896,21 @@ func (a *App) ChatOnce(userMessage string) (string, error) {
 		}
 	}
 	maxTokens := 64
-	resp, err := a.llm.ChatCompletion(a.ctx, &llm.ChatRequest{
+	chatReq := &llm.ChatRequest{
 		Messages: []llm.Message{
 			{Role: "user", Content: userMessage},
 		},
 		MaxTokens: &maxTokens,
 		Thinking:  map[string]any{"type": "disabled"},
-	})
+	}
+	// GLM models (esp. 5.3+) always think; client maps disabled→low, but need room for CoT.
+	if a.cfg.Provider() == config.ProviderZAI {
+		maxTokens = 512
+		chatReq.MaxTokens = &maxTokens
+		chatReq.Thinking = map[string]any{"type": "enabled"}
+		chatReq.ReasoningEffort = "low"
+	}
+	resp, err := a.llm.ChatCompletion(a.ctx, chatReq)
 	if err != nil {
 		return "", err
 	}
