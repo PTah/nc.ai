@@ -35,6 +35,12 @@ export namespace chatstore {
 	    costUsd?: number;
 	    inputTokens?: number;
 	    outputTokens?: number;
+	    deepseekCostUsd?: number;
+	    deepseekInputTokens?: number;
+	    deepseekOutputTokens?: number;
+	    zaiCostUsd?: number;
+	    zaiInputTokens?: number;
+	    zaiOutputTokens?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new Session(source);
@@ -50,6 +56,12 @@ export namespace chatstore {
 	        this.costUsd = source["costUsd"];
 	        this.inputTokens = source["inputTokens"];
 	        this.outputTokens = source["outputTokens"];
+	        this.deepseekCostUsd = source["deepseekCostUsd"];
+	        this.deepseekInputTokens = source["deepseekInputTokens"];
+	        this.deepseekOutputTokens = source["deepseekOutputTokens"];
+	        this.zaiCostUsd = source["zaiCostUsd"];
+	        this.zaiInputTokens = source["zaiInputTokens"];
+	        this.zaiOutputTokens = source["zaiOutputTokens"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
