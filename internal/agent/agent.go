@@ -63,8 +63,10 @@ type Runner struct {
 	ModelOverride string
 	// PreferredModel is used when AutoModels is off and ModelOverride is empty.
 	PreferredModel string
-	// AutoModels enables PickModel routing for this run.
+	// AutoModels enables PickModel / PickZaiModel routing for this run.
 	AutoModels bool
+	// ProviderID is "deepseek" or "zai" (drives Auto routing + image defaults).
+	ProviderID string
 	// Route context for AutoModels (filled by the app before Run*).
 	UserText      string
 	HasImages     bool
@@ -82,6 +84,10 @@ type Runner struct {
 	lastEmittedModel string
 }
 
+func (r *Runner) isZai() bool {
+	return strings.EqualFold(strings.TrimSpace(r.ProviderID), "zai")
+}
+
 func (r *Runner) reportUsage(model string, u *llm.Usage) {
 	if r.OnUsage == nil {
 		return
@@ -94,21 +100,39 @@ func (r *Runner) resolveModel(step int, emit EmitFunc) string {
 	var model, reason string
 	switch {
 	case r.AutoModels:
-		d := PickModel(RouteInput{
-			UserText:      r.UserText,
-			HasImages:     r.HasImages,
-			HintPathCount: r.HintPathCount,
-			Step:          step,
-		})
+		var d RouteDecision
+		if r.isZai() {
+			d = PickZaiModel(RouteInput{
+				UserText:      r.UserText,
+				HasImages:     r.HasImages,
+				HintPathCount: r.HintPathCount,
+				Step:          step,
+			})
+		} else {
+			d = PickModel(RouteInput{
+				UserText:      r.UserText,
+				HasImages:     r.HasImages,
+				HintPathCount: r.HintPathCount,
+				Step:          step,
+			})
+		}
 		model, reason = d.Model, d.Reason
 	case r.HasImages:
-		model, reason = ModelVision, "image"
+		if r.isZai() {
+			model, reason = ModelZaiVision, "image"
+		} else {
+			model, reason = ModelVision, "image"
+		}
 	case strings.TrimSpace(r.ModelOverride) != "":
 		model = strings.TrimSpace(r.ModelOverride)
 	case strings.TrimSpace(r.PreferredModel) != "":
 		model = strings.TrimSpace(r.PreferredModel)
 	default:
-		model = ModelFlash
+		if r.isZai() {
+			model = ModelZaiFree
+		} else {
+			model = ModelFlash
+		}
 	}
 	r.ModelOverride = model
 	if model != "" && model != r.lastEmittedModel {

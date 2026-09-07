@@ -1292,6 +1292,10 @@ export default function App() {
   async function applyModel(next: string) {
     if (activeProvider === 'zai') {
       setZaiModel(next)
+      if (autoModels) {
+        setAutoModels(false)
+        void SaveAutoModels(false)
+      }
       void SaveZaiModel(next)
       return
     }
@@ -1437,7 +1441,7 @@ export default function App() {
             value={model}
             onChange={(e) => void applyModel(e.target.value)}
             title={
-              activeProvider === 'deepseek' && autoModels
+              autoModels
                 ? 'Auto-models выберет модель сама; ручной выбор отключает Auto'
                 : `Модель ${providerLabel}`
             }
@@ -1452,17 +1456,16 @@ export default function App() {
           </select>
         </label>
         <label
-          className={`nc-top-check ${activeProvider !== 'deepseek' ? 'is-disabled' : ''}`}
+          className="nc-top-check"
           title={
-            activeProvider === 'deepseek'
-              ? 'Автовыбор flash / pro / vision по задаче и длине прогона'
-              : 'Auto-models пока только для DeepSeek (flash / pro / vision). Для Z.ai выберите модель вручную.'
+            activeProvider === 'zai'
+              ? 'Автовыбор: glm-4.7-flash (free) → glm-5.3 на сложных задачах; картинки → glm-5.3-flash'
+              : 'Автовыбор flash / pro / vision по задаче и длине прогона'
           }
         >
           <input
             type="checkbox"
             checked={autoModels}
-            disabled={activeProvider !== 'deepseek'}
             onChange={(e) => {
               const on = e.target.checked
               setAutoModels(on)
@@ -1780,24 +1783,23 @@ export default function App() {
             </label>
             <p className="nc-help">Ключи хранятся отдельно; ниже — настройки только активного провайдера.</p>
             <label
-              className={`nc-top-check ${activeProvider !== 'deepseek' ? 'is-disabled' : ''}`}
+              className="nc-top-check"
               title={
-                activeProvider === 'deepseek'
-                  ? 'Автовыбор flash / pro / vision'
-                  : 'Auto-models только для DeepSeek'
+                activeProvider === 'zai'
+                  ? 'Z.ai: free flash → glm-5.3 на сложных задачах'
+                  : 'DeepSeek: flash / pro / vision'
               }
             >
               <input
                 type="checkbox"
                 checked={autoModels}
-                disabled={activeProvider !== 'deepseek'}
                 onChange={(e) => {
                   const on = e.target.checked
                   setAutoModels(on)
                   void SaveAutoModels(on)
                 }}
               />
-              Auto-models (DeepSeek flash / pro / vision)
+              Auto-models ({activeProvider === 'zai' ? 'free → 5.3' : 'flash / pro / vision'})
             </label>
 
             {activeProvider === 'deepseek' ? (
@@ -1860,6 +1862,10 @@ export default function App() {
                     onChange={(e) => {
                       const next = e.target.value
                       setZaiModel(next)
+                      if (autoModels) {
+                        setAutoModels(false)
+                        void SaveAutoModels(false)
+                      }
                       void SaveZaiModel(next)
                     }}
                   >

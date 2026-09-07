@@ -46,8 +46,8 @@ type Settings struct {
 	// AgentMaxSteps caps the tool-using agent loop. 0 means the default (40).
 	AgentMaxSteps int `json:"agentMaxSteps,omitempty"`
 
-	// AutoModels enables per-turn DeepSeek flash/pro/vision routing.
-	// Ignored when ActiveProvider is not deepseek.
+	// AutoModels enables per-turn model routing (DeepSeek flash/pro/vision;
+	// Z.ai free flash → glm-5.3 on complex tasks).
 	AutoModels bool `json:"autoModels,omitempty"`
 
 	// Main window geometry (logical pixels). Zero width/height → defaults.

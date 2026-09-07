@@ -792,8 +792,7 @@ func (a *App) RunAgentWithAttachments(userMessage string, attachments []agent.At
 	hints := rules.ExtractHintPaths(userMessage, attNames...)
 	cfg := a.cfg.Get()
 	provider := a.cfg.Provider()
-	// Auto-models routing is DeepSeek-specific (flash/pro/vision).
-	autoModels := cfg.AutoModels && provider == config.ProviderDeepSeek
+	autoModels := cfg.AutoModels
 
 	runner := &agent.Runner{
 		Provider:       a.llm,
@@ -801,6 +800,7 @@ func (a *App) RunAgentWithAttachments(userMessage string, attachments []agent.At
 		MaxSteps:       a.cfg.MaxAgentSteps(),
 		RulesText:      bundle.SelectForPrompt(hints),
 		AutoModels:     autoModels,
+		ProviderID:     provider,
 		PreferredModel: a.cfg.ActiveModel(),
 		UserText:       userMessage,
 		HasImages:      hasImages,
