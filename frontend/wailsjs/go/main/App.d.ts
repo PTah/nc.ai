@@ -64,6 +64,16 @@ export function SaveDeepSeekKey(arg1:string):Promise<void>;
 
 export function SaveDeepSeekModel(arg1:string):Promise<void>;
 
+export function ListZaiModels():Promise<Array<string>>;
+
+export function SaveZaiKey(arg1:string):Promise<void>;
+
+export function SaveZaiModel(arg1:string):Promise<void>;
+
+export function SaveZaiEndpoint(arg1:string):Promise<void>;
+
+export function SaveActiveProvider(arg1:string):Promise<void>;
+
 export function SaveAutoModels(arg1:boolean):Promise<void>;
 
 export function SaveGitAuth(arg1:string,arg2:string):Promise<void>;

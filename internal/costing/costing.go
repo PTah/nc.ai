@@ -46,6 +46,7 @@ var weekendOffpeakEffective = time.Date(2026, 8, 22, 16, 0, 0, 0, time.UTC)
 const beijingOffsetHours = 8
 
 // NormalizeModel maps response/request model ids onto the rate-card keys.
+// Non-DeepSeek models return "" (no price sheet yet).
 func NormalizeModel(model string) string {
 	m := strings.ToLower(strings.TrimSpace(model))
 	m = strings.TrimPrefix(m, "deepseek/")
@@ -55,8 +56,10 @@ func NormalizeModel(model string) string {
 	case m == "" || strings.HasPrefix(m, "deepseek-v4-flash"):
 		// flash, flash-0731, flash-vision-exp → flash rate card
 		return "deepseek-v4-flash"
-	default:
+	case strings.HasPrefix(m, "deepseek"):
 		return "deepseek-v4-flash"
+	default:
+		return ""
 	}
 }
 
@@ -81,11 +84,15 @@ func IsPeak(at time.Time) bool {
 }
 
 // Price returns the rate card for model at the given instant.
+// Unknown / non-DeepSeek models return a zero sheet (Cost = 0).
 func Price(model string, at time.Time) Prices {
 	key := NormalizeModel(model)
+	if key == "" {
+		return Prices{}
+	}
 	peak, ok := peakSheet[key]
 	if !ok {
-		peak = peakSheet["deepseek-v4-flash"]
+		return Prices{}
 	}
 	if IsPeak(at) {
 		return peak

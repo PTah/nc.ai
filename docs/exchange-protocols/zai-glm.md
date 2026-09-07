@@ -1,51 +1,86 @@
 # Z.ai / BigModel (GLM) — протокол обмена
 
-**Docs:** https://docs.bigmodel.cn/  
-**Формат:** близкий к OpenAI Chat Completions.
+**Docs:** https://docs.z.ai/ · DevPack: https://docs.z.ai/devpack/latest-model  
+**Формат:** OpenAI-compatible Chat Completions.
 
 ---
 
-## Endpoint (типичный)
+## Endpoints
+
+| Режим | Base URL | Когда |
+|---|---|---|
+| **Pay-as-you-go** (default в NotCursor) | `https://api.z.ai/api/paas/v4` | Обычный баланс / OpenAI SDK |
+| Coding Plan | `https://api.z.ai/api/coding/paas/v4` | GLM Coding Plan subscription |
+| Anthropic-compatible | `https://api.z.ai/api/anthropic` | Claude Code / Goose |
+| China BigModel | `https://open.bigmodel.cn/api/paas/v4` | Mainland |
 
 ```
-POST https://open.bigmodel.cn/api/paas/v4/chat/completions
+POST {base}/chat/completions
 Authorization: Bearer <ZAI_API_KEY>
 Content-Type: application/json
 ```
 
-> Точный base path и имена моделей сверять с актуальной документацией BigModel/Z.ai на момент кодинга (возможны региональные зеркала).
+---
+
+## Модели (DevPack)
+
+| ID | Назначение |
+|---|---|
+| `glm-5.3` | Default / text-only |
+| `glm-5.3-flash` | Экономия + multimodal (vision) |
+| `glm-4.7-flash` | Быстрые тесты |
+| остальные `glm-5.*` / `glm-4.*` | По необходимости |
+
+Default: `glm-5.3`. Temperature по умолчанию `0.2`.
 
 ---
 
-## Пример
+## Список моделей
+
+```
+GET {base}/models
+Authorization: Bearer <ZAI_API_KEY>
+```
+
+Ответ (OpenAI-compatible):
 
 ```json
 {
-  "model": "glm-4.5",
-  "messages": [
-    { "role": "system", "content": "You are a coding agent." },
-    { "role": "user", "content": "Write a Go HTTP handler" }
-  ],
-  "stream": true,
-  "temperature": 0.3
+  "object": "list",
+  "data": [
+    { "id": "glm-5.3", "object": "model", "owned_by": "z-ai" },
+    { "id": "glm-5.3-flash", "object": "model", "owned_by": "z-ai" }
+  ]
 }
+```
+
+В NotCursor: `ListZaiModels()` → dropdown; без ключа / при ошибке — fallback ids.
+
+---
+
+## Пример (Pay-as-you-go)
+
+```bash
+curl -X POST "https://api.z.ai/api/paas/v4/chat/completions" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -d '{
+    "model": "glm-5.3",
+    "messages": [{"role": "user", "content": "Hello"}]
+  }'
 ```
 
 ---
 
-## Function calling
+## Function calling / Thinking
 
-Большинство GLM chat endpoints поддерживают OpenAI-like `tools` / `tool_calls`.  
-Перед включением в agent loop — прогнать smoke-test конкретной модели:
-
-1. tools объявлены
-2. модель возвращает `tool_calls`
-3. принимает `role: tool`
-
-Если модель не умеет tools — использовать только chat mode без агента.
+OpenAI-like `tools` / `tool_calls`.  
+`thinking: {"type": "enabled"|"disabled"}` (GLM-4.5+).  
+`reasoning_effort` для GLM-5.2+ (`max` / `high` / `low`).
 
 ---
 
 ## Реализация
 
-Этап 3: `internal/llm/providers/zai`.
+`internal/llm/providers/zai` — default base = pay-as-you-go URL.  
+В Settings: переключатель Pay-as-you-go / Coding Plan.

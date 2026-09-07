@@ -22,6 +22,8 @@ func TestNormalizeModel(t *testing.T) {
 		"deepseek-v4-pro":              "deepseek-v4-pro",
 		"deepseek-v4-pro-0813":         "deepseek-v4-pro",
 		"DeepSeek-V4-Pro":              "deepseek-v4-pro",
+		"glm-4.5":                      "",
+		"zai/glm-5.1":                  "",
 	}
 	for in, want := range cases {
 		if got := NormalizeModel(in); got != want {

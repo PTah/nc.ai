@@ -9,9 +9,24 @@ import (
 
 const appDirName = "NotCursor"
 
+// Provider ids persisted in Settings.ActiveProvider.
+const (
+	ProviderDeepSeek = "deepseek"
+	ProviderZAI      = "zai"
+)
+
 type Settings struct {
-	DeepSeekAPIKey string   `json:"deepseekApiKey"`
-	DeepSeekModel  string   `json:"deepseekModel"`
+	// ActiveProvider selects which LLM backend is used ("deepseek" | "zai").
+	ActiveProvider string `json:"activeProvider,omitempty"`
+
+	DeepSeekAPIKey string `json:"deepseekApiKey"`
+	DeepSeekModel  string `json:"deepseekModel"`
+
+	ZaiAPIKey string `json:"zaiApiKey,omitempty"`
+	ZaiModel  string `json:"zaiModel,omitempty"`
+	// ZaiEndpoint: "paas" (pay-as-you-go, default) or "coding" (GLM Coding Plan).
+	ZaiEndpoint string `json:"zaiEndpoint,omitempty"`
+
 	Shell          string   `json:"shell"`
 	RecentProjects []string `json:"recentProjects"`
 	GitUsername    string   `json:"gitUsername"`
@@ -30,6 +45,7 @@ type Settings struct {
 	AgentMaxSteps int `json:"agentMaxSteps,omitempty"`
 
 	// AutoModels enables per-turn DeepSeek flash/pro/vision routing.
+	// Ignored when ActiveProvider is not deepseek.
 	AutoModels bool `json:"autoModels,omitempty"`
 
 	// Main window geometry (logical pixels). Zero width/height → defaults.
@@ -62,9 +78,12 @@ type Store struct {
 func NewStore() *Store {
 	return &Store{
 		settings: Settings{
-			DeepSeekModel: "deepseek-v4-flash",
-			Shell:         "powershell",
-			AgentMaxSteps: 40,
+			ActiveProvider: ProviderDeepSeek,
+			DeepSeekModel:  "deepseek-v4-flash",
+			ZaiModel:       "glm-5.3",
+			ZaiEndpoint:    "paas",
+			Shell:          "powershell",
+			AgentMaxSteps:  40,
 		},
 	}
 }
@@ -119,7 +138,26 @@ func (s *Store) Load() error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return json.Unmarshal(data, &s.settings)
+	if err := json.Unmarshal(data, &s.settings); err != nil {
+		return err
+	}
+	if s.settings.ActiveProvider == "" {
+		s.settings.ActiveProvider = ProviderDeepSeek
+	} else {
+		s.settings.ActiveProvider = normalizeProvider(s.settings.ActiveProvider)
+	}
+	if s.settings.ZaiModel == "" {
+		s.settings.ZaiModel = "glm-5.3"
+	}
+	if s.settings.ZaiEndpoint == "" {
+		s.settings.ZaiEndpoint = "paas"
+	} else {
+		s.settings.ZaiEndpoint = normalizeZaiEndpoint(s.settings.ZaiEndpoint)
+	}
+	if s.settings.DeepSeekModel == "" {
+		s.settings.DeepSeekModel = "deepseek-v4-flash"
+	}
+	return nil
 }
 
 func (s *Store) Save() error {
@@ -154,6 +192,102 @@ func (s *Store) SetDeepSeekModel(model string) error {
 	s.settings.DeepSeekModel = model
 	s.mu.Unlock()
 	return s.Save()
+}
+
+func (s *Store) SetZaiAPIKey(key string) error {
+	s.mu.Lock()
+	s.settings.ZaiAPIKey = key
+	s.mu.Unlock()
+	return s.Save()
+}
+
+func (s *Store) SetZaiModel(model string) error {
+	s.mu.Lock()
+	s.settings.ZaiModel = model
+	s.mu.Unlock()
+	return s.Save()
+}
+
+func (s *Store) SetZaiEndpoint(endpoint string) error {
+	s.mu.Lock()
+	s.settings.ZaiEndpoint = normalizeZaiEndpoint(endpoint)
+	s.mu.Unlock()
+	return s.Save()
+}
+
+func (s *Store) ZaiEndpoint() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return normalizeZaiEndpoint(s.settings.ZaiEndpoint)
+}
+
+func normalizeZaiEndpoint(e string) string {
+	switch e {
+	case "coding":
+		return "coding"
+	default:
+		return "paas"
+	}
+}
+
+// Provider returns the normalized active provider id.
+func (s *Store) Provider() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return normalizeProvider(s.settings.ActiveProvider)
+}
+
+func (s *Store) SetActiveProvider(provider string) error {
+	s.mu.Lock()
+	s.settings.ActiveProvider = normalizeProvider(provider)
+	s.mu.Unlock()
+	return s.Save()
+}
+
+// ActiveAPIKey returns the API key for the active provider.
+func (s *Store) ActiveAPIKey() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	switch normalizeProvider(s.settings.ActiveProvider) {
+	case ProviderZAI:
+		return s.settings.ZaiAPIKey
+	default:
+		return s.settings.DeepSeekAPIKey
+	}
+}
+
+// ActiveModel returns the model id for the active provider.
+func (s *Store) ActiveModel() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	switch normalizeProvider(s.settings.ActiveProvider) {
+	case ProviderZAI:
+		return s.settings.ZaiModel
+	default:
+		return s.settings.DeepSeekModel
+	}
+}
+
+// SetActiveModel persists the model for the currently active provider.
+func (s *Store) SetActiveModel(model string) error {
+	s.mu.Lock()
+	switch normalizeProvider(s.settings.ActiveProvider) {
+	case ProviderZAI:
+		s.settings.ZaiModel = model
+	default:
+		s.settings.DeepSeekModel = model
+	}
+	s.mu.Unlock()
+	return s.Save()
+}
+
+func normalizeProvider(p string) string {
+	switch p {
+	case ProviderZAI:
+		return ProviderZAI
+	default:
+		return ProviderDeepSeek
+	}
 }
 
 func (s *Store) AutoModels() bool {

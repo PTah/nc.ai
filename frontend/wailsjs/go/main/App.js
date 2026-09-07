@@ -118,6 +118,26 @@ export function SaveDeepSeekModel(arg1) {
   return window['go']['main']['App']['SaveDeepSeekModel'](arg1);
 }
 
+export function ListZaiModels() {
+  return window['go']['main']['App']['ListZaiModels']();
+}
+
+export function SaveZaiKey(arg1) {
+  return window['go']['main']['App']['SaveZaiKey'](arg1);
+}
+
+export function SaveZaiModel(arg1) {
+  return window['go']['main']['App']['SaveZaiModel'](arg1);
+}
+
+export function SaveZaiEndpoint(arg1) {
+  return window['go']['main']['App']['SaveZaiEndpoint'](arg1);
+}
+
+export function SaveActiveProvider(arg1) {
+  return window['go']['main']['App']['SaveActiveProvider'](arg1);
+}
+
 export function SaveAutoModels(arg1) {
   return window['go']['main']['App']['SaveAutoModels'](arg1);
 }

@@ -150,7 +150,7 @@ func (r *Runner) chat(ctx context.Context, req *llm.ChatRequest, emit EmitFunc) 
 	for attempt := 0; err != nil && isNetworkError(err) && attempt < r.retryCount(); attempt++ {
 		wait := r.retryBackoff() * time.Duration(attempt+1)
 		emit(Event{Type: "reconnect", Content: fmt.Sprintf(
-			"Соединение с DeepSeek потеряно (%v). Повторная попытка %d/%d через %.0f сек…",
+			"Соединение с LLM потеряно (%v). Повторная попытка %d/%d через %.0f сек…",
 			err, attempt+1, r.retryCount(), wait.Seconds(),
 		)})
 		select {

@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
@@ -15,6 +17,7 @@ import (
 	"notcursor.ai/app/internal/dockicon"
 	"notcursor.ai/app/internal/llm"
 	"notcursor.ai/app/internal/llm/providers/deepseek"
+	"notcursor.ai/app/internal/llm/providers/zai"
 	"notcursor.ai/app/internal/rules"
 	"notcursor.ai/app/internal/shell"
 	"notcursor.ai/app/internal/sshx"
@@ -108,12 +111,21 @@ func (a *App) shutdown(ctx context.Context) {
 }
 
 func (a *App) refreshProvider() {
-	key := a.cfg.Get().DeepSeekAPIKey
-	model := a.cfg.Get().DeepSeekModel
-	if model == "" {
-		model = deepseek.DefaultModel
+	provider := a.cfg.Provider()
+	key := a.cfg.ActiveAPIKey()
+	model := a.cfg.ActiveModel()
+	switch provider {
+	case config.ProviderZAI:
+		if model == "" {
+			model = zai.DefaultModel
+		}
+		a.llm = zai.NewWithBaseURL(key, model, zai.BaseURLFor(a.cfg.ZaiEndpoint()))
+	default:
+		if model == "" {
+			model = deepseek.DefaultModel
+		}
+		a.llm = deepseek.New(key, model)
 	}
-	a.llm = deepseek.New(key, model)
 }
 
 func (a *App) emit(evt agent.Event) {
@@ -140,16 +152,21 @@ func (a *App) emitTerm(data string) {
 func (a *App) AppInfo() map[string]string {
 	return map[string]string{
 		"name":    "NotCursor.ai",
-		"version": "0.3.0",
-		"stage":   "1-deepseek-agent",
+		"version": "0.4.0",
+		"stage":   "2-multi-provider",
 	}
 }
 
 func (a *App) GetSettings() map[string]any {
 	s := a.cfg.Get()
+	provider := a.cfg.Provider()
 	return map[string]any{
+		"activeProvider":  provider,
 		"deepseekModel":   s.DeepSeekModel,
 		"deepseekKeySet":  s.DeepSeekAPIKey != "",
+		"zaiModel":        orDefault(s.ZaiModel, zai.DefaultModel),
+		"zaiKeySet":       s.ZaiAPIKey != "",
+		"zaiEndpoint":     a.cfg.ZaiEndpoint(),
 		"shell":           s.Shell,
 		"recentProjects":  s.RecentProjects,
 		"showTerminal":    s.ShowTerminal,
@@ -165,6 +182,13 @@ func (a *App) GetSettings() map[string]any {
 		"layoutTerminalH": nonzero(s.LayoutTerminalH, 160),
 		"layoutComposerH": nonzero(s.LayoutComposerH, 150),
 	}
+}
+
+func orDefault(v, def string) string {
+	if v != "" {
+		return v
+	}
+	return def
 }
 
 func nonzero(v, def int) int {
@@ -277,6 +301,72 @@ func (a *App) SaveDeepSeekKey(apiKey string) error {
 
 func (a *App) SaveDeepSeekModel(model string) error {
 	if err := a.cfg.SetDeepSeekModel(model); err != nil {
+		return err
+	}
+	a.refreshProvider()
+	return nil
+}
+
+func (a *App) SaveZaiKey(apiKey string) error {
+	if err := a.cfg.SetZaiAPIKey(apiKey); err != nil {
+		return err
+	}
+	a.refreshProvider()
+	return nil
+}
+
+func (a *App) SaveZaiModel(model string) error {
+	if err := a.cfg.SetZaiModel(model); err != nil {
+		return err
+	}
+	a.refreshProvider()
+	return nil
+}
+
+func (a *App) SaveZaiEndpoint(endpoint string) error {
+	if err := a.cfg.SetZaiEndpoint(endpoint); err != nil {
+		return err
+	}
+	a.refreshProvider()
+	return nil
+}
+
+// ListZaiModels returns model ids from GET {base}/models for the saved Z.ai key.
+// Falls back to a static list when the key is missing or the request fails.
+func (a *App) ListZaiModels() []string {
+	key := a.cfg.Get().ZaiAPIKey
+	if key == "" {
+		return zai.FallbackModels()
+	}
+	client := zai.NewWithBaseURL(key, a.cfg.Get().ZaiModel, zai.BaseURLFor(a.cfg.ZaiEndpoint()))
+	ctx := a.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	items, err := client.ListModels(ctx)
+	if err != nil || len(items) == 0 {
+		return zai.FallbackModels()
+	}
+	out := make([]string, 0, len(items))
+	seen := map[string]bool{}
+	for _, m := range items {
+		id := strings.TrimSpace(m.ID)
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		out = append(out, id)
+	}
+	if len(out) == 0 {
+		return zai.FallbackModels()
+	}
+	return out
+}
+
+func (a *App) SaveActiveProvider(provider string) error {
+	if err := a.cfg.SetActiveProvider(provider); err != nil {
 		return err
 	}
 	a.refreshProvider()
@@ -617,8 +707,13 @@ func (a *App) RunAgent(userMessage string) error {
 
 // RunAgentWithAttachments accepts pasted/dropped images and files (multimodal + text inline).
 func (a *App) RunAgentWithAttachments(userMessage string, attachments []agent.Attachment) error {
-	if a.cfg.Get().DeepSeekAPIKey == "" {
-		return fmt.Errorf("DeepSeek API key is not set")
+	if a.cfg.ActiveAPIKey() == "" {
+		switch a.cfg.Provider() {
+		case config.ProviderZAI:
+			return fmt.Errorf("Z.ai API key is not set")
+		default:
+			return fmt.Errorf("DeepSeek API key is not set")
+		}
 	}
 	if a.llm == nil {
 		return fmt.Errorf("LLM provider is not configured")
@@ -656,14 +751,17 @@ func (a *App) RunAgentWithAttachments(userMessage string, attachments []agent.At
 	bundle := a.loadRules()
 	hints := rules.ExtractHintPaths(userMessage, attNames...)
 	cfg := a.cfg.Get()
+	provider := a.cfg.Provider()
+	// Auto-models routing is DeepSeek-specific (flash/pro/vision).
+	autoModels := cfg.AutoModels && provider == config.ProviderDeepSeek
 
 	runner := &agent.Runner{
 		Provider:       a.llm,
 		Tools:          a.tools,
 		MaxSteps:       a.cfg.MaxAgentSteps(),
 		RulesText:      bundle.SelectForPrompt(hints),
-		AutoModels:     cfg.AutoModels,
-		PreferredModel: cfg.DeepSeekModel,
+		AutoModels:     autoModels,
+		PreferredModel: a.cfg.ActiveModel(),
 		UserText:       userMessage,
 		HasImages:      hasImages,
 		HintPathCount:  len(hints),
@@ -698,7 +796,7 @@ func (a *App) RunAgentWithAttachments(userMessage string, attachments []agent.At
 
 		emit := func(evt agent.Event) {
 			if evt.Type == "model" && evt.Content != "" {
-				_ = a.cfg.SetDeepSeekModel(evt.Content)
+				_ = a.cfg.SetActiveModel(evt.Content)
 				a.refreshProvider()
 			}
 			a.emitFor(sid, evt)
@@ -784,8 +882,13 @@ func (a *App) ChatOnce(userMessage string) (string, error) {
 	if a.llm == nil {
 		return "", fmt.Errorf("LLM provider is not configured")
 	}
-	if a.cfg.Get().DeepSeekAPIKey == "" {
-		return "", fmt.Errorf("DeepSeek API key is not set")
+	if a.cfg.ActiveAPIKey() == "" {
+		switch a.cfg.Provider() {
+		case config.ProviderZAI:
+			return "", fmt.Errorf("Z.ai API key is not set")
+		default:
+			return "", fmt.Errorf("DeepSeek API key is not set")
+		}
 	}
 	maxTokens := 64
 	resp, err := a.llm.ChatCompletion(a.ctx, &llm.ChatRequest{
