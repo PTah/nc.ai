@@ -276,6 +276,7 @@ function toolTitle(name: string, phase: 'running' | 'done', ok?: boolean): strin
   const labels: Record<string, string> = {
     read_file: 'Reading file',
     write_file: 'Writing file',
+    apply_patch: 'Patching file',
     list_dir: 'Listing directory',
     search_files: 'Searching files',
     run_terminal: 'Running terminal',
@@ -324,6 +325,7 @@ function summarizeTools(tools: Extract<ChatItem, {kind: 'tool'}>[]): string {
     read_file: ['file read', 'files read'],
     list_dir: ['dir listed', 'dirs listed'],
     write_file: ['file written', 'files written'],
+    apply_patch: ['file patched', 'files patched'],
     search_files: ['search', 'searches'],
     run_terminal: ['command', 'commands'],
     git_status: ['git status', 'git status'],

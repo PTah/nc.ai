@@ -54,6 +54,30 @@ func (r *Registry) Execute(ctx context.Context, call llm.ToolCall) (string, erro
 			return "", err
 		}
 		return fmt.Sprintf("wrote %s (%d bytes)", path, len(content)), nil
+	case "apply_patch":
+		path, _ := args["path"].(string)
+		oldStr, _ := args["old_string"].(string)
+		newStr, _ := args["new_string"].(string)
+		replaceAll, _ := args["replace_all"].(bool)
+		if patch, _ := args["patch"].(string); strings.TrimSpace(patch) != "" {
+			var err error
+			oldStr, newStr, err = ParseSearchReplacePatch(patch)
+			if err != nil {
+				return "", err
+			}
+		}
+		raw, err := r.WS.ReadFileRaw(path)
+		if err != nil {
+			return "", err
+		}
+		next, n, err := ApplySearchReplace(raw, oldStr, newStr, replaceAll)
+		if err != nil {
+			return "", err
+		}
+		if err := r.WS.WriteFile(path, next); err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("patched %s (%d replacement(s), %d → %d bytes)", path, n, len(raw), len(next)), nil
 	case "list_dir":
 		path, _ := args["path"].(string)
 		if path == "" {
@@ -129,13 +153,24 @@ func Specs() []llm.ToolSpec {
 			},
 			"required": []string{"path"},
 		}),
-		fn("write_file", "Create or overwrite a workspace file", map[string]any{
+		fn("write_file", "Create or overwrite a whole workspace file. Prefer apply_patch for small edits to save output tokens.", map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"path":    map[string]any{"type": "string"},
 				"content": map[string]any{"type": "string"},
 			},
 			"required": []string{"path", "content"},
+		}),
+		fn("apply_patch", "Apply a precise edit to an existing file. Prefer this over write_file when changing part of a file. Provide old_string+new_string (exact match) OR a patch block with <<<<<<< SEARCH / ======= / >>>>>>> REPLACE.", map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"path":         map[string]any{"type": "string", "description": "Existing relative path"},
+				"old_string":   map[string]any{"type": "string", "description": "Exact text to find (include enough context to be unique)"},
+				"new_string":   map[string]any{"type": "string", "description": "Replacement text (may be empty to delete)"},
+				"replace_all":  map[string]any{"type": "boolean", "description": "Replace every occurrence (default false = exactly one match required)"},
+				"patch":        map[string]any{"type": "string", "description": "Optional SEARCH/REPLACE block instead of old_string/new_string"},
+			},
+			"required": []string{"path"},
 		}),
 		fn("list_dir", "List directory entries", map[string]any{
 			"type": "object",

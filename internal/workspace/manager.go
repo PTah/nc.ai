@@ -217,6 +217,22 @@ func (m *Manager) WriteFile(rel, content string) error {
 	return os.WriteFile(full, []byte(content), 0o644)
 }
 
+// ReadFileRaw returns file bytes without secret masking (for patch tools).
+func (m *Manager) ReadFileRaw(rel string) (string, error) {
+	full, err := m.Resolve(rel)
+	if err != nil {
+		return "", err
+	}
+	data, err := os.ReadFile(full)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", m.notFoundHint(rel, full)
+		}
+		return "", err
+	}
+	return string(data), nil
+}
+
 func (m *Manager) DeletePath(rel string) error {
 	full, err := m.Resolve(rel)
 	if err != nil {

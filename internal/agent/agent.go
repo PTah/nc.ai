@@ -25,6 +25,7 @@ Critical path rules:
 - Paths are relative to the workspace root (use forward slashes).
 
 Token and edit discipline (save cost; follow project rules when they conflict with defaults):
+- Prefer apply_patch for partial file edits; use write_file only for new files or full rewrites.
 - Prefer small precise edits over rewrites or copy-paste duplicates.
 - Do not add verbose comments, docstrings, or drive-by refactors unless the user asks.
 - Do not expand scope beyond the requested task.
