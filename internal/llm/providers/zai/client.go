@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"notcursor.ai/app/internal/llm"
@@ -126,7 +127,7 @@ func (c *Client) ListModels(ctx context.Context) ([]ModelInfo, error) {
 		return nil, err
 	}
 	if res.StatusCode >= 300 {
-		return nil, fmt.Errorf("zai: HTTP %d: %s", res.StatusCode, truncate(string(data), 800))
+		return nil, mapAPIError(res.StatusCode, data)
 	}
 	var out modelsListResponse
 	if err := json.Unmarshal(data, &out); err != nil {
@@ -342,7 +343,7 @@ func (c *Client) ChatCompletion(ctx context.Context, req *llm.ChatRequest) (*llm
 		return nil, err
 	}
 	if res.StatusCode >= 300 {
-		return nil, fmt.Errorf("zai: HTTP %d: %s", res.StatusCode, truncate(string(data), 800))
+		return nil, mapAPIError(res.StatusCode, data)
 	}
 	var out llm.ChatResponse
 	if err := json.Unmarshal(data, &out); err != nil {
@@ -390,6 +391,35 @@ func thinkingDisabled(thinking map[string]any) bool {
 	}
 	t, _ := thinking["type"].(string)
 	return t == "disabled"
+}
+
+type apiErrorBody struct {
+	Error struct {
+		Code    any    `json:"code"`
+		Message string `json:"message"`
+	} `json:"error"`
+}
+
+// mapAPIError turns Z.ai JSON error payloads into short user-facing messages.
+func mapAPIError(status int, body []byte) error {
+	var payload apiErrorBody
+	_ = json.Unmarshal(body, &payload)
+	code := fmt.Sprint(payload.Error.Code)
+	switch code {
+	case "1305":
+		return fmt.Errorf("Модель перегружена, попробуйте позднее…")
+	case "1302":
+		return fmt.Errorf("Превышен лимит запросов, попробуйте позднее…")
+	case "1113":
+		return fmt.Errorf("Недостаточно баланса Z.ai. Выберите бесплатную модель (glm-4.7-flash) или пополните счёт / включите Coding Plan")
+	case "1210":
+		return fmt.Errorf("Эта модель всегда думает — нельзя отключить thinking; используйте effort low/high/max")
+	}
+	msg := strings.TrimSpace(payload.Error.Message)
+	if msg != "" {
+		return fmt.Errorf("zai: %s", msg)
+	}
+	return fmt.Errorf("zai: HTTP %d: %s", status, truncate(string(body), 800))
 }
 
 func truncate(s string, n int) string {

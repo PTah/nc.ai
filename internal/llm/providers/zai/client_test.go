@@ -61,3 +61,19 @@ func TestThinkingDisabled(t *testing.T) {
 		t.Fatal("disabled should be detected")
 	}
 }
+
+func TestMapAPIError1305(t *testing.T) {
+	body := []byte(`{"error":{"code":"1305","message":"The service may be temporarily overloaded, please try again later"}}`)
+	err := mapAPIError(429, body)
+	if err == nil || err.Error() != "Модель перегружена, попробуйте позднее…" {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestMapAPIError1302(t *testing.T) {
+	body := []byte(`{"error":{"code":"1302","message":"Rate limit reached for requests"}}`)
+	err := mapAPIError(429, body)
+	if err == nil || err.Error() != "Превышен лимит запросов, попробуйте позднее…" {
+		t.Fatalf("got %v", err)
+	}
+}

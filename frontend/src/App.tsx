@@ -146,6 +146,19 @@ function modelOptions(list: readonly string[], current: string): string[] {
   return [current, ...list]
 }
 
+/** Unwrap Wails/Error prefixes for chat system lines. */
+function formatConnectError(e: unknown): string {
+  let msg = String(e ?? 'unknown error')
+  msg = msg.replace(/^Error:\s*/i, '').trim()
+  if (/перегружена/i.test(msg) || /1305/.test(msg) || /temporarily overloaded/i.test(msg)) {
+    return 'Модель перегружена, попробуйте позднее…'
+  }
+  if (/лимит запросов/i.test(msg) || /1302/.test(msg) || /rate limit/i.test(msg)) {
+    return 'Превышен лимит запросов, попробуйте позднее…'
+  }
+  return msg.startsWith('Connect failed') ? msg : `Connect failed: ${msg}`
+}
+
 function asList<T>(v: T[] | null | undefined): T[] {
   return Array.isArray(v) ? v : []
 }
@@ -1293,7 +1306,7 @@ export default function App() {
       }
       if (activeSessionId) setSessionItems(activeSessionId, (m) => [...m, {kind: 'system', content: `${providerLabel} connect OK: ${r || '(empty content)'}`}])
     } catch (e) {
-      if (activeSessionId) setSessionItems(activeSessionId, (m) => [...m, {kind: 'system', content: `Connect failed: ${String(e)}`}])
+      if (activeSessionId) setSessionItems(activeSessionId, (m) => [...m, {kind: 'system', content: formatConnectError(e)}])
     }
   }
 
