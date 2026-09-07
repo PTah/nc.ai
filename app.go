@@ -140,7 +140,7 @@ func (a *App) emitTerm(data string) {
 func (a *App) AppInfo() map[string]string {
 	return map[string]string{
 		"name":    "NotCursor.ai",
-		"version": "0.2.1",
+		"version": "0.2.3",
 		"stage":   "1-deepseek-agent",
 	}
 }
@@ -420,6 +420,34 @@ func (a *App) RenameChatSession(sessionID, title string) error {
 		return fmt.Errorf("chat store unavailable")
 	}
 	return a.chats.RenameSession(a.projectKey(), sessionID, title)
+}
+
+// ArchiveChatSession moves a chat tab into the archive folder and returns the
+// transcript JSON of the new active session.
+func (a *App) ArchiveChatSession(sessionID, title string) (string, error) {
+	if a.chats == nil {
+		return "[]", fmt.Errorf("chat store unavailable")
+	}
+	a.StopAgentSession(sessionID)
+	b, err := a.chats.ArchiveSession(a.projectKey(), sessionID, title)
+	if err != nil {
+		return "[]", err
+	}
+	if b.ActiveID == "" {
+		return "[]", nil
+	}
+	sess, err := a.chats.Get(a.projectKey(), b.ActiveID)
+	if err != nil {
+		return "[]", err
+	}
+	a.mu.Lock()
+	a.sessionID = sess.ID
+	a.history = append([]llm.Message{}, sess.History...)
+	a.mu.Unlock()
+	if sess.ItemsJSON == "" {
+		return "[]", nil
+	}
+	return sess.ItemsJSON, nil
 }
 
 // DeleteChatSession removes a tab; returns the new active transcript JSON.

@@ -8,6 +8,8 @@ import {agent} from '../models';
 
 export function AppInfo():Promise<Record<string, string>>;
 
+export function ArchiveChatSession(arg1:string,arg2:string):Promise<string>;
+
 export function ChatOnce(arg1:string):Promise<string>;
 
 export function ClearChat():Promise<void>;

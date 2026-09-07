@@ -5,6 +5,7 @@ import '@xterm/xterm/css/xterm.css'
 import './App.css'
 import {
   AppInfo,
+  ArchiveChatSession,
   ChatOnce,
   ClearChat,
   DeleteChatSession,
@@ -425,7 +426,7 @@ function parseAgentEvent(...args: unknown[]): AgentEvent | null {
 }
 
 export default function App() {
-  const [info, setInfo] = useState({name: 'NotCursor.ai', version: '0.2.1'})
+  const [info, setInfo] = useState({name: 'NotCursor.ai', version: '0.2.3'})
   const [usage, setUsage] = useState<UsageSnapshot>(emptyUsage)
   const [rulesInfo, setRulesInfo] = useState<RulesBundle>({globalDir: '', projectDir: '', global: [], project: []})
   const [projects, setProjects] = useState<Project[]>([])
@@ -480,6 +481,27 @@ export default function App() {
   useEffect(() => {
     busyRef.current = busy
   }, [busy])
+
+  const itemsRef = useRef(items)
+  const prevBusyRef = useRef(busy)
+  useEffect(() => {
+    itemsRef.current = items
+  }, [items])
+  useEffect(() => {
+    if (prevBusyRef.current && !busy) {
+      if (activeSessionId) SaveChatSession(activeSessionId, JSON.stringify(items)).catch(() => undefined)
+    }
+    prevBusyRef.current = busy
+  }, [busy, items, activeSessionId])
+  useEffect(() => {
+    const flush = () => {
+      if (activeSessionRef.current) {
+        SaveChatSession(activeSessionRef.current, JSON.stringify(itemsRef.current)).catch(() => undefined)
+      }
+    }
+    window.addEventListener('beforeunload', flush)
+    return () => window.removeEventListener('beforeunload', flush)
+  }, [])
 
   useEffect(() => {
     activeSessionRef.current = activeSessionId
@@ -743,7 +765,7 @@ export default function App() {
     if (!active || !activeSessionId) return
     const t = window.setTimeout(() => {
       SaveChatSession(activeSessionId, JSON.stringify(items)).catch(() => undefined)
-    }, 600)
+    }, 300)
     return () => window.clearTimeout(t)
   }, [items, active, activeSessionId])
 
@@ -862,6 +884,31 @@ export default function App() {
         return next
       })
       setActiveSessionId(activeId)
+    }
+  }
+
+  async function archiveChat() {
+    if (!activeSessionId) return
+    const sess = sessions.find((s) => s.id === activeSessionId)
+    const title = sess?.title || 'Chat'
+    try {
+      const raw = await ArchiveChatSession(activeSessionId, title)
+      const parsed = JSON.parse(raw || '[]')
+      const chatItems: ChatItem[] = Array.isArray(parsed) && parsed.length > 0
+        ? parsed as ChatItem[]
+        : [{kind: 'system', content: 'Новый чат. Задайте задачу или вставьте файл/скриншот.'}]
+      const {activeId} = await refreshSessions()
+      if (activeId) {
+        setItemsBySession((prev) => {
+          const next = {...prev}
+          delete next[activeSessionId]
+          next[activeId] = chatItems
+          return next
+        })
+        setActiveSessionId(activeId)
+      }
+    } catch (e) {
+      if (activeSessionId) setSessionItems(activeSessionId, (m) => [...m, {kind: 'system', content: String(e)}])
     }
   }
 
@@ -1268,6 +1315,7 @@ export default function App() {
                   await SaveChat(JSON.stringify(empty)).catch(() => undefined)
                   await applyUsageStats()
                 }}>Clear</button>
+                <button type="button" className="nc-ghost" onClick={() => void archiveChat()} disabled={!activeSessionId || busy}>Archive</button>
                 {retryVisible && !busy && (
                   <button type="button" className="nc-ghost" onClick={() => void retryLast()}>Reconnect</button>
                 )}

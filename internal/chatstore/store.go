@@ -250,6 +250,76 @@ func (s *Store) SaveSession(project string, sess *Session) error {
 	return s.saveBundle(b)
 }
 
+func (s *Store) ArchiveSession(project, sessionID, title string) (*ProjectBundle, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	b, err := s.loadBundle(project)
+	if err != nil {
+		return nil, err
+	}
+	idx := -1
+	for i := range b.Sessions {
+		if b.Sessions[i].ID == sessionID {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return nil, fmt.Errorf("session not found")
+	}
+	sess := b.Sessions[idx]
+	archiveTitle := strings.TrimSpace(title)
+	if archiveTitle == "" {
+		archiveTitle = sess.Title
+	}
+	if archiveTitle == "" {
+		archiveTitle = "Chat"
+	}
+	archiveDir := filepath.Join(filepath.Dir(s.dir), "chat_archive")
+	if err := os.MkdirAll(archiveDir, 0o700); err != nil {
+		return nil, err
+	}
+	name := sanitizeFilename(archiveTitle)
+	if len(name) > 120 {
+		name = name[:120]
+	}
+	if len(sess.ID) >= 8 {
+		name = name + "-" + sess.ID[:8]
+	}
+	data, err := json.MarshalIndent(&sess, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(filepath.Join(archiveDir, name+".json"), data, 0o600); err != nil {
+		return nil, err
+	}
+	b.Sessions = append(b.Sessions[:idx], b.Sessions[idx+1:]...)
+	if len(b.Sessions) == 0 {
+		id := uuid.NewString()
+		b.Sessions = []Session{{ID: id, Title: "Chat 1", ItemsJSON: "[]", UpdatedAt: time.Now()}}
+		b.ActiveID = id
+	} else if b.ActiveID == sessionID {
+		b.ActiveID = b.Sessions[0].ID
+	}
+	if err := s.saveBundle(b); err != nil {
+		return nil, err
+	}
+	return b, nil
+}
+
+func sanitizeFilename(s string) string {
+	s = strings.TrimSpace(s)
+	replacer := strings.NewReplacer(
+		"<", "_", ">", "_", ":", "_", "\"", "_", "/", "_", "\\", "_", "|", "_", "?", "_", "*", "_",
+	)
+	s = replacer.Replace(s)
+	s = strings.TrimRight(s, ". ")
+	if s == "" {
+		s = "Chat"
+	}
+	return s
+}
+
 func (s *Store) RenameSession(project, sessionID, title string) error {
 	title = strings.TrimSpace(title)
 	if title == "" {
