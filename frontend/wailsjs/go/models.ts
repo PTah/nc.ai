@@ -41,6 +41,9 @@ export namespace chatstore {
 	    zaiCostUsd?: number;
 	    zaiInputTokens?: number;
 	    zaiOutputTokens?: number;
+	    openrouterCostUsd?: number;
+	    openrouterInputTokens?: number;
+	    openrouterOutputTokens?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new Session(source);
@@ -62,6 +65,9 @@ export namespace chatstore {
 	        this.zaiCostUsd = source["zaiCostUsd"];
 	        this.zaiInputTokens = source["zaiInputTokens"];
 	        this.zaiOutputTokens = source["zaiOutputTokens"];
+	        this.openrouterCostUsd = source["openrouterCostUsd"];
+	        this.openrouterInputTokens = source["openrouterInputTokens"];
+	        this.openrouterOutputTokens = source["openrouterOutputTokens"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -296,6 +302,33 @@ export namespace main {
 
 }
 
+export namespace openrouter {
+	
+	export class AccountBalance {
+	    ok: boolean;
+	    availableUsd: number;
+	    usedUsd: number;
+	    totalUsd: number;
+	    source: string;
+	    detail: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new AccountBalance(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ok = source["ok"];
+	        this.availableUsd = source["availableUsd"];
+	        this.usedUsd = source["usedUsd"];
+	        this.totalUsd = source["totalUsd"];
+	        this.source = source["source"];
+	        this.detail = source["detail"];
+	    }
+	}
+
+}
+
 export namespace rules {
 	
 	export class Rule {
@@ -416,33 +449,6 @@ export namespace zai {
 	        this.ok = source["ok"];
 	        this.availableUsd = source["availableUsd"];
 	        this.usedUsd = source["usedUsd"];
-	        this.source = source["source"];
-	        this.detail = source["detail"];
-	    }
-	}
-
-}
-
-export namespace openrouter {
-	
-	export class AccountBalance {
-	    ok: boolean;
-	    availableUsd: number;
-	    usedUsd: number;
-	    totalUsd: number;
-	    source: string;
-	    detail: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new AccountBalance(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.ok = source["ok"];
-	        this.availableUsd = source["availableUsd"];
-	        this.usedUsd = source["usedUsd"];
-	        this.totalUsd = source["totalUsd"];
 	        this.source = source["source"];
 	        this.detail = source["detail"];
 	    }

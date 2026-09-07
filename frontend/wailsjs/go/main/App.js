@@ -26,16 +26,16 @@ export function GetCursorRules() {
   return window['go']['main']['App']['GetCursorRules']();
 }
 
+export function GetOpenRouterBalance() {
+  return window['go']['main']['App']['GetOpenRouterBalance']();
+}
+
 export function GetSettings() {
   return window['go']['main']['App']['GetSettings']();
 }
 
 export function GetUsageStats() {
   return window['go']['main']['App']['GetUsageStats']();
-}
-
-export function GetOpenRouterBalance() {
-  return window['go']['main']['App']['GetOpenRouterBalance']();
 }
 
 export function GetZaiBalance() {
@@ -50,12 +50,12 @@ export function ListDir(arg1) {
   return window['go']['main']['App']['ListDir'](arg1);
 }
 
-export function ListProjects() {
-  return window['go']['main']['App']['ListProjects']();
-}
-
 export function ListOpenRouterModels() {
   return window['go']['main']['App']['ListOpenRouterModels']();
+}
+
+export function ListProjects() {
+  return window['go']['main']['App']['ListProjects']();
 }
 
 export function ListZaiModels() {
@@ -150,20 +150,20 @@ export function SaveDeepSeekModel(arg1) {
   return window['go']['main']['App']['SaveDeepSeekModel'](arg1);
 }
 
-export function SaveOpenRouterKey(arg1) {
-  return window['go']['main']['App']['SaveOpenRouterKey'](arg1);
-}
-
-export function SaveOpenRouterModel(arg1) {
-  return window['go']['main']['App']['SaveOpenRouterModel'](arg1);
-}
-
 export function SaveGitAuth(arg1, arg2) {
   return window['go']['main']['App']['SaveGitAuth'](arg1, arg2);
 }
 
 export function SaveLayoutSizes(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['SaveLayoutSizes'](arg1, arg2, arg3, arg4);
+}
+
+export function SaveOpenRouterKey(arg1) {
+  return window['go']['main']['App']['SaveOpenRouterKey'](arg1);
+}
+
+export function SaveOpenRouterModel(arg1) {
+  return window['go']['main']['App']['SaveOpenRouterModel'](arg1);
 }
 
 export function SaveShowFiles(arg1) {
