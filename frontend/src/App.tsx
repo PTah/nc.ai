@@ -1790,7 +1790,7 @@ export default function App() {
                 <label>
                   Model
                   <select
-                    value={zaiModel}
+                    value={zaiModels.includes(zaiModel) ? zaiModel : zaiModel}
                     onChange={(e) => {
                       const next = e.target.value
                       setZaiModel(next)
@@ -1798,13 +1798,30 @@ export default function App() {
                     }}
                   >
                     {modelOptions(zaiModels, zaiModel).map((m) => (
-                      <option key={m} value={m}>{m}</option>
+                      <option key={m} value={m}>
+                        {m.endsWith('-flash') && (m === 'glm-4.7-flash' || m === 'glm-4.5-flash') ? `${m} (free)` : m}
+                      </option>
                     ))}
                   </select>
                 </label>
+                <label>
+                  Custom model id
+                  <input
+                    type="text"
+                    value={zaiModel}
+                    onChange={(e) => setZaiModel(e.target.value)}
+                    onBlur={(e) => {
+                      const next = e.target.value.trim()
+                      if (next) void SaveZaiModel(next)
+                    }}
+                    placeholder="glm-4.7-flash"
+                  />
+                </label>
                 <button type="button" className="nc-ghost" onClick={() => void refreshZaiModels({applyPreferred: true})}>Refresh models</button>
                 <p className="nc-help">
-                  Список с <code>GET /models</code>. Бесплатные (<code>glm-4.7-flash</code> / <code>glm-4.5-flash</code>) — сверху; если текущая недоступна — выбираем бесплатную.
+                  Бесплатно на Pay-as-you-go (по pricing Z.ai): <code>glm-4.7-flash</code>, <code>glm-4.5-flash</code>.
+                  Их часто нет в <code>GET /models</code> — мы всё равно добавляем в список. <code>glm-5.3*</code> платные (нужен баланс).
+                  Ошибка 1113 = нет денег на payg; либо free-модель, либо пополни баланс, либо Endpoint → Coding Plan (если есть подписка).
                 </p>
                 <label>
                   API key

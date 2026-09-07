@@ -332,42 +332,44 @@ func (a *App) SaveZaiEndpoint(endpoint string) error {
 }
 
 // ListZaiModels returns model ids from GET {base}/models for the saved Z.ai key.
-// Free-tier models are ordered first. Falls back to a static list when needed.
+// Official free-tier ids are always merged in (API catalog often omits them).
 func (a *App) ListZaiModels() []string {
 	key := a.cfg.Get().ZaiAPIKey
+	var out []string
 	if key == "" {
-		return zai.OrderModels(zai.FallbackModels())
-	}
-	client := zai.NewWithBaseURL(key, a.cfg.Get().ZaiModel, zai.BaseURLFor(a.cfg.ZaiEndpoint()))
-	ctx := a.ctx
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
-	defer cancel()
-	items, err := client.ListModels(ctx)
-	if err != nil || len(items) == 0 {
-		return zai.OrderModels(zai.FallbackModels())
-	}
-	out := make([]string, 0, len(items))
-	seen := map[string]bool{}
-	for _, m := range items {
-		id := strings.TrimSpace(m.ID)
-		if id == "" || seen[id] {
-			continue
+		out = append([]string{}, zai.FallbackModels()...)
+	} else {
+		client := zai.NewWithBaseURL(key, a.cfg.Get().ZaiModel, zai.BaseURLFor(a.cfg.ZaiEndpoint()))
+		ctx := a.ctx
+		if ctx == nil {
+			ctx = context.Background()
 		}
-		seen[id] = true
-		out = append(out, id)
+		ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+		defer cancel()
+		items, err := client.ListModels(ctx)
+		if err != nil || len(items) == 0 {
+			out = append([]string{}, zai.FallbackModels()...)
+		} else {
+			seen := map[string]bool{}
+			for _, m := range items {
+				id := strings.TrimSpace(m.ID)
+				if id == "" || seen[id] {
+					continue
+				}
+				seen[id] = true
+				out = append(out, id)
+			}
+			if len(out) == 0 {
+				out = append([]string{}, zai.FallbackModels()...)
+			}
+		}
 	}
-	if len(out) == 0 {
-		return zai.OrderModels(zai.FallbackModels())
-	}
-	return zai.OrderModels(out)
+	return zai.OrderModels(zai.MergeFreeModels(out))
 }
 
-// PreferZaiModel suggests which model to select given the current list + saved model.
+// PreferZaiModel prefers official free-tier models when present (pay-as-you-go $0).
 func (a *App) PreferZaiModel(available []string) string {
-	return zai.PreferModel(available, a.cfg.Get().ZaiModel)
+	return zai.PreferFreeModel(available, a.cfg.Get().ZaiModel)
 }
 
 func (a *App) SaveActiveProvider(provider string) error {

@@ -151,6 +151,37 @@ func FallbackModels() []string {
 	}
 }
 
+// IsFreeModel reports whether id is an official $0 pay-as-you-go model.
+// Source: https://docs.z.ai/guides/overview/pricing
+func IsFreeModel(id string) bool {
+	for _, free := range FreeModels {
+		if id == free {
+			return true
+		}
+	}
+	return false
+}
+
+// MergeFreeModels ensures official free ids are present even if GET /models omitted them.
+func MergeFreeModels(available []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(available)+len(FreeModels))
+	for _, id := range available {
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		out = append(out, id)
+	}
+	for _, free := range FreeModels {
+		if !seen[free] {
+			seen[free] = true
+			out = append(out, free)
+		}
+	}
+	return out
+}
+
 // PreferModel picks a model from available ids: keep current if still listed,
 // else first free-tier id, else the first available id.
 func PreferModel(available []string, current string) string {
@@ -173,6 +204,27 @@ func PreferModel(available []string, current string) string {
 		}
 	}
 	return available[0]
+}
+
+// PreferFreeModel always prefers official free models when present in available.
+// Use after connect / key save so $0-balance accounts do not stick on glm-5.3*.
+func PreferFreeModel(available []string, current string) string {
+	if len(available) == 0 {
+		return PreferModel(available, current)
+	}
+	seen := map[string]bool{}
+	for _, id := range available {
+		seen[id] = true
+	}
+	if current != "" && IsFreeModel(current) && seen[current] {
+		return current
+	}
+	for _, free := range FreeModels {
+		if seen[free] {
+			return free
+		}
+	}
+	return PreferModel(available, current)
 }
 
 // OrderModels puts free-tier ids first, then the rest (stable).
