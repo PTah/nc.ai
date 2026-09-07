@@ -38,6 +38,8 @@ export function ReadFile(arg1:string):Promise<string>;
 
 export function ReloadCursorRules():Promise<rules.Bundle>;
 
+export function RenameChatSession(arg1:string,arg2:string):Promise<void>;
+
 export function RunAgent(arg1:string):Promise<void>;
 
 export function RunAgentWithAttachments(arg1:string,arg2:Array<agent.Attachment>):Promise<void>;

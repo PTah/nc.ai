@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -247,6 +248,27 @@ func (s *Store) SaveSession(project string, sess *Session) error {
 	}
 	b.ActiveID = sess.ID
 	return s.saveBundle(b)
+}
+
+func (s *Store) RenameSession(project, sessionID, title string) error {
+	title = strings.TrimSpace(title)
+	if title == "" {
+		return fmt.Errorf("title is empty")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	b, err := s.loadBundle(project)
+	if err != nil {
+		return err
+	}
+	for i := range b.Sessions {
+		if b.Sessions[i].ID == sessionID {
+			b.Sessions[i].Title = title
+			b.Sessions[i].UpdatedAt = time.Now()
+			return s.saveBundle(b)
+		}
+	}
+	return fmt.Errorf("session not found")
 }
 
 func (s *Store) DeleteSession(project, sessionID string) error {

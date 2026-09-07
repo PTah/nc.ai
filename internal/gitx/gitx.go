@@ -26,6 +26,7 @@ func (s *Service) run(args ...string) (string, error) {
 	}
 	cmd := exec.Command("git", args...)
 	cmd.Dir = root
+	configureCmd(cmd)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

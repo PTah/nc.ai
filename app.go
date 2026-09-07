@@ -414,6 +414,14 @@ func (a *App) SwitchChatSession(sessionID string) (string, error) {
 	return sess.ItemsJSON, nil
 }
 
+// RenameChatSession changes the title of one chat tab.
+func (a *App) RenameChatSession(sessionID, title string) error {
+	if a.chats == nil {
+		return fmt.Errorf("chat store unavailable")
+	}
+	return a.chats.RenameSession(a.projectKey(), sessionID, title)
+}
+
 // DeleteChatSession removes a tab; returns the new active transcript JSON.
 func (a *App) DeleteChatSession(sessionID string) (string, error) {
 	if a.chats == nil {

@@ -18,6 +18,7 @@ import {
   PickProjectDir,
   ReadFile,
   ReloadCursorRules,
+  RenameChatSession,
   RunAgentWithAttachments,
   RunShell,
   SaveDeepSeekKey,
@@ -370,6 +371,8 @@ export default function App() {
   const [pendingAtts, setPendingAtts] = useState<PendingAtt[]>([])
   const [dragOver, setDragOver] = useState(false)
   const [retryVisible, setRetryVisible] = useState(false)
+  const [editingTabId, setEditingTabId] = useState('')
+  const [editingTitle, setEditingTitle] = useState('')
   const [input, setInput] = useState('')
   const [apiKey, setApiKey] = useState('')
   const [model, setModel] = useState('deepseek-v4-flash')
@@ -721,6 +724,23 @@ export default function App() {
     await refreshSessions()
     setActiveSessionId(id)
     await applyUsageStats()
+  }
+
+  function startRename(id: string, title: string) {
+    setEditingTabId(id)
+    setEditingTitle(title || 'Chat')
+  }
+
+  async function commitRename(id: string) {
+    const title = editingTitle.trim()
+    setEditingTabId('')
+    if (!title) return
+    setSessions((prev) => prev.map((s) => s.id === id ? {...s, title} : s))
+    try {
+      await RenameChatSession(id, title)
+    } catch (e) {
+      if (activeSessionId) setSessionItems(activeSessionId, (m) => [...m, {kind: 'system', content: String(e)}])
+    }
   }
 
   async function removeSession(id: string) {
@@ -1108,24 +1128,40 @@ export default function App() {
             <header className="nc-chat-head">
               <div className="nc-tabs">
                 {sessions.map((s) => (
-                  <button
-                    key={s.id}
-                    type="button"
-                    className={`nc-tab ${s.id === activeSessionId ? 'active' : ''} ${busyBySession[s.id] ? 'busy' : ''}`}
-                    onClick={() => void switchSession(s.id)}
-                    title={s.title}
-                  >
-                    <span className="nc-tab-title">{s.title || 'Chat'}</span>
-                    {sessions.length > 1 && (
-                      <span
-                        className="nc-tab-x"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          void removeSession(s.id)
-                        }}
-                      >×</span>
-                    )}
-                  </button>
+                  editingTabId === s.id ? (
+                    <input
+                      key={s.id}
+                      className="nc-tab-rename"
+                      autoFocus
+                      value={editingTitle}
+                      onChange={(e) => setEditingTitle(e.target.value)}
+                      onBlur={() => void commitRename(s.id)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') void commitRename(s.id)
+                        else if (e.key === 'Escape') setEditingTabId('')
+                      }}
+                    />
+                  ) : (
+                    <button
+                      key={s.id}
+                      type="button"
+                      className={`nc-tab ${s.id === activeSessionId ? 'active' : ''} ${busyBySession[s.id] ? 'busy' : ''}`}
+                      onClick={() => void switchSession(s.id)}
+                      onDoubleClick={() => startRename(s.id, s.title)}
+                      title={`${s.title || 'Chat'} (двойной клик — переименовать)`}
+                    >
+                      <span className="nc-tab-title">{s.title || 'Chat'}</span>
+                      {sessions.length > 1 && (
+                        <span
+                          className="nc-tab-x"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            void removeSession(s.id)
+                          }}
+                        >×</span>
+                      )}
+                    </button>
+                  )
                 ))}
                 <button type="button" className="nc-tab add" onClick={() => void createSession()} title="Новый чат">+</button>
               </div>

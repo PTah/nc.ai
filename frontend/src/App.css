@@ -306,6 +306,11 @@ textarea { resize: none; }
 .nc-tab.busy { border-color: #3a6; }
 .nc-tab.add { max-width: none; padding: 0.22rem 0.55rem; }
 .nc-tab-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nc-tab-rename {
+  max-width: 160px;
+  padding: 0.22rem 0.45rem;
+  font-size: 0.75rem;
+}
 .nc-tab-x {
   opacity: 0.55; cursor: pointer; padding: 0 0.15rem; border-radius: 4px;
 }
