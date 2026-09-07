@@ -430,6 +430,20 @@ textarea { resize: none; }
 .nc-msg.tool.done { border-color: #2a4a3a; }
 .nc-msg.tool.fail { border-color: #833; }
 .nc-msg.file { background: var(--msg-file); border-color: var(--border); }
+.nc-file-body {
+  margin: 0.15rem 0 0;
+  max-height: min(60vh, 520px);
+  overflow: auto;
+  padding: 0.55rem 0.65rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--msg-bg, #111) 70%, transparent);
+  font-family: Menlo, Consolas, "Courier New", monospace;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
 .nc-msg.status { background: var(--msg-status); border-style: dashed; color: var(--muted); }
 .nc-role { font-size: 0.68rem; color: var(--muted); text-transform: uppercase; margin-bottom: 0.25rem; letter-spacing: 0.04em; }
 .nc-answer { font-size: 0.95rem; line-height: 1.45; }

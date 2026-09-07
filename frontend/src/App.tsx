@@ -299,12 +299,6 @@ function usageFromUnknown(raw: unknown): UsageSnapshot | null {
   }
 }
 
-function previewLen(text: string, max = 160): string {
-  const t = text.replace(/\s+/g, ' ').trim()
-  if (t.length <= max) return t
-  return t.slice(0, max) + '…'
-}
-
 function fmtUsd(c: number): string {
   return `$${Number(c || 0).toFixed(4)}`
 }
@@ -1479,8 +1473,7 @@ export default function App() {
   async function openFile(path: string) {
     try {
       const content = await ReadFile(path)
-      const preview = content.length > 4000 ? content.slice(0, 4000) + '\n…' : content
-      if (activeSessionId) setSessionItems(activeSessionId, (m) => [...m, {kind: 'file', path, content: preview}])
+      if (activeSessionId) setSessionItems(activeSessionId, (m) => [...m, {kind: 'file', path, content}])
     } catch (e) {
       if (activeSessionId) setSessionItems(activeSessionId, (m) => [...m, {kind: 'system', content: String(e)}])
     }
@@ -2003,10 +1996,7 @@ export default function App() {
                     return (
                       <div key={row.key} className="nc-msg file">
                         <div className="nc-role">файл · {m.path}</div>
-                        <details>
-                          <summary>{previewLen(m.content, 80)}</summary>
-                          <pre>{m.content}</pre>
-                        </details>
+                        <pre className="nc-file-body">{m.content}</pre>
                       </div>
                     )
                   }
