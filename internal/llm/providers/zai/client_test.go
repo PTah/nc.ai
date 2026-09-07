@@ -48,8 +48,8 @@ func TestPreferAndOrderModels(t *testing.T) {
 	if !IsFreeModel("glm-4.7-flash") || len(OrderModels(merged)) < 3 {
 		t.Fatalf("MergeFreeModels=%v", merged)
 	}
-	if got := PreferFreeModel([]string{"glm-5.3-flash", "glm-4.7-flash"}, "glm-5.3-flash"); got != "glm-4.7-flash" {
-		t.Fatalf("PreferFreeModel should pick free over paid current: %q", got)
+	if got := PreferFreeModel([]string{"glm-5.3-flash", "glm-4.7-flash"}, "glm-5.3-flash"); got != "glm-5.3-flash" {
+		t.Fatalf("PreferFreeModel must keep manual paid choice: %q", got)
 	}
 }
 

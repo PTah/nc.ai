@@ -207,24 +207,9 @@ func PreferModel(available []string, current string) string {
 	return available[0]
 }
 
-// PreferFreeModel always prefers official free models when present in available.
-// Use after connect / key save so $0-balance accounts do not stick on glm-5.3*.
+// PreferFreeModel is an alias of PreferModel (kept for older call sites/tests).
+// Manual user choice is always preserved when the model remains in `available`.
 func PreferFreeModel(available []string, current string) string {
-	if len(available) == 0 {
-		return PreferModel(available, current)
-	}
-	seen := map[string]bool{}
-	for _, id := range available {
-		seen[id] = true
-	}
-	if current != "" && IsFreeModel(current) && seen[current] {
-		return current
-	}
-	for _, free := range FreeModels {
-		if seen[free] {
-			return free
-		}
-	}
 	return PreferModel(available, current)
 }
 

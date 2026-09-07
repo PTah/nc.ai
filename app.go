@@ -367,9 +367,10 @@ func (a *App) ListZaiModels() []string {
 	return zai.OrderModels(zai.MergeFreeModels(out))
 }
 
-// PreferZaiModel prefers official free-tier models when present (pay-as-you-go $0).
+// PreferZaiModel keeps the saved model when it is still available; otherwise
+// prefers free-tier, then the first id in the list.
 func (a *App) PreferZaiModel(available []string) string {
-	return zai.PreferFreeModel(available, a.cfg.Get().ZaiModel)
+	return zai.PreferModel(available, a.cfg.Get().ZaiModel)
 }
 
 // GetZaiBalance best-effort remaining credits / Coding Plan quota for the saved key.

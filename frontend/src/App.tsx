@@ -1300,7 +1300,9 @@ export default function App() {
     await SaveZaiModel(zaiModel.trim() || 'glm-4.7-flash')
     await SaveZaiEndpoint(zaiEndpoint)
     if (activeProvider === 'zai' || zaiKeySet) {
-      await refreshZaiModels({applyPreferred: true})
+      // Refresh catalog only — never override the model the user just saved.
+      await refreshZaiModels()
+      await refreshZaiBalance()
     }
     await SaveAutoModels(autoModels)
     await SaveAgentMaxSteps(Number(maxSteps) || 40)
@@ -1851,7 +1853,7 @@ export default function App() {
                     placeholder="glm-4.7-flash"
                   />
                 </label>
-                <button type="button" className="nc-ghost" onClick={() => void refreshZaiModels({applyPreferred: true})}>Refresh models</button>
+                <button type="button" className="nc-ghost" onClick={() => void refreshZaiModels()}>Refresh models</button>
                 <button type="button" className="nc-ghost" onClick={() => void refreshZaiBalance()}>Refresh balance</button>
                 {zaiBalance && (
                   <p className="nc-help">
@@ -1866,8 +1868,8 @@ export default function App() {
                   Ошибка 1113 = нет денег на payg; либо free-модель, либо пополни баланс, либо Endpoint → Coding Plan (если есть подписка).
                 </p>
                 <p className="nc-help">
-                  Prompt cache у Z.ai <strong>автоматический</strong> (мы не управляем Cached Input Storage). При повторном system/history API может вернуть
-                  <code>cached_tokens</code> — мы учитываем их в оценке USD. Storage сейчас у Z.ai limited-time free.
+                  Список с <code>GET /models</code> (+ free flash, если каталог их скрыл). Ручной выбор модели сохраняется;
+                  бесплатная подставляется только если сохранённой id нет в списке.
                 </p>
                 <label>
                   API key
