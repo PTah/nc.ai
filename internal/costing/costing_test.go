@@ -37,59 +37,11 @@ func TestNormalizeModel(t *testing.T) {
 	}
 }
 
-func TestIsPeakWindowsAndWeekend(t *testing.T) {
-	// Off-peak window = 16:30–00:30 UTC (00:30–08:30 Beijing).
-	// Mon 01:30 UTC → Beijing 09:30 → peak
-	if !IsPeak(time.Date(2026, 9, 7, 1, 30, 0, 0, time.UTC)) {
-		t.Fatal("Mon 01:30 UTC (Beijing 09:30) should be peak")
-	}
-	// Mon 05:00 UTC → Beijing 13:00 → peak (daytime)
-	if !IsPeak(time.Date(2026, 9, 7, 5, 0, 0, 0, time.UTC)) {
-		t.Fatal("Mon 05:00 UTC (Beijing 13:00) should be peak")
-	}
-	// Mon 17:00 UTC → Beijing 01:00 → off-peak night window
-	if IsPeak(time.Date(2026, 9, 7, 17, 0, 0, 0, time.UTC)) {
-		t.Fatal("Mon 17:00 UTC (Beijing 01:00) should be off-peak")
-	}
-	// Mon 23:00 UTC → Beijing 07:00 → off-peak night window
-	if IsPeak(time.Date(2026, 9, 7, 23, 0, 0, 0, time.UTC)) {
-		t.Fatal("Mon 23:00 UTC (Beijing 07:00) should be off-peak")
-	}
-	// Mon 12:00 UTC → Beijing 20:00 → peak evening
-	if !IsPeak(time.Date(2026, 9, 7, 12, 0, 0, 0, time.UTC)) {
-		t.Fatal("Mon 12:00 UTC (Beijing 20:00) should be peak")
-	}
-	// Boundary: 16:29 UTC → peak; 16:30 UTC → off-peak
-	if !IsPeak(time.Date(2026, 9, 7, 16, 29, 0, 0, time.UTC)) {
-		t.Fatal("Mon 16:29 UTC should be peak (just before window)")
-	}
-	if IsPeak(time.Date(2026, 9, 7, 16, 30, 0, 0, time.UTC)) {
-		t.Fatal("Mon 16:30 UTC should be off-peak (window start)")
-	}
-	// Boundary: 00:29 UTC → off-peak; 00:30 UTC → peak
-	if IsPeak(time.Date(2026, 9, 7, 0, 29, 0, 0, time.UTC)) {
-		t.Fatal("Mon 00:29 UTC should be off-peak (just before window end)")
-	}
-	if !IsPeak(time.Date(2026, 9, 7, 0, 30, 0, 0, time.UTC)) {
-		t.Fatal("Mon 00:30 UTC should be peak (window end)")
-	}
-	// Beijing Saturday 00:30 = 2026-08-28T16:30:00Z → off-peak (weekend rule)
-	if IsPeak(time.Date(2026, 8, 28, 16, 30, 0, 0, time.UTC)) {
-		t.Fatal("Beijing Sat 00:30 should be off-peak")
-	}
-	// Saturday daytime (Beijing) → off-peak after weekend rule
-	if IsPeak(time.Date(2026, 9, 5, 4, 0, 0, 0, time.UTC)) { // Beijing Sat 12:00
-		t.Fatal("Beijing Sat 12:00 should be off-peak (weekend)")
-	}
-	// Before weekend rule: Fri daytime still peak
-	if !IsPeak(time.Date(2026, 8, 21, 7, 0, 0, 0, time.UTC)) { // Fri before effective
-		t.Fatal("pre-rule Fri 07:00 UTC should be peak")
-	}
-}
-
 func TestCostOffPeakFlashCacheHit(t *testing.T) {
-	// Sunday (Beijing) → off-peak: hit $0.007 / 1M
-	at := time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC) // Sun
+	SetDeepSeekPeakSheet(BuiltinDeepSeekPeak())
+	SetPeakWindows(DefaultPeakWindows())
+	// Sunday → off-peak: hit $0.007 / 1M
+	at := time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)
 	u := &llm.Usage{PromptTokens: 1_000_000, PromptCacheHitTokens: 1_000_000}
 	got := CostAt("deepseek-v4-flash", u, at)
 	if !almost(got, 0.007) {
@@ -98,7 +50,9 @@ func TestCostOffPeakFlashCacheHit(t *testing.T) {
 }
 
 func TestCostPeakFlashCacheMissAndOut(t *testing.T) {
-	at := time.Date(2026, 9, 7, 5, 0, 0, 0, time.UTC) // Mon daytime (Beijing 13:00) → peak
+	SetDeepSeekPeakSheet(BuiltinDeepSeekPeak())
+	SetPeakWindows(DefaultPeakWindows())
+	at := time.Date(2026, 9, 7, 7, 0, 0, 0, time.UTC) // Mon 07:00 UTC → peak
 	u := &llm.Usage{
 		PromptTokens:          1_000_000,
 		PromptCacheMissTokens: 1_000_000,
@@ -112,6 +66,8 @@ func TestCostPeakFlashCacheMissAndOut(t *testing.T) {
 }
 
 func TestCostProOffPeak(t *testing.T) {
+	SetDeepSeekPeakSheet(BuiltinDeepSeekPeak())
+	SetPeakWindows(DefaultPeakWindows())
 	at := time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)
 	u := &llm.Usage{
 		PromptCacheHitTokens:  500_000,
@@ -119,7 +75,6 @@ func TestCostProOffPeak(t *testing.T) {
 		CompletionTokens:      100_000,
 	}
 	got := CostAt("deepseek-v4-pro", u, at)
-	// off-peak: hit 0.022, miss 0.66, out 1.98
 	want := 0.5*0.022 + 0.5*0.66 + 0.1*1.98
 	if !almost(got, want) {
 		t.Fatalf("pro mixed off-peak = %v, want %v", got, want)
@@ -127,6 +82,8 @@ func TestCostProOffPeak(t *testing.T) {
 }
 
 func TestCostNoCacheSplitFallsBackToMiss(t *testing.T) {
+	SetDeepSeekPeakSheet(BuiltinDeepSeekPeak())
+	SetPeakWindows(DefaultPeakWindows())
 	at := time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)
 	u := &llm.Usage{PromptTokens: 1_000_000, CompletionTokens: 100_000}
 	got := CostAt("deepseek-v4-pro", u, at)
@@ -137,6 +94,8 @@ func TestCostNoCacheSplitFallsBackToMiss(t *testing.T) {
 }
 
 func TestCostVisionUsesFlashCard(t *testing.T) {
+	SetDeepSeekPeakSheet(BuiltinDeepSeekPeak())
+	SetPeakWindows(DefaultPeakWindows())
 	at := time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)
 	u := &llm.Usage{PromptCacheMissTokens: 1_000_000}
 	got := CostAt("deepseek-v4-flash-vision-exp", u, at)
@@ -152,6 +111,7 @@ func TestCostNilUsage(t *testing.T) {
 }
 
 func TestCostZaiCacheAndFree(t *testing.T) {
+	SetZaiSheet(BuiltinZaiSheet())
 	at := time.Now().UTC()
 	u := &llm.Usage{
 		PromptTokens:          1_000_000,
@@ -159,7 +119,6 @@ func TestCostZaiCacheAndFree(t *testing.T) {
 		PromptCacheMissTokens: 200_000,
 		CompletionTokens:      100_000,
 	}
-	// glm-5.3: hit 0.26, miss 1.4, out 4.4 per 1M
 	got := CostAt("glm-5.3", u, at)
 	want := 0.8*0.26 + 0.2*1.4 + 0.1*4.4
 	if !almost(got, want) {

@@ -6,7 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
+	"notcursor.ai/app/internal/costing"
 	"notcursor.ai/app/internal/fsx"
 )
 
@@ -89,6 +91,13 @@ type Settings struct {
 
 	// LastSeenVersion is the app version for which Welcome was already shown.
 	LastSeenVersion string `json:"lastSeenVersion,omitempty"`
+
+	// Cached official price sheets (weekly refresh from provider docs).
+	DeepSeekPeakPrices      map[string]costing.Prices     `json:"deepseekPeakPrices,omitempty"`
+	DeepSeekPeakWindows     []costing.PeakWindow          `json:"deepseekPeakWindows,omitempty"`
+	DeepSeekPricesCheckedAt string                        `json:"deepseekPricesCheckedAt,omitempty"` // RFC3339 UTC
+	ZaiPrices               map[string]costing.Prices     `json:"zaiPrices,omitempty"`
+	ZaiPricesCheckedAt      string                        `json:"zaiPricesCheckedAt,omitempty"`
 }
 
 type Store struct {
@@ -409,6 +418,89 @@ func (s *Store) SetLastSeenVersion(ver string) error {
 	s.settings.LastSeenVersion = strings.TrimSpace(ver)
 	s.mu.Unlock()
 	return s.Save()
+}
+
+func (s *Store) DeepSeekPeakPrices() map[string]costing.Prices {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return clonePriceMap(s.settings.DeepSeekPeakPrices)
+}
+
+func (s *Store) DeepSeekPeakWindows() []costing.PeakWindow {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if len(s.settings.DeepSeekPeakWindows) == 0 {
+		return nil
+	}
+	out := make([]costing.PeakWindow, len(s.settings.DeepSeekPeakWindows))
+	copy(out, s.settings.DeepSeekPeakWindows)
+	return out
+}
+
+func (s *Store) DeepSeekPricesCheckedAt() time.Time {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return parseRFC3339(s.settings.DeepSeekPricesCheckedAt)
+}
+
+func (s *Store) SetDeepSeekPricing(peak map[string]costing.Prices, windows []costing.PeakWindow, checkedAt time.Time) error {
+	s.mu.Lock()
+	s.settings.DeepSeekPeakPrices = clonePriceMap(peak)
+	if len(windows) > 0 {
+		w := make([]costing.PeakWindow, len(windows))
+		copy(w, windows)
+		s.settings.DeepSeekPeakWindows = w
+	}
+	if !checkedAt.IsZero() {
+		s.settings.DeepSeekPricesCheckedAt = checkedAt.UTC().Format(time.RFC3339)
+	}
+	s.mu.Unlock()
+	return s.Save()
+}
+
+func (s *Store) ZaiPrices() map[string]costing.Prices {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return clonePriceMap(s.settings.ZaiPrices)
+}
+
+func (s *Store) ZaiPricesCheckedAt() time.Time {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return parseRFC3339(s.settings.ZaiPricesCheckedAt)
+}
+
+func (s *Store) SetZaiPricing(sheet map[string]costing.Prices, checkedAt time.Time) error {
+	s.mu.Lock()
+	s.settings.ZaiPrices = clonePriceMap(sheet)
+	if !checkedAt.IsZero() {
+		s.settings.ZaiPricesCheckedAt = checkedAt.UTC().Format(time.RFC3339)
+	}
+	s.mu.Unlock()
+	return s.Save()
+}
+
+func clonePriceMap(in map[string]costing.Prices) map[string]costing.Prices {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]costing.Prices, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
+}
+
+func parseRFC3339(s string) time.Time {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return time.Time{}
+	}
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		return time.Time{}
+	}
+	return t.UTC()
 }
 
 func (s *Store) SetTheme(theme string) error {

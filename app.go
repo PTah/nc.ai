@@ -84,6 +84,8 @@ func (a *App) startup(ctx context.Context) {
 		_, _ = a.ws.Open(p)
 	}
 	a.loadRules()
+	costing.ApplyPersisted(a.cfg)
+	go a.priceRefreshLoop()
 }
 
 func (a *App) domReady(ctx context.Context) {
@@ -105,6 +107,43 @@ func (a *App) saveWindowGeometry() {
 	x, y := runtime.WindowGetPosition(a.ctx)
 	max := runtime.WindowIsMaximised(a.ctx)
 	_ = a.cfg.SetWindowGeometry(w, h, x, y, max)
+}
+
+// priceRefreshLoop re-checks DeepSeek/Z.ai official docs about once a week.
+func (a *App) priceRefreshLoop() {
+	costing.ApplyPersisted(a.cfg)
+	ctx := a.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	_ = costing.RefreshIfDue(ctx, a.cfg, false)
+	t := time.NewTicker(24 * time.Hour)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			_ = costing.RefreshIfDue(context.Background(), a.cfg, false)
+		}
+	}
+}
+
+// RefreshProviderPrices forces a re-fetch of DeepSeek + Z.ai official price docs.
+func (a *App) RefreshProviderPrices() map[string]any {
+	ctx := a.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	r := costing.RefreshIfDue(ctx, a.cfg, true)
+	return map[string]any{
+		"deepseekChecked": r.DeepSeekChecked,
+		"deepseekUpdated": r.DeepSeekUpdated,
+		"deepseekError":   r.DeepSeekErr,
+		"zaiChecked":      r.ZaiChecked,
+		"zaiUpdated":      r.ZaiUpdated,
+		"zaiError":        r.ZaiErr,
+	}
 }
 
 func (a *App) beforeClose(ctx context.Context) (prevent bool) {

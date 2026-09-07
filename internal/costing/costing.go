@@ -9,70 +9,26 @@ import (
 
 // Package costing converts provider usage into USD spend.
 //
-// DeepSeek (peak/off-peak Beijing):
+// DeepSeek (peak/off-peak UTC weekdays):
 //
 //	cost = hit * input_hit + miss * input_miss + completion * output
+//	off-peak rates = half of peak; peak windows from official docs (refreshable).
 //
-// Z.ai (no peak schedule in public pricing; cache ≈ 1/5 of input when listed):
+// Z.ai (no peak schedule in public pricing; cache ≈ cached input when listed):
 //
 //	cost = hit * cached_input + miss * input + completion * output
 //
 // OpenRouter: prefer usage.cost from the API response when present; else sheet.
 //
 // Free models (glm-4.7-flash, glm-4.5-flash) bill $0.
+//
+// Live DeepSeek/Z.ai sheets can be overridden by weekly doc refresh (see refresh_*.go).
 
 // Prices is a USD-per-1M-tokens price sheet for one model at one period.
 type Prices struct {
-	InputMiss  float64 // prompt tokens, cache miss / new content
-	InputHit   float64 // prompt tokens, cache hit
-	Completion float64 // completion tokens (incl. reasoning)
-}
-
-// Peak rates (USD / 1M). Off-peak = half. DeepSeek only.
-var peakSheet = map[string]Prices{
-	"deepseek-v4-flash": {
-		InputHit: 0.014, InputMiss: 0.44, Completion: 1.32,
-	},
-	"deepseek-v4-pro": {
-		InputHit: 0.044, InputMiss: 1.32, Completion: 3.96,
-	},
-}
-
-// zaiSheet is USD / 1M from https://docs.z.ai/guides/overview/pricing (pay-as-you-go).
-// Cached Input Storage is billed separately by Z.ai (currently limited-time free) — not modeled here.
-var zaiSheet = map[string]Prices{
-	"glm-5.3": {
-		InputMiss: 1.4, InputHit: 0.26, Completion: 4.4,
-	},
-	"glm-5.3-flash": {
-		InputMiss: 0.15, InputHit: 0.03, Completion: 0.50,
-	},
-	"glm-5.2": {
-		InputMiss: 1.4, InputHit: 0.26, Completion: 4.4,
-	},
-	"glm-5.1": {
-		InputMiss: 1.4, InputHit: 0.26, Completion: 4.4,
-	},
-	"glm-5": {
-		InputMiss: 1.0, InputHit: 0.2, Completion: 3.2,
-	},
-	"glm-5-turbo": {
-		InputMiss: 1.2, InputHit: 0.24, Completion: 4.0,
-	},
-	"glm-4.7": {
-		InputMiss: 0.6, InputHit: 0.11, Completion: 2.2,
-	},
-	"glm-4.7-flash": {}, // free
-	"glm-4.6": {
-		InputMiss: 0.6, InputHit: 0.11, Completion: 2.2,
-	},
-	"glm-4.5": {
-		InputMiss: 0.6, InputHit: 0.11, Completion: 2.2,
-	},
-	"glm-4.5-air": {
-		InputMiss: 0.2, InputHit: 0.03, Completion: 1.1,
-	},
-	"glm-4.5-flash": {}, // free
+	InputMiss  float64 `json:"inputMiss"`  // prompt tokens, cache miss / new content
+	InputHit   float64 `json:"inputHit"`   // prompt tokens, cache hit
+	Completion float64 `json:"completion"` // completion tokens (incl. reasoning)
 }
 
 // openrouterSheet is approximate USD / 1M (mid-market). Prefer Usage.CostUSD from API.
@@ -101,12 +57,6 @@ var openrouterSheet = map[string]Prices{
 	},
 }
 
-// weekendOffpeakEffective is when DeepSeek began weekend-wide off-peak
-// (00:00 Beijing 2026-08-23 = 2026-08-22T16:00:00Z).
-var weekendOffpeakEffective = time.Date(2026, 8, 22, 16, 0, 0, 0, time.UTC)
-
-const beijingOffsetHours = 8
-
 // NormalizeModel maps response/request model ids onto rate-card keys.
 // Unknown models return "".
 func NormalizeModel(model string) string {
@@ -134,6 +84,8 @@ func NormalizeModel(model string) string {
 		return "glm-5-turbo"
 	case m == "glm-5":
 		return "glm-5"
+	case strings.HasPrefix(m, "glm-4.7-flashx"):
+		return "glm-4.7-flashx"
 	case strings.HasPrefix(m, "glm-4.7-flash"):
 		return "glm-4.7-flash"
 	case strings.HasPrefix(m, "glm-4.7"):
@@ -170,36 +122,37 @@ func isDeepSeekKey(key string) bool {
 }
 
 // IsOffPeak reports whether DeepSeek bills off-peak (half) rates at the given UTC instant.
-// Off-peak window per DeepSeek pricing: 16:30-00:30 UTC (00:30-08:30 Beijing),
-// plus whole weekends since 2026-08-23 (Beijing).
+// Official schedule: peak only Mon–Fri 01:00–04:00 and 06:00–10:00 UTC; all other times off-peak.
+// https://api-docs.deepseek.com/quick_start/pricing/
 func IsOffPeak(at time.Time) bool {
+	return !IsPeak(at)
+}
+
+// IsPeak reports DeepSeek peak billing at the given UTC instant.
+func IsPeak(at time.Time) bool {
 	at = at.UTC()
-	beijing := at.Add(beijingOffsetHours * time.Hour)
-	if !at.Before(weekendOffpeakEffective) {
-		wd := beijing.Weekday()
-		if wd == time.Saturday || wd == time.Sunday {
+	wd := at.Weekday()
+	if wd == time.Saturday || wd == time.Sunday {
+		return false
+	}
+	minute := at.Hour()*60 + at.Minute()
+	for _, w := range currentPeakWindows() {
+		if minute >= w.StartMin && minute < w.EndMin {
 			return true
 		}
 	}
-	minute := at.Hour()*60 + at.Minute()
-	// 16:30 (990) .. 24:00 (1440) and 00:00 .. 00:30 (30)
-	return minute >= 990 || minute < 30
-}
-
-// IsPeak is the inverse of IsOffPeak (kept for compatibility/tests).
-func IsPeak(at time.Time) bool {
-	return !IsOffPeak(at)
+	return false
 }
 
 // zaiFallback is used for unknown Z.ai models so new models are not billed $0.
-// glm-4.7 is a mid-tier estimate (see zaiSheet).
 var zaiFallbackKey = "glm-4.7"
 
 // Price returns the rate card for model at the given instant.
-// Unknown Z.ai models fall back to a mid-tier estimate (never $0);
-// unknown DeepSeek models fall back to deepseek-v4-flash.
 func Price(model string, at time.Time) Prices {
 	key := NormalizeModel(model)
+	zai := currentZaiSheet()
+	dsPeak := currentDeepSeekPeak()
+
 	if key == "" {
 		m := strings.ToLower(strings.TrimSpace(model))
 		m = strings.TrimPrefix(m, "zai/")
@@ -207,7 +160,7 @@ func Price(model string, at time.Time) Prices {
 			m = m[:i]
 		}
 		if strings.HasPrefix(m, "glm") {
-			return zaiSheet[zaiFallbackKey]
+			return zai[zaiFallbackKey]
 		}
 		if strings.HasPrefix(m, "deepseek") {
 			key = "deepseek-v4-flash"
@@ -220,10 +173,10 @@ func Price(model string, at time.Time) Prices {
 	if p, ok := openrouterSheet[key]; ok {
 		return p
 	}
-	if p, ok := zaiSheet[key]; ok {
+	if p, ok := zai[key]; ok {
 		return p
 	}
-	peak, ok := peakSheet[key]
+	peak, ok := dsPeak[key]
 	if !ok {
 		return Prices{}
 	}

@@ -3,25 +3,25 @@ package appmeta
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "0.5.1"
+	Version = "0.5.2"
 )
 
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
-	"Приветственное окно, которое вы будете видеть при обновлении приложения",
-	"Добавлен провайдер OpenRouter.ai (работа в РФ — только через VPN)",
-	"ПКМ на тексте в окне чата позволит скопировать текст",
-	"Приложение умеет более грамотно работать с текстами (умный SEARCH/REPLACE) для экономии токенов",
-	"Добавлены модели Z.ai",
+	"Еженедельная сверка цен DeepSeek и Z.ai с официальными docs",
+	"Исправлен график off-peak DeepSeek (01–04 и 06–10 UTC по будням)",
+	"Приветственное окно при обновлении приложения",
+	"Провайдер OpenRouter.ai (в РФ — через VPN)",
+	"ПКМ в чате: копирование выделенного текста",
 }
 
 var HighlightsEN = []string{
-	"A welcome screen you'll see when the app is updated",
-	"Added the OpenRouter.ai provider (in Russia — VPN required)",
-	"Right-click chat text to copy it",
-	"Smarter SEARCH/REPLACE edits to save tokens",
-	"Added Z.ai models",
+	"Weekly DeepSeek and Z.ai price checks against official docs",
+	"Fixed DeepSeek off-peak windows (01–04 and 06–10 UTC on weekdays)",
+	"Welcome splash when the app is updated",
+	"OpenRouter.ai provider (in Russia — VPN required)",
+	"Right-click chat text to copy",
 }
 
 // UICopy is localized chrome for the Welcome splash.
