@@ -6,13 +6,16 @@ import './App.css'
 import {
   AppInfo,
   ArchiveChatSession,
+  AckWelcome,
   ChatOnce,
   ClearChat,
   DeleteChatSession,
   GetSettings,
   GetUsageStats,
+  GetWelcome,
   ListChatSessions,
   ListDir,
+  ListModelPrices,
   NewChatSession,
   OpenProject,
   PickProjectDir,
@@ -299,6 +302,29 @@ function fmtUsd(c: number): string {
   return `$${Number(c || 0).toFixed(4)}`
 }
 
+function fmtPrice1M(c: number, free?: boolean): string {
+  if (free || c === 0) return '$0'
+  return `$${Number(c).toFixed(3)}`
+}
+
+type WelcomeState = {
+  show: boolean
+  name: string
+  version: string
+  highlights: string[]
+}
+
+type ModelPriceRow = {
+  provider: string
+  model: string
+  inputUsd: number
+  outputUsd: number
+  cacheHitUsd?: number
+  strength: number
+  note?: string
+  free?: boolean
+}
+
 function toolTitle(name: string, phase: 'running' | 'done', ok?: boolean): string {
   const labels: Record<string, string> = {
     read_file: 'Reading file',
@@ -530,8 +556,12 @@ function parseAgentEvent(...args: unknown[]): AgentEvent | null {
 }
 
 export default function App() {
-  const [info, setInfo] = useState({name: 'NotCursor.ai', version: '0.4.4'})
+  const [info, setInfo] = useState({name: 'NotCursor.ai', version: '0.4.5'})
   const [usage, setUsage] = useState<UsageSnapshot>(emptyUsage)
+  const [welcome, setWelcome] = useState<WelcomeState | null>(null)
+  const [showPrices, setShowPrices] = useState(false)
+  const [modelPrices, setModelPrices] = useState<ModelPriceRow[]>([])
+  const [pricesLoading, setPricesLoading] = useState(false)
   const [rulesInfo, setRulesInfo] = useState<RulesBundle>({globalDir: '', projectDir: '', global: [], project: []})
   const [projects, setProjects] = useState<Project[]>([])
   const [active, setActive] = useState<Project | null>(null)
@@ -762,6 +792,21 @@ export default function App() {
     try {
       AppInfo().then((v) => setInfo(v as typeof info)).catch(() => undefined)
       void applyUsageStats()
+      GetWelcome().then((w) => {
+        if (!w || typeof w !== 'object') return
+        const show = Boolean((w as {show?: boolean}).show)
+        if (!show) return
+        setWelcome({
+          show: true,
+          name: String((w as {name?: string}).name || 'NotCursor.ai'),
+          version: String((w as {version?: string}).version || ''),
+          highlights: asList(
+            Array.isArray((w as {highlights?: unknown}).highlights)
+              ? ((w as {highlights: unknown[]}).highlights)
+              : undefined,
+          ).map(String).filter(Boolean).slice(0, 5),
+        })
+      }).catch(() => undefined)
       GetSettings().then((s) => {
         if (!s) return
         const provider = parseProvider(s.activeProvider)
@@ -1636,15 +1681,48 @@ export default function App() {
               </li>
             ))}
           </ul>
-          <button type="button" className="nc-ghost" onClick={() => {
-            setShowTree((v) => {
-              const next = !v
-              SaveShowFiles(next).catch(() => undefined)
-              return next
-            })
-          }}>
-            {showTree ? 'Hide files' : 'Show files'}
-          </button>
+          <div className="nc-projects-foot">
+            <button type="button" className="nc-ghost" onClick={() => {
+              setShowTree((v) => {
+                const next = !v
+                SaveShowFiles(next).catch(() => undefined)
+                return next
+              })
+            }}>
+              {showTree ? 'Hide files' : 'Show files'}
+            </button>
+            <button
+              type="button"
+              className="nc-ghost"
+              onClick={() => {
+                setShowPrices(true)
+                if (modelPrices.length === 0) {
+                  setPricesLoading(true)
+                  ListModelPrices()
+                    .then((rows) => {
+                      const list = asList(rows).map((r) => {
+                        const o = (r || {}) as unknown as Record<string, unknown>
+                        return {
+                          provider: String(o.provider || o.Provider || ''),
+                          model: String(o.model || o.Model || ''),
+                          inputUsd: Number(o.inputUsd ?? o.InputUSD ?? 0) || 0,
+                          outputUsd: Number(o.outputUsd ?? o.OutputUSD ?? 0) || 0,
+                          cacheHitUsd: Number(o.cacheHitUsd ?? o.CacheHitUSD ?? 0) || 0,
+                          strength: Number(o.strength ?? o.Strength ?? 0) || 0,
+                          note: String(o.note || o.Note || ''),
+                          free: Boolean(o.free ?? o.Free),
+                        } as ModelPriceRow
+                      })
+                      setModelPrices(list)
+                    })
+                    .catch(() => setModelPrices([]))
+                    .finally(() => setPricesLoading(false))
+                }
+              }}
+            >
+              Model prices
+            </button>
+          </div>
           <div className="nc-vsplit" onMouseDown={(e) => beginResize('projects', e)} />
         </aside>
 
@@ -2179,6 +2257,79 @@ export default function App() {
           </aside>
         )}
       </div>
+
+      {welcome?.show && (
+        <div className="nc-modal-backdrop" role="presentation">
+          <div className="nc-modal nc-welcome" role="dialog" aria-labelledby="nc-welcome-title">
+            <p className="nc-welcome-eyebrow">Welcome</p>
+            <h1 id="nc-welcome-title" className="nc-welcome-title">{welcome.name}</h1>
+            <p className="nc-welcome-ver">версия {welcome.version}</p>
+            <p className="nc-section-label">Что нового</p>
+            <ol className="nc-welcome-list">
+              {welcome.highlights.map((h, i) => (
+                <li key={`${i}-${h.slice(0, 24)}`}>{h}</li>
+              ))}
+            </ol>
+            <button
+              type="button"
+              className="nc-welcome-go"
+              onClick={() => {
+                setWelcome(null)
+                void AckWelcome()
+              }}
+            >
+              Continue
+            </button>
+          </div>
+        </div>
+      )}
+
+      {showPrices && (
+        <div className="nc-modal-backdrop" role="presentation" onClick={() => setShowPrices(false)}>
+          <div
+            className="nc-modal nc-prices"
+            role="dialog"
+            aria-labelledby="nc-prices-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="nc-prices-head">
+              <h2 id="nc-prices-title">Model prices</h2>
+              <button type="button" className="nc-ghost" onClick={() => setShowPrices(false)}>Close</button>
+            </div>
+            <p className="nc-help">
+              USD за 1M токенов · от слабых к сильным. DeepSeek — peak (off-peak ≈ ½). OpenRouter mid-market; фактический
+              счёт может быть из <code>usage.cost</code>.
+            </p>
+            {pricesLoading && <p className="nc-muted">Загрузка…</p>}
+            {!pricesLoading && (
+              <div className="nc-prices-table-wrap">
+                <table className="nc-prices-table">
+                  <thead>
+                    <tr>
+                      <th>Provider</th>
+                      <th>Model</th>
+                      <th>Input</th>
+                      <th>Output</th>
+                      <th>Note</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {modelPrices.map((r) => (
+                      <tr key={`${r.provider}-${r.model}`}>
+                        <td>{r.provider}</td>
+                        <td><code>{r.model}</code></td>
+                        <td>{fmtPrice1M(r.inputUsd, r.free)}</td>
+                        <td>{fmtPrice1M(r.outputUsd, r.free)}</td>
+                        <td className="nc-muted">{r.note || (r.free ? 'free' : '')}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

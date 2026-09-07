@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"notcursor.ai/app/internal/fsx"
@@ -85,6 +86,9 @@ type Settings struct {
 	OpenRouterCostUSD      float64 `json:"openrouterCostUsd,omitempty"`
 	OpenRouterInputTokens  int     `json:"openrouterInputTokens,omitempty"`
 	OpenRouterOutputTokens int     `json:"openrouterOutputTokens,omitempty"`
+
+	// LastSeenVersion is the app version for which Welcome was already shown.
+	LastSeenVersion string `json:"lastSeenVersion,omitempty"`
 }
 
 type Store struct {
@@ -390,6 +394,19 @@ func (s *Store) SetShowFiles(show bool) error {
 func (s *Store) SetShowSettings(show bool) error {
 	s.mu.Lock()
 	s.settings.ShowSettings = show
+	s.mu.Unlock()
+	return s.Save()
+}
+
+func (s *Store) LastSeenVersion() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.settings.LastSeenVersion
+}
+
+func (s *Store) SetLastSeenVersion(ver string) error {
+	s.mu.Lock()
+	s.settings.LastSeenVersion = strings.TrimSpace(ver)
 	s.mu.Unlock()
 	return s.Save()
 }

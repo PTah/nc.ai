@@ -652,3 +652,133 @@ textarea { resize: none; }
 .nc-rules-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
 .nc-rules-always { flex: 0 0 auto; color: var(--pill-ok); font-size: 0.62rem; }
 .nc-help code { font-family: Consolas, "Courier New", monospace; font-size: 0.85em; background: var(--tool-pre-bg); padding: 0.05rem 0.25rem; border-radius: 4px; }
+
+.nc-projects {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+.nc-projects .nc-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+.nc-projects-foot {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-top: 0.55rem;
+  padding-top: 0.45rem;
+  border-top: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+
+.nc-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 1.25rem;
+  background: color-mix(in srgb, var(--bg, #0e1116) 55%, transparent);
+  backdrop-filter: blur(6px);
+}
+.nc-modal {
+  width: min(560px, 100%);
+  max-height: min(86vh, 720px);
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--panel);
+  box-shadow: 0 18px 50px color-mix(in srgb, #000 35%, transparent);
+  padding: 1.25rem 1.35rem 1.1rem;
+}
+.nc-welcome {
+  text-align: left;
+}
+.nc-welcome-eyebrow {
+  margin: 0 0 0.35rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+.nc-welcome-title {
+  margin: 0;
+  font-size: 1.65rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+.nc-welcome-ver {
+  margin: 0.25rem 0 1rem;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+.nc-welcome-list {
+  margin: 0.35rem 0 1.15rem;
+  padding-left: 1.15rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  color: var(--text);
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+.nc-welcome-go {
+  width: 100%;
+  border: 0;
+  border-radius: 9px;
+  padding: 0.65rem 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  background: var(--accent, #3d8bfd);
+  color: #fff;
+}
+.nc-prices {
+  width: min(760px, 100%);
+}
+.nc-prices-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.35rem;
+}
+.nc-prices-head h2 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+.nc-prices-table-wrap {
+  overflow: auto;
+  margin-top: 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.nc-prices-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.78rem;
+}
+.nc-prices-table th,
+.nc-prices-table td {
+  padding: 0.4rem 0.55rem;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+.nc-prices-table th {
+  position: sticky;
+  top: 0;
+  background: var(--panel);
+  color: var(--muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 0.66rem;
+}
+.nc-prices-table code {
+  font-size: 0.78em;
+  word-break: break-all;
+}

@@ -11,6 +11,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
 	"notcursor.ai/app/internal/agent"
+	"notcursor.ai/app/internal/appmeta"
 	"notcursor.ai/app/internal/chatstore"
 	"notcursor.ai/app/internal/config"
 	"notcursor.ai/app/internal/costing"
@@ -163,10 +164,40 @@ func (a *App) emitTerm(data string) {
 
 func (a *App) AppInfo() map[string]string {
 	return map[string]string{
-		"name":    "NotCursor.ai",
-		"version": "0.4.4",
+		"name":    appmeta.Name,
+		"version": appmeta.Version,
 		"stage":   "2-multi-provider",
 	}
+}
+
+// WelcomeInfo is shown once after installing a newer build.
+type WelcomeInfo struct {
+	Show       bool     `json:"show"`
+	Name       string   `json:"name"`
+	Version    string   `json:"version"`
+	Highlights []string `json:"highlights"`
+}
+
+// GetWelcome returns splash data when LastSeenVersion != current app version.
+func (a *App) GetWelcome() WelcomeInfo {
+	cur := appmeta.Version
+	seen := a.cfg.LastSeenVersion()
+	return WelcomeInfo{
+		Show:       seen != cur,
+		Name:       appmeta.Name,
+		Version:    cur,
+		Highlights: append([]string(nil), appmeta.Highlights...),
+	}
+}
+
+// AckWelcome marks the current version as seen so the splash does not reappear.
+func (a *App) AckWelcome() error {
+	return a.cfg.SetLastSeenVersion(appmeta.Version)
+}
+
+// ListModelPrices returns curated USD/1M rates ordered weak → strong.
+func (a *App) ListModelPrices() []costing.ModelPrice {
+	return costing.Catalog()
 }
 
 func (a *App) GetSettings() map[string]any {

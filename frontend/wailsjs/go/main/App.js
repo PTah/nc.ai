@@ -6,6 +6,10 @@ export function AppInfo() {
   return window['go']['main']['App']['AppInfo']();
 }
 
+export function AckWelcome() {
+  return window['go']['main']['App']['AckWelcome']();
+}
+
 export function ArchiveChatSession(arg1, arg2) {
   return window['go']['main']['App']['ArchiveChatSession'](arg1, arg2);
 }
@@ -38,6 +42,10 @@ export function GetUsageStats() {
   return window['go']['main']['App']['GetUsageStats']();
 }
 
+export function GetWelcome() {
+  return window['go']['main']['App']['GetWelcome']();
+}
+
 export function GetZaiBalance() {
   return window['go']['main']['App']['GetZaiBalance']();
 }
@@ -48,6 +56,10 @@ export function ListChatSessions() {
 
 export function ListDir(arg1) {
   return window['go']['main']['App']['ListDir'](arg1);
+}
+
+export function ListModelPrices() {
+  return window['go']['main']['App']['ListModelPrices']();
 }
 
 export function ListOpenRouterModels() {

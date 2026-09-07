@@ -269,6 +269,32 @@ export namespace llm {
 
 export namespace main {
 	
+	export class ModelPrice {
+	    provider: string;
+	    model: string;
+	    inputUsd: number;
+	    outputUsd: number;
+	    cacheHitUsd?: number;
+	    strength: number;
+	    note?: string;
+	    free?: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new ModelPrice(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.provider = source["provider"];
+	        this.model = source["model"];
+	        this.inputUsd = source["inputUsd"];
+	        this.outputUsd = source["outputUsd"];
+	        this.cacheHitUsd = source["cacheHitUsd"];
+	        this.strength = source["strength"];
+	        this.note = source["note"];
+	        this.free = source["free"];
+	    }
+	}
 	export class UsageStats {
 	    provider: string;
 	    costUsd: number;
@@ -297,6 +323,51 @@ export namespace main {
 	        this.balanceOk = source["balanceOk"];
 	        this.balanceUsd = source["balanceUsd"];
 	        this.balanceDetail = source["balanceDetail"];
+	    }
+	}
+	export class WelcomeInfo {
+	    show: boolean;
+	    name: string;
+	    version: string;
+	    highlights: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new WelcomeInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.show = source["show"];
+	        this.name = source["name"];
+	        this.version = source["version"];
+	        this.highlights = source["highlights"];
+	    }
+	}
+
+}
+
+export namespace openrouter {
+	
+	export class AccountBalance {
+	    ok: boolean;
+	    availableUsd: number;
+	    usedUsd: number;
+	    totalUsd: number;
+	    source: string;
+	    detail: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new AccountBalance(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ok = source["ok"];
+	        this.availableUsd = source["availableUsd"];
+	        this.usedUsd = source["usedUsd"];
+	        this.totalUsd = source["totalUsd"];
+	        this.source = source["source"];
+	        this.detail = source["detail"];
 	    }
 	}
 
