@@ -113,6 +113,15 @@ function asList<T>(v: T[] | null | undefined): T[] {
   return Array.isArray(v) ? v : []
 }
 
+function normalizeRules(b: Partial<RulesBundle> | null | undefined): RulesBundle {
+  return {
+    globalDir: String(b?.globalDir || ''),
+    projectDir: String(b?.projectDir || ''),
+    global: asList(b?.global),
+    project: asList(b?.project),
+  }
+}
+
 function pickNum(u: Record<string, unknown>, ...keys: string[]): number {
   for (const k of keys) {
     const v = u[k]
@@ -398,9 +407,9 @@ export default function App() {
   async function refreshRules() {
     try {
       const b = await GetCursorRules()
-      setRulesInfo(b)
+      setRulesInfo(normalizeRules(b))
     } catch {
-      /* ignore */
+      setRulesInfo(normalizeRules(null))
     }
   }
 
@@ -487,7 +496,7 @@ export default function App() {
         })
       }).catch(() => undefined)
       ListProjects().then((v) => setProjects(asList(v))).catch(() => undefined)
-      GetCursorRules().then((b) => setRulesInfo(b)).catch(() => undefined)
+      GetCursorRules().then((b) => setRulesInfo(normalizeRules(b))).catch(() => undefined)
     } catch {
       // window.go / runtime may be missing until Wails injects bindings
     }
@@ -1335,21 +1344,21 @@ export default function App() {
               <code>&lt;project&gt;/.cursorrules</code>) и добавляются в системный промпт агента.
             </p>
             <ul className="nc-rules-list">
-              {rulesInfo.global.map((r) => (
+              {asList(rulesInfo.global).map((r) => (
                 <li key={`g:${r.path}`} className="nc-rules-item" title={r.path}>
                   <span className="nc-rules-source global">global</span>
                   <span className="nc-rules-path">{r.name}</span>
                   {r.alwaysApply && <span className="nc-rules-always">always</span>}
                 </li>
               ))}
-              {rulesInfo.project.map((r) => (
+              {asList(rulesInfo.project).map((r) => (
                 <li key={`p:${r.path}`} className="nc-rules-item" title={r.path}>
                   <span className="nc-rules-source project">project</span>
                   <span className="nc-rules-path">{r.name}</span>
                   {r.alwaysApply && <span className="nc-rules-always">always</span>}
                 </li>
               ))}
-              {rulesInfo.global.length + rulesInfo.project.length === 0 && (
+              {asList(rulesInfo.global).length + asList(rulesInfo.project).length === 0 && (
                 <li className="nc-empty">Правила не найдены.</li>
               )}
             </ul>

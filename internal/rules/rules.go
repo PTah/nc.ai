@@ -32,11 +32,14 @@ type Bundle struct {
 //   - global: ~/.cursor/rules/*.mdc|*.md and legacy ~/.cursorrules
 //   - project: <project>/.cursor/rules/*.mdc|*.md and legacy <project>/.cursorrules
 func Load(projectRoot string) Bundle {
-	b := Bundle{}
+	b := Bundle{
+		Global:  []Rule{},
+		Project: []Rule{},
+	}
 	home, err := os.UserHomeDir()
 	if err == nil {
 		b.GlobalDir = filepath.Join(home, ".cursor", "rules")
-		b.Global = loadFromDir(b.GlobalDir, "global", home, "")
+		b.Global = append(b.Global, loadFromDir(b.GlobalDir, "global", home, "")...)
 		if r, ok := loadFile(filepath.Join(home, ".cursorrules"), "global", home, ""); ok {
 			b.Global = append(b.Global, r)
 		}
@@ -44,7 +47,7 @@ func Load(projectRoot string) Bundle {
 	}
 	if projectRoot != "" {
 		b.ProjectDir = filepath.Join(projectRoot, ".cursor", "rules")
-		b.Project = loadFromDir(b.ProjectDir, "project", home, projectRoot)
+		b.Project = append(b.Project, loadFromDir(b.ProjectDir, "project", home, projectRoot)...)
 		if r, ok := loadFile(filepath.Join(projectRoot, ".cursorrules"), "project", home, projectRoot); ok {
 			b.Project = append(b.Project, r)
 		}
@@ -78,7 +81,7 @@ func (b Bundle) CombinedText() string {
 func loadFromDir(dir, source, home, root string) []Rule {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return nil
+		return []Rule{}
 	}
 	out := make([]Rule, 0, len(entries))
 	for _, e := range entries {
