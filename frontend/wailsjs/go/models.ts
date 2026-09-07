@@ -378,3 +378,28 @@ export namespace workspace {
 
 }
 
+export namespace zai {
+	
+	export class AccountBalance {
+	    ok: boolean;
+	    availableUsd: number;
+	    usedUsd: number;
+	    source: string;
+	    detail: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new AccountBalance(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ok = source["ok"];
+	        this.availableUsd = source["availableUsd"];
+	        this.usedUsd = source["usedUsd"];
+	        this.source = source["source"];
+	        this.detail = source["detail"];
+	    }
+	}
+
+}
+
