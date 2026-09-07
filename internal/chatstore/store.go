@@ -24,9 +24,16 @@ type Session struct {
 	History   []llm.Message `json:"history"`
 	UpdatedAt time.Time     `json:"updatedAt"`
 	// Per-chat API spend (survives restarts with the session JSON).
+	// Legacy combined fields kept for migration; prefer per-provider buckets.
 	CostUSD       float64 `json:"costUsd,omitempty"`
 	InputTokens   int     `json:"inputTokens,omitempty"`
 	OutputTokens  int     `json:"outputTokens,omitempty"`
+	DeepSeekCostUSD      float64 `json:"deepseekCostUsd,omitempty"`
+	DeepSeekInputTokens  int     `json:"deepseekInputTokens,omitempty"`
+	DeepSeekOutputTokens int     `json:"deepseekOutputTokens,omitempty"`
+	ZaiCostUSD      float64 `json:"zaiCostUsd,omitempty"`
+	ZaiInputTokens  int     `json:"zaiInputTokens,omitempty"`
+	ZaiOutputTokens int     `json:"zaiOutputTokens,omitempty"`
 }
 
 // ProjectBundle holds all sessions for one workspace.
@@ -433,11 +440,36 @@ func (s *Store) Clear(project string) error {
 	sess.CostUSD = 0
 	sess.InputTokens = 0
 	sess.OutputTokens = 0
+	sess.DeepSeekCostUSD = 0
+	sess.DeepSeekInputTokens = 0
+	sess.DeepSeekOutputTokens = 0
+	sess.ZaiCostUSD = 0
+	sess.ZaiInputTokens = 0
+	sess.ZaiOutputTokens = 0
 	return s.SaveSession(project, sess)
 }
 
+// ProviderUsage returns spend for one provider in this session.
+// Pre-split sessions: legacy CostUSD is treated as DeepSeek.
+func (sess *Session) ProviderUsage(provider string) (cost float64, in, out int) {
+	if sess == nil {
+		return 0, 0, 0
+	}
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "zai":
+		return sess.ZaiCostUSD, sess.ZaiInputTokens, sess.ZaiOutputTokens
+	default:
+		if sess.DeepSeekCostUSD == 0 && sess.DeepSeekInputTokens == 0 && sess.DeepSeekOutputTokens == 0 &&
+			sess.ZaiCostUSD == 0 && sess.ZaiInputTokens == 0 && sess.ZaiOutputTokens == 0 &&
+			(sess.CostUSD != 0 || sess.InputTokens != 0 || sess.OutputTokens != 0) {
+			return sess.CostUSD, sess.InputTokens, sess.OutputTokens
+		}
+		return sess.DeepSeekCostUSD, sess.DeepSeekInputTokens, sess.DeepSeekOutputTokens
+	}
+}
+
 // AddUsage accumulates per-chat spend counters on the given session and persists.
-func (s *Store) AddUsage(project, sessionID string, costUSD float64, inputTokens, outputTokens int) (*Session, error) {
+func (s *Store) AddUsage(project, sessionID, provider string, costUSD float64, inputTokens, outputTokens int) (*Session, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	b, err := s.loadBundle(project)
@@ -452,6 +484,15 @@ func (s *Store) AddUsage(project, sessionID string, costUSD float64, inputTokens
 			b.Sessions[i].CostUSD += costUSD
 			b.Sessions[i].InputTokens += inputTokens
 			b.Sessions[i].OutputTokens += outputTokens
+			if strings.EqualFold(strings.TrimSpace(provider), "zai") {
+				b.Sessions[i].ZaiCostUSD += costUSD
+				b.Sessions[i].ZaiInputTokens += inputTokens
+				b.Sessions[i].ZaiOutputTokens += outputTokens
+			} else {
+				b.Sessions[i].DeepSeekCostUSD += costUSD
+				b.Sessions[i].DeepSeekInputTokens += inputTokens
+				b.Sessions[i].DeepSeekOutputTokens += outputTokens
+			}
 			b.Sessions[i].UpdatedAt = time.Now()
 			if err := s.saveBundle(b); err != nil {
 				return nil, err

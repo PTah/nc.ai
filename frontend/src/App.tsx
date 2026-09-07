@@ -85,12 +85,16 @@ type AgentEvent = {
 }
 
 type UsageSnapshot = {
+  provider: string
   costUsd: number
   inputTokens: number
   outputTokens: number
   chatCostUsd: number
   chatInputTokens: number
   chatOutputTokens: number
+  balanceOk: boolean
+  balanceUsd: number
+  balanceDetail: string
 }
 
 type RuleInfo = {
@@ -111,12 +115,16 @@ type RulesBundle = {
 }
 
 const emptyUsage: UsageSnapshot = {
+  provider: 'deepseek',
   costUsd: 0,
   inputTokens: 0,
   outputTokens: 0,
   chatCostUsd: 0,
   chatInputTokens: 0,
   chatOutputTokens: 0,
+  balanceOk: false,
+  balanceUsd: 0,
+  balanceDetail: '',
 }
 
 type ProviderId = 'deepseek' | 'zai'
@@ -241,12 +249,16 @@ function usageFromUnknown(raw: unknown): UsageSnapshot | null {
   }
   if (!u) return null
   return {
+    provider: String(u.provider || u.Provider || ''),
     costUsd: pickNum(u, 'costUsd', 'CostUsd', 'CostUSD'),
     inputTokens: pickNum(u, 'inputTokens', 'InputTokens'),
     outputTokens: pickNum(u, 'outputTokens', 'OutputTokens'),
     chatCostUsd: pickNum(u, 'chatCostUsd', 'ChatCostUsd', 'ChatCostUSD'),
     chatInputTokens: pickNum(u, 'chatInputTokens', 'ChatInputTokens'),
     chatOutputTokens: pickNum(u, 'chatOutputTokens', 'ChatOutputTokens'),
+    balanceOk: Boolean(u.balanceOk ?? u.BalanceOk),
+    balanceUsd: pickNum(u, 'balanceUsd', 'BalanceUsd'),
+    balanceDetail: String(u.balanceDetail || u.BalanceDetail || ''),
   }
 }
 
@@ -489,7 +501,7 @@ function parseAgentEvent(...args: unknown[]): AgentEvent | null {
 }
 
 export default function App() {
-  const [info, setInfo] = useState({name: 'NotCursor.ai', version: '0.4.0'})
+  const [info, setInfo] = useState({name: 'NotCursor.ai', version: '0.4.1'})
   const [usage, setUsage] = useState<UsageSnapshot>(emptyUsage)
   const [rulesInfo, setRulesInfo] = useState<RulesBundle>({globalDir: '', projectDir: '', global: [], project: []})
   const [projects, setProjects] = useState<Project[]>([])
@@ -544,8 +556,6 @@ export default function App() {
 
   const model = activeProvider === 'zai' ? zaiModel : deepseekModel
   const keySet = activeProvider === 'zai' ? zaiKeySet : deepseekKeySet
-  const apiKey = activeProvider === 'zai' ? zaiKey : deepseekKey
-  const setApiKey = activeProvider === 'zai' ? setZaiKey : setDeepseekKey
   const providerLabel = activeProvider === 'zai' ? 'Z.ai' : 'DeepSeek'
 
   const items = asList(activeSessionId ? itemsBySession[activeSessionId] : undefined)
@@ -725,6 +735,7 @@ export default function App() {
         if (typeof s.zaiModel === 'string' && s.zaiModel) setZaiModel(s.zaiModel)
         setZaiEndpoint(s.zaiEndpoint === 'coding' ? 'coding' : 'paas')
         if (s.zaiKeySet || provider === 'zai') void refreshZaiModels()
+        if (provider === 'zai' && s.zaiKeySet) void refreshZaiBalance()
         setAutoModels(Boolean(s.autoModels))
         if (typeof s.agentMaxSteps === 'number' && s.agentMaxSteps > 0) setMaxSteps(s.agentMaxSteps)
         setShowTerm(Boolean(s.showTerminal))
@@ -1232,6 +1243,7 @@ export default function App() {
         detail: String((b as {detail?: string}).detail || ''),
         source: String((b as {source?: string}).source || ''),
       })
+      void applyUsageStats()
     } catch {
       setZaiBalance({ok: false, availableUsd: 0, detail: 'Не удалось запросить баланс', source: 'none'})
     }
@@ -1264,7 +1276,12 @@ export default function App() {
     setActiveProvider(next)
     try {
       await SaveActiveProvider(next)
-      if (next === 'zai') void refreshZaiModels({applyPreferred: true})
+      if (next === 'zai') {
+        void refreshZaiModels({applyPreferred: true})
+        void refreshZaiBalance().then(() => applyUsageStats())
+      } else {
+        void applyUsageStats()
+      }
     } catch {
       /* ignore */
     }
@@ -1412,23 +1429,8 @@ export default function App() {
         <strong>{info.name}</strong>
         <span className="nc-sub">v{info.version}</span>
         <span className="nc-top-sep" />
-        <label className="nc-top-field">
-          Provider
-          <select
-            value={activeProvider}
-            onChange={(e) => void applyProvider(e.target.value === 'zai' ? 'zai' : 'deepseek')}
-            title="Активный LLM-провайдер"
-          >
-            <option value="deepseek">DeepSeek</option>
-            <option value="zai">Z.ai</option>
-          </select>
-        </label>
-        <label className="nc-top-field">
-          API key
-          <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={keySet ? '•••• set' : 'sk-...'} />
-        </label>
-        <label className="nc-top-field">
-          Model
+        <label className="nc-top-field" title={`Модель активного провайдера: ${providerLabel}`}>
+          Model ({providerLabel})
           <select
             value={model}
             onChange={(e) => void applyModel(e.target.value)}
@@ -1447,29 +1449,47 @@ export default function App() {
                 ))}
           </select>
         </label>
-        <button type="button" onClick={saveSettings}>Save</button>
-        {activeProvider === 'deepseek' && (
-          <label className="nc-top-check" title="Автовыбор flash / pro / vision по задаче и длине прогона">
-            <input
-              type="checkbox"
-              checked={autoModels}
-              onChange={(e) => {
-                const on = e.target.checked
-                setAutoModels(on)
-                void SaveAutoModels(on)
-              }}
-            />
-            Auto-models
-          </label>
-        )}
+        <label
+          className={`nc-top-check ${activeProvider !== 'deepseek' ? 'is-disabled' : ''}`}
+          title={
+            activeProvider === 'deepseek'
+              ? 'Автовыбор flash / pro / vision по задаче и длине прогона'
+              : 'Auto-models пока только для DeepSeek (flash / pro / vision). Для Z.ai выберите модель вручную.'
+          }
+        >
+          <input
+            type="checkbox"
+            checked={autoModels}
+            disabled={activeProvider !== 'deepseek'}
+            onChange={(e) => {
+              const on = e.target.checked
+              setAutoModels(on)
+              void SaveAutoModels(on)
+            }}
+          />
+          Auto-models
+        </label>
         <span className={`nc-pill ${keySet ? 'ok' : ''}`}>{keySet ? `${providerLabel} key OK` : `no ${providerLabel} key`}</span>
         <span
           className="nc-cost"
-          title={`Этот чат: ${usage.chatInputTokens} in / ${usage.chatOutputTokens} out (${fmtUsd(usage.chatCostUsd)}) · Всего на этом компьютере: ${usage.inputTokens} in / ${usage.outputTokens} out (${fmtUsd(usage.costUsd)})`}
+          title={
+            activeProvider === 'zai'
+              ? `Провайдер Z.ai · чат: ${usage.chatInputTokens} in / ${usage.chatOutputTokens} out (${fmtUsd(usage.chatCostUsd)}) · total Z.ai: ${usage.inputTokens} in / ${usage.outputTokens} out (${fmtUsd(usage.costUsd)})` +
+                (usage.balanceDetail ? ` · ${usage.balanceDetail}` : '')
+              : `Провайдер DeepSeek · чат: ${usage.chatInputTokens} in / ${usage.chatOutputTokens} out (${fmtUsd(usage.chatCostUsd)}) · total DeepSeek: ${usage.inputTokens} in / ${usage.outputTokens} out (${fmtUsd(usage.costUsd)})`
+          }
         >
-          <span className="nc-cost-chat">chat {fmtUsd(usage.chatCostUsd)}</span>
+          <span className="nc-cost-chat">{providerLabel} chat {fmtUsd(usage.chatCostUsd)}</span>
           <span className="nc-cost-sep">·</span>
           <span className="nc-cost-total">total {fmtUsd(usage.costUsd)}</span>
+          {activeProvider === 'zai' && (
+            <>
+              <span className="nc-cost-sep">·</span>
+              <span className="nc-cost-bal" title={usage.balanceDetail || 'Refresh balance в Settings'}>
+                {usage.balanceOk ? `bal ${fmtUsd(usage.balanceUsd)}` : 'bal —'}
+              </span>
+            </>
+          )}
         </span>
         <button type="button" className="nc-ghost" onClick={() => setSettingsVisible((v) => !v)}>
           {showSettings ? 'Hide settings' : 'Settings'}
@@ -1757,6 +1777,26 @@ export default function App() {
               </select>
             </label>
             <p className="nc-help">Ключи хранятся отдельно; ниже — настройки только активного провайдера.</p>
+            <label
+              className={`nc-top-check ${activeProvider !== 'deepseek' ? 'is-disabled' : ''}`}
+              title={
+                activeProvider === 'deepseek'
+                  ? 'Автовыбор flash / pro / vision'
+                  : 'Auto-models только для DeepSeek'
+              }
+            >
+              <input
+                type="checkbox"
+                checked={autoModels}
+                disabled={activeProvider !== 'deepseek'}
+                onChange={(e) => {
+                  const on = e.target.checked
+                  setAutoModels(on)
+                  void SaveAutoModels(on)
+                }}
+              />
+              Auto-models (DeepSeek flash / pro / vision)
+            </label>
 
             {activeProvider === 'deepseek' ? (
               <>
@@ -1779,18 +1819,6 @@ export default function App() {
                       <option key={m} value={m}>{m}</option>
                     ))}
                   </select>
-                </label>
-                <label className="nc-top-check">
-                  <input
-                    type="checkbox"
-                    checked={autoModels}
-                    onChange={(e) => {
-                      const on = e.target.checked
-                      setAutoModels(on)
-                      void SaveAutoModels(on)
-                    }}
-                  />
-                  Auto-models (flash / pro / vision)
                 </label>
                 <label>
                   API key

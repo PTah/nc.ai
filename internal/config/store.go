@@ -63,10 +63,18 @@ type Settings struct {
 	LayoutTerminalH  int `json:"layoutTerminalH,omitempty"`
 	LayoutComposerH  int `json:"layoutComposerH,omitempty"`
 
-	// All-time API usage counters backing the USD spend counter in the top bar.
+	// All-time API usage counters (legacy combined + per-provider).
 	TotalCostUSD      float64 `json:"totalCostUsd"`
 	TotalInputTokens  int     `json:"totalInputTokens"`
 	TotalOutputTokens int     `json:"totalOutputTokens"`
+
+	DeepSeekCostUSD      float64 `json:"deepseekCostUsd,omitempty"`
+	DeepSeekInputTokens  int     `json:"deepseekInputTokens,omitempty"`
+	DeepSeekOutputTokens int     `json:"deepseekOutputTokens,omitempty"`
+
+	ZaiCostUSD      float64 `json:"zaiCostUsd,omitempty"`
+	ZaiInputTokens  int     `json:"zaiInputTokens,omitempty"`
+	ZaiOutputTokens int     `json:"zaiOutputTokens,omitempty"`
 }
 
 type Store struct {
@@ -156,6 +164,14 @@ func (s *Store) Load() error {
 	}
 	if s.settings.DeepSeekModel == "" {
 		s.settings.DeepSeekModel = "deepseek-v4-flash"
+	}
+	// Migrate pre-multi-provider totals into DeepSeek bucket once.
+	if s.settings.DeepSeekCostUSD == 0 && s.settings.DeepSeekInputTokens == 0 &&
+		s.settings.DeepSeekOutputTokens == 0 && s.settings.ZaiCostUSD == 0 &&
+		(s.settings.TotalCostUSD != 0 || s.settings.TotalInputTokens != 0 || s.settings.TotalOutputTokens != 0) {
+		s.settings.DeepSeekCostUSD = s.settings.TotalCostUSD
+		s.settings.DeepSeekInputTokens = s.settings.TotalInputTokens
+		s.settings.DeepSeekOutputTokens = s.settings.TotalOutputTokens
 	}
 	return nil
 }
@@ -451,13 +467,34 @@ func (s *Store) AddRecentProject(path string) error {
 	return s.Save()
 }
 
-// AddUsage accumulates all-time API spend (USD) and token counters and
-// persists them to settings.json so the counter survives app restarts.
-func (s *Store) AddUsage(costUSD float64, inputTokens, outputTokens int) error {
+// AddUsage accumulates all-time spend for the given provider and the legacy combined total.
+func (s *Store) AddUsage(provider string, costUSD float64, inputTokens, outputTokens int) error {
 	s.mu.Lock()
 	s.settings.TotalCostUSD += costUSD
 	s.settings.TotalInputTokens += inputTokens
 	s.settings.TotalOutputTokens += outputTokens
+	switch normalizeProvider(provider) {
+	case ProviderZAI:
+		s.settings.ZaiCostUSD += costUSD
+		s.settings.ZaiInputTokens += inputTokens
+		s.settings.ZaiOutputTokens += outputTokens
+	default:
+		s.settings.DeepSeekCostUSD += costUSD
+		s.settings.DeepSeekInputTokens += inputTokens
+		s.settings.DeepSeekOutputTokens += outputTokens
+	}
 	s.mu.Unlock()
 	return s.Save()
+}
+
+// ProviderUsage returns persisted totals for one provider.
+func (s *Store) ProviderUsage(provider string) (cost float64, in, out int) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	switch normalizeProvider(provider) {
+	case ProviderZAI:
+		return s.settings.ZaiCostUSD, s.settings.ZaiInputTokens, s.settings.ZaiOutputTokens
+	default:
+		return s.settings.DeepSeekCostUSD, s.settings.DeepSeekInputTokens, s.settings.DeepSeekOutputTokens
+	}
 }

@@ -44,6 +44,9 @@ type App struct {
 	sshDir    string
 
 	cursorRules rules.Bundle
+
+	zaiBalMu sync.Mutex
+	zaiBal   zai.AccountBalance
 }
 
 func NewApp() *App {
@@ -152,7 +155,7 @@ func (a *App) emitTerm(data string) {
 func (a *App) AppInfo() map[string]string {
 	return map[string]string{
 		"name":    "NotCursor.ai",
-		"version": "0.4.0",
+		"version": "0.4.1",
 		"stage":   "2-multi-provider",
 	}
 }
@@ -220,41 +223,56 @@ func (a *App) ReloadCursorRules() rules.Bundle {
 	return a.loadRules()
 }
 
-// UsageStats is the top-bar spend counter (all-time + active chat).
+// UsageStats is the top-bar spend counter (active provider all-time + active chat).
 // Typed struct (not map[string]any) so Wails/WebKit on macOS reliably
 // delivers numeric fields to the frontend.
 type UsageStats struct {
+	Provider         string  `json:"provider"`
 	CostUsd          float64 `json:"costUsd"`
 	InputTokens      int     `json:"inputTokens"`
 	OutputTokens     int     `json:"outputTokens"`
 	ChatCostUsd      float64 `json:"chatCostUsd"`
 	ChatInputTokens  int     `json:"chatInputTokens"`
 	ChatOutputTokens int     `json:"chatOutputTokens"`
+	BalanceOk        bool    `json:"balanceOk"`
+	BalanceUsd       float64 `json:"balanceUsd"`
+	BalanceDetail    string  `json:"balanceDetail"`
 }
 
-// GetUsageStats returns all-time spend plus the active chat spend (if any).
+// GetUsageStats returns spend for the active provider plus the active chat spend.
 func (a *App) GetUsageStats() UsageStats {
-	s := a.cfg.Get()
-	out := UsageStats{
-		CostUsd:      s.TotalCostUSD,
-		InputTokens:  s.TotalInputTokens,
-		OutputTokens: s.TotalOutputTokens,
+	provider := a.cfg.Provider()
+	cost, in, out := a.cfg.ProviderUsage(provider)
+	outStats := UsageStats{
+		Provider:    provider,
+		CostUsd:     cost,
+		InputTokens: in,
+		OutputTokens: out,
+	}
+	if provider == config.ProviderZAI {
+		a.zaiBalMu.Lock()
+		bal := a.zaiBal
+		a.zaiBalMu.Unlock()
+		outStats.BalanceOk = bal.OK
+		outStats.BalanceUsd = bal.AvailableUSD
+		outStats.BalanceDetail = bal.Detail
 	}
 	if a.chats == nil {
-		return out
+		return outStats
 	}
 	a.mu.Lock()
 	sid := a.sessionID
 	a.mu.Unlock()
 	if sid == "" {
-		return out
+		return outStats
 	}
 	if sess, err := a.chats.Get(a.projectKey(), sid); err == nil && sess != nil {
-		out.ChatCostUsd = sess.CostUSD
-		out.ChatInputTokens = sess.InputTokens
-		out.ChatOutputTokens = sess.OutputTokens
+		chatCost, chatIn, chatOut := sess.ProviderUsage(provider)
+		outStats.ChatCostUsd = chatCost
+		outStats.ChatInputTokens = chatIn
+		outStats.ChatOutputTokens = chatOut
 	}
-	return out
+	return outStats
 }
 
 func (a *App) SaveShowTerminal(show bool) error {
@@ -380,7 +398,11 @@ func (a *App) GetZaiBalance() zai.AccountBalance {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	return zai.FetchBalance(ctx, key, a.cfg.ZaiEndpoint())
+	bal := zai.FetchBalance(ctx, key, a.cfg.ZaiEndpoint())
+	a.zaiBalMu.Lock()
+	a.zaiBal = bal
+	a.zaiBalMu.Unlock()
+	return bal
 }
 
 func (a *App) SaveActiveProvider(provider string) error {
@@ -794,17 +816,20 @@ func (a *App) RunAgentWithAttachments(userMessage string, attachments []agent.At
 		costUSD += costing.Cost(model, u)
 		inTokens += costing.InputTokens(u)
 		outTokens += max(u.CompletionTokens, 0)
-		// Live preview in the top bar (totals not yet persisted until the run ends).
-		base := a.cfg.Get()
+		// Live preview in the top bar (provider totals not yet persisted until the run ends).
+		baseCost, baseIn, baseOut := a.cfg.ProviderUsage(provider)
 		chatCost, chatIn, chatOut := 0.0, 0, 0
 		if a.chats != nil {
 			if sess, err := a.chats.Get(a.projectKey(), sid); err == nil && sess != nil {
-				chatCost, chatIn, chatOut = sess.CostUSD, sess.InputTokens, sess.OutputTokens
+				chatCost, chatIn, chatOut = sess.ProviderUsage(provider)
 			}
 		}
+		balOK, balUSD, balDetail := a.usageBalanceSnapshot(provider)
 		a.emitFor(sid, agent.Event{Type: "usage", Content: usagePayload(
-			base.TotalCostUSD+costUSD, base.TotalInputTokens+inTokens, base.TotalOutputTokens+outTokens,
+			provider,
+			baseCost+costUSD, baseIn+inTokens, baseOut+outTokens,
 			chatCost+costUSD, chatIn+inTokens, chatOut+outTokens,
+			balOK, balUSD, balDetail,
 		)})
 	}
 
@@ -844,37 +869,54 @@ func (a *App) RunAgentWithAttachments(userMessage string, attachments []agent.At
 			}
 		}
 		if inTokens+outTokens > 0 {
-			_ = a.cfg.AddUsage(costUSD, inTokens, outTokens)
+			_ = a.cfg.AddUsage(provider, costUSD, inTokens, outTokens)
 			if a.chats != nil {
-				_, _ = a.chats.AddUsage(a.projectKey(), sid, costUSD, inTokens, outTokens)
+				_, _ = a.chats.AddUsage(a.projectKey(), sid, provider, costUSD, inTokens, outTokens)
 			}
 		}
-		tot := a.cfg.Get()
+		totCost, totIn, totOut := a.cfg.ProviderUsage(provider)
 		chatCost, chatIn, chatOut := 0.0, 0, 0
 		if a.chats != nil {
 			if sess, gerr := a.chats.Get(a.projectKey(), sid); gerr == nil && sess != nil {
-				chatCost, chatIn, chatOut = sess.CostUSD, sess.InputTokens, sess.OutputTokens
+				chatCost, chatIn, chatOut = sess.ProviderUsage(provider)
 			}
 		}
+		balOK, balUSD, balDetail := a.usageBalanceSnapshot(provider)
 		a.emitFor(sid, agent.Event{Type: "usage", Content: usagePayload(
-			tot.TotalCostUSD, tot.TotalInputTokens, tot.TotalOutputTokens,
+			provider,
+			totCost, totIn, totOut,
 			chatCost, chatIn, chatOut,
+			balOK, balUSD, balDetail,
 		)})
 		a.emitFor(sid, agent.Event{Type: "persist", Content: "1"})
 	}()
 	return nil
 }
 
-func usagePayload(totalCost float64, totalIn, totalOut int, chatCost float64, chatIn, chatOut int) string {
+func usagePayload(provider string, totalCost float64, totalIn, totalOut int, chatCost float64, chatIn, chatOut int, balOK bool, balUSD float64, balDetail string) string {
 	b, _ := json.Marshal(map[string]any{
+		"provider":         provider,
 		"costUsd":          totalCost,
 		"inputTokens":      totalIn,
 		"outputTokens":     totalOut,
 		"chatCostUsd":      chatCost,
 		"chatInputTokens":  chatIn,
 		"chatOutputTokens": chatOut,
+		"balanceOk":        balOK,
+		"balanceUsd":       balUSD,
+		"balanceDetail":    balDetail,
 	})
 	return string(b)
+}
+
+func (a *App) usageBalanceSnapshot(provider string) (ok bool, usd float64, detail string) {
+	if provider != config.ProviderZAI {
+		return false, 0, ""
+	}
+	a.zaiBalMu.Lock()
+	bal := a.zaiBal
+	a.zaiBalMu.Unlock()
+	return bal.OK, bal.AvailableUSD, bal.Detail
 }
 
 // loadActiveIntoMemoryUnlocked assumes caller may or may not hold lock — only used carefully.

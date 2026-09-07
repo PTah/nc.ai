@@ -156,9 +156,16 @@ textarea { resize: none; }
   user-select: none;
   cursor: pointer;
 }
+.nc-top-check.is-disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
 .nc-top-check input {
   margin: 0;
   cursor: pointer;
+}
+.nc-top-check.is-disabled input {
+  cursor: not-allowed;
 }
 .nc-pill.ok { color: var(--pill-ok); border-color: var(--pill-ok-border); }
 .nc-cost {
@@ -176,6 +183,7 @@ textarea { resize: none; }
 }
 .nc-cost-chat { color: var(--cost); }
 .nc-cost-total { color: var(--cost-total); }
+.nc-cost-bal { color: var(--muted); }
 .nc-cost-sep { color: var(--muted); }
 .nc-root {
   --layout-projects: 200px;

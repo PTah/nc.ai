@@ -252,12 +252,16 @@ export namespace llm {
 export namespace main {
 	
 	export class UsageStats {
+	    provider: string;
 	    costUsd: number;
 	    inputTokens: number;
 	    outputTokens: number;
 	    chatCostUsd: number;
 	    chatInputTokens: number;
 	    chatOutputTokens: number;
+	    balanceOk: boolean;
+	    balanceUsd: number;
+	    balanceDetail: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new UsageStats(source);
@@ -265,12 +269,16 @@ export namespace main {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.provider = source["provider"];
 	        this.costUsd = source["costUsd"];
 	        this.inputTokens = source["inputTokens"];
 	        this.outputTokens = source["outputTokens"];
 	        this.chatCostUsd = source["chatCostUsd"];
 	        this.chatInputTokens = source["chatInputTokens"];
 	        this.chatOutputTokens = source["chatOutputTokens"];
+	        this.balanceOk = source["balanceOk"];
+	        this.balanceUsd = source["balanceUsd"];
+	        this.balanceDetail = source["balanceDetail"];
 	    }
 	}
 
