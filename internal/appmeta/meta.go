@@ -3,7 +3,7 @@ package appmeta
 // App identity and release highlights (shown on first launch of a new version).
 const (
 	Name    = "NotCursor.ai"
-	Version = "0.4.5"
+	Version = "0.5.0"
 )
 
 // Highlights are the five most recent significant features for the Welcome splash.
