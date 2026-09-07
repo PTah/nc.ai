@@ -29,6 +29,9 @@ type Settings struct {
 	// AgentMaxSteps caps the tool-using agent loop. 0 means the default (40).
 	AgentMaxSteps int `json:"agentMaxSteps,omitempty"`
 
+	// AutoModels enables per-turn DeepSeek flash/pro/vision routing.
+	AutoModels bool `json:"autoModels,omitempty"`
+
 	// Main window geometry (logical pixels). Zero width/height → defaults.
 	WindowWidth     int  `json:"windowWidth,omitempty"`
 	WindowHeight    int  `json:"windowHeight,omitempty"`
@@ -149,6 +152,19 @@ func (s *Store) SetDeepSeekAPIKey(key string) error {
 func (s *Store) SetDeepSeekModel(model string) error {
 	s.mu.Lock()
 	s.settings.DeepSeekModel = model
+	s.mu.Unlock()
+	return s.Save()
+}
+
+func (s *Store) AutoModels() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.settings.AutoModels
+}
+
+func (s *Store) SetAutoModels(on bool) error {
+	s.mu.Lock()
+	s.settings.AutoModels = on
 	s.mu.Unlock()
 	return s.Save()
 }

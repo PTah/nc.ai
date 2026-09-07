@@ -23,6 +23,7 @@ import {
   RunShell,
   SaveDeepSeekKey,
   SaveDeepSeekModel,
+  SaveAutoModels,
   SaveAgentMaxSteps,
   SaveComposerHeight,
   SaveShowTerminal,
@@ -471,6 +472,7 @@ export default function App() {
   const [input, setInput] = useState('')
   const [apiKey, setApiKey] = useState('')
   const [model, setModel] = useState('deepseek-v4-flash')
+  const [autoModels, setAutoModels] = useState(false)
   const [maxSteps, setMaxSteps] = useState(40)
   const [keySet, setKeySet] = useState(false)
   const [theme, setTheme] = useState<'dark' | 'light'>('dark')
@@ -656,6 +658,7 @@ export default function App() {
         if (!s) return
         setKeySet(Boolean(s.deepseekKeySet))
         if (typeof s.deepseekModel === 'string' && s.deepseekModel) setModel(s.deepseekModel)
+        setAutoModels(Boolean(s.autoModels))
         if (typeof s.agentMaxSteps === 'number' && s.agentMaxSteps > 0) setMaxSteps(s.agentMaxSteps)
         setShowTerm(Boolean(s.showTerminal))
         if (typeof s.showFiles === 'boolean') setShowTree(s.showFiles)
@@ -696,6 +699,11 @@ export default function App() {
             const next = usageFromUnknown(ev.content)
             if (next) setUsage(next)
             else void applyUsageStats()
+            return
+          }
+          if (ev.type === 'model') {
+            const nextModel = String(ev.content || '').trim()
+            if (nextModel) setModel(nextModel)
             return
           }
           const sid = ev.sessionId || activeSessionRef.current
@@ -1148,6 +1156,7 @@ export default function App() {
       setKeySet(true)
     }
     await SaveDeepSeekModel(model.trim() || 'deepseek-v4-flash')
+    await SaveAutoModels(autoModels)
     await SaveAgentMaxSteps(Number(maxSteps) || 40)
     await SaveShowTerminal(showTerm)
     await SaveTheme(theme)
@@ -1257,13 +1266,37 @@ export default function App() {
         </label>
         <label className="nc-top-field">
           Model
-          <select value={model} onChange={(e) => setModel(e.target.value)}>
+          <select
+            value={model}
+            onChange={(e) => {
+              const next = e.target.value
+              setModel(next)
+              if (autoModels) {
+                setAutoModels(false)
+                void SaveAutoModels(false)
+              }
+              void SaveDeepSeekModel(next)
+            }}
+            title={autoModels ? 'Auto-models выберет модель сама; ручной выбор отключает Auto' : 'Модель DeepSeek'}
+          >
             <option value="deepseek-v4-flash">deepseek-v4-flash</option>
             <option value="deepseek-v4-pro">deepseek-v4-pro</option>
             <option value="deepseek-v4-flash-vision-exp">deepseek-v4-flash-vision-exp</option>
           </select>
         </label>
         <button type="button" onClick={saveSettings}>Save</button>
+        <label className="nc-top-check" title="Автовыбор flash / pro / vision по задаче и длине прогона">
+          <input
+            type="checkbox"
+            checked={autoModels}
+            onChange={(e) => {
+              const on = e.target.checked
+              setAutoModels(on)
+              void SaveAutoModels(on)
+            }}
+          />
+          Auto-models
+        </label>
         <span className={`nc-pill ${keySet ? 'ok' : ''}`}>{keySet ? 'key OK' : 'no key'}</span>
         <span
           className="nc-cost"
@@ -1550,11 +1583,34 @@ export default function App() {
             <div className="nc-section-label">DeepSeek</div>
             <label>
               Model
-              <select value={model} onChange={(e) => setModel(e.target.value)}>
+              <select
+                value={model}
+                onChange={(e) => {
+                  const next = e.target.value
+                  setModel(next)
+                  if (autoModels) {
+                    setAutoModels(false)
+                    void SaveAutoModels(false)
+                  }
+                  void SaveDeepSeekModel(next)
+                }}
+              >
                 <option value="deepseek-v4-flash">deepseek-v4-flash</option>
                 <option value="deepseek-v4-pro">deepseek-v4-pro</option>
                 <option value="deepseek-v4-flash-vision-exp">deepseek-v4-flash-vision-exp</option>
               </select>
+            </label>
+            <label className="nc-top-check">
+              <input
+                type="checkbox"
+                checked={autoModels}
+                onChange={(e) => {
+                  const on = e.target.checked
+                  setAutoModels(on)
+                  void SaveAutoModels(on)
+                }}
+              />
+              Auto-models (flash / pro / vision)
             </label>
             <label>
               API key

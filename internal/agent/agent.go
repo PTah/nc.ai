@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"notcursor.ai/app/internal/llm"
-	"notcursor.ai/app/internal/llm/providers/deepseek"
 	"notcursor.ai/app/internal/tools"
 )
 
@@ -37,7 +36,7 @@ After tool results, always give a final textual answer to the user.`
 
 // Event is pushed to the UI during an agent run.
 type Event struct {
-	Type      string `json:"type"` // delta|reasoning|tool_start|tool_end|reconnect|done|error|persist
+	Type      string `json:"type"` // delta|reasoning|tool_start|tool_end|reconnect|done|error|persist|usage|model
 	Content   string `json:"content,omitempty"`
 	Name      string `json:"name,omitempty"`
 	OK        bool   `json:"ok,omitempty"`
@@ -59,8 +58,16 @@ type Runner struct {
 	Provider llm.Provider
 	Tools    *tools.Registry
 	MaxSteps int
-	// ModelOverride forces a model for this run (e.g. vision).
+	// ModelOverride forces a model for this run (e.g. vision / Auto pick).
 	ModelOverride string
+	// PreferredModel is used when AutoModels is off and ModelOverride is empty.
+	PreferredModel string
+	// AutoModels enables PickModel routing for this run.
+	AutoModels bool
+	// Route context for AutoModels (filled by the app before Run*).
+	UserText      string
+	HasImages     bool
+	HintPathCount int
 	// RulesText is appended to the system prompt (Cursor .cursorrules / .cursor/rules).
 	RulesText string
 	// RetryCount is the number of automatic reconnect attempts for transient network errors.
@@ -70,6 +77,8 @@ type Runner struct {
 	// OnUsage, when set, is called after each provider response with the model
 	// that produced it and its token usage (usage may be nil for some providers).
 	OnUsage func(model string, u *llm.Usage)
+
+	lastEmittedModel string
 }
 
 func (r *Runner) reportUsage(model string, u *llm.Usage) {
@@ -77,6 +86,35 @@ func (r *Runner) reportUsage(model string, u *llm.Usage) {
 		return
 	}
 	r.OnUsage(model, u)
+}
+
+// resolveModel picks the model for this step and emits a "model" event when it changes.
+func (r *Runner) resolveModel(step int, emit EmitFunc) string {
+	var model, reason string
+	switch {
+	case r.AutoModels:
+		d := PickModel(RouteInput{
+			UserText:      r.UserText,
+			HasImages:     r.HasImages,
+			HintPathCount: r.HintPathCount,
+			Step:          step,
+		})
+		model, reason = d.Model, d.Reason
+	case r.HasImages:
+		model, reason = ModelVision, "image"
+	case strings.TrimSpace(r.ModelOverride) != "":
+		model = strings.TrimSpace(r.ModelOverride)
+	case strings.TrimSpace(r.PreferredModel) != "":
+		model = strings.TrimSpace(r.PreferredModel)
+	default:
+		model = ModelFlash
+	}
+	r.ModelOverride = model
+	if model != "" && model != r.lastEmittedModel {
+		r.lastEmittedModel = model
+		emit(Event{Type: "model", Content: model, Name: reason})
+	}
+	return model
 }
 
 func (r *Runner) systemPrompt() string {
@@ -177,8 +215,11 @@ func (r *Runner) RunWithAttachments(ctx context.Context, history []llm.Message, 
 		}
 	}
 	msg := llm.UserMultimodal(extraText.String(), images)
-	if len(images) > 0 && r.ModelOverride == "" {
-		r.ModelOverride = deepseek.VisionModel
+	if len(images) > 0 {
+		r.HasImages = true
+	}
+	if r.UserText == "" {
+		r.UserText = extraText.String()
 	}
 	return r.RunMessage(ctx, history, msg, emit)
 }
@@ -217,6 +258,7 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 			return messages, ctx.Err()
 		}
 
+		model := r.resolveModel(step, emit)
 		req := &llm.ChatRequest{
 			Messages:        messages,
 			Tools:           tools.Specs(),
@@ -224,14 +266,14 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 			Thinking:        map[string]any{"type": "enabled"},
 			ReasoningEffort: "high",
 			Stream:          false,
-			Model:           r.ModelOverride,
+			Model:           model,
 		}
 		resp, err := r.chat(ctx, req, emit)
 		if err != nil {
 			emit(Event{Type: "error", Content: err.Error()})
 			return messages, err
 		}
-		r.reportUsage(billingModel(resp.Model, r.ModelOverride), resp.Usage)
+		r.reportUsage(billingModel(resp.Model, model), resp.Usage)
 		if len(resp.Choices) == 0 {
 			err = fmt.Errorf("empty model response")
 			emit(Event{Type: "error", Content: err.Error()})
@@ -289,19 +331,20 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 	messages = append(messages, llm.UserText(
 		"Stop using tools now. Summarize what you already found/did and give the best final answer to the user in their language. If something is unfinished, say exactly what remains.",
 	))
+	wrapModel := r.resolveModel(max, emit)
 	req := &llm.ChatRequest{
 		Messages:        messages,
 		Thinking:        map[string]any{"type": "enabled"},
 		ReasoningEffort: "high",
 		Stream:          false,
-		Model:           r.ModelOverride,
+		Model:           wrapModel,
 	}
 	resp, err := r.chat(ctx, req, emit)
 	if err != nil {
 		emit(Event{Type: "error", Content: fmt.Sprintf("лимит шагов (%d); финальный ответ не получен: %v", max, err)})
 		return messages, err
 	}
-	r.reportUsage(billingModel(resp.Model, r.ModelOverride), resp.Usage)
+	r.reportUsage(billingModel(resp.Model, wrapModel), resp.Usage)
 	if len(resp.Choices) == 0 {
 		emit(Event{Type: "error", Content: fmt.Sprintf("лимит шагов (%d); пустой финальный ответ", max)})
 		return messages, fmt.Errorf("max agent steps (%d) exceeded", max)

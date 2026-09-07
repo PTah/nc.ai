@@ -146,6 +146,20 @@ textarea { resize: none; }
   max-width: 18rem;
   flex: 1 1 8rem;
 }
+.nc-top-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+  white-space: nowrap;
+  user-select: none;
+  cursor: pointer;
+}
+.nc-top-check input {
+  margin: 0;
+  cursor: pointer;
+}
 .nc-pill.ok { color: var(--pill-ok); border-color: var(--pill-ok-border); }
 .nc-cost {
   font-size: 0.78rem;

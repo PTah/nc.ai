@@ -157,6 +157,7 @@ func (a *App) GetSettings() map[string]any {
 		"showSettings":    s.ShowSettings,
 		"theme":           a.cfg.Theme(),
 		"agentMaxSteps":   a.cfg.MaxAgentSteps(),
+		"autoModels":      a.cfg.AutoModels(),
 		"visionModel":     deepseek.VisionModel,
 		"layoutProjectsW": nonzero(s.LayoutProjectsW, 200),
 		"layoutTreeW":     nonzero(s.LayoutTreeW, 220),
@@ -280,6 +281,10 @@ func (a *App) SaveDeepSeekModel(model string) error {
 	}
 	a.refreshProvider()
 	return nil
+}
+
+func (a *App) SaveAutoModels(on bool) error {
+	return a.cfg.SetAutoModels(on)
 }
 
 func (a *App) SaveTheme(theme string) error {
@@ -638,20 +643,30 @@ func (a *App) RunAgentWithAttachments(userMessage string, attachments []agent.At
 	hist := append([]llm.Message{}, a.history...)
 	a.mu.Unlock()
 
+	hasImages := false
 	attNames := make([]string, 0, len(attachments))
 	for _, att := range attachments {
 		if att.Name != "" {
 			attNames = append(attNames, att.Name)
 		}
+		if att.IsImage {
+			hasImages = true
+		}
 	}
 	bundle := a.loadRules()
 	hints := rules.ExtractHintPaths(userMessage, attNames...)
+	cfg := a.cfg.Get()
 
 	runner := &agent.Runner{
-		Provider:  a.llm,
-		Tools:     a.tools,
-		MaxSteps:  a.cfg.MaxAgentSteps(),
-		RulesText: bundle.SelectForPrompt(hints),
+		Provider:       a.llm,
+		Tools:          a.tools,
+		MaxSteps:       a.cfg.MaxAgentSteps(),
+		RulesText:      bundle.SelectForPrompt(hints),
+		AutoModels:     cfg.AutoModels,
+		PreferredModel: cfg.DeepSeekModel,
+		UserText:       userMessage,
+		HasImages:      hasImages,
+		HintPathCount:  len(hints),
 	}
 
 	var costUSD float64
@@ -682,6 +697,10 @@ func (a *App) RunAgentWithAttachments(userMessage string, attachments []agent.At
 		defer dockicon.EndAgent()
 
 		emit := func(evt agent.Event) {
+			if evt.Type == "model" && evt.Content != "" {
+				_ = a.cfg.SetDeepSeekModel(evt.Content)
+				a.refreshProvider()
+			}
 			a.emitFor(sid, evt)
 		}
 		var newHist []llm.Message

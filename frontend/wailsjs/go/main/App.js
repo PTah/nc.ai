@@ -118,6 +118,10 @@ export function SaveDeepSeekModel(arg1) {
   return window['go']['main']['App']['SaveDeepSeekModel'](arg1);
 }
 
+export function SaveAutoModels(arg1) {
+  return window['go']['main']['App']['SaveAutoModels'](arg1);
+}
+
 export function SaveGitAuth(arg1, arg2) {
   return window['go']['main']['App']['SaveGitAuth'](arg1, arg2);
 }
