@@ -476,6 +476,33 @@ textarea { resize: none; }
   border-color: #2a4a3a;
   padding: 0.45rem 0.7rem;
 }
+.nc-msg.process-group {
+  background: var(--msg-tool);
+  border-color: #2a4a3a;
+  padding: 0.45rem 0.7rem;
+}
+.nc-msg.process-group .nc-tool-group-sum {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+.nc-msg.process-group .nc-tool-group-sum::-webkit-details-marker { display: none; }
+.nc-msg.process-group .nc-tool-group-sum::before { content: "▸ "; color: var(--accent); }
+.nc-msg.process-group[open] > .nc-tool-group-sum::before { content: "▾ "; }
+.nc-msg.process-group .nc-process-body {
+  margin-top: 0.45rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.nc-msg.process-group .nc-process-body .nc-msg.tool,
+.nc-msg.process-group .nc-process-body .nc-msg.reasoning,
+.nc-msg.process-group .nc-process-body .nc-msg.tool-group {
+  margin: 0;
+}
 .nc-tool-group-sum {
   display: flex;
   align-items: center;

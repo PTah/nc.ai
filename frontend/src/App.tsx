@@ -256,6 +256,7 @@ function summarizeTools(tools: Extract<ChatItem, {kind: 'tool'}>[]): string {
 type DisplayRow =
   | { key: string; kind: 'item'; item: ChatItem }
   | { key: string; kind: 'tool_group'; tools: Extract<ChatItem, {kind: 'tool'}>[]; summary: string }
+  | { key: string; kind: 'process'; rows: DisplayRow[] }
 
 function ToolGroup({summary, tools}: {summary: string; tools: Extract<ChatItem, {kind: 'tool'}>[]}) {
   return (
@@ -316,7 +317,71 @@ function buildDisplayRows(items: ChatItem[], compact = false): DisplayRow[] {
     rows.push({key: `i-${i}`, kind: 'item', item: m})
     i++
   }
-  return rows
+  return collapseProcess(rows, compact)
+}
+
+function isProcessRow(r: DisplayRow): boolean {
+  return r.kind === 'tool_group' || (r.kind === 'item' && r.item.kind === 'reasoning')
+}
+
+/** Merge consecutive Thinking + Explored rows into one block once the run is done. */
+function collapseProcess(rows: DisplayRow[], compact: boolean): DisplayRow[] {
+  if (!compact) return rows
+  const out: DisplayRow[] = []
+  let i = 0
+  while (i < rows.length) {
+    if (isProcessRow(rows[i])) {
+      const group: DisplayRow[] = []
+      while (i < rows.length && isProcessRow(rows[i])) {
+        group.push(rows[i])
+        i++
+      }
+      out.push({key: `proc-${i}`, kind: 'process', rows: group})
+      continue
+    }
+    out.push(rows[i])
+    i++
+  }
+  return out
+}
+
+function summarizeProcess(rows: DisplayRow[]): {title: string; steps: number} {
+  let reasoning = 0
+  let steps = 0
+  for (const r of rows) {
+    if (r.kind === 'tool_group') {
+      steps += r.tools.length
+    } else if (r.kind === 'item' && r.item.kind === 'reasoning') {
+      reasoning++
+    }
+  }
+  let title = 'Thinking'
+  if (steps > 0) title = reasoning > 0 ? 'Thinking & Explored' : 'Explored'
+  return {title, steps}
+}
+
+function ProcessGroup({rows}: {rows: DisplayRow[]}) {
+  const {title, steps} = summarizeProcess(rows)
+  return (
+    <details className="nc-msg process-group">
+      <summary className="nc-tool-group-sum">
+        <span className="nc-tool-icon">✓</span>
+        <span className="nc-tool-title">{title}</span>
+        <span className="nc-tool-name">{steps > 0 ? `${steps} steps` : 'thought'}</span>
+      </summary>
+      <div className="nc-process-body">
+        {rows.map((r, i) => {
+          if (r.kind === 'tool_group') {
+            return <ToolGroup key={i} summary={r.summary} tools={r.tools} />
+          }
+          if (r.kind === 'item' && r.item.kind === 'reasoning') {
+            return <ThinkingBlock key={i} content={r.item.content} collapsed />
+          }
+          return null
+        })}
+      </div>
+    </details>
+  )
 }
 
 function parseAgentEvent(...args: unknown[]): AgentEvent | null {
@@ -346,7 +411,7 @@ function parseAgentEvent(...args: unknown[]): AgentEvent | null {
 }
 
 export default function App() {
-  const [info, setInfo] = useState({name: 'NotCursor.ai', version: '0.2.0'})
+  const [info, setInfo] = useState({name: 'NotCursor.ai', version: '0.2.1'})
   const [usage, setUsage] = useState<UsageSnapshot>(emptyUsage)
   const [rulesInfo, setRulesInfo] = useState<RulesBundle>({globalDir: '', projectDir: '', global: [], project: []})
   const [projects, setProjects] = useState<Project[]>([])
@@ -1183,6 +1248,9 @@ export default function App() {
             <div className="nc-thread" ref={chatRef}>
               <div className="nc-thread-inner">
                 {buildDisplayRows(items, !busy).map((row) => {
+                  if (row.kind === 'process') {
+                    return <ProcessGroup key={row.key} rows={row.rows} />
+                  }
                   if (row.kind === 'tool_group') {
                     return <ToolGroup key={row.key} summary={row.summary} tools={row.tools} />
                   }
