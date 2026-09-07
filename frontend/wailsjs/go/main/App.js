@@ -22,6 +22,10 @@ export function ClearChat() {
   return window['go']['main']['App']['ClearChat']();
 }
 
+export function CloseProject(arg1, arg2) {
+  return window['go']['main']['App']['CloseProject'](arg1, arg2);
+}
+
 export function DeleteChatSession(arg1) {
   return window['go']['main']['App']['DeleteChatSession'](arg1);
 }
@@ -98,8 +102,20 @@ export function PreferZaiModel(arg1) {
   return window['go']['main']['App']['PreferZaiModel'](arg1);
 }
 
+export function ProjectHasChats(arg1) {
+  return window['go']['main']['App']['ProjectHasChats'](arg1);
+}
+
+export function ReadCursorRule(arg1) {
+  return window['go']['main']['App']['ReadCursorRule'](arg1);
+}
+
 export function ReadFile(arg1) {
   return window['go']['main']['App']['ReadFile'](arg1);
+}
+
+export function RefreshProviderPrices() {
+  return window['go']['main']['App']['RefreshProviderPrices']();
 }
 
 export function ReloadCursorRules() {
@@ -232,6 +248,10 @@ export function SwitchChatSession(arg1) {
 
 export function TerminalWrite(arg1) {
   return window['go']['main']['App']['TerminalWrite'](arg1);
+}
+
+export function WriteCursorRule(arg1, arg2) {
+  return window['go']['main']['App']['WriteCursorRule'](arg1, arg2);
 }
 
 export function WriteFile(arg1, arg2) {

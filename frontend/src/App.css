@@ -557,7 +557,17 @@ textarea { resize: none; }
 }
 .nc-term-run { display: flex; gap: 0.35rem; min-width: 0; }
 .nc-term-run input { width: 220px; background: #101010; color: #e8e8e8; border-color: #2c2c2c; }
-.nc-xterm { flex: 1; padding: 0.25rem 0.4rem; overflow: hidden; }
+.nc-xterm {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+  padding: 0.25rem 0.4rem;
+  overflow: hidden;
+}
+.nc-xterm .xterm,
+.nc-xterm .xterm-viewport {
+  height: 100% !important;
+}
 .nc-settings label { display: grid; gap: 0.25rem; margin-bottom: 0.55rem; font-size: 0.82rem; }
 .nc-settings button { width: 100%; margin-bottom: 0.35rem; }
 .nc-settings .nc-help {
@@ -641,7 +651,9 @@ textarea { resize: none; }
   font-size: 0.75rem; line-height: 1.35;
   border: 1px solid var(--border); border-radius: 7px;
   padding: 0.25rem 0.45rem; background: var(--msg-bg);
+  cursor: pointer;
 }
+.nc-rules-item:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
 .nc-rules-source {
   text-transform: uppercase; font-size: 0.62rem; letter-spacing: 0.04em;
   padding: 0.05rem 0.3rem; border-radius: 999px;
@@ -781,4 +793,108 @@ textarea { resize: none; }
 .nc-prices-table code {
   font-size: 0.78em;
   word-break: break-all;
+}
+
+.nc-rule-edit {
+  width: min(720px, 100%);
+  max-height: min(90vh, 820px);
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  overflow: hidden;
+}
+.nc-rule-edit-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+.nc-rule-edit-head h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+.nc-rule-edit-path {
+  margin: 0.2rem 0 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 36rem;
+}
+.nc-rule-edit-body {
+  flex: 1 1 auto;
+  min-height: 280px;
+  width: 100%;
+  resize: vertical;
+  font-family: Menlo, Consolas, "Courier New", monospace;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--msg-bg);
+  color: var(--text);
+}
+.nc-rule-edit-err {
+  margin: 0;
+  color: var(--crash, #e35);
+  font-size: 0.8rem;
+}
+.nc-rule-edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.45rem;
+}
+.nc-rule-edit-actions button {
+  width: auto;
+  margin: 0;
+}
+
+.nc-ctx-menu {
+  position: fixed;
+  z-index: 90;
+  min-width: 200px;
+  padding: 0.25rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 10px 28px color-mix(in srgb, #000 28%, transparent);
+}
+.nc-ctx-menu button {
+  display: block;
+  width: 100%;
+  margin: 0;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  padding: 0.45rem 0.65rem;
+  color: var(--text);
+  font-size: 0.82rem;
+}
+.nc-ctx-menu button:hover {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.nc-close-project h2 {
+  margin: 0 0 0.45rem;
+  font-size: 1.05rem;
+}
+.nc-close-project-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  justify-content: flex-end;
+  margin-top: 0.85rem;
+}
+.nc-close-project-actions button {
+  width: auto;
+  margin: 0;
+}
+.nc-danger {
+  background: color-mix(in srgb, #c0392b 85%, #000);
+  border-color: #a93226;
+  color: #fff;
+}
+.nc-danger:hover {
+  filter: brightness(1.08);
 }

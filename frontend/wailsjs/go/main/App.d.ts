@@ -19,6 +19,8 @@ export function ChatOnce(arg1:string):Promise<string>;
 
 export function ClearChat():Promise<void>;
 
+export function CloseProject(arg1:string,arg2:string):Promise<workspace.Project>;
+
 export function DeleteChatSession(arg1:string):Promise<string>;
 
 export function GetCursorRules():Promise<rules.Bundle>;
@@ -57,7 +59,13 @@ export function PreferOpenRouterModel(arg1:Array<string>):Promise<string>;
 
 export function PreferZaiModel(arg1:Array<string>):Promise<string>;
 
+export function ProjectHasChats(arg1:string):Promise<boolean>;
+
+export function ReadCursorRule(arg1:string):Promise<string>;
+
 export function ReadFile(arg1:string):Promise<string>;
+
+export function RefreshProviderPrices():Promise<Record<string, any>>;
 
 export function ReloadCursorRules():Promise<rules.Bundle>;
 
@@ -124,5 +132,7 @@ export function StopTerminal():Promise<void>;
 export function SwitchChatSession(arg1:string):Promise<string>;
 
 export function TerminalWrite(arg1:string):Promise<void>;
+
+export function WriteCursorRule(arg1:string,arg2:string):Promise<void>;
 
 export function WriteFile(arg1:string,arg2:string):Promise<void>;

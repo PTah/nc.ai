@@ -98,6 +98,43 @@ func (m *Manager) SetActive(path string) error {
 	return nil
 }
 
+// Close removes a project from the open list.
+// Returns the new active project (may be nil if the list is empty).
+func (m *Manager) Close(path string) (*Project, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return nil, err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := m.projects[:0]
+	for _, p := range m.projects {
+		if p.Path != abs {
+			out = append(out, p)
+		}
+	}
+	m.projects = out
+	if m.active == abs {
+		if len(m.projects) > 0 {
+			m.active = m.projects[0].Path
+			p := m.projects[0]
+			return &p, nil
+		}
+		m.active = ""
+		return nil, nil
+	}
+	if m.active == "" {
+		return nil, nil
+	}
+	for i := range m.projects {
+		if m.projects[i].Path == m.active {
+			p := m.projects[i]
+			return &p, nil
+		}
+	}
+	return nil, nil
+}
+
 func (m *Manager) Resolve(rel string) (string, error) {
 	root, err := m.ActiveRoot()
 	if err != nil {

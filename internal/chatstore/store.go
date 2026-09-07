@@ -377,6 +377,94 @@ func (s *Store) DeleteSession(project, sessionID string) error {
 	return s.saveBundle(b)
 }
 
+// HasMeaningfulChats reports whether the project bundle has any non-empty chat.
+func (s *Store) HasMeaningfulChats(project string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	path := s.path(project)
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	b, err := s.loadBundle(project)
+	if err != nil {
+		return false, err
+	}
+	for _, sess := range b.Sessions {
+		items := strings.TrimSpace(sess.ItemsJSON)
+		if items != "" && items != "[]" && items != "null" {
+			return true, nil
+		}
+		if len(sess.History) > 0 {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// DeleteBundle removes the on-disk chat file for a project (all tabs).
+func (s *Store) DeleteBundle(project string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	err := os.Remove(s.path(project))
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	_ = os.Remove(s.path(project) + ".legacy.bak")
+	return nil
+}
+
+// ArchiveAllSessions writes every session to chat_archive and removes the project bundle.
+func (s *Store) ArchiveAllSessions(project string) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	b, err := s.loadBundle(project)
+	if err != nil {
+		return 0, err
+	}
+	if len(b.Sessions) == 0 {
+		_ = os.Remove(s.path(project))
+		return 0, nil
+	}
+	archiveDir := filepath.Join(filepath.Dir(s.dir), "chat_archive")
+	if err := os.MkdirAll(archiveDir, 0o700); err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, sess := range b.Sessions {
+		items := strings.TrimSpace(sess.ItemsJSON)
+		if (items == "" || items == "[]" || items == "null") && len(sess.History) == 0 {
+			continue
+		}
+		title := strings.TrimSpace(sess.Title)
+		if title == "" {
+			title = "Chat"
+		}
+		name := sanitizeFilename(title)
+		if len(name) > 120 {
+			name = name[:120]
+		}
+		if len(sess.ID) >= 8 {
+			name = name + "-" + sess.ID[:8]
+		}
+		data, err := json.MarshalIndent(&sess, "", "  ")
+		if err != nil {
+			return n, err
+		}
+		if err := os.WriteFile(filepath.Join(archiveDir, name+".json"), data, 0o600); err != nil {
+			return n, err
+		}
+		n++
+	}
+	if err := os.Remove(s.path(project)); err != nil && !os.IsNotExist(err) {
+		return n, err
+	}
+	_ = os.Remove(s.path(project) + ".legacy.bak")
+	return n, nil
+}
+
 // Legacy helpers used by older UI paths.
 type State struct {
 	Project   string        `json:"project"`

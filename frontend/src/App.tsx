@@ -9,6 +9,7 @@ import {
   AckWelcome,
   ChatOnce,
   ClearChat,
+  CloseProject,
   DeleteChatSession,
   GetSettings,
   GetUsageStats,
@@ -19,6 +20,7 @@ import {
   NewChatSession,
   OpenProject,
   PickProjectDir,
+  ReadCursorRule,
   ReadFile,
   ReloadCursorRules,
   RenameChatSession,
@@ -37,6 +39,7 @@ import {
   ListOpenRouterModels,
   PreferOpenRouterModel,
   GetOpenRouterBalance,
+  ProjectHasChats,
   SaveActiveProvider,
   SaveAutoModels,
   SaveAgentMaxSteps,
@@ -54,6 +57,7 @@ import {
   StopTerminal,
   SwitchChatSession,
   TerminalWrite,
+  WriteCursorRule,
   ListProjects,
 } from '../wailsjs/go/main/App'
 import {EventsOn, EventsOff} from '../wailsjs/runtime/runtime'
@@ -560,13 +564,23 @@ function parseAgentEvent(...args: unknown[]): AgentEvent | null {
 }
 
 export default function App() {
-  const [info, setInfo] = useState({name: 'NotCursor.ai', version: '0.5.2'})
+  const [info, setInfo] = useState({name: 'NotCursor.ai', version: '0.5.4'})
   const [usage, setUsage] = useState<UsageSnapshot>(emptyUsage)
   const [welcome, setWelcome] = useState<WelcomeState | null>(null)
   const [showPrices, setShowPrices] = useState(false)
   const [modelPrices, setModelPrices] = useState<ModelPriceRow[]>([])
   const [pricesLoading, setPricesLoading] = useState(false)
   const [rulesInfo, setRulesInfo] = useState<RulesBundle>({globalDir: '', projectDir: '', global: [], project: []})
+  const [ruleEdit, setRuleEdit] = useState<{
+    path: string
+    name: string
+    source: string
+    text: string
+    saving: boolean
+    error: string
+  } | null>(null)
+  const [projectCtx, setProjectCtx] = useState<{x: number; y: number; path: string; name: string} | null>(null)
+  const [closeProjectDlg, setCloseProjectDlg] = useState<{path: string; name: string} | null>(null)
   const [projects, setProjects] = useState<Project[]>([])
   const [active, setActive] = useState<Project | null>(null)
   const [files, setFiles] = useState<FileEntry[]>([])
@@ -756,7 +770,8 @@ export default function App() {
       } else if (kind === 'composer') {
         next = {...start, composerH: clamp(start.composerH - (ev.clientY - startY), 110, 480)}
       } else {
-        next = {...start, terminalH: clamp(start.terminalH - (ev.clientY - startY), 90, 480)}
+        const maxH = Math.max(160, Math.floor(window.innerHeight * 0.75))
+        next = {...start, terminalH: clamp(start.terminalH - (ev.clientY - startY), 90, maxH)}
       }
       layoutRef.current = next
       setLayout(next)
@@ -1108,6 +1123,7 @@ export default function App() {
   }
 
   async function removeSession(id: string) {
+    if (!window.confirm('Хотите закрыть текущий чат?')) return
     if (sessions.length <= 1) {
       await ClearChat()
       const empty: ChatItem[] = [{kind: 'system', content: 'Чат очищен'}]
@@ -1128,6 +1144,35 @@ export default function App() {
         return next
       })
       setActiveSessionId(activeId)
+    }
+  }
+
+  async function openRuleEditor(r: RuleInfo) {
+    try {
+      const text = await ReadCursorRule(r.path)
+      setRuleEdit({path: r.path, name: r.name, source: r.source, text, saving: false, error: ''})
+    } catch (e) {
+      setRuleEdit({
+        path: r.path,
+        name: r.name,
+        source: r.source,
+        text: r.content || '',
+        saving: false,
+        error: String(e),
+      })
+    }
+  }
+
+  async function saveRuleEditor() {
+    if (!ruleEdit) return
+    setRuleEdit((prev) => prev ? {...prev, saving: true, error: ''} : prev)
+    try {
+      await WriteCursorRule(ruleEdit.path, ruleEdit.text)
+      const b = await ReloadCursorRules()
+      setRulesInfo(normalizeRules(b))
+      setRuleEdit(null)
+    } catch (e) {
+      setRuleEdit((prev) => prev ? {...prev, saving: false, error: String(e)} : prev)
     }
   }
 
@@ -1275,6 +1320,38 @@ export default function App() {
     }
   }, [showTerm])
 
+  useEffect(() => {
+    if (!showTerm || !termRef.current) return
+    const fitNow = () => {
+      try {
+        fitRef.current?.fit()
+      } catch {
+        /* ignore */
+      }
+    }
+    const id = requestAnimationFrame(fitNow)
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => fitNow()) : null
+    ro?.observe(termRef.current)
+    return () => {
+      cancelAnimationFrame(id)
+      ro?.disconnect()
+    }
+  }, [showTerm, layout.terminalH])
+
+  useEffect(() => {
+    if (!projectCtx) return
+    const onDown = () => setProjectCtx(null)
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setProjectCtx(null)
+    }
+    window.addEventListener('mousedown', onDown)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('mousedown', onDown)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [projectCtx])
+
   async function openPicked() {
     try {
       const dir = await PickProjectDir()
@@ -1298,6 +1375,51 @@ export default function App() {
     if (showTerm) {
       xtermRef.current?.writeln(`\r\n$ cd ${p.path}`)
       await StartTerminal()
+    }
+  }
+
+  async function finishCloseProject(path: string, chatAction: '' | 'delete' | 'archive') {
+    const wasActive = active?.path === path
+    if (wasActive && activeSessionId) {
+      try { await SaveChatSession(activeSessionId, JSON.stringify(items)) } catch { /* ignore */ }
+    }
+    const next = await CloseProject(path, chatAction)
+    setProjects(asList(await ListProjects()))
+    setProjectCtx(null)
+    setCloseProjectDlg(null)
+    if (!wasActive) return
+    if (next && next.path) {
+      setActive(next)
+      setExpanded({})
+      await refreshFiles('.')
+      await restoreChat(next.path)
+      void refreshRules()
+      if (showTerm) {
+        xtermRef.current?.writeln(`\r\n$ cd ${next.path}`)
+        await StartTerminal()
+      }
+      return
+    }
+    setActive(null)
+    setFiles([])
+    setExpanded({})
+    setSessions([])
+    setActiveSessionId('')
+    setItemsBySession({})
+    setBusyBySession({})
+  }
+
+  async function requestCloseProject(path: string, name: string) {
+    setProjectCtx(null)
+    try {
+      const has = await ProjectHasChats(path)
+      if (has) {
+        setCloseProjectDlg({path, name})
+        return
+      }
+      await finishCloseProject(path, '')
+    } catch (e) {
+      if (activeSessionId) setSessionItems(activeSessionId, (m) => [...m, {kind: 'system', content: String(e)}])
     }
   }
 
@@ -1679,13 +1801,24 @@ export default function App() {
         <aside className="nc-projects">
           <button type="button" onClick={openPicked}>Open Project…</button>
           <div className="nc-section-label">Projects</div>
-          <ul className="nc-list">
+          <ul className="nc-list" onClick={() => setProjectCtx(null)}>
             {asList(projects).length === 0 && (
               <li className="nc-empty">Нет проектов — нажмите Open Project…</li>
             )}
             {asList(projects).map((p) => (
               <li key={p.path} className={active?.path === p.path ? 'active' : ''}>
-                <button type="button" onClick={() => openProject(p.path)}>{p.name}</button>
+                <button
+                  type="button"
+                  onClick={() => openProject(p.path)}
+                  onContextMenu={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    setProjectCtx({x: e.clientX, y: e.clientY, path: p.path, name: p.name})
+                  }}
+                  title={p.path}
+                >
+                  {p.name}
+                </button>
               </li>
             ))}
           </ul>
@@ -2238,20 +2371,33 @@ export default function App() {
 
             <div className="nc-section-label">Cursor Rules</div>
             <p className="nc-help">
-              Правила подгружаются из <code>~/.cursor/rules</code> и{' '}
-              <code>&lt;project&gt;/.cursor/rules</code> (а также legacy <code>~/.cursorrules</code> и{' '}
-              <code>&lt;project&gt;/.cursorrules</code>) и добавляются в системный промпт агента.
+              Правила читаются в нативном формате Cursor (<code>.mdc</code>/<code>.md</code> + frontmatter)
+              из <code>~/.cursor/rules</code> и <code>&lt;project&gt;/.cursor/rules</code> (и legacy{' '}
+              <code>.cursorrules</code> / <code>AGENTS.md</code>). Тело с{' '}
+              <code>alwaysApply: true</code> (и без description/globs) попадает в системный промпт целиком;
+              остальные — каталогом «name — description», пока пути в запросе не совпадут с globs.
+              Двойной клик по имени — просмотр и правка файла.
             </p>
             <ul className="nc-rules-list">
               {asList(rulesInfo.global).map((r) => (
-                <li key={`g:${r.path}`} className="nc-rules-item" title={r.path}>
+                <li
+                  key={`g:${r.path}`}
+                  className="nc-rules-item"
+                  title={`${r.path}\n(двойной клик — открыть)`}
+                  onDoubleClick={() => void openRuleEditor(r)}
+                >
                   <span className="nc-rules-source global">global</span>
                   <span className="nc-rules-path">{r.name}</span>
                   {r.alwaysApply && <span className="nc-rules-always">always</span>}
                 </li>
               ))}
               {asList(rulesInfo.project).map((r) => (
-                <li key={`p:${r.path}`} className="nc-rules-item" title={r.path}>
+                <li
+                  key={`p:${r.path}`}
+                  className="nc-rules-item"
+                  title={`${r.path}\n(двойной клик — открыть)`}
+                  onDoubleClick={() => void openRuleEditor(r)}
+                >
                   <span className="nc-rules-source project">project</span>
                   <span className="nc-rules-path">{r.name}</span>
                   {r.alwaysApply && <span className="nc-rules-always">always</span>}
@@ -2335,6 +2481,99 @@ export default function App() {
                 </table>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {ruleEdit && (
+        <div className="nc-modal-backdrop" role="presentation" onClick={() => !ruleEdit.saving && setRuleEdit(null)}>
+          <div
+            className="nc-modal nc-rule-edit"
+            role="dialog"
+            aria-labelledby="nc-rule-edit-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="nc-rule-edit-head">
+              <div>
+                <h2 id="nc-rule-edit-title">{ruleEdit.name}</h2>
+                <p className="nc-help nc-rule-edit-path" title={ruleEdit.path}>
+                  {ruleEdit.source} · {ruleEdit.path}
+                </p>
+              </div>
+              <button type="button" className="nc-ghost" disabled={ruleEdit.saving} onClick={() => setRuleEdit(null)}>
+                Close
+              </button>
+            </div>
+            <textarea
+              className="nc-rule-edit-body"
+              value={ruleEdit.text}
+              spellCheck={false}
+              onChange={(e) => setRuleEdit((prev) => prev ? {...prev, text: e.target.value} : prev)}
+            />
+            {ruleEdit.error ? <p className="nc-rule-edit-err">{ruleEdit.error}</p> : null}
+            <div className="nc-rule-edit-actions">
+              <button type="button" className="nc-ghost" disabled={ruleEdit.saving} onClick={() => setRuleEdit(null)}>
+                Отмена
+              </button>
+              <button type="button" disabled={ruleEdit.saving} onClick={() => void saveRuleEditor()}>
+                {ruleEdit.saving ? 'Сохранение…' : 'Сохранить'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {projectCtx && (
+        <div
+          className="nc-ctx-menu"
+          style={{left: projectCtx.x, top: projectCtx.y}}
+          role="menu"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => void requestCloseProject(projectCtx.path, projectCtx.name)}
+          >
+            Закрыть папку проекта
+          </button>
+        </div>
+      )}
+
+      {closeProjectDlg && (
+        <div className="nc-modal-backdrop" role="presentation" onClick={() => setCloseProjectDlg(null)}>
+          <div
+            className="nc-modal nc-close-project"
+            role="dialog"
+            aria-labelledby="nc-close-project-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 id="nc-close-project-title">Закрыть проект «{closeProjectDlg.name}»?</h2>
+            <p className="nc-help">
+              В проекте есть чаты. Удалить их с диска, архивировать или отменить закрытие?
+            </p>
+            <div className="nc-close-project-actions">
+              <button
+                type="button"
+                className="nc-danger"
+                onClick={() => void finishCloseProject(closeProjectDlg.path, 'delete').catch((e) => {
+                  if (activeSessionId) setSessionItems(activeSessionId, (m) => [...m, {kind: 'system', content: String(e)}])
+                })}
+              >
+                Удалить чаты
+              </button>
+              <button
+                type="button"
+                onClick={() => void finishCloseProject(closeProjectDlg.path, 'archive').catch((e) => {
+                  if (activeSessionId) setSessionItems(activeSessionId, (m) => [...m, {kind: 'system', content: String(e)}])
+                })}
+              >
+                Архивировать чаты
+              </button>
+              <button type="button" className="nc-ghost" onClick={() => setCloseProjectDlg(null)}>
+                Отмена
+              </button>
+            </div>
           </div>
         </div>
       )}

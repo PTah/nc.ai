@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -316,6 +318,84 @@ func (a *App) ReloadCursorRules() rules.Bundle {
 	return a.loadRules()
 }
 
+// allowedCursorRulePath returns true if abs is under a known Cursor rules directory
+// (global ~/.cursor/rules or the open project's .cursor/rules).
+func (a *App) allowedCursorRulePath(abs string) bool {
+	abs = filepath.Clean(abs)
+	a.rulesMu.RLock()
+	b := a.cursorRules
+	a.rulesMu.RUnlock()
+	dirs := []string{}
+	if b.GlobalDir != "" {
+		dirs = append(dirs, filepath.Clean(b.GlobalDir))
+	}
+	if b.ProjectDir != "" {
+		dirs = append(dirs, filepath.Clean(b.ProjectDir))
+	}
+	for _, d := range dirs {
+		if d == "" {
+			continue
+		}
+		rel, err := filepath.Rel(d, abs)
+		if err != nil {
+			continue
+		}
+		if rel == "." || (!strings.HasPrefix(rel, "..") && !filepath.IsAbs(rel)) {
+			return true
+		}
+	}
+	// Legacy single-file rules next to rules dirs / project root.
+	for _, r := range append(append([]rules.Rule{}, b.Global...), b.Project...) {
+		if filepath.Clean(filepath.FromSlash(r.Path)) == abs {
+			return true
+		}
+	}
+	return false
+}
+
+// ReadCursorRule returns the raw text of a Cursor rule file (absolute path).
+func (a *App) ReadCursorRule(absPath string) (string, error) {
+	abs := filepath.Clean(filepath.FromSlash(strings.TrimSpace(absPath)))
+	if abs == "" || abs == "." {
+		return "", fmt.Errorf("empty rule path")
+	}
+	if !a.allowedCursorRulePath(abs) {
+		return "", fmt.Errorf("rule path not allowed")
+	}
+	data, err := os.ReadFile(abs)
+	if err != nil {
+		return "", err
+	}
+	if len(data) > 512*1024 {
+		data = data[:512*1024]
+	}
+	return string(data), nil
+}
+
+// WriteCursorRule overwrites a Cursor rule file (absolute path) and reloads the cache.
+func (a *App) WriteCursorRule(absPath, content string) error {
+	abs := filepath.Clean(filepath.FromSlash(strings.TrimSpace(absPath)))
+	if abs == "" || abs == "." {
+		return fmt.Errorf("empty rule path")
+	}
+	if !a.allowedCursorRulePath(abs) {
+		return fmt.Errorf("rule path not allowed")
+	}
+	ext := strings.ToLower(filepath.Ext(abs))
+	base := strings.ToLower(filepath.Base(abs))
+	if ext != ".mdc" && ext != ".md" && base != ".cursorrules" && base != "agents.md" {
+		return fmt.Errorf("unsupported rule extension")
+	}
+	if len(content) > 512*1024 {
+		return fmt.Errorf("rule too large")
+	}
+	if err := os.WriteFile(abs, []byte(content), 0o644); err != nil {
+		return err
+	}
+	a.loadRules()
+	return nil
+}
+
 // UsageStats is the top-bar spend counter (active provider all-time + active chat).
 // Typed struct (not map[string]any) so Wails/WebKit on macOS reliably
 // delivers numeric fields to the frontend.
@@ -607,6 +687,69 @@ func (a *App) OpenProject(path string) (*workspace.Project, error) {
 	_ = a.cfg.AddRecentProject(p.Path)
 	a.loadRules()
 	return p, nil
+}
+
+// ProjectHasChats reports whether the project has non-empty chat sessions on disk.
+func (a *App) ProjectHasChats(path string) (bool, error) {
+	if a.chats == nil {
+		return false, nil
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return false, err
+	}
+	return a.chats.HasMeaningfulChats(abs)
+}
+
+// CloseProject removes a project from the open list.
+// chatAction: "" (no chat file / already handled), "delete", or "archive".
+// Returns the newly active project (may be nil).
+func (a *App) CloseProject(path, chatAction string) (*workspace.Project, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return nil, err
+	}
+	wasActive := false
+	if root, err := a.ws.ActiveRoot(); err == nil && root == abs {
+		wasActive = true
+		a.StopAgentSession("")
+	}
+	switch strings.ToLower(strings.TrimSpace(chatAction)) {
+	case "delete":
+		if a.chats != nil {
+			if err := a.chats.DeleteBundle(abs); err != nil {
+				return nil, err
+			}
+		}
+	case "archive":
+		if a.chats != nil {
+			if _, err := a.chats.ArchiveAllSessions(abs); err != nil {
+				return nil, err
+			}
+		}
+	case "", "none", "keep":
+		// leave chat files on disk
+	default:
+		return nil, fmt.Errorf("unknown chat action: %s", chatAction)
+	}
+	next, err := a.ws.Close(abs)
+	if err != nil {
+		return nil, err
+	}
+	_ = a.cfg.RemoveRecentProject(abs)
+	if wasActive {
+		a.mu.Lock()
+		a.history = nil
+		a.sessionID = ""
+		a.mu.Unlock()
+		if next != nil {
+			a.loadRules()
+			_ = a.loadActiveIntoMemory()
+		} else {
+			a.loadRules()
+		}
+	}
+	return next, nil
 }
 
 func (a *App) ListDir(rel string) ([]workspace.Entry, error) {

@@ -612,6 +612,19 @@ func (s *Store) AddRecentProject(path string) error {
 	return s.Save()
 }
 
+func (s *Store) RemoveRecentProject(path string) error {
+	s.mu.Lock()
+	out := make([]string, 0, len(s.settings.RecentProjects))
+	for _, p := range s.settings.RecentProjects {
+		if p != path {
+			out = append(out, p)
+		}
+	}
+	s.settings.RecentProjects = out
+	s.mu.Unlock()
+	return s.Save()
+}
+
 // AddUsage accumulates all-time spend for the given provider and the legacy combined total.
 func (s *Store) AddUsage(provider string, costUSD float64, inputTokens, outputTokens int) error {
 	s.mu.Lock()
