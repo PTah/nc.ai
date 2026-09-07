@@ -11,6 +11,7 @@ import {
   ClearChat,
   CloseProject,
   DeleteChatSession,
+  DetectDefaultShell,
   GetSettings,
   GetUsageStats,
   GetWelcome,
@@ -48,6 +49,7 @@ import {
   SaveShowFiles,
   SaveShowSettings,
   SaveLayoutSizes,
+  SaveShell,
   SaveTheme,
   SaveChat,
   SaveChatSession,
@@ -56,6 +58,7 @@ import {
   StopAgent,
   StopTerminal,
   SwitchChatSession,
+  TerminalResize,
   TerminalWrite,
   WriteCursorRule,
   ListProjects,
@@ -564,13 +567,16 @@ function parseAgentEvent(...args: unknown[]): AgentEvent | null {
 }
 
 export default function App() {
-  const [info, setInfo] = useState({name: 'NotCursor.ai', version: '0.5.4'})
+  const [info, setInfo] = useState({name: 'NotCursor.ai', version: '0.5.5'})
   const [usage, setUsage] = useState<UsageSnapshot>(emptyUsage)
   const [welcome, setWelcome] = useState<WelcomeState | null>(null)
   const [showPrices, setShowPrices] = useState(false)
   const [modelPrices, setModelPrices] = useState<ModelPriceRow[]>([])
   const [pricesLoading, setPricesLoading] = useState(false)
   const [rulesInfo, setRulesInfo] = useState<RulesBundle>({globalDir: '', projectDir: '', global: [], project: []})
+  const [shellPath, setShellPath] = useState('')
+  const [shellDetected, setShellDetected] = useState('')
+  const [shellSaving, setShellSaving] = useState(false)
   const [ruleEdit, setRuleEdit] = useState<{
     path: string
     name: string
@@ -850,6 +856,11 @@ export default function App() {
         setShowTerm(Boolean(s.showTerminal))
         if (typeof s.showFiles === 'boolean') setShowTree(s.showFiles)
         if (typeof s.showSettings === 'boolean') setShowSettings(s.showSettings)
+        if (typeof s.shell === 'string') setShellPath(s.shell)
+        else setShellPath('')
+        if (typeof s.shellDetected === 'string' && s.shellDetected) setShellDetected(s.shellDetected)
+        else if (typeof s.shellResolved === 'string' && s.shellResolved) setShellDetected(s.shellResolved)
+        else void DetectDefaultShell().then((p) => setShellDetected(String(p || ''))).catch(() => undefined)
         if (s.theme === 'light' || s.theme === 'dark') {
           setTheme(s.theme)
           document.documentElement.setAttribute('data-theme', s.theme)
@@ -1275,10 +1286,16 @@ export default function App() {
       }
       return
     }
+    const syncPtySize = () => {
+      const t = xtermRef.current
+      if (!t) return
+      TerminalResize(t.cols, t.rows).catch(() => undefined)
+    }
     if (!termRef.current || xtermRef.current) {
       requestAnimationFrame(() => {
         try {
           fitRef.current?.fit()
+          syncPtySize()
         } catch {
           /* ignore */
         }
@@ -1288,6 +1305,7 @@ export default function App() {
     try {
       const term = new Terminal({
         convertEol: true,
+        cursorBlink: true,
         fontSize: 13,
         fontFamily: 'Menlo, Consolas, "Courier New", monospace',
         theme: {background: '#0d0d0d', foreground: '#c8f7c5'},
@@ -1297,6 +1315,7 @@ export default function App() {
       term.open(termRef.current)
       try {
         fit.fit()
+        TerminalResize(term.cols, term.rows).catch(() => undefined)
       } catch {
         /* container may still be 0-sized */
       }
@@ -1305,10 +1324,13 @@ export default function App() {
       })
       xtermRef.current = term
       fitRef.current = fit
-      StartTerminal().catch(() => undefined)
+      StartTerminal()
+        .then(() => syncPtySize())
+        .catch(() => undefined)
       const onResize = () => {
         try {
           fit.fit()
+          syncPtySize()
         } catch {
           /* ignore */
         }
@@ -1325,6 +1347,8 @@ export default function App() {
     const fitNow = () => {
       try {
         fitRef.current?.fit()
+        const t = xtermRef.current
+        if (t) TerminalResize(t.cols, t.rows).catch(() => undefined)
       } catch {
         /* ignore */
       }
@@ -2361,6 +2385,67 @@ export default function App() {
               Показывать терминал
             </label>
             <p className="nc-help">По умолчанию скрыт — как в Cursor: задачи делает агент через tools.</p>
+            <div className="nc-section-label">Shell</div>
+            <p className="nc-help">
+              Интерактивный терминал через системный PTY (Windows ConPTY / macOS pty). Пустое поле — авто:
+              PowerShell&nbsp;7 или&nbsp;5 на Windows, <code>$SHELL</code> на macOS/Linux.
+            </p>
+            <label>
+              Путь к shell
+              <input
+                value={shellPath}
+                placeholder={shellDetected || 'auto'}
+                onChange={(e) => setShellPath(e.target.value)}
+                spellCheck={false}
+              />
+            </label>
+            {shellDetected ? (
+              <p className="nc-help">Обнаружен: <code>{shellDetected}</code></p>
+            ) : null}
+            <div className="nc-shell-actions">
+              <button
+                type="button"
+                className="nc-ghost"
+                disabled={shellSaving}
+                onClick={() => {
+                  void DetectDefaultShell()
+                    .then((p) => {
+                      const path = String(p || '')
+                      setShellDetected(path)
+                      setShellPath('')
+                    })
+                    .catch(() => undefined)
+                }}
+              >
+                Авто (обнаружить)
+              </button>
+              <button
+                type="button"
+                disabled={shellSaving}
+                onClick={() => {
+                  setShellSaving(true)
+                  void SaveShell(shellPath.trim())
+                    .then(async () => {
+                      const d = await DetectDefaultShell().catch(() => '')
+                      setShellDetected(String(d || shellDetected))
+                      if (showTerm) {
+                        await StartTerminal().catch(() => undefined)
+                        const t = xtermRef.current
+                        if (t) {
+                          try { fitRef.current?.fit() } catch { /* ignore */ }
+                          TerminalResize(t.cols, t.rows).catch(() => undefined)
+                        }
+                      }
+                    })
+                    .catch((e) => {
+                      if (activeSessionId) setSessionItems(activeSessionId, (m) => [...m, {kind: 'system', content: String(e)}])
+                    })
+                    .finally(() => setShellSaving(false))
+                }}
+              >
+                {shellSaving ? 'Сохранение…' : 'Сохранить shell'}
+              </button>
+            </div>
 
             <div className="nc-section-label">Git &amp; SSH</div>
             <p className="nc-help">

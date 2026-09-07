@@ -898,3 +898,14 @@ textarea { resize: none; }
 .nc-danger:hover {
   filter: brightness(1.08);
 }
+
+.nc-shell-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0 0 0.7rem;
+}
+.nc-shell-actions button {
+  width: auto;
+  margin: 0;
+}

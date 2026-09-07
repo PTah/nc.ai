@@ -3,24 +3,24 @@ package appmeta
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "0.5.4"
+	Version = "0.5.5"
 )
 
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
+	"Обновлена функция терминала, теперь по умолчанию берётся PowerShell (Windows) или Terminal/shell (macOS)",
 	"Реализована логика работы с чатами и проектами (удалить, архивировать).",
 	"Добавлена возможность просмотра и редактирования правил (двойной клик по названию правила)",
 	"Подтверждение перед закрытием вкладки чата (×)",
-	"Терминал подстраивается под высоту панели при ресайзе",
 	"ПКМ по проекту: закрыть папку с удалением или архивацией чатов",
 }
 
 var HighlightsEN = []string{
+	"Terminal now uses real PowerShell (Windows) or the login shell (macOS) via PTY/ConPTY",
 	"Chat and project lifecycle: delete, archive, close folder",
 	"View and edit Cursor rules (double-click a rule name)",
 	"Confirm before closing a chat tab (×)",
-	"Terminal fits panel height on resize",
 	"Right-click a project to close it and handle its chats",
 }
 

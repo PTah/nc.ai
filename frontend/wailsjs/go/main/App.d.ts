@@ -23,6 +23,8 @@ export function CloseProject(arg1:string,arg2:string):Promise<workspace.Project>
 
 export function DeleteChatSession(arg1:string):Promise<string>;
 
+export function DetectDefaultShell():Promise<string>;
+
 export function GetCursorRules():Promise<rules.Bundle>;
 
 export function GetOpenRouterBalance():Promise<openrouter.AccountBalance>;
@@ -111,6 +113,8 @@ export function SaveShowSettings(arg1:boolean):Promise<void>;
 
 export function SaveShowTerminal(arg1:boolean):Promise<void>;
 
+export function SaveShell(arg1:string):Promise<void>;
+
 export function SaveTheme(arg1:string):Promise<void>;
 
 export function SaveWindowGeometry():Promise<void>;
@@ -130,6 +134,8 @@ export function StopAgentSession(arg1:string):Promise<void>;
 export function StopTerminal():Promise<void>;
 
 export function SwitchChatSession(arg1:string):Promise<string>;
+
+export function TerminalResize(arg1:number,arg2:number):Promise<void>;
 
 export function TerminalWrite(arg1:string):Promise<void>;
 

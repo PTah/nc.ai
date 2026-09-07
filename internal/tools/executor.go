@@ -21,6 +21,7 @@ type Registry struct {
 	Git     *gitx.Service
 	SSH     *sshx.Service
 	Timeout time.Duration
+	Shell   string // optional; empty = auto-detect
 }
 
 func NewRegistry(ws *workspace.Manager, sshDir string) *Registry {
@@ -102,7 +103,7 @@ func (r *Registry) Execute(ctx context.Context, call llm.ToolCall) (string, erro
 		if err != nil {
 			return "", err
 		}
-		res, err := shell.Run(ctx, cmd, root, r.Timeout)
+		res, err := shell.Run(ctx, cmd, root, r.Shell, r.Timeout)
 		if err != nil {
 			return "", err
 		}
@@ -185,7 +186,7 @@ func Specs() []llm.ToolSpec {
 			},
 			"required": []string{"query"},
 		}),
-		fn("run_terminal", "Run PowerShell (Windows) or bash command in workspace", map[string]any{
+		fn("run_terminal", "Run a command in the configured project shell (PowerShell on Windows, login shell on macOS/Linux)", map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"command": map[string]any{"type": "string"},

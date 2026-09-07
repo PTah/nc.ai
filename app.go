@@ -76,6 +76,7 @@ func (a *App) startup(ctx context.Context) {
 		a.chats, _ = chatstore.New(base)
 	}
 	a.tools = tools.NewRegistry(a.ws, a.sshDir)
+	a.tools.Shell = shell.ResolveShell(a.cfg.Get().Shell)
 	a.refreshProvider()
 	// Drop legacy in-app Git passwords (auth is OS git / ~/.ssh now).
 	if s := a.cfg.Get(); s.GitUsername != "" || s.GitPassword != "" {
@@ -266,6 +267,8 @@ func (a *App) GetSettings() map[string]any {
 		"openrouterModel":    orDefault(s.OpenRouterModel, openrouter.DefaultModel),
 		"openrouterKeySet":   s.OpenRouterAPIKey != "",
 		"shell":              s.Shell,
+		"shellResolved":      shell.ResolveShell(s.Shell),
+		"shellDetected":      shell.DetectDefaultShell(),
 		"recentProjects":     s.RecentProjects,
 		"showTerminal":       s.ShowTerminal,
 		"showFiles":          a.cfg.FilesVisible(),
@@ -464,6 +467,27 @@ func (a *App) SaveShowTerminal(show bool) error {
 		a.StopTerminal()
 	}
 	return nil
+}
+
+// SaveShell sets the interactive/one-shot shell executable path (empty = auto-detect).
+func (a *App) SaveShell(path string) error {
+	if err := a.cfg.SetShell(path); err != nil {
+		return err
+	}
+	if a.tools != nil {
+		a.tools.Shell = shell.ResolveShell(path)
+	}
+	// Restart interactive terminal so the new shell takes effect.
+	if a.term != nil {
+		root, _ := a.ws.ActiveRoot()
+		a.ensureTerminal(root)
+	}
+	return nil
+}
+
+// DetectDefaultShell returns the OS-preferred shell path (pwsh/PS5 or $SHELL).
+func (a *App) DetectDefaultShell() string {
+	return shell.DetectDefaultShell()
 }
 
 func (a *App) SaveShowFiles(show bool) error {
@@ -1299,7 +1323,11 @@ func (a *App) ensureTerminal(cwd string) {
 	if a.term != nil {
 		a.term.Stop()
 	}
-	a.term = shell.NewSession(cwd, a.emitTerm)
+	shellPath := shell.ResolveShell(a.cfg.Get().Shell)
+	if a.tools != nil {
+		a.tools.Shell = shellPath
+	}
+	a.term = shell.NewSession(cwd, shellPath, a.emitTerm)
 	_ = a.term.Start()
 }
 
@@ -1328,9 +1356,17 @@ func (a *App) TerminalWrite(data string) error {
 	return a.term.Write(data)
 }
 
+func (a *App) TerminalResize(cols, rows int) error {
+	if a.term == nil {
+		return nil
+	}
+	return a.term.Resize(cols, rows)
+}
+
 func (a *App) RunShell(command string) (map[string]any, error) {
 	root, _ := a.ws.ActiveRoot()
-	res, err := shell.Run(a.ctx, command, root, 0)
+	shellPath := shell.ResolveShell(a.cfg.Get().Shell)
+	res, err := shell.Run(a.ctx, command, root, shellPath, 0)
 	if err != nil {
 		return nil, err
 	}

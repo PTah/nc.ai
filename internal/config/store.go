@@ -114,7 +114,7 @@ func NewStore() *Store {
 			ZaiModel:        "glm-4.7-flash",
 			ZaiEndpoint:     "paas",
 			OpenRouterModel: "qwen/qwen3-coder-flash:floor",
-			Shell:           "powershell",
+			Shell:           "",
 			AgentMaxSteps:   40,
 		},
 	}
@@ -191,6 +191,10 @@ func (s *Store) Load() error {
 	}
 	if s.settings.OpenRouterModel == "" {
 		s.settings.OpenRouterModel = "qwen/qwen3-coder-flash:floor"
+	}
+	// Legacy default was the bare name "powershell"; empty now means auto-detect (pwsh → PS5).
+	if strings.EqualFold(strings.TrimSpace(s.settings.Shell), "powershell") {
+		s.settings.Shell = ""
 	}
 	// Migrate pre-multi-provider totals into DeepSeek bucket once.
 	if s.settings.DeepSeekCostUSD == 0 && s.settings.DeepSeekInputTokens == 0 &&
@@ -379,6 +383,13 @@ func (s *Store) SetGitAuth(user, pass string) error {
 func (s *Store) SetShowTerminal(show bool) error {
 	s.mu.Lock()
 	s.settings.ShowTerminal = show
+	s.mu.Unlock()
+	return s.Save()
+}
+
+func (s *Store) SetShell(path string) error {
+	s.mu.Lock()
+	s.settings.Shell = strings.TrimSpace(path)
 	s.mu.Unlock()
 	return s.Save()
 }

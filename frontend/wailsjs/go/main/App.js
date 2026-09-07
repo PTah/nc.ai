@@ -30,6 +30,10 @@ export function DeleteChatSession(arg1) {
   return window['go']['main']['App']['DeleteChatSession'](arg1);
 }
 
+export function DetectDefaultShell() {
+  return window['go']['main']['App']['DetectDefaultShell']();
+}
+
 export function GetCursorRules() {
   return window['go']['main']['App']['GetCursorRules']();
 }
@@ -194,6 +198,10 @@ export function SaveOpenRouterModel(arg1) {
   return window['go']['main']['App']['SaveOpenRouterModel'](arg1);
 }
 
+export function SaveShell(arg1) {
+  return window['go']['main']['App']['SaveShell'](arg1);
+}
+
 export function SaveShowFiles(arg1) {
   return window['go']['main']['App']['SaveShowFiles'](arg1);
 }
@@ -244,6 +252,10 @@ export function StopTerminal() {
 
 export function SwitchChatSession(arg1) {
   return window['go']['main']['App']['SwitchChatSession'](arg1);
+}
+
+export function TerminalResize(arg1, arg2) {
+  return window['go']['main']['App']['TerminalResize'](arg1, arg2);
 }
 
 export function TerminalWrite(arg1) {
