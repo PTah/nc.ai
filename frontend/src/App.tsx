@@ -124,6 +124,20 @@ function normalizeRules(b: Partial<RulesBundle> | null | undefined): RulesBundle
   }
 }
 
+function makeUserItem(text: string, atts: PendingAtt[]): ChatItem {
+  const previewAtts: ChatAttPreview[] = atts.map((a) => ({
+    name: a.name,
+    mime: a.mime,
+    isImage: a.isImage,
+    dataUrl: a.isImage ? a.dataUrl : undefined,
+  }))
+  return {
+    kind: 'user',
+    content: text || (atts.some((a) => a.isImage) ? '(изображение)' : '(файл)'),
+    attachments: previewAtts.length ? previewAtts : undefined,
+  }
+}
+
 function pickNum(u: Record<string, unknown>, ...keys: string[]): number {
   for (const k of keys) {
     const v = u[k]
@@ -434,6 +448,7 @@ export default function App() {
   const [itemsBySession, setItemsBySession] = useState<Record<string, ChatItem[]>>({})
   const [busyBySession, setBusyBySession] = useState<Record<string, boolean>>({})
   const [pendingAtts, setPendingAtts] = useState<PendingAtt[]>([])
+  const [queue, setQueue] = useState<{text: string; atts: PendingAtt[]}[]>([])
   const [dragOver, setDragOver] = useState(false)
   const [retryVisible, setRetryVisible] = useState(false)
   const [editingTabId, setEditingTabId] = useState('')
@@ -453,9 +468,18 @@ export default function App() {
   const assistantBuf = useRef<Record<string, string>>({})
   const activeSessionRef = useRef('')
   const lastRequestRef = useRef<{text: string; atts: PendingAtt[]} | null>(null)
+  const busyRef = useRef(false)
 
   const items = asList(activeSessionId ? itemsBySession[activeSessionId] : undefined)
   const busy = Boolean(activeSessionId && busyBySession[activeSessionId])
+  const queueCount = queue.length
+  const statusText = busy
+    ? queueCount > 0 ? `думает… · очередь ${queueCount}` : 'думает…'
+    : queueCount > 0 ? `в очереди: ${queueCount}` : keySet ? 'key OK' : 'no key'
+
+  useEffect(() => {
+    busyRef.current = busy
+  }, [busy])
 
   useEffect(() => {
     activeSessionRef.current = activeSessionId
@@ -704,6 +728,15 @@ export default function App() {
     if (!el) return
     el.scrollTop = el.scrollHeight
   }, [items, busy, activeSessionId])
+
+  // Process queued messages once the agent is idle.
+  useEffect(() => {
+    if (busy) return
+    if (queue.length === 0) return
+    const next = queue[0]
+    setQueue((q) => q.slice(1))
+    void runAgent(next.text, next.atts, true)
+  }, [busy, queue])
 
   // Persist active chat after quiet period
   useEffect(() => {
@@ -1032,22 +1065,12 @@ export default function App() {
   }
 
   async function runAgent(text: string, atts: PendingAtt[], skipUserMessage = false) {
-    if ((!text && atts.length === 0) || busy || !activeSessionId) return
+    if ((!text && atts.length === 0) || busyRef.current || !activeSessionId) return
     lastRequestRef.current = {text, atts}
     setRetryVisible(false)
     assistantBuf.current[activeSessionId] = ''
-    const previewAtts: ChatAttPreview[] = atts.map((a) => ({
-      name: a.name,
-      mime: a.mime,
-      isImage: a.isImage,
-      dataUrl: a.isImage ? a.dataUrl : undefined,
-    }))
     if (!skipUserMessage) {
-      setSessionItems(activeSessionId, (m) => [...m, {
-        kind: 'user',
-        content: text || (atts.some((a) => a.isImage) ? '(изображение)' : '(файл)'),
-        attachments: previewAtts.length ? previewAtts : undefined,
-      }])
+      setSessionItems(activeSessionId, (m) => [...m, makeUserItem(text, atts)])
     }
     setBusyBySession((b) => ({...b, [activeSessionId]: true}))
     try {
@@ -1069,8 +1092,14 @@ export default function App() {
     e?.preventDefault()
     const text = input.trim()
     const atts = pendingAtts
+    if ((!text && atts.length === 0) || !activeSessionId) return
     setInput('')
     setPendingAtts([])
+    if (busyRef.current) {
+      setSessionItems(activeSessionId, (m) => [...m, makeUserItem(text, atts)])
+      setQueue((q) => [...q, {text, atts}])
+      return
+    }
     await runAgent(text, atts)
   }
 
@@ -1231,7 +1260,7 @@ export default function App() {
                 <button type="button" className="nc-tab add" onClick={() => void createSession()} title="Новый чат">+</button>
               </div>
               <div className="nc-actions">
-                <span className="nc-pill">{busy ? 'думает…' : keySet ? 'key OK' : 'no key'}</span>
+                <span className="nc-pill">{statusText}</span>
                 <button type="button" className="nc-ghost" onClick={async () => {
                   await ClearChat()
                   const empty: ChatItem[] = [{kind: 'system', content: 'Чат очищен'}]
@@ -1375,7 +1404,7 @@ export default function App() {
                     />
                     <span className="nc-hint">Enter — отправить · картинки → vision</span>
                   </div>
-                  <button type="submit" disabled={busy || (!input.trim() && pendingAtts.length === 0)}>{busy ? '…' : 'Send'}</button>
+                  <button type="submit" disabled={!input.trim() && pendingAtts.length === 0}>{busy ? 'Send' : 'Send'}</button>
                 </div>
               </form>
             </div>
