@@ -909,3 +909,15 @@ textarea { resize: none; }
   width: auto;
   margin: 0;
 }
+
+.nc-confirm-app {
+  margin: 0 0 0.35rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+.nc-confirm h2 {
+  margin: 0 0 0.45rem;
+  font-size: 1.05rem;
+}

@@ -567,7 +567,7 @@ function parseAgentEvent(...args: unknown[]): AgentEvent | null {
 }
 
 export default function App() {
-  const [info, setInfo] = useState({name: 'NotCursor.ai', version: '0.5.5'})
+  const [info, setInfo] = useState({name: 'NotCursor.ai', version: '0.5.6'})
   const [usage, setUsage] = useState<UsageSnapshot>(emptyUsage)
   const [welcome, setWelcome] = useState<WelcomeState | null>(null)
   const [showPrices, setShowPrices] = useState(false)
@@ -587,6 +587,7 @@ export default function App() {
   } | null>(null)
   const [projectCtx, setProjectCtx] = useState<{x: number; y: number; path: string; name: string} | null>(null)
   const [closeProjectDlg, setCloseProjectDlg] = useState<{path: string; name: string} | null>(null)
+  const [pendingCloseChatId, setPendingCloseChatId] = useState<string | null>(null)
   const [projects, setProjects] = useState<Project[]>([])
   const [active, setActive] = useState<Project | null>(null)
   const [files, setFiles] = useState<FileEntry[]>([])
@@ -1134,7 +1135,6 @@ export default function App() {
   }
 
   async function removeSession(id: string) {
-    if (!window.confirm('Хотите закрыть текущий чат?')) return
     if (sessions.length <= 1) {
       await ClearChat()
       const empty: ChatItem[] = [{kind: 'system', content: 'Чат очищен'}]
@@ -1155,6 +1155,17 @@ export default function App() {
         return next
       })
       setActiveSessionId(activeId)
+    }
+  }
+
+  async function confirmCloseChat() {
+    const id = pendingCloseChatId
+    setPendingCloseChatId(null)
+    if (!id) return
+    try {
+      await removeSession(id)
+    } catch (e) {
+      if (activeSessionId) setSessionItems(activeSessionId, (m) => [...m, {kind: 'system', content: String(e)}])
     }
   }
 
@@ -1364,7 +1375,12 @@ export default function App() {
 
   useEffect(() => {
     if (!projectCtx) return
-    const onDown = () => setProjectCtx(null)
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Node | null
+      const menu = document.querySelector('.nc-ctx-menu')
+      if (menu && t && menu.contains(t)) return
+      setProjectCtx(null)
+    }
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setProjectCtx(null)
     }
@@ -1939,7 +1955,7 @@ export default function App() {
                           className="nc-tab-x"
                           onClick={(e) => {
                             e.stopPropagation()
-                            void removeSession(s.id)
+                            setPendingCloseChatId(s.id)
                           }}
                         >×</span>
                       )}
@@ -2613,15 +2629,40 @@ export default function App() {
           className="nc-ctx-menu"
           style={{left: projectCtx.x, top: projectCtx.y}}
           role="menu"
+          onMouseDown={(e) => e.stopPropagation()}
           onClick={(e) => e.stopPropagation()}
         >
           <button
             type="button"
             role="menuitem"
+            onMouseDown={(e) => e.stopPropagation()}
             onClick={() => void requestCloseProject(projectCtx.path, projectCtx.name)}
           >
             Закрыть папку проекта
           </button>
+        </div>
+      )}
+
+      {pendingCloseChatId && (
+        <div className="nc-modal-backdrop" role="presentation" onClick={() => setPendingCloseChatId(null)}>
+          <div
+            className="nc-modal nc-confirm"
+            role="dialog"
+            aria-labelledby="nc-close-chat-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="nc-confirm-app">{info.name || 'NotCursor.ai'}</p>
+            <h2 id="nc-close-chat-title">Хотите закрыть текущий чат?</h2>
+            <p className="nc-help">Чат будет удалён с диска без архива.</p>
+            <div className="nc-close-project-actions">
+              <button type="button" className="nc-danger" onClick={() => void confirmCloseChat()}>
+                Закрыть
+              </button>
+              <button type="button" className="nc-ghost" onClick={() => setPendingCloseChatId(null)}>
+                Отмена
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
