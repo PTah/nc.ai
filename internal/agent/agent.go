@@ -147,7 +147,7 @@ func (r *Runner) retryBackoff() time.Duration {
 // emitting a "reconnect" event before each attempt so the UI can show progress.
 func (r *Runner) chat(ctx context.Context, req *llm.ChatRequest, emit EmitFunc) (*llm.ChatResponse, error) {
 	resp, err := r.Provider.ChatCompletion(ctx, req)
-	for attempt := 0; err != nil && isNetworkError(err) && attempt < r.retryCount(); attempt++ {
+	for attempt := 0; err != nil && isTransientError(err) && attempt < r.retryCount(); attempt++ {
 		wait := r.retryBackoff() * time.Duration(attempt+1)
 		emit(Event{Type: "reconnect", Content: fmt.Sprintf(
 			"Соединение с LLM потеряно (%v). Повторная попытка %d/%d через %.0f сек…",
@@ -163,16 +163,20 @@ func (r *Runner) chat(ctx context.Context, req *llm.ChatRequest, emit EmitFunc) 
 	return resp, err
 }
 
-func isNetworkError(err error) bool {
+func isTransientError(err error) bool {
 	if err == nil {
 		return false
 	}
 	s := strings.ToLower(err.Error())
 	needles := []string{
+		// network
 		"wsarecv", "wsaetimeout", "connection attempt failed", "connection refused",
 		"connection reset", "no such host", "i/o timeout", "dial tcp", "read tcp",
 		"write tcp", "eof", "context deadline exceeded", "connection was forcibly closed",
 		"server misbehaving", "temporary failure",
+		// provider-side transient states
+		"перегружена", "лимит запросов", "позднее", "rate limit",
+		"temporarily unavailable", "недоступен", "overloaded",
 	}
 	for _, n := range needles {
 		if strings.Contains(s, n) {
@@ -260,7 +264,7 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 
 		model := r.resolveModel(step, emit)
 		req := &llm.ChatRequest{
-			Messages:        messages,
+			Messages:        CompactHistory(messages),
 			Tools:           tools.Specs(),
 			ToolChoice:      "auto",
 			Thinking:        map[string]any{"type": "enabled"},
@@ -333,7 +337,7 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 	))
 	wrapModel := r.resolveModel(max, emit)
 	req := &llm.ChatRequest{
-		Messages:        messages,
+		Messages:        CompactHistory(messages),
 		Thinking:        map[string]any{"type": "enabled"},
 		ReasoningEffort: "high",
 		Stream:          false,

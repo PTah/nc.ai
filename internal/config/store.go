@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+
+	"notcursor.ai/app/internal/fsx"
 )
 
 const appDirName = "NotCursor"
@@ -187,7 +189,7 @@ func (s *Store) Save() error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0o600)
+	return fsx.WriteFileAtomic(path, data, 0o600)
 }
 
 func (s *Store) Get() Settings {

@@ -137,12 +137,13 @@ func (c *Client) ListModels(ctx context.Context) ([]ModelInfo, error) {
 }
 
 // FallbackModels is used when /models is unavailable (no key / network).
+// All ids exist on the public API (see https://docs.z.ai/guides/overview/pricing).
 func FallbackModels() []string {
 	return []string{
 		"glm-4.7-flash",
 		"glm-4.5-flash",
-		"glm-5.3",
 		"glm-5.3-flash",
+		"glm-5.3",
 		"glm-5.2",
 		"glm-5.1",
 		"glm-5",
@@ -266,7 +267,7 @@ func (c *Client) ChatCompletion(ctx context.Context, req *llm.ChatRequest) (*llm
 	effort := req.ReasoningEffort
 	hasTools := len(req.Tools) > 0
 	if hasTools {
-		if err := validateToolHistory(req.Messages); err != nil {
+		if err := llm.ValidateToolHistory("zai", req.Messages); err != nil {
 			return nil, err
 		}
 		thinking = map[string]any{"type": "enabled"}
@@ -338,36 +339,6 @@ func (c *Client) ChatCompletion(ctx context.Context, req *llm.ChatRequest) (*llm
 		out.Model = model
 	}
 	return &out, nil
-}
-
-func validateToolHistory(messages []llm.Message) error {
-	known := map[string]bool{}
-	for i, m := range messages {
-		if m.Role != "assistant" {
-			continue
-		}
-		for _, tc := range m.ToolCalls {
-			if tc.ID == "" {
-				return fmt.Errorf("zai: assistant tool_call missing id (index %d)", i)
-			}
-			if tc.Function.Name == "" {
-				return fmt.Errorf("zai: assistant tool_call missing function.name (index %d)", i)
-			}
-			known[tc.ID] = true
-		}
-	}
-	for i, m := range messages {
-		if m.Role != "tool" {
-			continue
-		}
-		if m.ToolCallID == "" {
-			return fmt.Errorf("zai: tool message missing tool_call_id (index %d)", i)
-		}
-		if !known[m.ToolCallID] {
-			return fmt.Errorf("zai: tool message references unknown tool_call_id %q (index %d)", m.ToolCallID, i)
-		}
-	}
-	return nil
 }
 
 func thinkingDisabled(thinking map[string]any) bool {
@@ -487,8 +458,5 @@ func mapAPIError(status int, body []byte) error {
 }
 
 func truncate(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n] + "…"
+	return llm.TruncateRunes(s, n)
 }

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"notcursor.ai/app/internal/llm"
@@ -91,7 +92,7 @@ func (c *Client) ChatCompletion(ctx context.Context, req *llm.ChatRequest) (*llm
 		effort = "high"
 	}
 	if hasTools {
-		if err := validateToolHistory(req.Messages); err != nil {
+		if err := llm.ValidateToolHistory("deepseek", req.Messages); err != nil {
 			return nil, err
 		}
 	}
@@ -132,7 +133,7 @@ func (c *Client) ChatCompletion(ctx context.Context, req *llm.ChatRequest) (*llm
 		return nil, err
 	}
 	if res.StatusCode >= 300 {
-		return nil, fmt.Errorf("deepseek: HTTP %d: %s", res.StatusCode, truncate(string(data), 800))
+		return nil, mapAPIError(res.StatusCode, data)
 	}
 	var out llm.ChatResponse
 	if err := json.Unmarshal(data, &out); err != nil {
@@ -144,37 +145,38 @@ func (c *Client) ChatCompletion(ctx context.Context, req *llm.ChatRequest) (*llm
 	return &out, nil
 }
 
-// validateToolHistory mirrors the DeepSeek tool-call protocol:
-// assistant tool_calls must carry id + function.name, and every tool result
-// must reference a tool_call_id that an earlier assistant message actually issued.
-func validateToolHistory(messages []llm.Message) error {
-	known := map[string]bool{}
-	for i, m := range messages {
-		if m.Role != "assistant" {
-			continue
+type apiErrorBody struct {
+	Error struct {
+		Code    any    `json:"code"`
+		Message string `json:"message"`
+	} `json:"error"`
+}
+
+// mapAPIError turns DeepSeek JSON error payloads into short user-facing messages.
+func mapAPIError(status int, body []byte) error {
+	var payload apiErrorBody
+	_ = json.Unmarshal(body, &payload)
+	msg := strings.TrimSpace(payload.Error.Message)
+	switch status {
+	case 402:
+		return fmt.Errorf("Недостаточно баланса DeepSeek. Пополните счёт и нажмите Reconnect.")
+	case 401:
+		return fmt.Errorf("DeepSeek: неверный API-ключ.")
+	case 403:
+		if strings.Contains(strings.ToLower(msg), "balance") {
+			return fmt.Errorf("Недостаточно баланса DeepSeek. Пополните счёт и нажмите Reconnect.")
 		}
-		for _, tc := range m.ToolCalls {
-			if tc.ID == "" {
-				return fmt.Errorf("deepseek: assistant tool_call missing id (index %d)", i)
-			}
-			if tc.Function.Name == "" {
-				return fmt.Errorf("deepseek: assistant tool_call missing function.name (index %d)", i)
-			}
-			known[tc.ID] = true
-		}
+		return fmt.Errorf("DeepSeek: доступ запрещён (403).")
+	case 429:
+		return fmt.Errorf("Превышен лимит запросов DeepSeek, попробуйте позднее…")
+	case 500, 502, 503:
+		return fmt.Errorf("DeepSeek временно недоступен (%d), попробуйте позднее…", status)
 	}
-	for i, m := range messages {
-		if m.Role != "tool" {
-			continue
-		}
-		if m.ToolCallID == "" {
-			return fmt.Errorf("deepseek: tool message missing tool_call_id (index %d)", i)
-		}
-		if !known[m.ToolCallID] {
-			return fmt.Errorf("deepseek: tool message references unknown tool_call_id %q (index %d)", m.ToolCallID, i)
-		}
+	detail := msg
+	if detail == "" {
+		detail = llm.TruncateRunes(string(body), 400)
 	}
-	return nil
+	return fmt.Errorf("deepseek: HTTP %d: %s", status, detail)
 }
 
 func thinkingEnabled(thinking map[string]any) bool {
@@ -185,9 +187,3 @@ func thinkingEnabled(thinking map[string]any) bool {
 	return t != "disabled"
 }
 
-func truncate(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n] + "…"
-}

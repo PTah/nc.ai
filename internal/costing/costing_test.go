@@ -35,23 +35,50 @@ func TestNormalizeModel(t *testing.T) {
 }
 
 func TestIsPeakWindowsAndWeekend(t *testing.T) {
-	// Weekday peak UTC 01:30 → peak
-	if !IsPeak(time.Date(2026, 9, 7, 1, 30, 0, 0, time.UTC)) { // Mon
-		t.Fatal("Mon 01:30 UTC should be peak")
+	// Off-peak window = 16:30–00:30 UTC (00:30–08:30 Beijing).
+	// Mon 01:30 UTC → Beijing 09:30 → peak
+	if !IsPeak(time.Date(2026, 9, 7, 1, 30, 0, 0, time.UTC)) {
+		t.Fatal("Mon 01:30 UTC (Beijing 09:30) should be peak")
 	}
-	// Gap 04:00–06:00 UTC → off-peak
-	if IsPeak(time.Date(2026, 9, 7, 5, 0, 0, 0, time.UTC)) {
-		t.Fatal("Mon 05:00 UTC should be off-peak")
+	// Mon 05:00 UTC → Beijing 13:00 → peak (daytime)
+	if !IsPeak(time.Date(2026, 9, 7, 5, 0, 0, 0, time.UTC)) {
+		t.Fatal("Mon 05:00 UTC (Beijing 13:00) should be peak")
 	}
-	// Weekday off-peak evening
-	if IsPeak(time.Date(2026, 9, 7, 12, 0, 0, 0, time.UTC)) {
-		t.Fatal("Mon 12:00 UTC should be off-peak")
+	// Mon 17:00 UTC → Beijing 01:00 → off-peak night window
+	if IsPeak(time.Date(2026, 9, 7, 17, 0, 0, 0, time.UTC)) {
+		t.Fatal("Mon 17:00 UTC (Beijing 01:00) should be off-peak")
+	}
+	// Mon 23:00 UTC → Beijing 07:00 → off-peak night window
+	if IsPeak(time.Date(2026, 9, 7, 23, 0, 0, 0, time.UTC)) {
+		t.Fatal("Mon 23:00 UTC (Beijing 07:00) should be off-peak")
+	}
+	// Mon 12:00 UTC → Beijing 20:00 → peak evening
+	if !IsPeak(time.Date(2026, 9, 7, 12, 0, 0, 0, time.UTC)) {
+		t.Fatal("Mon 12:00 UTC (Beijing 20:00) should be peak")
+	}
+	// Boundary: 16:29 UTC → peak; 16:30 UTC → off-peak
+	if !IsPeak(time.Date(2026, 9, 7, 16, 29, 0, 0, time.UTC)) {
+		t.Fatal("Mon 16:29 UTC should be peak (just before window)")
+	}
+	if IsPeak(time.Date(2026, 9, 7, 16, 30, 0, 0, time.UTC)) {
+		t.Fatal("Mon 16:30 UTC should be off-peak (window start)")
+	}
+	// Boundary: 00:29 UTC → off-peak; 00:30 UTC → peak
+	if IsPeak(time.Date(2026, 9, 7, 0, 29, 0, 0, time.UTC)) {
+		t.Fatal("Mon 00:29 UTC should be off-peak (just before window end)")
+	}
+	if !IsPeak(time.Date(2026, 9, 7, 0, 30, 0, 0, time.UTC)) {
+		t.Fatal("Mon 00:30 UTC should be peak (window end)")
 	}
 	// Beijing Saturday 00:30 = 2026-08-28T16:30:00Z → off-peak (weekend rule)
 	if IsPeak(time.Date(2026, 8, 28, 16, 30, 0, 0, time.UTC)) {
 		t.Fatal("Beijing Sat 00:30 should be off-peak")
 	}
-	// Before weekend rule: Fri peak window still peak even near weekend boundary
+	// Saturday daytime (Beijing) → off-peak after weekend rule
+	if IsPeak(time.Date(2026, 9, 5, 4, 0, 0, 0, time.UTC)) { // Beijing Sat 12:00
+		t.Fatal("Beijing Sat 12:00 should be off-peak (weekend)")
+	}
+	// Before weekend rule: Fri daytime still peak
 	if !IsPeak(time.Date(2026, 8, 21, 7, 0, 0, 0, time.UTC)) { // Fri before effective
 		t.Fatal("pre-rule Fri 07:00 UTC should be peak")
 	}
@@ -68,7 +95,7 @@ func TestCostOffPeakFlashCacheHit(t *testing.T) {
 }
 
 func TestCostPeakFlashCacheMissAndOut(t *testing.T) {
-	at := time.Date(2026, 9, 7, 2, 0, 0, 0, time.UTC) // Mon peak
+	at := time.Date(2026, 9, 7, 5, 0, 0, 0, time.UTC) // Mon daytime (Beijing 13:00) → peak
 	u := &llm.Usage{
 		PromptTokens:          1_000_000,
 		PromptCacheMissTokens: 1_000_000,

@@ -238,24 +238,40 @@ func matchOneGlob(pattern, path string) bool {
 	return false
 }
 
+// loadFromDir walks dir recursively (Cursor supports nested rule folders).
 func loadFromDir(dir, source, home, root string) []Rule {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return []Rule{}
+	out := []Rule{}
+	maxDepth := 3
+	var walk func(d string, depth int)
+	walk = func(d string, depth int) {
+		if depth > maxDepth {
+			return
+		}
+		entries, err := os.ReadDir(d)
+		if err != nil {
+			return
+		}
+		for _, e := range entries {
+			full := filepath.Join(d, e.Name())
+			if e.IsDir() {
+				// skip hidden/dependency dirs
+				name := e.Name()
+				if strings.HasPrefix(name, ".") && name != "." {
+					continue
+				}
+				walk(full, depth+1)
+				continue
+			}
+			ext := strings.ToLower(filepath.Ext(e.Name()))
+			if ext != ".mdc" && ext != ".md" {
+				continue
+			}
+			if r, ok := loadFile(full, source, home, root); ok {
+				out = append(out, r)
+			}
+		}
 	}
-	out := make([]Rule, 0, len(entries))
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
-		}
-		ext := strings.ToLower(filepath.Ext(e.Name()))
-		if ext != ".mdc" && ext != ".md" {
-			continue
-		}
-		if r, ok := loadFile(filepath.Join(dir, e.Name()), source, home, root); ok {
-			out = append(out, r)
-		}
-	}
+	walk(dir, 0)
 	return out
 }
 

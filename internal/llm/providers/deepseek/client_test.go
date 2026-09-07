@@ -17,7 +17,7 @@ func TestValidateToolHistoryOK(t *testing.T) {
 		llm.ToolResultMessage("call_1", "ok"),
 		{Role: "assistant", Content: "done"},
 	}
-	if err := validateToolHistory(msgs); err != nil {
+	if err := llm.ValidateToolHistory("deepseek", msgs); err != nil {
 		t.Fatalf("validateToolHistory = %v, want nil", err)
 	}
 }
@@ -27,7 +27,7 @@ func TestValidateToolHistoryMissingCallID(t *testing.T) {
 		{Role: "assistant", ToolCalls: []llm.ToolCall{call("", "list_dir")}},
 		llm.ToolResultMessage("", "ok"),
 	}
-	if err := validateToolHistory(msgs); err == nil {
+	if err := llm.ValidateToolHistory("deepseek", msgs); err == nil {
 		t.Fatal("missing tool_call id: want error")
 	}
 }
@@ -37,7 +37,7 @@ func TestValidateToolHistoryMissingCallName(t *testing.T) {
 		{Role: "assistant", ToolCalls: []llm.ToolCall{call("call_1", "")}},
 		llm.ToolResultMessage("call_1", "ok"),
 	}
-	if err := validateToolHistory(msgs); err == nil {
+	if err := llm.ValidateToolHistory("deepseek", msgs); err == nil {
 		t.Fatal("missing function.name: want error")
 	}
 }
@@ -47,7 +47,7 @@ func TestValidateToolHistoryToolMissingID(t *testing.T) {
 		{Role: "assistant", ToolCalls: []llm.ToolCall{call("call_1", "list_dir")}},
 		{Role: "tool", Content: "ok"},
 	}
-	if err := validateToolHistory(msgs); err == nil {
+	if err := llm.ValidateToolHistory("deepseek", msgs); err == nil {
 		t.Fatal("tool message without tool_call_id: want error")
 	}
 }
@@ -57,7 +57,7 @@ func TestValidateToolHistoryOrphanToolResult(t *testing.T) {
 		{Role: "assistant", ToolCalls: []llm.ToolCall{call("call_1", "list_dir")}},
 		llm.ToolResultMessage("call_404", "ok"),
 	}
-	if err := validateToolHistory(msgs); err == nil {
+	if err := llm.ValidateToolHistory("deepseek", msgs); err == nil {
 		t.Fatal("orphan tool result: want error")
 	}
 }

@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"notcursor.ai/app/internal/fsx"
 	"notcursor.ai/app/internal/llm"
 )
 
@@ -127,7 +128,7 @@ func (s *Store) saveBundle(b *ProjectBundle) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(s.path(b.Project), data, 0o600)
+	return fsx.WriteFileAtomic(s.path(b.Project), data, 0o600)
 }
 
 func (s *Store) List(project string) (*ProjectBundle, error) {

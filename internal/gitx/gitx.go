@@ -78,7 +78,21 @@ func (s *Service) Commit(message string) (string, error) {
 	if strings.TrimSpace(message) == "" {
 		return "", fmt.Errorf("empty commit message")
 	}
-	if _, err := s.run("add", "-A"); err != nil {
+	// Stage tracked changes only (add -u): avoids sweeping in untracked files
+	// the agent never touched (build artifacts, dumps, secrets).
+	if _, err := s.run("add", "-u"); err != nil {
+		return "", err
+	}
+	return s.run("commit", "-m", message)
+}
+
+// CommitPaths stages the given paths explicitly and commits them.
+func (s *Service) CommitPaths(message string, paths []string) (string, error) {
+	if strings.TrimSpace(message) == "" {
+		return "", fmt.Errorf("empty commit message")
+	}
+	args := append([]string{"add", "--"}, paths...)
+	if _, err := s.run(args...); err != nil {
 		return "", err
 	}
 	return s.run("commit", "-m", message)

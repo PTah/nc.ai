@@ -123,28 +123,48 @@ func isDeepSeekKey(key string) bool {
 	return strings.HasPrefix(key, "deepseek")
 }
 
-// IsPeak reports whether DeepSeek bills peak rates at the given UTC instant.
-func IsPeak(at time.Time) bool {
+// IsOffPeak reports whether DeepSeek bills off-peak (half) rates at the given UTC instant.
+// Off-peak window per DeepSeek pricing: 16:30-00:30 UTC (00:30-08:30 Beijing),
+// plus whole weekends since 2026-08-23 (Beijing).
+func IsOffPeak(at time.Time) bool {
 	at = at.UTC()
 	beijing := at.Add(beijingOffsetHours * time.Hour)
 	if !at.Before(weekendOffpeakEffective) {
 		wd := beijing.Weekday()
 		if wd == time.Saturday || wd == time.Sunday {
-			return false
+			return true
 		}
 	}
 	minute := at.Hour()*60 + at.Minute()
-	if (minute >= 60 && minute < 240) || (minute >= 360 && minute < 600) {
-		return true
-	}
-	return false
+	// 16:30 (990) .. 24:00 (1440) and 00:00 .. 00:30 (30)
+	return minute >= 990 || minute < 30
 }
 
+// IsPeak is the inverse of IsOffPeak (kept for compatibility/tests).
+func IsPeak(at time.Time) bool {
+	return !IsOffPeak(at)
+}
+
+// zaiFallback is used for unknown Z.ai models so new models are not billed $0.
+// glm-4.7 is a mid-tier estimate (see zaiSheet).
+var zaiFallbackKey = "glm-4.7"
+
 // Price returns the rate card for model at the given instant.
+// Unknown Z.ai models fall back to a mid-tier estimate (never $0);
+// unknown DeepSeek models fall back to deepseek-v4-flash.
 func Price(model string, at time.Time) Prices {
 	key := NormalizeModel(model)
 	if key == "" {
-		return Prices{}
+		m := strings.ToLower(strings.TrimSpace(model))
+		m = strings.TrimPrefix(m, "zai/")
+		if strings.HasPrefix(m, "glm") {
+			return zaiSheet[zaiFallbackKey]
+		}
+		if strings.HasPrefix(m, "deepseek") {
+			key = "deepseek-v4-flash"
+		} else {
+			return Prices{}
+		}
 	}
 	if p, ok := zaiSheet[key]; ok {
 		return p
@@ -156,14 +176,14 @@ func Price(model string, at time.Time) Prices {
 	if !isDeepSeekKey(key) {
 		return peak
 	}
-	if IsPeak(at) {
-		return peak
+	if IsOffPeak(at) {
+		return Prices{
+			InputHit:   peak.InputHit / 2,
+			InputMiss:  peak.InputMiss / 2,
+			Completion: peak.Completion / 2,
+		}
 	}
-	return Prices{
-		InputHit:   peak.InputHit / 2,
-		InputMiss:  peak.InputMiss / 2,
-		Completion: peak.Completion / 2,
-	}
+	return peak
 }
 
 // Cost returns USD for one API response using usage and "now".

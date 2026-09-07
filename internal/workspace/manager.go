@@ -170,9 +170,9 @@ func (m *Manager) ReadFile(rel string) (string, error) {
 		return "", err
 	}
 	if len(data) > maxReadBytes {
-		return string(data[:maxReadBytes]) + "\n\n/* truncated */", nil
+		data = append(data[:maxReadBytes:maxReadBytes], []byte("\n\n/* truncated */")...)
 	}
-	return string(data), nil
+	return m.guardRead(rel, string(data))
 }
 
 func (m *Manager) notFoundHint(rel, full string) error {
