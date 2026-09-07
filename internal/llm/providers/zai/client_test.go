@@ -2,7 +2,10 @@ package zai
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
+
+	"notcursor.ai/app/internal/llm"
 )
 
 func TestDecodeModelsList(t *testing.T) {
@@ -75,5 +78,25 @@ func TestMapAPIError1302(t *testing.T) {
 	err := mapAPIError(429, body)
 	if err == nil || err.Error() != "Превышен лимит запросов, попробуйте позднее…" {
 		t.Fatalf("got %v", err)
+	}
+}
+
+func TestPrepareMessagesStripsImagesForTextModel(t *testing.T) {
+	in := []llm.Message{{
+		Role: "user",
+		Parts: []llm.ContentPart{
+			{Type: "text", Text: "привет"},
+			{Type: "image_url", ImageURL: &llm.ImageURL{URL: "data:image/png;base64,xx"}},
+		},
+	}}
+	out := prepareMessages("glm-4.7-flash", in)
+	if len(out) != 1 || out[0].Parts != nil {
+		t.Fatalf("parts should be cleared: %+v", out[0])
+	}
+	if !strings.Contains(out[0].Content, "привет") {
+		t.Fatalf("content=%q", out[0].Content)
+	}
+	if !strings.Contains(out[0].Content, "изображение опущено") {
+		t.Fatalf("expected image placeholder, got %q", out[0].Content)
 	}
 }

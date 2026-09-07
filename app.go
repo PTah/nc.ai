@@ -919,7 +919,15 @@ func (a *App) ChatOnce(userMessage string) (string, error) {
 	if len(resp.Choices) == 0 {
 		return "", fmt.Errorf("empty response")
 	}
-	return resp.Choices[0].Message.Content, nil
+	msg := resp.Choices[0].Message
+	if s := strings.TrimSpace(msg.Content); s != "" {
+		return s, nil
+	}
+	// Thinking-only replies (common on GLM free flash with low max_tokens).
+	if a.cfg.Provider() == config.ProviderZAI {
+		return "ok", nil
+	}
+	return "", nil
 }
 
 // --- terminal ---

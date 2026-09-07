@@ -311,7 +311,7 @@ func (c *Client) ChatCompletion(ctx context.Context, req *llm.ChatRequest) (*llm
 
 	payload := apiRequest{
 		Model:           model,
-		Messages:        req.Messages,
+		Messages:        prepareMessages(model, req.Messages),
 		Tools:           req.Tools,
 		ToolChoice:      req.ToolChoice,
 		Stream:          false,
@@ -393,6 +393,75 @@ func thinkingDisabled(thinking map[string]any) bool {
 	return t == "disabled"
 }
 
+// supportsVision reports models that accept image_url content parts.
+// glm-4.7-flash / glm-4.5-flash / glm-5.3 are text-only; glm-5.3-flash and *v* are multimodal.
+func supportsVision(model string) bool {
+	m := strings.ToLower(strings.TrimSpace(model))
+	switch {
+	case strings.Contains(m, "5.3-flash"):
+		return true
+	case strings.Contains(m, "4.6v"), strings.Contains(m, "4.5v"), strings.Contains(m, "5v"):
+		return true
+	default:
+		return false
+	}
+}
+
+// prepareMessages adapts history for Z.ai: text-only models cannot receive image_url
+// (API 1210: messages.content.type allowed values: ['text']).
+func prepareMessages(model string, msgs []llm.Message) []llm.Message {
+	if len(msgs) == 0 {
+		return msgs
+	}
+	vision := supportsVision(model)
+	out := make([]llm.Message, len(msgs))
+	for i, m := range msgs {
+		out[i] = m
+		if len(m.Parts) == 0 {
+			continue
+		}
+		if vision {
+			cleaned := make([]llm.ContentPart, 0, len(m.Parts))
+			for _, p := range m.Parts {
+				if p.Type == "text" || p.Type == "image_url" {
+					cleaned = append(cleaned, p)
+				}
+			}
+			if len(cleaned) == 1 && cleaned[0].Type == "text" {
+				out[i].Content = cleaned[0].Text
+				out[i].Parts = nil
+			} else {
+				out[i].Parts = cleaned
+			}
+			continue
+		}
+		var b strings.Builder
+		if strings.TrimSpace(m.Content) != "" {
+			b.WriteString(m.Content)
+		}
+		for _, p := range m.Parts {
+			switch p.Type {
+			case "text":
+				if p.Text == "" {
+					continue
+				}
+				if b.Len() > 0 {
+					b.WriteByte('\n')
+				}
+				b.WriteString(p.Text)
+			case "image_url":
+				if b.Len() > 0 {
+					b.WriteByte('\n')
+				}
+				b.WriteString("[изображение опущено: текущая модель Z.ai только текстовая]")
+			}
+		}
+		out[i].Content = b.String()
+		out[i].Parts = nil
+	}
+	return out
+}
+
 type apiErrorBody struct {
 	Error struct {
 		Code    any    `json:"code"`
@@ -413,7 +482,17 @@ func mapAPIError(status int, body []byte) error {
 	case "1113":
 		return fmt.Errorf("Недостаточно баланса Z.ai. Выберите бесплатную модель (glm-4.7-flash) или пополните счёт / включите Coding Plan")
 	case "1210":
-		return fmt.Errorf("Эта модель всегда думает — нельзя отключить thinking; используйте effort low/high/max")
+		low := strings.ToLower(payload.Error.Message)
+		if strings.Contains(low, "content.type") || strings.Contains(low, "image") {
+			return fmt.Errorf("Эта модель Z.ai принимает только текст (без изображений). Выберите vision-модель (например glm-5.3-flash) или уберите картинки из чата")
+		}
+		if strings.Contains(low, "thinking") || strings.Contains(low, "disabled") {
+			return fmt.Errorf("Эта модель всегда думает — нельзя отключить thinking; используйте effort low/high/max")
+		}
+		if msg := strings.TrimSpace(payload.Error.Message); msg != "" {
+			return fmt.Errorf("zai: %s", msg)
+		}
+		return fmt.Errorf("zai: неверный параметр запроса (1210)")
 	}
 	msg := strings.TrimSpace(payload.Error.Message)
 	if msg != "" {
