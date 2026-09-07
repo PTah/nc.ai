@@ -10,7 +10,6 @@ import {
   ClearChat,
   DeleteChatSession,
   GetSettings,
-  GetCursorRules,
   GetUsageStats,
   ListChatSessions,
   ListDir,
@@ -123,6 +122,21 @@ function normalizeRules(b: Partial<RulesBundle> | null | undefined): RulesBundle
     global: asList(b?.global),
     project: asList(b?.project),
   }
+}
+
+/** Mirrors Go shouldApplyFull with empty path hints (always-on for this project). */
+function isAppliedRule(r: RuleInfo): boolean {
+  if (r.alwaysApply) return true
+  const name = String(r.name || '').toLowerCase()
+  if (name === 'agents.md' || name === '.cursorrules') return true
+  const hasDesc = Boolean(String(r.description || '').trim())
+  const hasGlobs = Boolean(String(r.globs || '').trim())
+  return !hasDesc && !hasGlobs
+}
+
+function rulesCounts(b: RulesBundle): {total: number; applied: number} {
+  const all = [...asList(b.global), ...asList(b.project)]
+  return {total: all.length, applied: all.filter(isAppliedRule).length}
 }
 
 function makeUserItem(text: string, atts: PendingAtt[]): ChatItem {
@@ -476,7 +490,8 @@ export default function App() {
   const queueCount = queue.length
   const statusText = busy
     ? queueCount > 0 ? `думает… · очередь ${queueCount}` : 'думает…'
-    : queueCount > 0 ? `в очереди: ${queueCount}` : keySet ? 'key OK' : 'no key'
+    : queueCount > 0 ? `в очереди: ${queueCount}` : ''
+  const {total: rulesTotal, applied: rulesApplied} = rulesCounts(rulesInfo)
 
   useEffect(() => {
     busyRef.current = busy
@@ -564,7 +579,7 @@ export default function App() {
 
   async function refreshRules() {
     try {
-      const b = await GetCursorRules()
+      const b = await ReloadCursorRules()
       setRulesInfo(normalizeRules(b))
     } catch {
       setRulesInfo(normalizeRules(null))
@@ -665,7 +680,7 @@ export default function App() {
           void refreshFiles('.')
         }
       }).catch(() => undefined)
-      GetCursorRules().then((b) => setRulesInfo(normalizeRules(b))).catch(() => undefined)
+      ReloadCursorRules().then((b) => setRulesInfo(normalizeRules(b))).catch(() => undefined)
     } catch {
       // window.go / runtime may be missing until Wails injects bindings
     }
@@ -1353,7 +1368,13 @@ export default function App() {
                 <button type="button" className="nc-tab add" onClick={() => void createSession()} title="Новый чат">+</button>
               </div>
               <div className="nc-actions">
-                <span className="nc-pill">{statusText}</span>
+                <span
+                  className="nc-pill"
+                  title="Всего найденных Cursor/AGENTS правил · сколько всегда применяются к проекту (alwaysApply / AGENTS.md / без globs)"
+                >
+                  Rules Total/Applied: {rulesTotal}/{rulesApplied}
+                </span>
+                {statusText ? <span className="nc-pill">{statusText}</span> : null}
                 <button type="button" className="nc-ghost" onClick={async () => {
                   await ClearChat()
                   const empty: ChatItem[] = [{kind: 'system', content: 'Чат очищен'}]

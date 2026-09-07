@@ -638,11 +638,20 @@ func (a *App) RunAgentWithAttachments(userMessage string, attachments []agent.At
 	hist := append([]llm.Message{}, a.history...)
 	a.mu.Unlock()
 
+	attNames := make([]string, 0, len(attachments))
+	for _, att := range attachments {
+		if att.Name != "" {
+			attNames = append(attNames, att.Name)
+		}
+	}
+	bundle := a.loadRules()
+	hints := rules.ExtractHintPaths(userMessage, attNames...)
+
 	runner := &agent.Runner{
 		Provider:  a.llm,
 		Tools:     a.tools,
 		MaxSteps:  a.cfg.MaxAgentSteps(),
-		RulesText: a.GetCursorRules().CombinedText(),
+		RulesText: bundle.SelectForPrompt(hints),
 	}
 
 	var costUSD float64

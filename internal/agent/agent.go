@@ -13,6 +13,8 @@ import (
 
 const DefaultMaxSteps = 40
 
+const maxToolResultBytes = 12288
+
 const SystemPrompt = `You are NotCursor.ai, a coding agent like Cursor.
 You work inside the user's local workspace.
 Use tools to read/write files, run shell/PowerShell, use git, and SSH when needed.
@@ -23,10 +25,15 @@ Critical path rules:
 - If read_file fails with "file not found", use the suggested siblings / list_dir and retry the real path.
 - Paths are relative to the workspace root (use forward slashes).
 
+Token and edit discipline (save cost; follow project rules when they conflict with defaults):
+- Prefer small precise edits over rewrites or copy-paste duplicates.
+- Do not add verbose comments, docstrings, or drive-by refactors unless the user asks.
+- Do not expand scope beyond the requested task.
+- Avoid re-reading huge files or dumping entire directories when a targeted search/read suffices.
+
 When the user attaches screenshots/images, describe and use what you see; then act with tools.
 Never invent file contents — read with tools first.
-After tool results, always give a final textual answer to the user.
-Prefer small precise edits.`
+After tool results, always give a final textual answer to the user.`
 
 // Event is pushed to the UI during an agent run.
 type Event struct {
@@ -78,9 +85,9 @@ func (r *Runner) systemPrompt() string {
 		return SystemPrompt
 	}
 	return SystemPrompt + "\n\n" +
-		"## Cursor rules loaded for this project\n" +
-		"The user has configured rules via Cursor (.cursorrules / .cursor/rules). " +
-		"Apply them when they are relevant to the task and follow them over this base prompt:\n\n" +
+		"## Cursor / project rules for this turn\n" +
+		"These rules come from Cursor (.cursorrules / .cursor/rules / AGENTS.md) and were refreshed for this request. " +
+		"Follow them strictly; when they conflict with this base prompt, the rules win.\n\n" +
 		rules
 }
 
@@ -263,7 +270,7 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 					result = fmt.Sprintf("ERROR: %v", execErr)
 				}
 				emit(Event{Type: "tool_end", Name: name, Content: truncate(result, 4000), OK: ok})
-				messages = append(messages, llm.ToolResultMessage(call.ID, result))
+				messages = append(messages, llm.ToolResultMessage(call.ID, truncate(result, maxToolResultBytes)))
 			}
 			continue
 		default:
