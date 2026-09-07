@@ -532,6 +532,36 @@ export default function App() {
     }
   }, [])
 
+  function lastUserRequest(items: ChatItem[]): {text: string; atts: PendingAtt[]} | null {
+    for (let i = items.length - 1; i >= 0; i--) {
+      const it = items[i]
+      if (it.kind === 'user') {
+        const atts: PendingAtt[] = asList(it.attachments).map((a, idx) => ({
+          id: `retry-${i}-${idx}`,
+          name: a.name,
+          mime: a.mime || '',
+          isImage: a.isImage,
+          dataUrl: a.isImage ? a.dataUrl : undefined,
+          text: '',
+        }))
+        return {text: it.content, atts}
+      }
+    }
+    return null
+  }
+
+  function applyRetryState(items: ChatItem[]) {
+    const list = asList(items)
+    const last = list[list.length - 1]
+    if (last && last.kind === 'system' && last.content.startsWith('Error:')) {
+      setRetryVisible(true)
+      const req = lastUserRequest(list)
+      if (req) lastRequestRef.current = req
+    } else {
+      setRetryVisible(false)
+    }
+  }
+
   async function refreshRules() {
     try {
       const b = await GetCursorRules()
@@ -627,7 +657,14 @@ export default function App() {
           composerH: Number(s.layoutComposerH) || 150,
         })
       }).catch(() => undefined)
-      ListProjects().then((v) => setProjects(asList(v))).catch(() => undefined)
+      ListProjects().then((v) => {
+        const list = asList(v)
+        setProjects(list)
+        if (list.length > 0) {
+          setActive(list[0])
+          void refreshFiles('.')
+        }
+      }).catch(() => undefined)
       GetCursorRules().then((b) => setRulesInfo(normalizeRules(b))).catch(() => undefined)
     } catch {
       // window.go / runtime may be missing until Wails injects bindings
@@ -714,7 +751,14 @@ export default function App() {
           } else if (ev.type === 'error') {
             assistantBuf.current[sid] = ''
             setBusyBySession((b) => ({...b, [sid]: false}))
-            setSessionItems(sid, (prev) => [...prev, {kind: 'system', content: `Error: ${ev.content || 'unknown'}`}])
+            const errContent = ev.content || 'unknown'
+            setSessionItems(sid, (prev) => {
+              const next: ChatItem[] = [...prev, {kind: 'system', content: `Error: ${errContent}`}]
+              if (/402|Insufficient Balance/i.test(errContent)) {
+                next.push({kind: 'system', content: 'Пополните баланс DeepSeek и нажмите Reconnect.'})
+              }
+              return next
+            })
             if (sid === activeSessionRef.current) setRetryVisible(true)
           }
         } catch (err) {
@@ -795,8 +839,10 @@ export default function App() {
         : [{kind: 'system', content: 'Чат с агентом. История пуста — задайте задачу. Можно вставить скриншот (Ctrl+V) или перетащить файл.'}]
       if (activeId) {
         setItemsBySession((prev) => ({...prev, [activeId]: chatItems}))
+        applyRetryState(chatItems)
       } else if (list[0]) {
         setItemsBySession((prev) => ({...prev, [list[0].id]: chatItems}))
+        applyRetryState(chatItems)
       }
       await applyUsageStats()
     } catch {
@@ -820,8 +866,8 @@ export default function App() {
         ? parsed as ChatItem[]
         : [{kind: 'system', content: 'Новый чат. Задайте задачу или вставьте файл/скриншот.'}]
       setActiveSessionId(id)
-      setRetryVisible(false)
       setItemsBySession((prev) => ({...prev, [id]: chatItems}))
+      applyRetryState(chatItems)
       setSessions((prev) => prev.map((s) => s.id === id ? s : s))
       await refreshSessions()
       setActiveSessionId(id)
@@ -1314,12 +1360,12 @@ export default function App() {
                   if (activeSessionId) setSessionItems(activeSessionId, () => empty)
                   await SaveChat(JSON.stringify(empty)).catch(() => undefined)
                   await applyUsageStats()
-                }}>Clear</button>
-                <button type="button" className="nc-ghost" onClick={() => void archiveChat()} disabled={!activeSessionId || busy}>Archive</button>
+                }} title="Очистить текущий чат">Clear</button>
+                <button type="button" className="nc-ghost" onClick={() => void archiveChat()} disabled={!activeSessionId || busy} title="Перенести текущий чат в архив (папка chat_archive)">Archive</button>
                 {retryVisible && !busy && (
-                  <button type="button" className="nc-ghost" onClick={() => void retryLast()}>Reconnect</button>
+                  <button type="button" className="nc-ghost" onClick={() => void retryLast()} title="Повторить последний запрос">Reconnect</button>
                 )}
-                <button type="button" className="nc-ghost" disabled={!busy} onClick={() => StopAgent()}>Stop</button>
+                <button type="button" className="nc-ghost" disabled={!busy} onClick={() => StopAgent()} title="Остановить текущий запуск агента">Stop</button>
               </div>
             </header>
             <div className="nc-thread" ref={chatRef}>
