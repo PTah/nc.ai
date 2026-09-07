@@ -98,6 +98,10 @@ export function SaveChatSession(arg1, arg2) {
   return window['go']['main']['App']['SaveChatSession'](arg1, arg2);
 }
 
+export function SaveComposerHeight(arg1) {
+  return window['go']['main']['App']['SaveComposerHeight'](arg1);
+}
+
 export function SaveDeepSeekKey(arg1) {
   return window['go']['main']['App']['SaveDeepSeekKey'](arg1);
 }

@@ -42,6 +42,7 @@ type Settings struct {
 	LayoutTreeW      int `json:"layoutTreeW,omitempty"`
 	LayoutSettingsW  int `json:"layoutSettingsW,omitempty"`
 	LayoutTerminalH  int `json:"layoutTerminalH,omitempty"`
+	LayoutComposerH  int `json:"layoutComposerH,omitempty"`
 
 	// All-time API usage counters backing the USD spend counter in the top bar.
 	TotalCostUSD      float64 `json:"totalCostUsd"`
@@ -267,6 +268,19 @@ func (s *Store) SetLayoutSizes(projectsW, treeW, settingsW, terminalH int) error
 	if terminalH > 0 {
 		s.settings.LayoutTerminalH = terminalH
 	}
+	s.mu.Unlock()
+	return s.Save()
+}
+
+func (s *Store) SetComposerH(h int) error {
+	if h < 110 {
+		h = 110
+	}
+	if h > 480 {
+		h = 480
+	}
+	s.mu.Lock()
+	s.settings.LayoutComposerH = h
 	s.mu.Unlock()
 	return s.Save()
 }

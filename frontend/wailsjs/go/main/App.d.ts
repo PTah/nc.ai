@@ -54,6 +54,8 @@ export function SaveChat(arg1:string):Promise<void>;
 
 export function SaveChatSession(arg1:string,arg2:string):Promise<void>;
 
+export function SaveComposerHeight(arg1:number):Promise<void>;
+
 export function SaveDeepSeekKey(arg1:string):Promise<void>;
 
 export function SaveDeepSeekModel(arg1:string):Promise<void>;

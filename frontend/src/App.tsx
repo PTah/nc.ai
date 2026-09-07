@@ -23,6 +23,7 @@ import {
   SaveDeepSeekKey,
   SaveDeepSeekModel,
   SaveAgentMaxSteps,
+  SaveComposerHeight,
   SaveShowTerminal,
   SaveShowFiles,
   SaveShowSettings,
@@ -271,8 +272,20 @@ function ToolGroup({summary, tools}: {summary: string; tools: Extract<ChatItem, 
 }
 
 function ThinkingBlock({content, collapsed}: {content: string; collapsed?: boolean}) {
+  const [open, setOpen] = useState(!collapsed)
+  const prevCollapsed = useRef(collapsed)
+  useEffect(() => {
+    if (collapsed !== prevCollapsed.current) {
+      prevCollapsed.current = collapsed
+      setOpen(!collapsed)
+    }
+  }, [collapsed])
   return (
-    <details className="nc-msg reasoning" open={!collapsed}>
+    <details
+      className="nc-msg reasoning"
+      open={open}
+      onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}
+    >
       <summary className="nc-think-sum">Thinking</summary>
       <pre className="nc-think-body">{content}</pre>
     </details>
@@ -332,7 +345,7 @@ function parseAgentEvent(...args: unknown[]): AgentEvent | null {
 }
 
 export default function App() {
-  const [info, setInfo] = useState({name: 'NotCursor.ai', version: '0.1.10'})
+  const [info, setInfo] = useState({name: 'NotCursor.ai', version: '0.2.0'})
   const [usage, setUsage] = useState<UsageSnapshot>(emptyUsage)
   const [rulesInfo, setRulesInfo] = useState<RulesBundle>({globalDir: '', projectDir: '', global: [], project: []})
   const [projects, setProjects] = useState<Project[]>([])
@@ -347,6 +360,7 @@ export default function App() {
     treeW: 220,
     settingsW: 230,
     terminalH: 160,
+    composerH: 150,
   })
   const layoutRef = useRef(layout)
   const [sessions, setSessions] = useState<ChatSessionMeta[]>([])
@@ -419,9 +433,10 @@ export default function App() {
 
   const persistLayout = useCallback((next = layoutRef.current) => {
     SaveLayoutSizes(next.projectsW, next.treeW, next.settingsW, next.terminalH).catch(() => undefined)
+    SaveComposerHeight(next.composerH).catch(() => undefined)
   }, [])
 
-  const beginResize = useCallback((kind: 'projects' | 'tree' | 'settings' | 'terminal', e: ReactMouseEvent) => {
+  const beginResize = useCallback((kind: 'projects' | 'tree' | 'settings' | 'terminal' | 'composer', e: ReactMouseEvent) => {
     e.preventDefault()
     const startX = e.clientX
     const startY = e.clientY
@@ -435,6 +450,8 @@ export default function App() {
         next = {...start, treeW: clamp(start.treeW + (ev.clientX - startX), 140, 480)}
       } else if (kind === 'settings') {
         next = {...start, settingsW: clamp(start.settingsW - (ev.clientX - startX), 180, 420)}
+      } else if (kind === 'composer') {
+        next = {...start, composerH: clamp(start.composerH - (ev.clientY - startY), 110, 480)}
       } else {
         next = {...start, terminalH: clamp(start.terminalH - (ev.clientY - startY), 90, 480)}
       }
@@ -493,6 +510,7 @@ export default function App() {
           treeW: Number(s.layoutTreeW) || 220,
           settingsW: Number(s.layoutSettingsW) || 230,
           terminalH: Number(s.layoutTerminalH) || 160,
+          composerH: Number(s.layoutComposerH) || 150,
         })
       }).catch(() => undefined)
       ListProjects().then((v) => setProjects(asList(v))).catch(() => undefined)
@@ -1086,7 +1104,7 @@ export default function App() {
           className={`nc-main ${showTerm ? '' : 'no-term'}`}
           style={{['--layout-terminal' as string]: `${layout.terminalH}px`}}
         >
-          <section className="nc-chat">
+          <section className="nc-chat" style={{['--layout-composer' as string]: `${layout.composerH}px`}}>
             <header className="nc-chat-head">
               <div className="nc-tabs">
                 {sessions.map((s) => (
@@ -1179,6 +1197,7 @@ export default function App() {
                 <div aria-hidden className="nc-thread-end" />
               </div>
             </div>
+            <div className="nc-chat-hsplit" onMouseDown={(e) => beginResize('composer', e)} />
             <div className="nc-composer-wrap">
               <form
                 className={`nc-composer ${dragOver ? 'drag' : ''}`}

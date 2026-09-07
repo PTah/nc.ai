@@ -140,7 +140,7 @@ func (a *App) emitTerm(data string) {
 func (a *App) AppInfo() map[string]string {
 	return map[string]string{
 		"name":    "NotCursor.ai",
-		"version": "0.1.10",
+		"version": "0.2.0",
 		"stage":   "1-deepseek-agent",
 	}
 }
@@ -162,6 +162,7 @@ func (a *App) GetSettings() map[string]any {
 		"layoutTreeW":     nonzero(s.LayoutTreeW, 220),
 		"layoutSettingsW": nonzero(s.LayoutSettingsW, 230),
 		"layoutTerminalH": nonzero(s.LayoutTerminalH, 160),
+		"layoutComposerH": nonzero(s.LayoutComposerH, 150),
 	}
 }
 
@@ -252,6 +253,11 @@ func (a *App) SaveShowSettings(show bool) error {
 // SaveLayoutSizes persists inner pane widths/heights (projects/tree/settings/terminal).
 func (a *App) SaveLayoutSizes(projectsW, treeW, settingsW, terminalH int) error {
 	return a.cfg.SetLayoutSizes(projectsW, treeW, settingsW, terminalH)
+}
+
+// SaveComposerHeight persists the resizable chat input area height.
+func (a *App) SaveComposerHeight(h int) error {
+	return a.cfg.SetComposerH(h)
 }
 
 // SaveWindowGeometry flushes the OS window size/position (also on close).
