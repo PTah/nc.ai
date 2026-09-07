@@ -50,10 +50,6 @@ export function ListZaiModels() {
   return window['go']['main']['App']['ListZaiModels']();
 }
 
-export function PreferZaiModel(arg1) {
-  return window['go']['main']['App']['PreferZaiModel'](arg1);
-}
-
 export function LoadChat(arg1) {
   return window['go']['main']['App']['LoadChat'](arg1);
 }
@@ -68,6 +64,10 @@ export function OpenProject(arg1) {
 
 export function PickProjectDir() {
   return window['go']['main']['App']['PickProjectDir']();
+}
+
+export function PreferZaiModel(arg1) {
+  return window['go']['main']['App']['PreferZaiModel'](arg1);
 }
 
 export function ReadFile(arg1) {

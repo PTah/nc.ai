@@ -30,8 +30,6 @@ export function ListProjects():Promise<Array<workspace.Project>>;
 
 export function ListZaiModels():Promise<Array<string>>;
 
-export function PreferZaiModel(arg1:Array<string>):Promise<string>;
-
 export function LoadChat(arg1:string):Promise<string>;
 
 export function NewChatSession(arg1:string):Promise<chatstore.Session>;
@@ -39,6 +37,8 @@ export function NewChatSession(arg1:string):Promise<chatstore.Session>;
 export function OpenProject(arg1:string):Promise<workspace.Project>;
 
 export function PickProjectDir():Promise<string>;
+
+export function PreferZaiModel(arg1:Array<string>):Promise<string>;
 
 export function ReadFile(arg1:string):Promise<string>;
 
