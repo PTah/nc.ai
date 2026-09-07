@@ -17,6 +17,8 @@ import (
 //
 //	cost = hit * cached_input + miss * input + completion * output
 //
+// OpenRouter: prefer usage.cost from the API response when present; else sheet.
+//
 // Free models (glm-4.7-flash, glm-4.5-flash) bill $0.
 
 // Prices is a USD-per-1M-tokens price sheet for one model at one period.
@@ -73,6 +75,32 @@ var zaiSheet = map[string]Prices{
 	"glm-4.5-flash": {}, // free
 }
 
+// openrouterSheet is approximate USD / 1M (mid-market). Prefer Usage.CostUSD from API.
+// Source snapshot: openrouter.ai/api/v1/models (per-token * 1e6).
+var openrouterSheet = map[string]Prices{
+	"qwen/qwen3-coder-flash": {
+		InputMiss: 0.195, InputHit: 0.195, Completion: 0.975,
+	},
+	"qwen/qwen3-coder-30b-a3b-instruct": {
+		InputMiss: 0.07, InputHit: 0.07, Completion: 0.28,
+	},
+	"qwen/qwen3-coder": {
+		InputMiss: 0.30, InputHit: 0.30, Completion: 1.00,
+	},
+	"qwen/qwen3-coder-plus": {
+		InputMiss: 0.65, InputHit: 0.65, Completion: 3.25,
+	},
+	"qwen/qwen3-coder-next": {
+		InputMiss: 0.12, InputHit: 0.12, Completion: 0.80,
+	},
+	"qwen/qwen3-vl-8b-instruct": {
+		InputMiss: 0.117, InputHit: 0.117, Completion: 0.455,
+	},
+	"qwen/qwen3-vl-32b-instruct": {
+		InputMiss: 0.104, InputHit: 0.104, Completion: 0.416,
+	},
+}
+
 // weekendOffpeakEffective is when DeepSeek began weekend-wide off-peak
 // (00:00 Beijing 2026-08-23 = 2026-08-22T16:00:00Z).
 var weekendOffpeakEffective = time.Date(2026, 8, 22, 16, 0, 0, 0, time.UTC)
@@ -85,6 +113,10 @@ func NormalizeModel(model string) string {
 	m := strings.ToLower(strings.TrimSpace(model))
 	m = strings.TrimPrefix(m, "deepseek/")
 	m = strings.TrimPrefix(m, "zai/")
+	// OpenRouter routing suffixes (:floor, :nitro, :exacto, …).
+	if i := strings.IndexByte(m, ':'); i > 0 {
+		m = m[:i]
+	}
 	switch {
 	case strings.HasPrefix(m, "deepseek-v4-pro"):
 		return "deepseek-v4-pro"
@@ -114,6 +146,20 @@ func NormalizeModel(model string) string {
 		return "glm-4.5-air"
 	case strings.HasPrefix(m, "glm-4.5"):
 		return "glm-4.5"
+	case strings.HasPrefix(m, "qwen/qwen3-coder-flash"):
+		return "qwen/qwen3-coder-flash"
+	case strings.HasPrefix(m, "qwen/qwen3-coder-30b"):
+		return "qwen/qwen3-coder-30b-a3b-instruct"
+	case strings.HasPrefix(m, "qwen/qwen3-coder-plus"):
+		return "qwen/qwen3-coder-plus"
+	case strings.HasPrefix(m, "qwen/qwen3-coder-next"):
+		return "qwen/qwen3-coder-next"
+	case m == "qwen/qwen3-coder" || strings.HasPrefix(m, "qwen/qwen3-coder-"):
+		return "qwen/qwen3-coder"
+	case strings.HasPrefix(m, "qwen/qwen3-vl-32b"):
+		return "qwen/qwen3-vl-32b-instruct"
+	case strings.HasPrefix(m, "qwen/qwen3-vl"):
+		return "qwen/qwen3-vl-8b-instruct"
 	default:
 		return ""
 	}
@@ -157,14 +203,22 @@ func Price(model string, at time.Time) Prices {
 	if key == "" {
 		m := strings.ToLower(strings.TrimSpace(model))
 		m = strings.TrimPrefix(m, "zai/")
+		if i := strings.IndexByte(m, ':'); i > 0 {
+			m = m[:i]
+		}
 		if strings.HasPrefix(m, "glm") {
 			return zaiSheet[zaiFallbackKey]
 		}
 		if strings.HasPrefix(m, "deepseek") {
 			key = "deepseek-v4-flash"
+		} else if strings.HasPrefix(m, "qwen/") {
+			return openrouterSheet["qwen/qwen3-coder"]
 		} else {
 			return Prices{}
 		}
+	}
+	if p, ok := openrouterSheet[key]; ok {
+		return p
 	}
 	if p, ok := zaiSheet[key]; ok {
 		return p
@@ -192,9 +246,13 @@ func Cost(model string, u *llm.Usage) float64 {
 }
 
 // CostAt is Cost with an explicit billing timestamp (for tests / replay).
+// When Usage.CostUSD > 0 (OpenRouter native cost), that value wins.
 func CostAt(model string, u *llm.Usage, at time.Time) float64 {
 	if u == nil {
 		return 0
+	}
+	if u.CostUSD > 0 {
+		return u.CostUSD
 	}
 	p := Price(model, at)
 	hit, miss := cacheSplit(u)

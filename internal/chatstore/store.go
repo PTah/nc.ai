@@ -35,6 +35,10 @@ type Session struct {
 	ZaiCostUSD      float64 `json:"zaiCostUsd,omitempty"`
 	ZaiInputTokens  int     `json:"zaiInputTokens,omitempty"`
 	ZaiOutputTokens int     `json:"zaiOutputTokens,omitempty"`
+
+	OpenRouterCostUSD      float64 `json:"openrouterCostUsd,omitempty"`
+	OpenRouterInputTokens  int     `json:"openrouterInputTokens,omitempty"`
+	OpenRouterOutputTokens int     `json:"openrouterOutputTokens,omitempty"`
 }
 
 // ProjectBundle holds all sessions for one workspace.
@@ -459,9 +463,12 @@ func (sess *Session) ProviderUsage(provider string) (cost float64, in, out int) 
 	switch strings.ToLower(strings.TrimSpace(provider)) {
 	case "zai":
 		return sess.ZaiCostUSD, sess.ZaiInputTokens, sess.ZaiOutputTokens
+	case "openrouter":
+		return sess.OpenRouterCostUSD, sess.OpenRouterInputTokens, sess.OpenRouterOutputTokens
 	default:
 		if sess.DeepSeekCostUSD == 0 && sess.DeepSeekInputTokens == 0 && sess.DeepSeekOutputTokens == 0 &&
 			sess.ZaiCostUSD == 0 && sess.ZaiInputTokens == 0 && sess.ZaiOutputTokens == 0 &&
+			sess.OpenRouterCostUSD == 0 && sess.OpenRouterInputTokens == 0 && sess.OpenRouterOutputTokens == 0 &&
 			(sess.CostUSD != 0 || sess.InputTokens != 0 || sess.OutputTokens != 0) {
 			return sess.CostUSD, sess.InputTokens, sess.OutputTokens
 		}
@@ -485,11 +492,16 @@ func (s *Store) AddUsage(project, sessionID, provider string, costUSD float64, i
 			b.Sessions[i].CostUSD += costUSD
 			b.Sessions[i].InputTokens += inputTokens
 			b.Sessions[i].OutputTokens += outputTokens
-			if strings.EqualFold(strings.TrimSpace(provider), "zai") {
+			switch strings.ToLower(strings.TrimSpace(provider)) {
+			case "zai":
 				b.Sessions[i].ZaiCostUSD += costUSD
 				b.Sessions[i].ZaiInputTokens += inputTokens
 				b.Sessions[i].ZaiOutputTokens += outputTokens
-			} else {
+			case "openrouter":
+				b.Sessions[i].OpenRouterCostUSD += costUSD
+				b.Sessions[i].OpenRouterInputTokens += inputTokens
+				b.Sessions[i].OpenRouterOutputTokens += outputTokens
+			default:
 				b.Sessions[i].DeepSeekCostUSD += costUSD
 				b.Sessions[i].DeepSeekInputTokens += inputTokens
 				b.Sessions[i].DeepSeekOutputTokens += outputTokens

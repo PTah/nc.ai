@@ -79,6 +79,8 @@ type Usage struct {
 	TotalTokens           int `json:"total_tokens"`
 	PromptCacheHitTokens  int `json:"prompt_cache_hit_tokens,omitempty"`
 	PromptCacheMissTokens int `json:"prompt_cache_miss_tokens,omitempty"`
+	// CostUSD is set when the provider reports billed cost (OpenRouter usage.cost).
+	CostUSD float64 `json:"cost,omitempty"`
 }
 
 type StreamEvent struct {

@@ -55,3 +55,25 @@ func TestPickZaiModel_VisionFlash(t *testing.T) {
 		t.Fatalf("got %s want %s", d.Model, ModelZaiVision)
 	}
 }
+
+func TestPickOpenRouterModel_DefaultFlash(t *testing.T) {
+	d := PickOpenRouterModel(RouteInput{UserText: "поправь опечатку в README"})
+	if d.Model != ModelORFlash {
+		t.Fatalf("got %s want %s", d.Model, ModelORFlash)
+	}
+}
+
+func TestPickOpenRouterModel_ComplexAndVision(t *testing.T) {
+	d := PickOpenRouterModel(RouteInput{UserText: "сделай рефакторинг auth"})
+	if d.Model != ModelORStrong {
+		t.Fatalf("complex: got %s want %s", d.Model, ModelORStrong)
+	}
+	d = PickOpenRouterModel(RouteInput{UserText: "hi", Step: 8})
+	if d.Model != ModelORStrong {
+		t.Fatalf("long-run: got %s want %s", d.Model, ModelORStrong)
+	}
+	d = PickOpenRouterModel(RouteInput{UserText: "скрин", HasImages: true})
+	if d.Model != ModelORVision {
+		t.Fatalf("vision: got %s want %s", d.Model, ModelORVision)
+	}
+}

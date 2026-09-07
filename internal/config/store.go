@@ -13,12 +13,13 @@ const appDirName = "NotCursor"
 
 // Provider ids persisted in Settings.ActiveProvider.
 const (
-	ProviderDeepSeek = "deepseek"
-	ProviderZAI      = "zai"
+	ProviderDeepSeek   = "deepseek"
+	ProviderZAI        = "zai"
+	ProviderOpenRouter = "openrouter"
 )
 
 type Settings struct {
-	// ActiveProvider selects which LLM backend is used ("deepseek" | "zai").
+	// ActiveProvider selects which LLM backend is used ("deepseek" | "zai" | "openrouter").
 	ActiveProvider string `json:"activeProvider,omitempty"`
 
 	DeepSeekAPIKey string `json:"deepseekApiKey"`
@@ -28,6 +29,9 @@ type Settings struct {
 	ZaiModel  string `json:"zaiModel,omitempty"`
 	// ZaiEndpoint: "paas" (pay-as-you-go, default) or "coding" (GLM Coding Plan).
 	ZaiEndpoint string `json:"zaiEndpoint,omitempty"`
+
+	OpenRouterAPIKey string `json:"openrouterApiKey,omitempty"`
+	OpenRouterModel  string `json:"openrouterModel,omitempty"`
 
 	Shell          string   `json:"shell"`
 	RecentProjects []string `json:"recentProjects"`
@@ -47,7 +51,7 @@ type Settings struct {
 	AgentMaxSteps int `json:"agentMaxSteps,omitempty"`
 
 	// AutoModels enables per-turn model routing (DeepSeek flash/pro/vision;
-	// Z.ai free flash → glm-5.3 on complex tasks).
+	// Z.ai free flash → glm-5.3; OpenRouter flash → coder on complex tasks).
 	AutoModels bool `json:"autoModels,omitempty"`
 
 	// Main window geometry (logical pixels). Zero width/height → defaults.
@@ -77,6 +81,10 @@ type Settings struct {
 	ZaiCostUSD      float64 `json:"zaiCostUsd,omitempty"`
 	ZaiInputTokens  int     `json:"zaiInputTokens,omitempty"`
 	ZaiOutputTokens int     `json:"zaiOutputTokens,omitempty"`
+
+	OpenRouterCostUSD      float64 `json:"openrouterCostUsd,omitempty"`
+	OpenRouterInputTokens  int     `json:"openrouterInputTokens,omitempty"`
+	OpenRouterOutputTokens int     `json:"openrouterOutputTokens,omitempty"`
 }
 
 type Store struct {
@@ -88,12 +96,13 @@ type Store struct {
 func NewStore() *Store {
 	return &Store{
 		settings: Settings{
-			ActiveProvider: ProviderDeepSeek,
-			DeepSeekModel:  "deepseek-v4-flash",
-			ZaiModel:       "glm-4.7-flash",
-			ZaiEndpoint:    "paas",
-			Shell:          "powershell",
-			AgentMaxSteps:  40,
+			ActiveProvider:  ProviderDeepSeek,
+			DeepSeekModel:   "deepseek-v4-flash",
+			ZaiModel:        "glm-4.7-flash",
+			ZaiEndpoint:     "paas",
+			OpenRouterModel: "qwen/qwen3-coder-flash:floor",
+			Shell:           "powershell",
+			AgentMaxSteps:   40,
 		},
 	}
 }
@@ -167,6 +176,9 @@ func (s *Store) Load() error {
 	if s.settings.DeepSeekModel == "" {
 		s.settings.DeepSeekModel = "deepseek-v4-flash"
 	}
+	if s.settings.OpenRouterModel == "" {
+		s.settings.OpenRouterModel = "qwen/qwen3-coder-flash:floor"
+	}
 	// Migrate pre-multi-provider totals into DeepSeek bucket once.
 	if s.settings.DeepSeekCostUSD == 0 && s.settings.DeepSeekInputTokens == 0 &&
 		s.settings.DeepSeekOutputTokens == 0 && s.settings.ZaiCostUSD == 0 &&
@@ -233,6 +245,20 @@ func (s *Store) SetZaiEndpoint(endpoint string) error {
 	return s.Save()
 }
 
+func (s *Store) SetOpenRouterAPIKey(key string) error {
+	s.mu.Lock()
+	s.settings.OpenRouterAPIKey = key
+	s.mu.Unlock()
+	return s.Save()
+}
+
+func (s *Store) SetOpenRouterModel(model string) error {
+	s.mu.Lock()
+	s.settings.OpenRouterModel = model
+	s.mu.Unlock()
+	return s.Save()
+}
+
 func (s *Store) ZaiEndpoint() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -269,6 +295,8 @@ func (s *Store) ActiveAPIKey() string {
 	switch normalizeProvider(s.settings.ActiveProvider) {
 	case ProviderZAI:
 		return s.settings.ZaiAPIKey
+	case ProviderOpenRouter:
+		return s.settings.OpenRouterAPIKey
 	default:
 		return s.settings.DeepSeekAPIKey
 	}
@@ -281,6 +309,8 @@ func (s *Store) ActiveModel() string {
 	switch normalizeProvider(s.settings.ActiveProvider) {
 	case ProviderZAI:
 		return s.settings.ZaiModel
+	case ProviderOpenRouter:
+		return s.settings.OpenRouterModel
 	default:
 		return s.settings.DeepSeekModel
 	}
@@ -292,6 +322,8 @@ func (s *Store) SetActiveModel(model string) error {
 	switch normalizeProvider(s.settings.ActiveProvider) {
 	case ProviderZAI:
 		s.settings.ZaiModel = model
+	case ProviderOpenRouter:
+		s.settings.OpenRouterModel = model
 	default:
 		s.settings.DeepSeekModel = model
 	}
@@ -303,6 +335,8 @@ func normalizeProvider(p string) string {
 	switch p {
 	case ProviderZAI:
 		return ProviderZAI
+	case ProviderOpenRouter:
+		return ProviderOpenRouter
 	default:
 		return ProviderDeepSeek
 	}
@@ -480,6 +514,10 @@ func (s *Store) AddUsage(provider string, costUSD float64, inputTokens, outputTo
 		s.settings.ZaiCostUSD += costUSD
 		s.settings.ZaiInputTokens += inputTokens
 		s.settings.ZaiOutputTokens += outputTokens
+	case ProviderOpenRouter:
+		s.settings.OpenRouterCostUSD += costUSD
+		s.settings.OpenRouterInputTokens += inputTokens
+		s.settings.OpenRouterOutputTokens += outputTokens
 	default:
 		s.settings.DeepSeekCostUSD += costUSD
 		s.settings.DeepSeekInputTokens += inputTokens
@@ -496,6 +534,8 @@ func (s *Store) ProviderUsage(provider string) (cost float64, in, out int) {
 	switch normalizeProvider(provider) {
 	case ProviderZAI:
 		return s.settings.ZaiCostUSD, s.settings.ZaiInputTokens, s.settings.ZaiOutputTokens
+	case ProviderOpenRouter:
+		return s.settings.OpenRouterCostUSD, s.settings.OpenRouterInputTokens, s.settings.OpenRouterOutputTokens
 	default:
 		return s.settings.DeepSeekCostUSD, s.settings.DeepSeekInputTokens, s.settings.DeepSeekOutputTokens
 	}

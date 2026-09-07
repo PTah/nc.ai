@@ -5,6 +5,7 @@ import (
 	"unicode/utf8"
 
 	"notcursor.ai/app/internal/llm/providers/deepseek"
+	"notcursor.ai/app/internal/llm/providers/openrouter"
 	"notcursor.ai/app/internal/llm/providers/zai"
 )
 
@@ -20,6 +21,13 @@ const (
 	ModelZaiFree   = zai.DefaultModel // glm-4.7-flash ($0)
 	ModelZaiStrong = "glm-5.3"        // flagship for complex work
 	ModelZaiVision = "glm-5.3-flash"  // multimodal + cheaper than full 5.3
+)
+
+// Auto model ids (OpenRouter / Qwen coder).
+const (
+	ModelORFlash  = openrouter.DefaultModel // qwen3-coder-flash:floor
+	ModelORStrong = openrouter.StrongModel  // qwen3-coder:floor
+	ModelORVision = openrouter.VisionModel  // qwen3-vl-8b-instruct
 )
 
 // RouteInput feeds the Auto-models picker.
@@ -83,6 +91,25 @@ func PickZaiModel(in RouteInput) RouteDecision {
 		return RouteDecision{Model: ModelZaiStrong, Reason: "complex"}
 	}
 	return RouteDecision{Model: ModelZaiFree, Reason: "default"}
+}
+
+// PickOpenRouterModel chooses cheap Qwen flash vs stronger coder for OpenRouter Auto.
+//
+// Priority:
+//  1. Any image → qwen3-vl
+//  2. Long tool run / complex prompt / many paths → qwen3-coder:floor
+//  3. Otherwise → qwen3-coder-flash:floor
+func PickOpenRouterModel(in RouteInput) RouteDecision {
+	if in.HasImages {
+		return RouteDecision{Model: ModelORVision, Reason: "image"}
+	}
+	if in.Step >= 8 {
+		return RouteDecision{Model: ModelORStrong, Reason: "long-run"}
+	}
+	if in.HintPathCount >= 4 || isComplexTask(in.UserText) {
+		return RouteDecision{Model: ModelORStrong, Reason: "complex"}
+	}
+	return RouteDecision{Model: ModelORFlash, Reason: "default"}
 }
 
 func isComplexTask(text string) bool {

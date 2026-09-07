@@ -17,6 +17,7 @@ import (
 	"notcursor.ai/app/internal/dockicon"
 	"notcursor.ai/app/internal/llm"
 	"notcursor.ai/app/internal/llm/providers/deepseek"
+	"notcursor.ai/app/internal/llm/providers/openrouter"
 	"notcursor.ai/app/internal/llm/providers/zai"
 	"notcursor.ai/app/internal/rules"
 	"notcursor.ai/app/internal/shell"
@@ -47,6 +48,9 @@ type App struct {
 
 	zaiBalMu sync.Mutex
 	zaiBal   zai.AccountBalance
+
+	orBalMu sync.Mutex
+	orBal   openrouter.AccountBalance
 }
 
 func NewApp() *App {
@@ -123,6 +127,11 @@ func (a *App) refreshProvider() {
 			model = zai.DefaultModel
 		}
 		a.llm = zai.NewWithBaseURL(key, model, zai.BaseURLFor(a.cfg.ZaiEndpoint()))
+	case config.ProviderOpenRouter:
+		if model == "" {
+			model = openrouter.DefaultModel
+		}
+		a.llm = openrouter.New(key, model)
 	default:
 		if model == "" {
 			model = deepseek.DefaultModel
@@ -155,7 +164,7 @@ func (a *App) emitTerm(data string) {
 func (a *App) AppInfo() map[string]string {
 	return map[string]string{
 		"name":    "NotCursor.ai",
-		"version": "0.4.2",
+		"version": "0.4.3",
 		"stage":   "2-multi-provider",
 	}
 }
@@ -164,26 +173,28 @@ func (a *App) GetSettings() map[string]any {
 	s := a.cfg.Get()
 	provider := a.cfg.Provider()
 	return map[string]any{
-		"activeProvider":  provider,
-		"deepseekModel":   s.DeepSeekModel,
-		"deepseekKeySet":  s.DeepSeekAPIKey != "",
-		"zaiModel":        orDefault(s.ZaiModel, zai.DefaultModel),
-		"zaiKeySet":       s.ZaiAPIKey != "",
-		"zaiEndpoint":     a.cfg.ZaiEndpoint(),
-		"shell":           s.Shell,
-		"recentProjects":  s.RecentProjects,
-		"showTerminal":    s.ShowTerminal,
-		"showFiles":       a.cfg.FilesVisible(),
-		"showSettings":    s.ShowSettings,
-		"theme":           a.cfg.Theme(),
-		"agentMaxSteps":   a.cfg.MaxAgentSteps(),
-		"autoModels":      a.cfg.AutoModels(),
-		"visionModel":     deepseek.VisionModel,
-		"layoutProjectsW": nonzero(s.LayoutProjectsW, 200),
-		"layoutTreeW":     nonzero(s.LayoutTreeW, 220),
-		"layoutSettingsW": nonzero(s.LayoutSettingsW, 230),
-		"layoutTerminalH": nonzero(s.LayoutTerminalH, 160),
-		"layoutComposerH": nonzero(s.LayoutComposerH, 150),
+		"activeProvider":     provider,
+		"deepseekModel":      s.DeepSeekModel,
+		"deepseekKeySet":     s.DeepSeekAPIKey != "",
+		"zaiModel":           orDefault(s.ZaiModel, zai.DefaultModel),
+		"zaiKeySet":          s.ZaiAPIKey != "",
+		"zaiEndpoint":        a.cfg.ZaiEndpoint(),
+		"openrouterModel":    orDefault(s.OpenRouterModel, openrouter.DefaultModel),
+		"openrouterKeySet":   s.OpenRouterAPIKey != "",
+		"shell":              s.Shell,
+		"recentProjects":     s.RecentProjects,
+		"showTerminal":       s.ShowTerminal,
+		"showFiles":          a.cfg.FilesVisible(),
+		"showSettings":       s.ShowSettings,
+		"theme":              a.cfg.Theme(),
+		"agentMaxSteps":      a.cfg.MaxAgentSteps(),
+		"autoModels":         a.cfg.AutoModels(),
+		"visionModel":        deepseek.VisionModel,
+		"layoutProjectsW":    nonzero(s.LayoutProjectsW, 200),
+		"layoutTreeW":        nonzero(s.LayoutTreeW, 220),
+		"layoutSettingsW":    nonzero(s.LayoutSettingsW, 230),
+		"layoutTerminalH":    nonzero(s.LayoutTerminalH, 160),
+		"layoutComposerH":    nonzero(s.LayoutComposerH, 150),
 	}
 }
 
@@ -253,6 +264,14 @@ func (a *App) GetUsageStats() UsageStats {
 		a.zaiBalMu.Lock()
 		bal := a.zaiBal
 		a.zaiBalMu.Unlock()
+		outStats.BalanceOk = bal.OK
+		outStats.BalanceUsd = bal.AvailableUSD
+		outStats.BalanceDetail = bal.Detail
+	}
+	if provider == config.ProviderOpenRouter {
+		a.orBalMu.Lock()
+		bal := a.orBal
+		a.orBalMu.Unlock()
 		outStats.BalanceOk = bal.OK
 		outStats.BalanceUsd = bal.AvailableUSD
 		outStats.BalanceDetail = bal.Detail
@@ -349,6 +368,22 @@ func (a *App) SaveZaiEndpoint(endpoint string) error {
 	return nil
 }
 
+func (a *App) SaveOpenRouterKey(apiKey string) error {
+	if err := a.cfg.SetOpenRouterAPIKey(apiKey); err != nil {
+		return err
+	}
+	a.refreshProvider()
+	return nil
+}
+
+func (a *App) SaveOpenRouterModel(model string) error {
+	if err := a.cfg.SetOpenRouterModel(model); err != nil {
+		return err
+	}
+	a.refreshProvider()
+	return nil
+}
+
 // ListZaiModels returns model ids from GET {base}/models for the saved Z.ai key.
 // Official free-tier ids are always merged in (API catalog often omits them).
 func (a *App) ListZaiModels() []string {
@@ -402,6 +437,45 @@ func (a *App) GetZaiBalance() zai.AccountBalance {
 	a.zaiBalMu.Lock()
 	a.zaiBal = bal
 	a.zaiBalMu.Unlock()
+	return bal
+}
+
+// ListOpenRouterModels returns curated + coding tool models from OpenRouter.
+func (a *App) ListOpenRouterModels() []string {
+	key := a.cfg.Get().OpenRouterAPIKey
+	if key == "" {
+		return openrouter.OrderModels(openrouter.FallbackModels())
+	}
+	client := openrouter.New(key, a.cfg.Get().OpenRouterModel)
+	ctx := a.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(ctx, 25*time.Second)
+	defer cancel()
+	items, err := client.ListModels(ctx)
+	if err != nil || len(items) == 0 {
+		return openrouter.OrderModels(openrouter.FallbackModels())
+	}
+	return openrouter.OrderModels(openrouter.MergeCurated(openrouter.FilterCodingModels(items, 40)))
+}
+
+// PreferOpenRouterModel keeps the saved model when still available; else default flash.
+func (a *App) PreferOpenRouterModel(available []string) string {
+	return openrouter.PreferModel(available, a.cfg.Get().OpenRouterModel)
+}
+
+// GetOpenRouterBalance best-effort remaining prepaid credits for the saved key.
+func (a *App) GetOpenRouterBalance() openrouter.AccountBalance {
+	key := a.cfg.Get().OpenRouterAPIKey
+	ctx := a.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	bal := openrouter.FetchBalance(ctx, key)
+	a.orBalMu.Lock()
+	a.orBal = bal
+	a.orBalMu.Unlock()
 	return bal
 }
 
@@ -751,6 +825,8 @@ func (a *App) RunAgentWithAttachments(userMessage string, attachments []agent.At
 		switch a.cfg.Provider() {
 		case config.ProviderZAI:
 			return fmt.Errorf("Z.ai API key is not set")
+		case config.ProviderOpenRouter:
+			return fmt.Errorf("OpenRouter API key is not set")
 		default:
 			return fmt.Errorf("DeepSeek API key is not set")
 		}
@@ -910,13 +986,20 @@ func usagePayload(provider string, totalCost float64, totalIn, totalOut int, cha
 }
 
 func (a *App) usageBalanceSnapshot(provider string) (ok bool, usd float64, detail string) {
-	if provider != config.ProviderZAI {
+	switch provider {
+	case config.ProviderZAI:
+		a.zaiBalMu.Lock()
+		bal := a.zaiBal
+		a.zaiBalMu.Unlock()
+		return bal.OK, bal.AvailableUSD, bal.Detail
+	case config.ProviderOpenRouter:
+		a.orBalMu.Lock()
+		bal := a.orBal
+		a.orBalMu.Unlock()
+		return bal.OK, bal.AvailableUSD, bal.Detail
+	default:
 		return false, 0, ""
 	}
-	a.zaiBalMu.Lock()
-	bal := a.zaiBal
-	a.zaiBalMu.Unlock()
-	return bal.OK, bal.AvailableUSD, bal.Detail
 }
 
 // loadActiveIntoMemoryUnlocked assumes caller may or may not hold lock — only used carefully.
@@ -946,6 +1029,8 @@ func (a *App) ChatOnce(userMessage string) (string, error) {
 		switch a.cfg.Provider() {
 		case config.ProviderZAI:
 			return "", fmt.Errorf("Z.ai API key is not set")
+		case config.ProviderOpenRouter:
+			return "", fmt.Errorf("OpenRouter API key is not set")
 		default:
 			return "", fmt.Errorf("DeepSeek API key is not set")
 		}

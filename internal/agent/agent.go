@@ -63,9 +63,9 @@ type Runner struct {
 	ModelOverride string
 	// PreferredModel is used when AutoModels is off and ModelOverride is empty.
 	PreferredModel string
-	// AutoModels enables PickModel / PickZaiModel routing for this run.
+	// AutoModels enables PickModel / PickZaiModel / PickOpenRouterModel routing.
 	AutoModels bool
-	// ProviderID is "deepseek" or "zai" (drives Auto routing + image defaults).
+	// ProviderID is "deepseek", "zai", or "openrouter" (Auto routing + image defaults).
 	ProviderID string
 	// Route context for AutoModels (filled by the app before Run*).
 	UserText      string
@@ -88,6 +88,10 @@ func (r *Runner) isZai() bool {
 	return strings.EqualFold(strings.TrimSpace(r.ProviderID), "zai")
 }
 
+func (r *Runner) isOpenRouter() bool {
+	return strings.EqualFold(strings.TrimSpace(r.ProviderID), "openrouter")
+}
+
 func (r *Runner) reportUsage(model string, u *llm.Usage) {
 	if r.OnUsage == nil {
 		return
@@ -101,14 +105,22 @@ func (r *Runner) resolveModel(step int, emit EmitFunc) string {
 	switch {
 	case r.AutoModels:
 		var d RouteDecision
-		if r.isZai() {
+		switch {
+		case r.isZai():
 			d = PickZaiModel(RouteInput{
 				UserText:      r.UserText,
 				HasImages:     r.HasImages,
 				HintPathCount: r.HintPathCount,
 				Step:          step,
 			})
-		} else {
+		case r.isOpenRouter():
+			d = PickOpenRouterModel(RouteInput{
+				UserText:      r.UserText,
+				HasImages:     r.HasImages,
+				HintPathCount: r.HintPathCount,
+				Step:          step,
+			})
+		default:
 			d = PickModel(RouteInput{
 				UserText:      r.UserText,
 				HasImages:     r.HasImages,
@@ -118,9 +130,12 @@ func (r *Runner) resolveModel(step int, emit EmitFunc) string {
 		}
 		model, reason = d.Model, d.Reason
 	case r.HasImages:
-		if r.isZai() {
+		switch {
+		case r.isZai():
 			model, reason = ModelZaiVision, "image"
-		} else {
+		case r.isOpenRouter():
+			model, reason = ModelORVision, "image"
+		default:
 			model, reason = ModelVision, "image"
 		}
 	case strings.TrimSpace(r.ModelOverride) != "":
@@ -128,9 +143,12 @@ func (r *Runner) resolveModel(step int, emit EmitFunc) string {
 	case strings.TrimSpace(r.PreferredModel) != "":
 		model = strings.TrimSpace(r.PreferredModel)
 	default:
-		if r.isZai() {
+		switch {
+		case r.isZai():
 			model = ModelZaiFree
-		} else {
+		case r.isOpenRouter():
+			model = ModelORFlash
+		default:
 			model = ModelFlash
 		}
 	}

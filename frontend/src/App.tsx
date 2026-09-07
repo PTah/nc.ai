@@ -26,9 +26,14 @@ import {
   SaveZaiKey,
   SaveZaiModel,
   SaveZaiEndpoint,
+  SaveOpenRouterKey,
+  SaveOpenRouterModel,
   ListZaiModels,
   PreferZaiModel,
   GetZaiBalance,
+  ListOpenRouterModels,
+  PreferOpenRouterModel,
+  GetOpenRouterBalance,
   SaveActiveProvider,
   SaveAutoModels,
   SaveAgentMaxSteps,
@@ -127,7 +132,7 @@ const emptyUsage: UsageSnapshot = {
   balanceDetail: '',
 }
 
-type ProviderId = 'deepseek' | 'zai'
+type ProviderId = 'deepseek' | 'zai' | 'openrouter'
 
 const DEEPSEEK_MODELS = [
   'deepseek-v4-flash',
@@ -148,7 +153,29 @@ const ZAI_MODELS_FALLBACK = [
   'glm-4.5',
 ] as const
 
+const OPENROUTER_MODELS_FALLBACK = [
+  'qwen/qwen3-coder-flash:floor',
+  'qwen/qwen3-coder-flash',
+  'qwen/qwen3-coder-30b-a3b-instruct:floor',
+  'qwen/qwen3-coder:floor',
+  'qwen/qwen3-coder',
+  'qwen/qwen3-coder-plus:floor',
+  'qwen/qwen3-coder-next:floor',
+  'qwen/qwen3-vl-8b-instruct',
+] as const
+
 type ZaiEndpointId = 'coding' | 'paas'
+
+function providerLabelOf(id: ProviderId): string {
+  if (id === 'zai') return 'Z.ai'
+  if (id === 'openrouter') return 'OpenRouter'
+  return 'DeepSeek'
+}
+
+function parseProvider(v: unknown): ProviderId {
+  if (v === 'zai' || v === 'openrouter') return v
+  return 'deepseek'
+}
 
 function modelOptions(list: readonly string[], current: string): string[] {
   if (!current || list.includes(current)) return [...list]
@@ -503,7 +530,7 @@ function parseAgentEvent(...args: unknown[]): AgentEvent | null {
 }
 
 export default function App() {
-  const [info, setInfo] = useState({name: 'NotCursor.ai', version: '0.4.2'})
+  const [info, setInfo] = useState({name: 'NotCursor.ai', version: '0.4.3'})
   const [usage, setUsage] = useState<UsageSnapshot>(emptyUsage)
   const [rulesInfo, setRulesInfo] = useState<RulesBundle>({globalDir: '', projectDir: '', global: [], project: []})
   const [projects, setProjects] = useState<Project[]>([])
@@ -535,15 +562,20 @@ export default function App() {
   const [activeProvider, setActiveProvider] = useState<ProviderId>('deepseek')
   const [deepseekKey, setDeepseekKey] = useState('')
   const [zaiKey, setZaiKey] = useState('')
+  const [openrouterKey, setOpenrouterKey] = useState('')
   const [deepseekModel, setDeepseekModel] = useState('deepseek-v4-flash')
   const [zaiModel, setZaiModel] = useState('glm-4.7-flash')
+  const [openrouterModel, setOpenrouterModel] = useState('qwen/qwen3-coder-flash:floor')
   const [zaiEndpoint, setZaiEndpoint] = useState<ZaiEndpointId>('paas')
   const [zaiModels, setZaiModels] = useState<string[]>([...ZAI_MODELS_FALLBACK])
+  const [openrouterModels, setOpenrouterModels] = useState<string[]>([...OPENROUTER_MODELS_FALLBACK])
   const [zaiBalance, setZaiBalance] = useState<{ok: boolean; availableUsd: number; detail: string; source: string} | null>(null)
+  const [orBalance, setOrBalance] = useState<{ok: boolean; availableUsd: number; detail: string; source: string} | null>(null)
   const [autoModels, setAutoModels] = useState(false)
   const [maxSteps, setMaxSteps] = useState(40)
   const [deepseekKeySet, setDeepseekKeySet] = useState(false)
   const [zaiKeySet, setZaiKeySet] = useState(false)
+  const [openrouterKeySet, setOpenrouterKeySet] = useState(false)
   const [theme, setTheme] = useState<'dark' | 'light'>('dark')
   const [termCmd, setTermCmd] = useState('')
   const chatRef = useRef<HTMLDivElement>(null)
@@ -556,9 +588,12 @@ export default function App() {
   const lastRequestRef = useRef<{text: string; atts: PendingAtt[]} | null>(null)
   const busyRef = useRef(false)
 
-  const model = activeProvider === 'zai' ? zaiModel : deepseekModel
-  const keySet = activeProvider === 'zai' ? zaiKeySet : deepseekKeySet
-  const providerLabel = activeProvider === 'zai' ? 'Z.ai' : 'DeepSeek'
+  const model =
+    activeProvider === 'zai' ? zaiModel : activeProvider === 'openrouter' ? openrouterModel : deepseekModel
+  const keySet =
+    activeProvider === 'zai' ? zaiKeySet : activeProvider === 'openrouter' ? openrouterKeySet : deepseekKeySet
+  const providerLabel = providerLabelOf(activeProvider)
+  const showBalance = activeProvider === 'zai' || activeProvider === 'openrouter'
 
   const items = asList(activeSessionId ? itemsBySession[activeSessionId] : undefined)
   const busy = Boolean(activeSessionId && busyBySession[activeSessionId])
@@ -729,15 +764,19 @@ export default function App() {
       void applyUsageStats()
       GetSettings().then((s) => {
         if (!s) return
-        const provider = s.activeProvider === 'zai' ? 'zai' : 'deepseek'
+        const provider = parseProvider(s.activeProvider)
         setActiveProvider(provider)
         setDeepseekKeySet(Boolean(s.deepseekKeySet))
         setZaiKeySet(Boolean(s.zaiKeySet))
+        setOpenrouterKeySet(Boolean(s.openrouterKeySet))
         if (typeof s.deepseekModel === 'string' && s.deepseekModel) setDeepseekModel(s.deepseekModel)
         if (typeof s.zaiModel === 'string' && s.zaiModel) setZaiModel(s.zaiModel)
+        if (typeof s.openrouterModel === 'string' && s.openrouterModel) setOpenrouterModel(s.openrouterModel)
         setZaiEndpoint(s.zaiEndpoint === 'coding' ? 'coding' : 'paas')
         if (s.zaiKeySet || provider === 'zai') void refreshZaiModels()
         if (provider === 'zai' && s.zaiKeySet) void refreshZaiBalance()
+        if (s.openrouterKeySet || provider === 'openrouter') void refreshOpenRouterModels()
+        if (provider === 'openrouter' && s.openrouterKeySet) void refreshOpenRouterBalance()
         setAutoModels(Boolean(s.autoModels))
         if (typeof s.agentMaxSteps === 'number' && s.agentMaxSteps > 0) setMaxSteps(s.agentMaxSteps)
         setShowTerm(Boolean(s.showTerminal))
@@ -1251,6 +1290,25 @@ export default function App() {
     }
   }
 
+  async function refreshOpenRouterBalance() {
+    try {
+      const b = await GetOpenRouterBalance()
+      if (!b || typeof b !== 'object') {
+        setOrBalance(null)
+        return
+      }
+      setOrBalance({
+        ok: Boolean((b as {ok?: boolean}).ok),
+        availableUsd: Number((b as {availableUsd?: number}).availableUsd) || 0,
+        detail: String((b as {detail?: string}).detail || ''),
+        source: String((b as {source?: string}).source || ''),
+      })
+      void applyUsageStats()
+    } catch {
+      setOrBalance({ok: false, availableUsd: 0, detail: 'Не удалось запросить баланс', source: 'none'})
+    }
+  }
+
   async function refreshZaiModels(opts?: {applyPreferred?: boolean}) {
     try {
       const list = asList(await ListZaiModels()).map(String).filter(Boolean)
@@ -1274,6 +1332,29 @@ export default function App() {
     }
   }
 
+  async function refreshOpenRouterModels(opts?: {applyPreferred?: boolean}) {
+    try {
+      const list = asList(await ListOpenRouterModels()).map(String).filter(Boolean)
+      if (list.length === 0) return list
+      setOpenrouterModels(list)
+      if (opts?.applyPreferred) {
+        let next = ''
+        try {
+          next = String(await PreferOpenRouterModel(list) || '').trim()
+        } catch {
+          next = list[0] || ''
+        }
+        if (next && next !== openrouterModel) {
+          setOpenrouterModel(next)
+          await SaveOpenRouterModel(next)
+        }
+      }
+      return list
+    } catch {
+      return [] as string[]
+    }
+  }
+
   async function applyProvider(next: ProviderId) {
     setActiveProvider(next)
     try {
@@ -1281,6 +1362,9 @@ export default function App() {
       if (next === 'zai') {
         void refreshZaiModels({applyPreferred: true})
         void refreshZaiBalance().then(() => applyUsageStats())
+      } else if (next === 'openrouter') {
+        void refreshOpenRouterModels({applyPreferred: true})
+        void refreshOpenRouterBalance().then(() => applyUsageStats())
       } else {
         void applyUsageStats()
       }
@@ -1297,6 +1381,15 @@ export default function App() {
         void SaveAutoModels(false)
       }
       void SaveZaiModel(next)
+      return
+    }
+    if (activeProvider === 'openrouter') {
+      setOpenrouterModel(next)
+      if (autoModels) {
+        setAutoModels(false)
+        void SaveAutoModels(false)
+      }
+      void SaveOpenRouterModel(next)
       return
     }
     setDeepseekModel(next)
@@ -1318,14 +1411,23 @@ export default function App() {
       setZaiKey('')
       setZaiKeySet(true)
     }
+    if (openrouterKey.trim()) {
+      await SaveOpenRouterKey(openrouterKey.trim())
+      setOpenrouterKey('')
+      setOpenrouterKeySet(true)
+    }
     await SaveActiveProvider(activeProvider)
     await SaveDeepSeekModel(deepseekModel.trim() || 'deepseek-v4-flash')
     await SaveZaiModel(zaiModel.trim() || 'glm-4.7-flash')
     await SaveZaiEndpoint(zaiEndpoint)
+    await SaveOpenRouterModel(openrouterModel.trim() || 'qwen/qwen3-coder-flash:floor')
     if (activeProvider === 'zai' || zaiKeySet) {
-      // Refresh catalog only — never override the model the user just saved.
       await refreshZaiModels()
       await refreshZaiBalance()
+    }
+    if (activeProvider === 'openrouter' || openrouterKeySet) {
+      await refreshOpenRouterModels()
+      await refreshOpenRouterBalance()
     }
     await SaveAutoModels(autoModels)
     await SaveAgentMaxSteps(Number(maxSteps) || 40)
@@ -1349,6 +1451,10 @@ export default function App() {
       if (activeProvider === 'zai') {
         await refreshZaiModels({applyPreferred: true})
         await refreshZaiBalance()
+      }
+      if (activeProvider === 'openrouter') {
+        await refreshOpenRouterModels({applyPreferred: true})
+        await refreshOpenRouterBalance()
       }
       if (activeSessionId) setSessionItems(activeSessionId, (m) => [...m, {kind: 'system', content: `${providerLabel} connect OK: ${r || '(empty content)'}`}])
     } catch (e) {
@@ -1450,6 +1556,10 @@ export default function App() {
               ? modelOptions(zaiModels, zaiModel).map((m) => (
                   <option key={m} value={m}>{m}</option>
                 ))
+              : activeProvider === 'openrouter'
+                ? modelOptions(openrouterModels, openrouterModel).map((m) => (
+                    <option key={m} value={m}>{m}</option>
+                  ))
               : modelOptions(DEEPSEEK_MODELS, deepseekModel).map((m) => (
                   <option key={m} value={m}>{m}</option>
                 ))}
@@ -1460,6 +1570,8 @@ export default function App() {
           title={
             activeProvider === 'zai'
               ? 'Автовыбор: glm-4.7-flash (free) → glm-5.3 на сложных задачах; картинки → glm-5.3-flash'
+              : activeProvider === 'openrouter'
+                ? 'Автовыбор: qwen3-coder-flash:floor → qwen3-coder:floor; картинки → qwen3-vl'
               : 'Автовыбор flash / pro / vision по задаче и длине прогона'
           }
         >
@@ -1481,13 +1593,16 @@ export default function App() {
             activeProvider === 'zai'
               ? `Провайдер Z.ai · чат: ${usage.chatInputTokens} in / ${usage.chatOutputTokens} out (${fmtUsd(usage.chatCostUsd)}) · total Z.ai: ${usage.inputTokens} in / ${usage.outputTokens} out (${fmtUsd(usage.costUsd)})` +
                 (usage.balanceDetail ? ` · ${usage.balanceDetail}` : '')
+              : activeProvider === 'openrouter'
+                ? `Провайдер OpenRouter · чат: ${usage.chatInputTokens} in / ${usage.chatOutputTokens} out (${fmtUsd(usage.chatCostUsd)}) · total OR: ${usage.inputTokens} in / ${usage.outputTokens} out (${fmtUsd(usage.costUsd)})` +
+                  (usage.balanceDetail ? ` · ${usage.balanceDetail}` : '')
               : `Провайдер DeepSeek · чат: ${usage.chatInputTokens} in / ${usage.chatOutputTokens} out (${fmtUsd(usage.chatCostUsd)}) · total DeepSeek: ${usage.inputTokens} in / ${usage.outputTokens} out (${fmtUsd(usage.costUsd)})`
           }
         >
           <span className="nc-cost-chat">{providerLabel} chat {fmtUsd(usage.chatCostUsd)}</span>
           <span className="nc-cost-sep">·</span>
           <span className="nc-cost-total">total {fmtUsd(usage.costUsd)}</span>
-          {activeProvider === 'zai' && (
+          {showBalance && (
             <>
               <span className="nc-cost-sep">·</span>
               <span className="nc-cost-bal" title={usage.balanceDetail || 'Refresh balance в Settings'}>
@@ -1775,10 +1890,11 @@ export default function App() {
               Active
               <select
                 value={activeProvider}
-                onChange={(e) => void applyProvider(e.target.value === 'zai' ? 'zai' : 'deepseek')}
+                onChange={(e) => void applyProvider(parseProvider(e.target.value))}
               >
                 <option value="deepseek">DeepSeek</option>
                 <option value="zai">Z.ai (GLM)</option>
+                <option value="openrouter">OpenRouter</option>
               </select>
             </label>
             <p className="nc-help">Ключи хранятся отдельно; ниже — настройки только активного провайдера.</p>
@@ -1787,6 +1903,8 @@ export default function App() {
               title={
                 activeProvider === 'zai'
                   ? 'Z.ai: free flash → glm-5.3 на сложных задачах'
+                  : activeProvider === 'openrouter'
+                    ? 'OpenRouter: flash:floor → coder:floor'
                   : 'DeepSeek: flash / pro / vision'
               }
             >
@@ -1799,7 +1917,13 @@ export default function App() {
                   void SaveAutoModels(on)
                 }}
               />
-              Auto-models ({activeProvider === 'zai' ? 'free → 5.3' : 'flash / pro / vision'})
+              Auto-models (
+              {activeProvider === 'zai'
+                ? 'free → 5.3'
+                : activeProvider === 'openrouter'
+                  ? 'flash → coder'
+                  : 'flash / pro / vision'}
+              )
             </label>
 
             {activeProvider === 'deepseek' ? (
@@ -1831,6 +1955,70 @@ export default function App() {
                     value={deepseekKey}
                     onChange={(e) => setDeepseekKey(e.target.value)}
                     placeholder={deepseekKeySet ? '•••• set' : 'sk-...'}
+                  />
+                </label>
+              </>
+            ) : activeProvider === 'openrouter' ? (
+              <>
+                <div className="nc-section-label">OpenRouter</div>
+                <p className="nc-help">
+                  Prepaid: ключ на <code>openrouter.ai/keys</code>, баланс на{' '}
+                  <code>openrouter.ai/credits</code> (мин. ~$5). Суффикс <code>:floor</code> — самый дешёвый провайдер.
+                  Endpoint: <code>https://openrouter.ai/api/v1</code>.
+                </p>
+                <label>
+                  Model
+                  <select
+                    value={openrouterModels.includes(openrouterModel) ? openrouterModel : openrouterModel}
+                    onChange={(e) => {
+                      const next = e.target.value
+                      setOpenrouterModel(next)
+                      if (autoModels) {
+                        setAutoModels(false)
+                        void SaveAutoModels(false)
+                      }
+                      void SaveOpenRouterModel(next)
+                    }}
+                  >
+                    {modelOptions(openrouterModels, openrouterModel).map((m) => (
+                      <option key={m} value={m}>{m}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Custom model id
+                  <input
+                    type="text"
+                    value={openrouterModel}
+                    onChange={(e) => setOpenrouterModel(e.target.value)}
+                    onBlur={(e) => {
+                      const next = e.target.value.trim()
+                      if (next) void SaveOpenRouterModel(next)
+                    }}
+                    placeholder="qwen/qwen3-coder-flash:floor"
+                  />
+                </label>
+                <button type="button" className="nc-ghost" onClick={() => void refreshOpenRouterModels()}>Refresh models</button>
+                <button type="button" className="nc-ghost" onClick={() => void refreshOpenRouterBalance()}>Refresh balance</button>
+                {orBalance && (
+                  <p className="nc-help">
+                    {orBalance.ok
+                      ? `Кредиты: ${fmtUsd(orBalance.availableUsd)} (${orBalance.detail})`
+                      : orBalance.detail || 'Баланс недоступен через API'}
+                  </p>
+                )}
+                <p className="nc-help">
+                  Для агента нужны модели с tool calling (qwen3-coder*).{' '}
+                  <code>qwen/qwen-2.5-coder-32b-instruct</code> сейчас без tools — не для agent loop.
+                  Стоимость берём из <code>usage.cost</code> ответа OpenRouter, когда есть.
+                </p>
+                <label>
+                  API key
+                  <input
+                    type="password"
+                    value={openrouterKey}
+                    onChange={(e) => setOpenrouterKey(e.target.value)}
+                    placeholder={openrouterKeySet ? '•••• set' : 'sk-or-v1-...'}
                   />
                 </label>
               </>

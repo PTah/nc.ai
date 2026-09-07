@@ -34,6 +34,10 @@ export function GetUsageStats() {
   return window['go']['main']['App']['GetUsageStats']();
 }
 
+export function GetOpenRouterBalance() {
+  return window['go']['main']['App']['GetOpenRouterBalance']();
+}
+
 export function GetZaiBalance() {
   return window['go']['main']['App']['GetZaiBalance']();
 }
@@ -48,6 +52,10 @@ export function ListDir(arg1) {
 
 export function ListProjects() {
   return window['go']['main']['App']['ListProjects']();
+}
+
+export function ListOpenRouterModels() {
+  return window['go']['main']['App']['ListOpenRouterModels']();
 }
 
 export function ListZaiModels() {
@@ -68,6 +76,10 @@ export function OpenProject(arg1) {
 
 export function PickProjectDir() {
   return window['go']['main']['App']['PickProjectDir']();
+}
+
+export function PreferOpenRouterModel(arg1) {
+  return window['go']['main']['App']['PreferOpenRouterModel'](arg1);
 }
 
 export function PreferZaiModel(arg1) {
@@ -136,6 +148,14 @@ export function SaveDeepSeekKey(arg1) {
 
 export function SaveDeepSeekModel(arg1) {
   return window['go']['main']['App']['SaveDeepSeekModel'](arg1);
+}
+
+export function SaveOpenRouterKey(arg1) {
+  return window['go']['main']['App']['SaveOpenRouterKey'](arg1);
+}
+
+export function SaveOpenRouterModel(arg1) {
+  return window['go']['main']['App']['SaveOpenRouterModel'](arg1);
 }
 
 export function SaveGitAuth(arg1, arg2) {

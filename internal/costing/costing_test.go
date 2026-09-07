@@ -26,6 +26,9 @@ func TestNormalizeModel(t *testing.T) {
 		"zai/glm-5.1":                  "glm-5.1",
 		"glm-4.7-flash":                "glm-4.7-flash",
 		"glm-5.3-flash":                "glm-5.3-flash",
+		"qwen/qwen3-coder-flash:floor": "qwen/qwen3-coder-flash",
+		"qwen/qwen3-coder:floor":       "qwen/qwen3-coder",
+		"qwen/qwen3-coder-plus":        "qwen/qwen3-coder-plus",
 	}
 	for in, want := range cases {
 		if got := NormalizeModel(in); got != want {
@@ -175,5 +178,26 @@ func TestInputTokens(t *testing.T) {
 	u2 := &llm.Usage{PromptTokens: 99, PromptCacheHitTokens: 10}
 	if got := InputTokens(u2); got != 99 {
 		t.Fatalf("InputTokens prefers PromptTokens=%d want 99", got)
+	}
+}
+
+func TestCostOpenRouterNativeCostWins(t *testing.T) {
+	u := &llm.Usage{
+		PromptTokens:     1_000_000,
+		CompletionTokens: 1_000_000,
+		CostUSD:          0.0042,
+	}
+	got := CostAt("qwen/qwen3-coder-flash:floor", u, time.Now().UTC())
+	if !almost(got, 0.0042) {
+		t.Fatalf("native cost should win: got %v", got)
+	}
+}
+
+func TestCostOpenRouterSheetFallback(t *testing.T) {
+	u := &llm.Usage{PromptTokens: 1_000_000, CompletionTokens: 1_000_000}
+	got := CostAt("qwen/qwen3-coder-flash", u, time.Now().UTC())
+	want := 0.195 + 0.975
+	if !almost(got, want) {
+		t.Fatalf("sheet fallback = %v want %v", got, want)
 	}
 }

@@ -3,6 +3,7 @@
 import {rules} from '../models';
 import {main} from '../models';
 import {zai} from '../models';
+import {openrouter} from '../models';
 import {chatstore} from '../models';
 import {workspace} from '../models';
 import {agent} from '../models';
@@ -19,6 +20,8 @@ export function DeleteChatSession(arg1:string):Promise<string>;
 
 export function GetCursorRules():Promise<rules.Bundle>;
 
+export function GetOpenRouterBalance():Promise<openrouter.AccountBalance>;
+
 export function GetSettings():Promise<Record<string, any>>;
 
 export function GetUsageStats():Promise<main.UsageStats>;
@@ -28,6 +31,8 @@ export function GetZaiBalance():Promise<zai.AccountBalance>;
 export function ListChatSessions():Promise<chatstore.ProjectBundle>;
 
 export function ListDir(arg1:string):Promise<Array<workspace.Entry>>;
+
+export function ListOpenRouterModels():Promise<Array<string>>;
 
 export function ListProjects():Promise<Array<workspace.Project>>;
 
@@ -40,6 +45,8 @@ export function NewChatSession(arg1:string):Promise<chatstore.Session>;
 export function OpenProject(arg1:string):Promise<workspace.Project>;
 
 export function PickProjectDir():Promise<string>;
+
+export function PreferOpenRouterModel(arg1:Array<string>):Promise<string>;
 
 export function PreferZaiModel(arg1:Array<string>):Promise<string>;
 
@@ -78,6 +85,10 @@ export function SaveDeepSeekModel(arg1:string):Promise<void>;
 export function SaveGitAuth(arg1:string,arg2:string):Promise<void>;
 
 export function SaveLayoutSizes(arg1:number,arg2:number,arg3:number,arg4:number):Promise<void>;
+
+export function SaveOpenRouterKey(arg1:string):Promise<void>;
+
+export function SaveOpenRouterModel(arg1:string):Promise<void>;
 
 export function SaveShowFiles(arg1:boolean):Promise<void>;
 

@@ -25,7 +25,7 @@ type Provider interface {
 |---|---|---|
 | [openai.md](./openai.md) | OpenAI (эталон) | спецификация |
 | [deepseek.md](./deepseek.md) | DeepSeek | **этап 1 — первый endpoint** |
-| [openrouter.md](./openrouter.md) | OpenRouter | спецификация |
+| [openrouter.md](./openrouter.md) | OpenRouter | **реализовано** |
 | [anthropic.md](./anthropic.md) | Anthropic Claude | спецификация + маппинг |
 | [zai-glm.md](./zai-glm.md) | Z.ai / BigModel GLM | спецификация |
 | [ollama.md](./ollama.md) | Ollama (локально) | спецификация |
