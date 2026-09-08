@@ -1,4 +1,4 @@
-﻿﻿﻿﻿import {FormEvent, MouseEvent as ReactMouseEvent, useCallback, useEffect, useRef, useState} from 'react'
+﻿﻿﻿﻿﻿﻿﻿import {FormEvent, MouseEvent as ReactMouseEvent, useCallback, useEffect, useRef, useState} from 'react'
 import {Terminal} from '@xterm/xterm'
 import {FitAddon} from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
@@ -613,7 +613,7 @@ function parseAgentEvent(...args: unknown[]): AgentEvent | null {
 }
 
 export default function App() {
-  const [info, setInfo] = useState({name: 'NotCursor.ai', version: '0.5.8'})
+  const [info, setInfo] = useState({name: 'NotCursor.ai', version: '0.5.20'})
   const [usage, setUsage] = useState<UsageSnapshot>(emptyUsage)
   const [welcome, setWelcome] = useState<WelcomeState | null>(null)
   const [showPrices, setShowPrices] = useState(false)
@@ -1399,6 +1399,20 @@ export default function App() {
 
   useEffect(() => {
     void restoreChat('')
+
+  // Global in-app hotkey: Ctrl-Alt-K toggles the terminal.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.altKey && e.code === 'KeyT') {
+        e.preventDefault()
+        void toggleTerminal(!showTerm)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showTerm])
+
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -2548,7 +2562,7 @@ export default function App() {
                 checked={showTerm}
                 onChange={(e) => void toggleTerminal(e.target.checked)}
               />
-              Показывать терминал
+              Показывать терминал (Ctrl-Alt-T)
             </label>
             <p className="nc-help">По умолчанию скрыт — как в Cursor: задачи делает агент через tools.</p>
             <div className="nc-section-label">Shell</div>
