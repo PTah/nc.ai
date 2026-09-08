@@ -111,6 +111,19 @@ button, input, textarea, select {
 button { background: var(--accent); border-color: var(--accent-2); cursor: pointer; padding: 0.4rem 0.7rem; color: #fff; }
 button:disabled { opacity: 0.55; cursor: default; }
 input, textarea, select { width: 100%; padding: 0.4rem 0.55rem; }
+/* Checkboxes/radios must NOT inherit width:100% — WebKit then collapses the label
+   and the caption overflows under the next topbar control (Auto-models / key OK). */
+input[type="checkbox"],
+input[type="radio"] {
+  width: auto;
+  height: auto;
+  padding: 0;
+  margin: 0;
+  border: none;
+  background: transparent;
+  flex: 0 0 auto;
+  accent-color: var(--accent);
+}
 textarea { resize: none; }
 
 .nc-app {
@@ -144,10 +157,16 @@ textarea { resize: none; }
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 0.45rem 0.65rem;
+  gap: 0.5rem 0.75rem;
   flex: 1 1 auto;
   justify-content: flex-end;
   min-width: 0;
+}
+.nc-top-controls > * {
+  flex: 0 0 auto;
+  min-width: max-content;
+  max-width: 100%;
+  position: static;
 }
 .nc-top-sep { flex: 1; }
 .nc-top-field {
@@ -156,7 +175,6 @@ textarea { resize: none; }
   gap: 0.4rem;
   font-size: 0.78rem;
   color: var(--muted);
-  flex: 0 1 16rem;
   min-width: 0;
   max-width: 100%;
 }
@@ -165,41 +183,43 @@ textarea { resize: none; }
   white-space: nowrap;
 }
 .nc-top-field input, .nc-top-field select {
-  min-width: 0;
+  box-sizing: border-box;
   width: 11rem;
-  max-width: min(18rem, 100%);
-  flex: 1 1 8rem;
+  max-width: min(14rem, 36vw);
+  min-width: 7rem;
+  flex: 0 0 auto;
 }
 .nc-top-check {
   display: inline-flex;
   align-items: center;
-  gap: 0.35rem;
+  gap: 0.4rem;
   font-size: 0.78rem;
   color: var(--muted);
   white-space: nowrap;
   user-select: none;
   cursor: pointer;
-  flex: 0 0 auto;
-  position: relative;
-  z-index: 1;
+  line-height: 1.2;
 }
 .nc-top-check.is-disabled {
   opacity: 0.55;
   cursor: not-allowed;
 }
-.nc-top-check input {
+.nc-top-check input[type="checkbox"] {
+  width: 0.95rem;
+  height: 0.95rem;
   margin: 0;
-  flex: 0 0 auto;
   cursor: pointer;
+  flex: 0 0 auto;
 }
 .nc-top-check.is-disabled input {
   cursor: not-allowed;
 }
-.nc-topbar .nc-pill {
+.nc-top-check > span {
   flex: 0 0 auto;
+}
+.nc-topbar .nc-pill {
   white-space: nowrap;
-  position: relative;
-  z-index: 1;
+  background: var(--panel);
 }
 .nc-pill.ok { color: var(--pill-ok); border-color: var(--pill-ok-border); }
 .nc-cost {
@@ -212,8 +232,8 @@ textarea { resize: none; }
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
-  flex: 0 0 auto;
   font-variant-numeric: tabular-nums;
+  background: var(--panel);
 }
 .nc-cost-chat { color: var(--cost); }
 .nc-cost-total { color: var(--cost-total); }

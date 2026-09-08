@@ -3,7 +3,7 @@ package appmeta
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "0.5.14"
+	Version = "0.5.15"
 )
 
 // Highlights are author-written release notes for the Welcome splash (not git log).
