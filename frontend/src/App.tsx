@@ -1,4 +1,4 @@
-﻿import {FormEvent, MouseEvent as ReactMouseEvent, useCallback, useEffect, useRef, useState} from 'react'
+﻿﻿import {FormEvent, MouseEvent as ReactMouseEvent, useCallback, useEffect, useRef, useState} from 'react'
 import {Terminal} from '@xterm/xterm'
 import {FitAddon} from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
@@ -1114,15 +1114,17 @@ export default function App() {
   }, [busy, queue])
 
   // Persist active chat after quiet period.
-  // Never save an empty transcript: it is the intermediate state while a
-  // project is being switched and would otherwise wipe real history.
+  // Guards: never save an empty transcript, and never save a session that is
+  // not part of the currently open project (stale id from a project switch
+  // would otherwise overwrite the other project's chat).
   useEffect(() => {
     if (!active || !activeSessionId || items.length === 0) return
+    if (!sessions.some((s) => s.id === activeSessionId)) return
     const t = window.setTimeout(() => {
       SaveChatSession(activeSessionId, JSON.stringify(items)).catch(() => undefined)
     }, 300)
     return () => window.clearTimeout(t)
-  }, [items, active, activeSessionId])
+  }, [items, active, activeSessionId, sessions])
 
   async function refreshSessions() {
     try {

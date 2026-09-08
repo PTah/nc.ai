@@ -220,19 +220,8 @@ func (s *Store) Get(project, sessionID string) (*Session, error) {
 			return &cp, nil
 		}
 	}
-	// Stale id from a pre-persist migration attempt: fall back to active / first tab.
-	if b.ActiveID != "" && b.ActiveID != sessionID {
-		for i := range b.Sessions {
-			if b.Sessions[i].ID == b.ActiveID {
-				cp := b.Sessions[i]
-				return &cp, nil
-			}
-		}
-	}
-	if len(b.Sessions) > 0 {
-		cp := b.Sessions[0]
-		return &cp, nil
-	}
+	// No silent fallback: an unknown sessionID must never resolve to another
+	// session — it used to let a stale cross-project save overwrite real chat.
 	return nil, fmt.Errorf("session not found")
 }
 

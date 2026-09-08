@@ -1022,6 +1022,11 @@ func (a *App) SaveChatSession(sessionID, itemsJSON string) error {
 	if err != nil {
 		return err
 	}
+	// The session must be the one requested: chatstore no longer falls back
+	// silently, but double-check here as a hard barrier.
+	if sess.ID != sessionID {
+		return fmt.Errorf("session id mismatch: %s != %s", sess.ID, sessionID)
+	}
 	// Race protection: an empty transcript (e.g. while switching projects)
 	// must never overwrite existing history.
 	if !isMeaningfulItemsJSON(itemsJSON) && isMeaningfulItemsJSON(sess.ItemsJSON) {
