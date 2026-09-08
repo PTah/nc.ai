@@ -35,6 +35,7 @@ func ApplyPersisted(store PriceStore) {
 		return
 	}
 	if sheet := store.DeepSeekPeakPrices(); len(sheet) > 0 {
+		sanitizeFlashPeak(sheet, time.Now().UTC())
 		SetDeepSeekPeakSheet(sheet)
 	}
 	if wins := store.DeepSeekPeakWindows(); len(wins) > 0 {
@@ -45,7 +46,19 @@ func ApplyPersisted(store PriceStore) {
 	}
 }
 
-// RefreshIfDue fetches official docs when the last check is older than PriceCheckInterval.
+// deepSeekCheckDue is true when we have never checked, or the last check was on a
+// previous local calendar day (once per day on launch / ticker).
+func deepSeekCheckDue(last, now time.Time) bool {
+	if last.IsZero() {
+		return true
+	}
+	ly, lm, ld := last.In(time.Local).Date()
+	ny, nm, nd := now.In(time.Local).Date()
+	return ly != ny || lm != nm || ld != nd
+}
+
+// RefreshIfDue fetches official docs when due.
+// DeepSeek: at most once per local calendar day. Z.ai: weekly interval.
 // force=true always fetches. Updates live sheets and persists when rates change.
 func RefreshIfDue(ctx context.Context, store PriceStore, force bool) RefreshResult {
 	var out RefreshResult
@@ -54,8 +67,7 @@ func RefreshIfDue(ctx context.Context, store PriceStore, force bool) RefreshResu
 	}
 	now := time.Now().UTC()
 
-	dsDue := force || store.DeepSeekPricesCheckedAt().IsZero() ||
-		now.Sub(store.DeepSeekPricesCheckedAt()) >= PriceCheckInterval
+	dsDue := force || deepSeekCheckDue(store.DeepSeekPricesCheckedAt(), now)
 	if dsDue {
 		out.DeepSeekChecked = true
 		snap, err := FetchDeepSeekPricing(ctx)
@@ -63,6 +75,7 @@ func RefreshIfDue(ctx context.Context, store PriceStore, force bool) RefreshResu
 			out.DeepSeekErr = err.Error()
 			log.Printf("costing: deepseek price check failed: %v", err)
 		} else {
+			sanitizeFlashPeak(snap.Peak, now)
 			cur := currentDeepSeekPeak()
 			curW := currentPeakWindows()
 			changed := !SheetsEqual(cur, snap.Peak) || !WindowsEqual(curW, snap.Windows)
@@ -73,12 +86,15 @@ func RefreshIfDue(ctx context.Context, store PriceStore, force bool) RefreshResu
 			} else if changed {
 				out.DeepSeekUpdated = true
 				log.Printf("costing: deepseek peak sheet updated from %s", snap.Source)
+			} else {
+				// Still stamp checkedAt so we do not re-hit the network every launch today.
+				_ = store.SetDeepSeekPricing(snap.Peak, snap.Windows, snap.Fetched)
 			}
 		}
 	}
 
 	zaiDue := force || store.ZaiPricesCheckedAt().IsZero() ||
-		now.Sub(store.ZaiPricesCheckedAt()) >= PriceCheckInterval
+		now.Sub(store.ZaiPricesCheckedAt()) >= ZaiPriceCheckInterval
 	if zaiDue {
 		out.ZaiChecked = true
 		snap, err := FetchZaiPricing(ctx)

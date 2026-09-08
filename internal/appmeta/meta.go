@@ -3,25 +3,25 @@ package appmeta
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "0.5.21"
+	Version = "0.5.22"
 )
 
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
+	"DeepSeek Flash: новые цены с 10.09.2026; в пик — красный «!» у Auto-models",
+	"Расценки DeepSeek проверяются раз в сутки при запуске",
+	"Model prices показывает peak/off-peak для Flash с локальными часами пика",
 	"Исправлен сбой React #321 при старте (горячая клавиша терминала)",
-	"Обновлена работа с наборами правил",
 	"Ширину колонки чата можно тянуть мышкой (края ленты сообщений)",
-	"build.ps1 умеет пересобрать и перезапустить уже открытый NotCursor",
-	"Кнопка «Закрыть» в Model prices — внизу по центру",
 }
 
 var HighlightsEN = []string{
+	"DeepSeek Flash: new rates from 2026-09-10; peak shows red «!» by Auto-models",
+	"DeepSeek pricing re-checked once per day on launch",
+	"Model prices lists Flash peak/off-peak with local peak hours",
 	"Fixed React #321 crash on startup (terminal hotkey effect)",
-	"Improved handling of rule sets",
 	"Drag the chat column edges to resize its width",
-	"build.ps1 can rebuild and restart a running NotCursor",
-	"Model prices Close button centered at the bottom",
 }
 
 // UICopy is localized chrome for the Welcome splash.

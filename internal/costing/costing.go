@@ -22,7 +22,7 @@ import (
 //
 // Free models (glm-4.7-flash, glm-4.5-flash) bill $0.
 //
-// Live DeepSeek/Z.ai sheets can be overridden by weekly doc refresh (see refresh_*.go).
+// Live DeepSeek/Z.ai sheets can be overridden by doc refresh (DeepSeek daily, Z.ai weekly).
 
 // Prices is a USD-per-1M-tokens price sheet for one model at one period.
 type Prices struct {
@@ -183,6 +183,9 @@ func Price(model string, at time.Time) Prices {
 	if !isDeepSeekKey(key) {
 		return peak
 	}
+	if key == "deepseek-v4-flash" {
+		peak = flashPeakRatesAt(at, peak)
+	}
 	if IsOffPeak(at) {
 		return Prices{
 			InputHit:   peak.InputHit / 2,
@@ -191,6 +194,29 @@ func Price(model string, at time.Time) Prices {
 		}
 	}
 	return peak
+}
+
+// flashPeakRatesAt picks legacy vs new Flash peak card around the 2026-09-10 cutover.
+// After the cutover, prefers a live/refreshed sheet unless it still looks like the old card.
+func flashPeakRatesAt(at time.Time, live Prices) Prices {
+	if at.Before(flashNewRatesFrom) {
+		return flashPeakLegacy
+	}
+	if live.InputMiss > 0 && live.InputMiss < 0.40 {
+		return live
+	}
+	return flashPeakNew
+}
+
+// sanitizeFlashPeak upgrades a persisted/fetched Flash peak row after the 2026-09-10 cutover
+// when docs or cache still carry the previous card (miss ≥ $0.40).
+func sanitizeFlashPeak(sheet map[string]Prices, at time.Time) {
+	if at.Before(flashNewRatesFrom) || sheet == nil {
+		return
+	}
+	if f, ok := sheet["deepseek-v4-flash"]; ok && f.InputMiss >= 0.40 {
+		sheet["deepseek-v4-flash"] = flashPeakNew
+	}
 }
 
 // Cost returns USD for one API response using usage and "now".

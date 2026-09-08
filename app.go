@@ -122,7 +122,8 @@ func (a *App) saveWindowGeometry() {
 	_ = a.cfg.SetWindowGeometry(w, h, x, y, max)
 }
 
-// priceRefreshLoop re-checks DeepSeek/Z.ai official docs about once a week.
+// priceRefreshLoop loads persisted sheets, then refreshes when due:
+// DeepSeek at most once per local calendar day; Z.ai weekly.
 func (a *App) priceRefreshLoop() {
 	costing.ApplyPersisted(a.cfg)
 	ctx := a.ctx
@@ -285,6 +286,11 @@ func (a *App) AckWelcome() error {
 // ListModelPrices returns curated USD/1M rates ordered weak → strong.
 func (a *App) ListModelPrices() []costing.ModelPrice {
 	return costing.Catalog()
+}
+
+// GetDeepSeekPeakInfo reports whether DeepSeek is in peak hours now (lang for tooltip).
+func (a *App) GetDeepSeekPeakInfo(lang string) costing.PeakInfo {
+	return costing.DeepSeekPeakInfoNow(lang, time.Now(), time.Local)
 }
 
 func (a *App) GetSettings() map[string]any {

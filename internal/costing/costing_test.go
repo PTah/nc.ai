@@ -40,7 +40,7 @@ func TestNormalizeModel(t *testing.T) {
 func TestCostOffPeakFlashCacheHit(t *testing.T) {
 	SetDeepSeekPeakSheet(BuiltinDeepSeekPeak())
 	SetPeakWindows(DefaultPeakWindows())
-	// Sunday → off-peak: hit $0.007 / 1M
+	// Sunday before cutover → off-peak legacy hit $0.007 / 1M
 	at := time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)
 	u := &llm.Usage{PromptTokens: 1_000_000, PromptCacheHitTokens: 1_000_000}
 	got := CostAt("deepseek-v4-flash", u, at)
@@ -52,7 +52,7 @@ func TestCostOffPeakFlashCacheHit(t *testing.T) {
 func TestCostPeakFlashCacheMissAndOut(t *testing.T) {
 	SetDeepSeekPeakSheet(BuiltinDeepSeekPeak())
 	SetPeakWindows(DefaultPeakWindows())
-	at := time.Date(2026, 9, 7, 7, 0, 0, 0, time.UTC) // Mon 07:00 UTC → peak
+	at := time.Date(2026, 9, 7, 7, 0, 0, 0, time.UTC) // Mon 07:00 UTC → peak, pre-cutover legacy
 	u := &llm.Usage{
 		PromptTokens:          1_000_000,
 		PromptCacheMissTokens: 1_000_000,
@@ -62,6 +62,26 @@ func TestCostPeakFlashCacheMissAndOut(t *testing.T) {
 	want := 0.44 + 1.32
 	if !almost(got, want) {
 		t.Fatalf("flash miss+out peak = %v, want %v", got, want)
+	}
+}
+
+func TestCostFlashNewRatesAfterCutover(t *testing.T) {
+	SetDeepSeekPeakSheet(BuiltinDeepSeekPeak())
+	SetPeakWindows(DefaultPeakWindows())
+	at := time.Date(2026, 9, 10, 7, 0, 0, 0, time.UTC) // after 04:00 UTC cutover, Thu peak
+	u := &llm.Usage{
+		PromptCacheMissTokens: 1_000_000,
+		CompletionTokens:      1_000_000,
+	}
+	got := CostAt("deepseek-v4-flash", u, at)
+	want := 0.30 + 1.20
+	if !almost(got, want) {
+		t.Fatalf("flash new peak = %v, want %v", got, want)
+	}
+	off := time.Date(2026, 9, 10, 12, 0, 0, 0, time.UTC)
+	gotOff := CostAt("deepseek-v4-flash", &llm.Usage{PromptCacheHitTokens: 1_000_000}, off)
+	if !almost(gotOff, 0.003) {
+		t.Fatalf("flash new off-peak hit = %v, want 0.003", gotOff)
 	}
 }
 

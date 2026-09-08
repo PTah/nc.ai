@@ -133,6 +133,9 @@ export namespace costing {
 	    inputUsd: number;
 	    outputUsd: number;
 	    cacheHitUsd?: number;
+	    inputOffUsd?: number;
+	    outputOffUsd?: number;
+	    cacheHitOffUsd?: number;
 	    strength: number;
 	    note?: string;
 	    free?: boolean;
@@ -148,9 +151,31 @@ export namespace costing {
 	        this.inputUsd = source["inputUsd"];
 	        this.outputUsd = source["outputUsd"];
 	        this.cacheHitUsd = source["cacheHitUsd"];
+	        this.inputOffUsd = source["inputOffUsd"];
+	        this.outputOffUsd = source["outputOffUsd"];
+	        this.cacheHitOffUsd = source["cacheHitOffUsd"];
 	        this.strength = source["strength"];
 	        this.note = source["note"];
 	        this.free = source["free"];
+	    }
+	}
+
+	export class PeakInfo {
+	    peak: boolean;
+	    tooltip: string;
+	    windowsLocal: string;
+	    windowsBeijing: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new PeakInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.peak = source["peak"];
+	        this.tooltip = source["tooltip"];
+	        this.windowsLocal = source["windowsLocal"];
+	        this.windowsBeijing = source["windowsBeijing"];
 	    }
 	}
 

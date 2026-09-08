@@ -217,6 +217,25 @@ textarea { resize: none; }
 .nc-top-check > span {
   flex: 0 0 auto;
 }
+.nc-peak-warn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.05rem;
+  height: 1.05rem;
+  margin-left: -0.15rem;
+  padding: 0 0.2rem;
+  border-radius: 4px;
+  font-size: 0.95rem;
+  font-weight: 800;
+  line-height: 1;
+  color: #c62828;
+  border: 1px solid rgba(198, 40, 40, 0.55);
+  background: rgba(198, 40, 40, 0.12);
+  cursor: help;
+  user-select: none;
+}
 .nc-topbar .nc-pill {
   white-space: nowrap;
   background: var(--panel);

@@ -12,6 +12,7 @@ import {
   CloseProject,
   DeleteChatSession,
   DetectDefaultShell,
+  GetDeepSeekPeakInfo,
   GetSettings,
   GetUsageStats,
   GetWelcome,
@@ -678,6 +679,7 @@ export default function App() {
   const [zaiBalance, setZaiBalance] = useState<{ok: boolean; availableUsd: number; detail: string; source: string} | null>(null)
   const [orBalance, setOrBalance] = useState<{ok: boolean; availableUsd: number; detail: string; source: string} | null>(null)
   const [autoModels, setAutoModels] = useState(false)
+  const [deepseekPeak, setDeepseekPeak] = useState<{peak: boolean; tooltip: string}>({peak: false, tooltip: ''})
   const [maxSteps, setMaxSteps] = useState(40)
   const [deepseekKeySet, setDeepseekKeySet] = useState(false)
   const [zaiKeySet, setZaiKeySet] = useState(false)
@@ -890,10 +892,24 @@ export default function App() {
   }, [])
 
   useEffect(() => {
+    const lang = navigator.language || navigator.languages?.[0] || 'en'
+    const refreshPeak = () => {
+      GetDeepSeekPeakInfo(lang)
+        .then((p) => {
+          if (!p || typeof p !== 'object') return
+          setDeepseekPeak({
+            peak: Boolean((p as {peak?: boolean}).peak),
+            tooltip: String((p as {tooltip?: string}).tooltip || ''),
+          })
+        })
+        .catch(() => undefined)
+    }
+    refreshPeak()
+    const peakTimer = window.setInterval(refreshPeak, 60_000)
     try {
       AppInfo().then((v) => setInfo(v as typeof info)).catch(() => undefined)
       void applyUsageStats()
-      GetWelcome(navigator.language || navigator.languages?.[0] || 'en').then((w) => {
+      GetWelcome(lang).then((w) => {
         if (!w || typeof w !== 'object') return
         const show = Boolean((w as {show?: boolean}).show)
         if (!show) return
@@ -1105,6 +1121,7 @@ export default function App() {
     }
 
     return () => {
+      window.clearInterval(peakTimer)
       try {
         EventsOff('agent:event')
         EventsOff('terminal:data')
@@ -1930,6 +1947,15 @@ export default function App() {
             />
             <span>Auto-models</span>
           </label>
+          {activeProvider === 'deepseek' && deepseekPeak.peak && (
+            <span
+              className="nc-peak-warn"
+              title={deepseekPeak.tooltip || 'Вы работаете в высокозагруженные часы, цена запросов удвоена'}
+              aria-label={deepseekPeak.tooltip || 'Пиковые часы DeepSeek'}
+            >
+              !
+            </span>
+          )}
           <span className={`nc-pill ${keySet ? 'ok' : ''}`}>{keySet ? `${providerLabel} key OK` : `no ${providerLabel} key`}</span>
           <span
             className="nc-cost"
@@ -2714,8 +2740,9 @@ export default function App() {
               <h2 id="nc-prices-title">Model prices</h2>
             </div>
             <p className="nc-help">
-              USD за 1M токенов · от слабых к сильным. DeepSeek — peak (off-peak ≈ ½). OpenRouter mid-market; фактический
-              счёт может быть из <code>usage.cost</code>.
+              USD за 1M токенов · от слабых к сильным. DeepSeek Flash с 10.09.2026: peak miss $0.30 / out $1.20
+              (off-peak ≈ ½); пик по пекинскому расписанию, в note — локальные часы. OpenRouter mid-market; факт
+              может быть из <code>usage.cost</code>.
             </p>
             {pricesLoading && <p className="nc-muted">Загрузка…</p>}
             {!pricesLoading && (

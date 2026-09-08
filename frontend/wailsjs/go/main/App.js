@@ -38,6 +38,10 @@ export function GetCursorRules() {
   return window['go']['main']['App']['GetCursorRules']();
 }
 
+export function GetDeepSeekPeakInfo(arg1) {
+  return window['go']['main']['App']['GetDeepSeekPeakInfo'](arg1);
+}
+
 export function GetOpenRouterBalance() {
   return window['go']['main']['App']['GetOpenRouterBalance']();
 }

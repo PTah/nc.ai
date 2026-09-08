@@ -27,6 +27,8 @@ export function DetectDefaultShell():Promise<string>;
 
 export function GetCursorRules():Promise<rules.Bundle>;
 
+export function GetDeepSeekPeakInfo(arg1:string):Promise<costing.PeakInfo>;
+
 export function GetOpenRouterBalance():Promise<openrouter.AccountBalance>;
 
 export function GetSettings():Promise<Record<string, any>>;

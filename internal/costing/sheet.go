@@ -12,8 +12,8 @@ type PeakWindow struct {
 	EndMin   int `json:"endMin"`
 }
 
-// Official DeepSeek peak windows (as of 2026-09):
-// 01:00–04:00 and 06:00–10:00 UTC, Monday–Friday.
+// Official DeepSeek peak windows (Beijing 09:00–12:00 and 14:00–18:00 weekdays
+// = 01:00–04:00 and 06:00–10:00 UTC). Weekends always off-peak.
 // Source: https://api-docs.deepseek.com/quick_start/pricing/
 var defaultPeakWindows = []PeakWindow{
 	{StartMin: 1 * 60, EndMin: 4 * 60},
@@ -23,15 +23,24 @@ var defaultPeakWindows = []PeakWindow{
 const (
 	DeepSeekPricingURL = "https://api-docs.deepseek.com/quick_start/pricing/"
 	ZaiPricingURL      = "https://docs.z.ai/guides/overview/pricing.md"
-	PriceCheckInterval = 7 * 24 * time.Hour
+	// ZaiPriceCheckInterval keeps Z.ai on a weekly cadence.
+	ZaiPriceCheckInterval = 7 * 24 * time.Hour
+	// DeepSeek prices are re-checked at most once per local calendar day on launch/ticker.
+	PriceCheckInterval = ZaiPriceCheckInterval // legacy alias used by weekly Z.ai path
+)
+
+// Flash peak rates effective 2026-09-10 12:00 Beijing (04:00 UTC).
+// Off-peak = half. Source: DeepSeek Models & Pricing (Flash update).
+var (
+	flashNewRatesFrom = time.Date(2026, 9, 10, 4, 0, 0, 0, time.UTC)
+	flashPeakLegacy   = Prices{InputHit: 0.014, InputMiss: 0.44, Completion: 1.32}
+	flashPeakNew      = Prices{InputHit: 0.006, InputMiss: 0.30, Completion: 1.20}
 )
 
 // Built-in DeepSeek peak rates (USD / 1M). Off-peak = half.
-// Matches official docs; weekly refresh may override via SetDeepSeekPeakSheet.
+// Flash uses the post-2026-09-10 card; CostAt still applies legacy before that instant.
 var builtinDeepSeekPeak = map[string]Prices{
-	"deepseek-v4-flash": {
-		InputHit: 0.014, InputMiss: 0.44, Completion: 1.32,
-	},
+	"deepseek-v4-flash": flashPeakNew,
 	"deepseek-v4-pro": {
 		InputHit: 0.044, InputMiss: 1.32, Completion: 3.96,
 	},

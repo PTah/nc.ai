@@ -67,6 +67,31 @@ func TestParseZaiPricingMarkdown(t *testing.T) {
 	}
 }
 
+func TestDeepSeekCheckDueLocalDay(t *testing.T) {
+	now := time.Date(2026, 9, 10, 15, 0, 0, 0, time.Local)
+	if !deepSeekCheckDue(time.Time{}, now) {
+		t.Fatal("zero last should be due")
+	}
+	sameDay := time.Date(2026, 9, 10, 1, 0, 0, 0, time.Local)
+	if deepSeekCheckDue(sameDay, now) {
+		t.Fatal("same local day should not be due")
+	}
+	prevDay := time.Date(2026, 9, 9, 23, 0, 0, 0, time.Local)
+	if !deepSeekCheckDue(prevDay, now) {
+		t.Fatal("previous local day should be due")
+	}
+}
+
+func TestFormatPeakWindowsLocalUTCPlus10(t *testing.T) {
+	SetPeakWindows(DefaultPeakWindows())
+	loc := time.FixedZone("UTC+10", 10*3600)
+	got := FormatPeakWindowsLocal(loc)
+	want := "11:00–14:00, 16:00–20:00 (local, Mon–Fri)"
+	if got != want {
+		t.Fatalf("got %q want %q", got, want)
+	}
+}
+
 func TestIsPeakOfficialWindows(t *testing.T) {
 	SetPeakWindows(DefaultPeakWindows())
 	// Mon 01:30 UTC → peak
