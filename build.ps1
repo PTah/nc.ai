@@ -137,18 +137,17 @@ $utf8Bom = New-Object System.Text.UTF8Encoding $true
 [System.IO.File]::WriteAllText($updater, $updaterBody, $utf8Bom)
 
 $psExe = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-$pidArgs = ($pids | ForEach-Object { $_.ToString() }) -join ','
-$argList = @(
-    '-NoProfile'
-    '-ExecutionPolicy', 'Bypass'
-    '-File', $updater
-    '-ExePath', $exe
-    '-OldPath', $old
-    '-TargetPids', $pidArgs
-)
+# Never leave $null in ArgumentList — PS 5.1 Start-Process rejects the whole list.
+$pidArgs = ''
+if ($pids.Count -gt 0) {
+    $pidArgs = (($pids | ForEach-Object { [string]$_ }) -join ',')
+}
+# Single string is the reliable ArgumentList form on Windows PowerShell 5.1.
+$argLine = '-NoProfile -ExecutionPolicy Bypass -File "{0}" -ExePath "{1}" -OldPath "{2}" -TargetPids "{3}"' -f `
+    $updater, $exe, $old, $pidArgs
 
 Write-Host "Self-update: starting helper (stop old process if any, then launch new exe)…"
-Start-Process -FilePath $psExe -ArgumentList $argList -WindowStyle Hidden
+Start-Process -FilePath $psExe -ArgumentList $argLine -WindowStyle Hidden
 
 # Give the helper a moment to spawn; if NotCursor was running, this shell exits with it.
 Start-Sleep -Milliseconds 300
