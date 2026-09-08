@@ -1,4 +1,4 @@
-﻿﻿import {FormEvent, MouseEvent as ReactMouseEvent, useCallback, useEffect, useRef, useState} from 'react'
+﻿﻿﻿import {FormEvent, MouseEvent as ReactMouseEvent, useCallback, useEffect, useRef, useState} from 'react'
 import {Terminal} from '@xterm/xterm'
 import {FitAddon} from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
@@ -794,10 +794,18 @@ export default function App() {
     }
   }
 
-  async function refreshRules() {
+  async function refreshRules(notify = false) {
     try {
       const b = await ReloadCursorRules()
       setRulesInfo(normalizeRules(b))
+      if (notify && activeSessionId) {
+        const g = Array.isArray(b?.global) ? b.global.length : 0
+        const p = Array.isArray(b?.project) ? b.project.length : 0
+        setSessionItems(activeSessionId, (m) => [...m, {
+          kind: 'system',
+          content: `📋 Правила перечитаны и применены: ${g} глобальных, ${p} проектных. Действуют со следующего запроса агента.`,
+        }])
+      }
     } catch {
       setRulesInfo(normalizeRules(null))
     }
@@ -1288,9 +1296,8 @@ export default function App() {
     setRuleEdit((prev) => prev ? {...prev, saving: true, error: ''} : prev)
     try {
       await WriteCursorRule(ruleEdit.path, ruleEdit.text)
-      const b = await ReloadCursorRules()
-      setRulesInfo(normalizeRules(b))
       setRuleEdit(null)
+      await refreshRules(true)
     } catch (e) {
       setRuleEdit((prev) => prev ? {...prev, saving: false, error: String(e)} : prev)
     }
@@ -2641,7 +2648,7 @@ export default function App() {
                 <li className="nc-empty">Правила не найдены.</li>
               )}
             </ul>
-            <button type="button" className="nc-ghost" onClick={() => void refreshRules()}>Reload rules</button>
+            <button type="button" className="nc-ghost" onClick={() => void refreshRules(true)}>Reload rules</button>
           </aside>
         )}
       </div>
@@ -2724,7 +2731,13 @@ export default function App() {
       )}
 
       {ruleEdit && (
-        <div className="nc-modal-backdrop" role="presentation" onClick={() => !ruleEdit.saving && setRuleEdit(null)}>
+        <div
+          className="nc-modal-backdrop"
+          role="presentation"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget && !ruleEdit.saving) setRuleEdit(null)
+          }}
+        >
           <div
             className="nc-modal nc-rule-edit"
             role="dialog"
