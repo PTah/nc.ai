@@ -3,25 +3,25 @@ package appmeta
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "0.5.22"
+	Version = "0.5.23"
 )
 
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
-	"DeepSeek Flash: новые цены с 10.09.2026; в пик — красный «!» у Auto-models",
-	"Расценки DeepSeek проверяются раз в сутки при запуске",
-	"Model prices показывает peak/off-peak для Flash с локальными часами пика",
-	"Исправлен сбой React #321 при старте (горячая клавиша терминала)",
-	"Ширину колонки чата можно тянуть мышкой (края ленты сообщений)",
+	"Ctrl+Shift+S — открыть/закрыть Settings",
+	"Архивы чатов читаются из %AppData%\\Roaming\\NotCursor\\chat_archive",
+	"Мульти-запросы: новый текст «висит» над вводом, Send now прерывает агента",
+	"DeepSeek при старте: flash + Auto-Models",
+	"Чаты и настройки только в NotCursor — не в ~/.cursor",
 }
 
 var HighlightsEN = []string{
-	"DeepSeek Flash: new rates from 2026-09-10; peak shows red «!» by Auto-models",
-	"DeepSeek pricing re-checked once per day on launch",
-	"Model prices lists Flash peak/off-peak with local peak hours",
-	"Fixed React #321 crash on startup (terminal hotkey effect)",
-	"Drag the chat column edges to resize its width",
+	"Ctrl+Shift+S toggles Settings",
+	"Archived chats load from %AppData%\\Roaming\\NotCursor\\chat_archive",
+	"Multi-request: pending message above input; Send now interrupts the agent",
+	"DeepSeek on startup: flash + Auto-Models",
+	"Chats/settings live under NotCursor — never ~/.cursor",
 }
 
 // UICopy is localized chrome for the Welcome splash.

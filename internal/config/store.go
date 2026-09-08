@@ -118,6 +118,7 @@ func NewStore() *Store {
 			OpenRouterModel: "qwen/qwen3-coder-flash:floor",
 			Shell:           "",
 			AgentMaxSteps:   40,
+			AutoModels:      true,
 		},
 	}
 }

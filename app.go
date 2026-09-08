@@ -42,6 +42,7 @@ type App struct {
 	mu        sync.Mutex
 	rulesMu   sync.RWMutex
 	cancels   map[string]context.CancelFunc
+	runGens   map[string]uint64
 	sessionID string
 	history   []llm.Message
 	term      *shell.Session
@@ -62,12 +63,14 @@ func NewApp() *App {
 		ws:      workspace.NewManager(),
 		history: []llm.Message{},
 		cancels: map[string]context.CancelFunc{},
+		runGens: map[string]uint64{},
 	}
 }
 
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 	_ = a.cfg.Load()
+	a.applyDeepSeekStartupDefaults()
 	sshDir, err := a.cfg.SSHDir()
 	if err == nil {
 		a.sshDir = sshDir
@@ -99,6 +102,15 @@ func (a *App) startup(ctx context.Context) {
 	a.loadRules()
 	costing.ApplyPersisted(a.cfg)
 	go a.priceRefreshLoop()
+}
+
+// applyDeepSeekStartupDefaults: DeepSeek → flash model + Auto-Models on.
+func (a *App) applyDeepSeekStartupDefaults() {
+	if a.cfg.Provider() != config.ProviderDeepSeek {
+		return
+	}
+	_ = a.cfg.SetDeepSeekModel("deepseek-v4-flash")
+	_ = a.cfg.SetAutoModels(true)
 }
 
 func (a *App) domReady(ctx context.Context) {
@@ -296,6 +308,7 @@ func (a *App) GetDeepSeekPeakInfo(lang string) costing.PeakInfo {
 func (a *App) GetSettings() map[string]any {
 	s := a.cfg.Get()
 	provider := a.cfg.Provider()
+	appData, _ := a.cfg.AppDataDir()
 	return map[string]any{
 		"activeProvider":     provider,
 		"deepseekModel":      s.DeepSeekModel,
@@ -316,6 +329,7 @@ func (a *App) GetSettings() map[string]any {
 		"agentMaxSteps":      a.cfg.MaxAgentSteps(),
 		"autoModels":         a.cfg.AutoModels(),
 		"visionModel":        deepseek.VisionModel,
+		"appDataDir":         appData,
 		"layoutProjectsW":    nonzero(s.LayoutProjectsW, 200),
 		"layoutTreeW":        nonzero(s.LayoutTreeW, 220),
 		"layoutSettingsW":    nonzero(s.LayoutSettingsW, 230),
@@ -950,6 +964,19 @@ func (a *App) ArchiveChatSession(sessionID, title string) (string, error) {
 	return sess.ItemsJSON, nil
 }
 
+// ListArchivedChats returns chats from %AppData%/Roaming/NotCursor/chat_archive.
+func (a *App) ListArchivedChats() ([]chatstore.ArchivedChat, error) {
+	if a.chats == nil {
+		return nil, nil
+	}
+	return a.chats.ListArchived()
+}
+
+// AppDataDir returns the app data root (Windows: %AppData%\Roaming\NotCursor).
+func (a *App) AppDataDir() (string, error) {
+	return a.cfg.AppDataDir()
+}
+
 // DeleteChatSession removes a tab; returns the new active transcript JSON.
 func (a *App) DeleteChatSession(sessionID string) (string, error) {
 	if a.chats == nil {
@@ -1157,6 +1184,8 @@ func (a *App) RunAgentWithAttachments(userMessage string, attachments []agent.At
 	}
 	ctx, cancel := context.WithCancel(a.ctx)
 	a.cancels[sid] = cancel
+	a.runGens[sid]++
+	gen := a.runGens[sid]
 	hist := append([]llm.Message{}, a.history...)
 	a.mu.Unlock()
 
@@ -1219,7 +1248,16 @@ func (a *App) RunAgentWithAttachments(userMessage string, attachments []agent.At
 		dockicon.BeginAgent()
 		defer dockicon.EndAgent()
 
+		stillCurrent := func() bool {
+			a.mu.Lock()
+			defer a.mu.Unlock()
+			return a.runGens[sid] == gen
+		}
+
 		emit := func(evt agent.Event) {
+			if !stillCurrent() {
+				return
+			}
 			if evt.Type == "model" && evt.Content != "" {
 				_ = a.cfg.SetActiveModel(evt.Content)
 				a.refreshProvider()
@@ -1235,13 +1273,17 @@ func (a *App) RunAgentWithAttachments(userMessage string, attachments []agent.At
 			newHist, err = runner.Run(ctx, hist, userMessage, emit)
 		}
 		a.mu.Lock()
-		if a.sessionID == sid {
-			if err == nil {
+		current := a.runGens[sid] == gen
+		if current {
+			if a.sessionID == sid && err == nil {
 				a.history = newHist
 			}
+			delete(a.cancels, sid)
 		}
-		delete(a.cancels, sid)
 		a.mu.Unlock()
+		if !current {
+			return
+		}
 
 		// Persist LLM history only on success; on error keep the previous state
 		// so a retry does not duplicate the failed user message.

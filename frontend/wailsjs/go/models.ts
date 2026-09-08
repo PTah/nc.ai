@@ -48,7 +48,7 @@ export namespace chatstore {
 	    static createFrom(source: any = {}) {
 	        return new Session(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -69,7 +69,54 @@ export namespace chatstore {
 	        this.openrouterInputTokens = source["openrouterInputTokens"];
 	        this.openrouterOutputTokens = source["openrouterOutputTokens"];
 	    }
-	
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ArchivedChat {
+	    id: string;
+	    project: string;
+	    projectName: string;
+	    title: string;
+	    // Go type: time
+	    archivedAt: any;
+	    itemsJson: string;
+	    history: llm.Message[];
+	    messageCount?: number;
+	    fileName?: string;
+
+	    static createFrom(source: any = {}) {
+	        return new ArchivedChat(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.project = source["project"];
+	        this.projectName = source["projectName"];
+	        this.title = source["title"];
+	        this.archivedAt = this.convertValues(source["archivedAt"], null);
+	        this.itemsJson = source["itemsJson"];
+	        this.history = this.convertValues(source["history"], llm.Message);
+	        this.messageCount = source["messageCount"];
+	        this.fileName = source["fileName"];
+	    }
+
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -159,7 +206,6 @@ export namespace costing {
 	        this.free = source["free"];
 	    }
 	}
-
 	export class PeakInfo {
 	    peak: boolean;
 	    tooltip: string;

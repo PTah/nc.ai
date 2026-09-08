@@ -48,9 +48,22 @@ type ProjectBundle struct {
 	Sessions []Session `json:"sessions"`
 }
 
+// ArchivedChat is one entry under <AppData>/NotCursor/chat_archive/.
+type ArchivedChat struct {
+	ID           string        `json:"id"`
+	Project      string        `json:"project"`
+	ProjectName  string        `json:"projectName"`
+	Title        string        `json:"title"`
+	ArchivedAt   time.Time     `json:"archivedAt"`
+	ItemsJSON    string        `json:"itemsJson"`
+	History      []llm.Message `json:"history,omitempty"`
+	MessageCount int           `json:"messageCount,omitempty"`
+	FileName     string        `json:"fileName,omitempty"`
+}
+
 type Store struct {
 	mu  sync.Mutex
-	dir string
+	dir string // .../NotCursor/chats
 }
 
 func New(appDataDir string) (*Store, error) {
@@ -58,7 +71,183 @@ func New(appDataDir string) (*Store, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
+	_ = os.MkdirAll(filepath.Join(appDataDir, "chat_archive"), 0o700)
 	return &Store{dir: dir}, nil
+}
+
+func (s *Store) archiveDir() string {
+	return filepath.Join(filepath.Dir(s.dir), "chat_archive")
+}
+
+func projectDisplayName(project string) string {
+	project = strings.TrimSpace(project)
+	if project == "" || project == "_global" {
+		return "(no project)"
+	}
+	base := filepath.Base(filepath.Clean(project))
+	if base == "" || base == "." || base == string(filepath.Separator) {
+		return project
+	}
+	return base
+}
+
+func countItemsJSON(itemsJSON string) int {
+	itemsJSON = strings.TrimSpace(itemsJSON)
+	if itemsJSON == "" || itemsJSON == "[]" || itemsJSON == "null" {
+		return 0
+	}
+	var arr []json.RawMessage
+	if err := json.Unmarshal([]byte(itemsJSON), &arr); err != nil {
+		return 0
+	}
+	return len(arr)
+}
+
+func (s *Store) writeArchivedFile(project string, sess Session, title string) error {
+	archiveTitle := strings.TrimSpace(title)
+	if archiveTitle == "" {
+		archiveTitle = sess.Title
+	}
+	if archiveTitle == "" {
+		archiveTitle = "Chat"
+	}
+	dir := s.archiveDir()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	name := sanitizeFilename(archiveTitle)
+	if len(name) > 120 {
+		name = name[:120]
+	}
+	if len(sess.ID) >= 8 {
+		name = name + "-" + sess.ID[:8]
+	}
+	entry := ArchivedChat{
+		ID:           sess.ID,
+		Project:      project,
+		ProjectName:  projectDisplayName(project),
+		Title:        archiveTitle,
+		ArchivedAt:   time.Now(),
+		ItemsJSON:    sess.ItemsJSON,
+		History:      sess.History,
+		MessageCount: countItemsJSON(sess.ItemsJSON),
+	}
+	data, err := json.MarshalIndent(&entry, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, name+".json"), data, 0o600)
+}
+
+// ListArchived returns all chats from chat_archive (newest first).
+// Supports both the current ArchivedChat envelope and legacy Session-only files.
+func (s *Store) ListArchived() ([]ArchivedChat, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	dir := s.archiveDir()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	out := make([]ArchivedChat, 0, len(entries))
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(strings.ToLower(e.Name()), ".json") {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			continue
+		}
+		chat, ok := parseArchivedFile(data, e.Name())
+		if !ok {
+			continue
+		}
+		out = append(out, chat)
+	}
+	// Newest first.
+	for i := 0; i < len(out); i++ {
+		for j := i + 1; j < len(out); j++ {
+			if out[j].ArchivedAt.After(out[i].ArchivedAt) {
+				out[i], out[j] = out[j], out[i]
+			}
+		}
+	}
+	return out, nil
+}
+
+func parseArchivedFile(data []byte, fileName string) (ArchivedChat, bool) {
+	var probe map[string]json.RawMessage
+	if err := json.Unmarshal(data, &probe); err != nil {
+		return ArchivedChat{}, false
+	}
+	// Current envelope: has projectName and/or archivedAt + itemsJson.
+	if _, hasPN := probe["projectName"]; hasPN {
+		var c ArchivedChat
+		if err := json.Unmarshal(data, &c); err != nil {
+			return ArchivedChat{}, false
+		}
+		if c.Title == "" {
+			c.Title = "Chat"
+		}
+		if c.ProjectName == "" {
+			c.ProjectName = projectDisplayName(c.Project)
+		}
+		if c.MessageCount == 0 {
+			c.MessageCount = countItemsJSON(c.ItemsJSON)
+		}
+		if c.ID == "" {
+			c.ID = strings.TrimSuffix(fileName, filepath.Ext(fileName))
+		}
+		c.FileName = fileName
+		return c, true
+	}
+	if _, hasArchivedAt := probe["archivedAt"]; hasArchivedAt {
+		var c ArchivedChat
+		if err := json.Unmarshal(data, &c); err != nil {
+			return ArchivedChat{}, false
+		}
+		if c.Title == "" {
+			c.Title = "Chat"
+		}
+		if c.ProjectName == "" {
+			c.ProjectName = projectDisplayName(c.Project)
+		}
+		if c.MessageCount == 0 {
+			c.MessageCount = countItemsJSON(c.ItemsJSON)
+		}
+		if c.ID == "" {
+			c.ID = strings.TrimSuffix(fileName, filepath.Ext(fileName))
+		}
+		c.FileName = fileName
+		return c, true
+	}
+	// Legacy: raw Session JSON.
+	var sess Session
+	if err := json.Unmarshal(data, &sess); err != nil || sess.ID == "" {
+		return ArchivedChat{}, false
+	}
+	title := strings.TrimSpace(sess.Title)
+	if title == "" {
+		title = "Chat"
+	}
+	at := sess.UpdatedAt
+	if at.IsZero() {
+		at = time.Now()
+	}
+	return ArchivedChat{
+		ID:           sess.ID,
+		Project:      "",
+		ProjectName:  "(unknown)",
+		Title:        title,
+		ArchivedAt:   at,
+		ItemsJSON:    sess.ItemsJSON,
+		History:      sess.History,
+		MessageCount: countItemsJSON(sess.ItemsJSON),
+		FileName:     fileName,
+	}, true
 }
 
 func keyFor(project string) string {
@@ -269,29 +458,7 @@ func (s *Store) ArchiveSession(project, sessionID, title string) (*ProjectBundle
 		return nil, fmt.Errorf("session not found")
 	}
 	sess := b.Sessions[idx]
-	archiveTitle := strings.TrimSpace(title)
-	if archiveTitle == "" {
-		archiveTitle = sess.Title
-	}
-	if archiveTitle == "" {
-		archiveTitle = "Chat"
-	}
-	archiveDir := filepath.Join(filepath.Dir(s.dir), "chat_archive")
-	if err := os.MkdirAll(archiveDir, 0o700); err != nil {
-		return nil, err
-	}
-	name := sanitizeFilename(archiveTitle)
-	if len(name) > 120 {
-		name = name[:120]
-	}
-	if len(sess.ID) >= 8 {
-		name = name + "-" + sess.ID[:8]
-	}
-	data, err := json.MarshalIndent(&sess, "", "  ")
-	if err != nil {
-		return nil, err
-	}
-	if err := os.WriteFile(filepath.Join(archiveDir, name+".json"), data, 0o600); err != nil {
+	if err := s.writeArchivedFile(project, sess, title); err != nil {
 		return nil, err
 	}
 	b.Sessions = append(b.Sessions[:idx], b.Sessions[idx+1:]...)
@@ -417,32 +584,13 @@ func (s *Store) ArchiveAllSessions(project string) (int, error) {
 		_ = os.Remove(s.path(project))
 		return 0, nil
 	}
-	archiveDir := filepath.Join(filepath.Dir(s.dir), "chat_archive")
-	if err := os.MkdirAll(archiveDir, 0o700); err != nil {
-		return 0, err
-	}
 	n := 0
 	for _, sess := range b.Sessions {
 		items := strings.TrimSpace(sess.ItemsJSON)
 		if (items == "" || items == "[]" || items == "null") && len(sess.History) == 0 {
 			continue
 		}
-		title := strings.TrimSpace(sess.Title)
-		if title == "" {
-			title = "Chat"
-		}
-		name := sanitizeFilename(title)
-		if len(name) > 120 {
-			name = name[:120]
-		}
-		if len(sess.ID) >= 8 {
-			name = name + "-" + sess.ID[:8]
-		}
-		data, err := json.MarshalIndent(&sess, "", "  ")
-		if err != nil {
-			return n, err
-		}
-		if err := os.WriteFile(filepath.Join(archiveDir, name+".json"), data, 0o600); err != nil {
+		if err := s.writeArchivedFile(project, sess, sess.Title); err != nil {
 			return n, err
 		}
 		n++

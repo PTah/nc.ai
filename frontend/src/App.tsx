@@ -16,6 +16,7 @@ import {
   GetSettings,
   GetUsageStats,
   GetWelcome,
+  ListArchivedChats,
   ListChatSessions,
   ListDir,
   ListModelPrices,
@@ -101,48 +102,43 @@ type ArchiveChat = {
   items: ChatItem[]
 }
 
-// TODO(archives): заменить mock на данные из Go (ListArchivedChats).
-const MOCK_ARCHIVES: ArchiveChat[] = [
-  {
-    id: 'arc-1',
-    projectName: 'nc.ai',
-    title: 'сейчас будем тестировать переход между п…',
-    archivedAt: '07.03.2026 12:05:41',
-    messageCount: 18,
-    items: [
-      {kind: 'user', content: 'сейчас будем тестировать переход между проектами и чатами, посмотрим — будут они исчезать или нет'},
-      {kind: 'assistant', content: 'Принял, я на связи. Переключайся между проектами и чатами как тебе удобно — я никуда не денусь.'},
-      {kind: 'user', content: 'действие первое: создаю новый проект и открываю папку Answer.and.other.shit'},
-      {kind: 'assistant', content: 'Окей, действие первое зафиксировано. Мой статус: я всё ещё помню наш контекст, ничего не «умерло». Жду, что будет дальше.'},
-      {kind: 'user', content: 'а, такой вопрос: предыдущий чат я заархивировал. а его можно потом восстановить?'},
-      {kind: 'assistant', content: 'Хороший вопрос. Коротко: восстановить заархивированный чат можно — он просто прячется в истории.'},
-    ],
-  },
-  {
-    id: 'arc-2',
-    projectName: 'Answers.and.other.shit',
-    title: 'Chat 1',
-    archivedAt: '07.03.2026 12:30:09',
-    messageCount: 42,
-    items: [
-      {kind: 'user', content: 'привет, тут будем вести конспект по архитектуре'},
-      {kind: 'assistant', content: 'Привет! Давай. Опиши тему, и я помогу структурировать конспект.'},
-      {kind: 'user', content: 'какие бывают архитектурные стили?'},
-      {kind: 'assistant', content: 'Основные стили:\n- Монолит\n- Модульный монолит\n- Микросервисы\n- Serverless\n- Событийно-ориентированная архитектура\n\nЕсли надо — распишу подробнее каждый.'},
-    ],
-  },
-  {
-    id: 'arc-3',
-    projectName: 'nc.ai',
-    title: 'фича Archived chats — дизайн',
-    archivedAt: '07.03.2026 13:02:17',
-    messageCount: 31,
-    items: [
-      {kind: 'user', content: 'сделай кнопку Archived chats над Show files в дашборде'},
-      {kind: 'assistant', content: 'Принято. Добавлю кнопку, модалку со списком архивов по проектам и read-only просмотр архивного чата.'},
-    ],
-  },
-]
+type QueuedMsg = {
+  id: string
+  text: string
+  atts: PendingAtt[]
+}
+
+function formatArchiveAt(raw: unknown): string {
+  if (!raw) return ''
+  const d = raw instanceof Date ? raw : new Date(String(raw))
+  if (Number.isNaN(d.getTime())) return String(raw)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+}
+
+function mapArchivedFromGo(raw: unknown): ArchiveChat | null {
+  if (!raw || typeof raw !== 'object') return null
+  const r = raw as Record<string, unknown>
+  const id = String(r.id || r.fileName || '')
+  if (!id) return null
+  let items: ChatItem[] = []
+  const itemsJson = String(r.itemsJson || '[]')
+  try {
+    const parsed = JSON.parse(itemsJson || '[]')
+    if (Array.isArray(parsed)) items = parsed as ChatItem[]
+  } catch {
+    items = []
+  }
+  const messageCount = Number(r.messageCount) || items.length
+  return {
+    id,
+    projectName: String(r.projectName || '(unknown)'),
+    title: String(r.title || 'Chat'),
+    archivedAt: formatArchiveAt(r.archivedAt),
+    messageCount,
+    items,
+  }
+}
 
 type AgentEvent = {
   type: string
@@ -614,14 +610,15 @@ function parseAgentEvent(...args: unknown[]): AgentEvent | null {
 }
 
 export default function App() {
-  const [info, setInfo] = useState({name: 'NotCursor.ai', version: '0.5.21'})
+  const [info, setInfo] = useState({name: 'NotCursor.ai', version: '0.5.23'})
   const [usage, setUsage] = useState<UsageSnapshot>(emptyUsage)
   const [welcome, setWelcome] = useState<WelcomeState | null>(null)
   const [showPrices, setShowPrices] = useState(false)
   const [showArchives, setShowArchives] = useState(false)
-  const [archives, setArchives] = useState<ArchiveChat[]>(MOCK_ARCHIVES)
+  const [archives, setArchives] = useState<ArchiveChat[]>([])
   const [archiveProjectFilter, setArchiveProjectFilter] = useState('')
   const [archiveView, setArchiveView] = useState<ArchiveChat | null>(null)
+  const [appDataDir, setAppDataDir] = useState('')
   const [modelPrices, setModelPrices] = useState<ModelPriceRow[]>([])
   const [pricesLoading, setPricesLoading] = useState(false)
   const [rulesInfo, setRulesInfo] = useState<RulesBundle>({globalDir: '', projectDir: '', global: [], project: []})
@@ -660,7 +657,7 @@ export default function App() {
   const [itemsBySession, setItemsBySession] = useState<Record<string, ChatItem[]>>({})
   const [busyBySession, setBusyBySession] = useState<Record<string, boolean>>({})
   const [pendingAtts, setPendingAtts] = useState<PendingAtt[]>([])
-  const [queue, setQueue] = useState<{text: string; atts: PendingAtt[]}[]>([])
+  const [queue, setQueue] = useState<QueuedMsg[]>([])
   const [dragOver, setDragOver] = useState(false)
   const [retryVisible, setRetryVisible] = useState(false)
   const [editingTabId, setEditingTabId] = useState('')
@@ -678,7 +675,7 @@ export default function App() {
   const [openrouterModels, setOpenrouterModels] = useState<string[]>([...OPENROUTER_MODELS_FALLBACK])
   const [zaiBalance, setZaiBalance] = useState<{ok: boolean; availableUsd: number; detail: string; source: string} | null>(null)
   const [orBalance, setOrBalance] = useState<{ok: boolean; availableUsd: number; detail: string; source: string} | null>(null)
-  const [autoModels, setAutoModels] = useState(false)
+  const [autoModels, setAutoModels] = useState(true)
   const [deepseekPeak, setDeepseekPeak] = useState<{peak: boolean; tooltip: string}>({peak: false, tooltip: ''})
   const [maxSteps, setMaxSteps] = useState(40)
   const [deepseekKeySet, setDeepseekKeySet] = useState(false)
@@ -944,6 +941,7 @@ export default function App() {
         if (s.openrouterKeySet || provider === 'openrouter') void refreshOpenRouterModels()
         if (provider === 'openrouter' && s.openrouterKeySet) void refreshOpenRouterBalance()
         setAutoModels(Boolean(s.autoModels))
+        if (typeof s.appDataDir === 'string' && s.appDataDir) setAppDataDir(s.appDataDir)
         if (typeof s.agentMaxSteps === 'number' && s.agentMaxSteps > 0) setMaxSteps(s.agentMaxSteps)
         setShowTerm(Boolean(s.showTerminal))
         if (typeof s.showFiles === 'boolean') setShowTree(s.showFiles)
@@ -1095,6 +1093,12 @@ export default function App() {
             assistantBuf.current[sid] = ''
             setBusyBySession((b) => ({...b, [sid]: false}))
             const errContent = ev.content || 'unknown'
+            const canceled = /context canceled|context cancelled/i.test(errContent)
+            if (canceled) {
+              setSessionItems(sid, (prev) => [...prev, {kind: 'system', content: 'Остановлено'}])
+              if (sid === activeSessionRef.current) setRetryVisible(false)
+              return
+            }
             setSessionItems(sid, (prev) => {
               const next: ChatItem[] = [...prev, {kind: 'system', content: `Error: ${errContent}`}]
               if (/402|Insufficient Balance/i.test(errContent)) {
@@ -1145,8 +1149,20 @@ export default function App() {
     if (queue.length === 0) return
     const next = queue[0]
     setQueue((q) => q.slice(1))
-    void runAgent(next.text, next.atts, true)
+    void runAgent(next.text, next.atts, false)
   }, [busy, queue])
+
+  async function refreshArchives() {
+    try {
+      const rows = await ListArchivedChats()
+      const mapped = asList(rows).map(mapArchivedFromGo).filter((c): c is ArchiveChat => c != null)
+      setArchives(mapped)
+      return mapped
+    } catch {
+      setArchives([])
+      return [] as ArchiveChat[]
+    }
+  }
 
   // Persist active chat after quiet period.
   // Guards: never save an empty transcript, and never save a session that is
@@ -1350,6 +1366,7 @@ export default function App() {
         })
         setActiveSessionId(activeId)
       }
+      void refreshArchives()
     } catch (e) {
       if (activeSessionId) setSessionItems(activeSessionId, (m) => [...m, {kind: 'system', content: String(e)}])
     }
@@ -1419,12 +1436,17 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Global in-app hotkey: Ctrl-Alt-T toggles the terminal.
+  // Global in-app hotkeys: Ctrl-Alt-T terminal, Ctrl-Shift-S settings.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.ctrlKey && e.altKey && e.code === 'KeyT') {
         e.preventDefault()
         void toggleTerminal(!showTerm)
+        return
+      }
+      if (e.ctrlKey && e.shiftKey && e.code === 'KeyS') {
+        e.preventDefault()
+        setSettingsVisible((v) => !v)
       }
     }
     window.addEventListener('keydown', onKey)
@@ -1572,6 +1594,7 @@ export default function App() {
     setProjects(asList(await ListProjects()))
     setProjectCtx(null)
     setCloseProjectDlg(null)
+    if (chatAction === 'archive') void refreshArchives()
     if (!wasActive) return
     if (next && next.path) {
       setActive(next)
@@ -1821,8 +1844,9 @@ export default function App() {
     }
   }
 
-  async function runAgent(text: string, atts: PendingAtt[], skipUserMessage = false) {
-    if ((!text && atts.length === 0) || busyRef.current || !activeSessionId) return
+  async function runAgent(text: string, atts: PendingAtt[], skipUserMessage = false, force = false) {
+    if ((!text && atts.length === 0) || !activeSessionId) return
+    if (busyRef.current && !force) return
     lastRequestRef.current = {text, atts}
     setRetryVisible(false)
     assistantBuf.current[activeSessionId] = ''
@@ -1853,11 +1877,23 @@ export default function App() {
     setInput('')
     setPendingAtts([])
     if (busyRef.current) {
-      setSessionItems(activeSessionId, (m) => [...m, makeUserItem(text, atts)])
-      setQueue((q) => [...q, {text, atts}])
+      const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+      setQueue((q) => [...q, {id, text, atts}])
       return
     }
     await runAgent(text, atts)
+  }
+
+  async function sendQueuedNow(id: string) {
+    const msg = queue.find((q) => q.id === id)
+    if (!msg || !activeSessionId) return
+    setQueue((q) => q.filter((x) => x.id !== id))
+    if (busyRef.current) StopAgent()
+    await runAgent(msg.text, msg.atts, false, true)
+  }
+
+  function dismissQueued(id: string) {
+    setQueue((q) => q.filter((x) => x.id !== id))
   }
 
   async function retryLast() {
@@ -1981,7 +2017,7 @@ export default function App() {
               </>
             )}
           </span>
-          <button type="button" className="nc-ghost" onClick={() => setSettingsVisible((v) => !v)}>
+          <button type="button" className="nc-ghost" onClick={() => setSettingsVisible((v) => !v)} title="Ctrl+Shift+S">
             {showSettings ? 'Hide settings' : 'Settings'}
           </button>
         </div>
@@ -2026,6 +2062,7 @@ export default function App() {
                 setArchiveView(null)
                 setArchiveProjectFilter('')
                 setShowArchives(true)
+                void refreshArchives()
               }}>
               🗄 Archived chats
             </button>
@@ -2223,6 +2260,35 @@ export default function App() {
             </div>
             <div className="nc-chat-hsplit" onMouseDown={(e) => beginResize('composer', e)} />
             <div className="nc-composer-wrap">
+              {queue.length > 0 && (
+                <div className="nc-queue-pending" aria-label="Отложенные запросы">
+                  {queue.map((q) => (
+                    <div key={q.id} className="nc-queue-card">
+                      <div className="nc-queue-card-text">
+                        {q.text || (q.atts.length ? `(вложения: ${q.atts.length})` : '(пусто)')}
+                      </div>
+                      <div className="nc-queue-card-actions">
+                        <button
+                          type="button"
+                          className="nc-ghost"
+                          title="Остановить текущий ответ и отправить сейчас"
+                          onClick={() => void sendQueuedNow(q.id)}
+                        >
+                          Send now
+                        </button>
+                        <button
+                          type="button"
+                          className="nc-ghost"
+                          title="Убрать из очереди"
+                          onClick={() => dismissQueued(q.id)}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
               <form
                 className={`nc-composer ${dragOver ? 'drag' : ''}`}
                 onSubmit={sendChat}
@@ -2554,6 +2620,13 @@ export default function App() {
                 </label>
               </>
             )}
+            {appDataDir ? (
+              <p className="nc-help">
+                Данные приложения: <code>{appDataDir}</code>
+                <br />
+                Чаты: <code>chats</code>, архивы: <code>chat_archive</code>, настройки: <code>settings.json</code>
+              </p>
+            ) : null}
             <button type="button" onClick={saveSettings}>Save settings</button>
             <button type="button" className="nc-ghost" onClick={testConnect}>Test connect ({providerLabel})</button>
 
@@ -2920,6 +2993,11 @@ export default function App() {
             <p className="nc-help">
               Прочитайте архивный чат — он откроется в режиме просмотра и не попадёт в активные чаты. Нужный
               фрагмент можно скопировать и вставить в текущий чат.
+              {appDataDir ? (
+                <>
+                  {' '}Файлы: <code>{appDataDir}\chat_archive</code>
+                </>
+              ) : null}
             </p>
             <div className="nc-archives-search">
               <input

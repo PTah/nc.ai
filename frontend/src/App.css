@@ -453,11 +453,53 @@ textarea { resize: none; }
   flex: 0 0 var(--layout-composer, 150px);
   min-height: 110px;
   max-height: 60vh;
-  display: flex; justify-content: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.4rem;
   padding: 0.55rem 1rem 0.9rem;
   border-top: 1px solid var(--border);
   background: var(--panel);
   overflow: hidden;
+}
+.nc-queue-pending {
+  width: min(var(--layout-chat-max, 100%), 100%);
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  flex: 0 0 auto;
+  max-height: 40%;
+  overflow: auto;
+}
+.nc-queue-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--composer-bg);
+  font-size: 0.85rem;
+}
+.nc-queue-card-text {
+  flex: 1;
+  min-width: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 4.5em;
+  overflow: hidden;
+  opacity: 0.9;
+}
+.nc-queue-card-actions {
+  display: flex;
+  gap: 0.25rem;
+  flex-shrink: 0;
+}
+.nc-queue-card-actions button {
+  font-size: 0.78rem;
+  padding: 0.15rem 0.45rem;
 }
 .nc-chat-hsplit {
   flex: 0 0 6px;

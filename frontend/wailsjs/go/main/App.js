@@ -14,6 +14,10 @@ export function ArchiveChatSession(arg1, arg2) {
   return window['go']['main']['App']['ArchiveChatSession'](arg1, arg2);
 }
 
+export function AppDataDir() {
+  return window['go']['main']['App']['AppDataDir']();
+}
+
 export function ChatOnce(arg1) {
   return window['go']['main']['App']['ChatOnce'](arg1);
 }
@@ -64,6 +68,10 @@ export function GetZaiBalance() {
 
 export function ListChatSessions() {
   return window['go']['main']['App']['ListChatSessions']();
+}
+
+export function ListArchivedChats() {
+  return window['go']['main']['App']['ListArchivedChats']();
 }
 
 export function ListDir(arg1) {
