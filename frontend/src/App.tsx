@@ -1,4 +1,4 @@
-﻿import {FormEvent, MouseEvent as ReactMouseEvent, useCallback, useEffect, useRef, useState} from 'react'
+﻿﻿﻿﻿import {FormEvent, MouseEvent as ReactMouseEvent, useCallback, useEffect, useRef, useState} from 'react'
 import {Terminal} from '@xterm/xterm'
 import {FitAddon} from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
@@ -636,6 +636,7 @@ export default function App() {
   const assistantBuf = useRef<Record<string, string>>({})
   const activeSessionRef = useRef('')
   const lastRequestRef = useRef<{text: string; atts: PendingAtt[]} | null>(null)
+  const lastModelRef = useRef<Record<string, string>>({})
   const busyRef = useRef(false)
 
   const model =
@@ -916,15 +917,26 @@ export default function App() {
             else void applyUsageStats()
             return
           }
+          const sid = ev.sessionId || activeSessionRef.current
           if (ev.type === 'model') {
             const nextModel = String(ev.content || '').trim()
+            const reason = String(ev.name || '').trim()
             if (nextModel) {
               if (nextModel.startsWith('glm')) setZaiModel(nextModel)
               else setDeepseekModel(nextModel)
+              const prev = lastModelRef.current[sid]
+              lastModelRef.current[sid] = nextModel
+              if (prev && prev !== nextModel) {
+                setSessionItems(sid, (m) => [...m, {
+                  kind: 'system',
+                  content: reason
+                    ? `⚙ модель: ${prev} → ${nextModel} (${reason})`
+                    : `⚙ модель: ${prev} → ${nextModel}`,
+                }])
+              }
             }
             return
           }
-          const sid = ev.sessionId || activeSessionRef.current
           if (!sid) return
           if (ev.type === 'delta') {
             assistantBuf.current[sid] = (assistantBuf.current[sid] || '') + (ev.content || '')
@@ -1045,9 +1057,11 @@ export default function App() {
     void runAgent(next.text, next.atts, true)
   }, [busy, queue])
 
-  // Persist active chat after quiet period
+  // Persist active chat after quiet period.
+  // Never save an empty transcript: it is the intermediate state while a
+  // project is being switched and would otherwise wipe real history.
   useEffect(() => {
-    if (!active || !activeSessionId) return
+    if (!active || !activeSessionId || items.length === 0) return
     const t = window.setTimeout(() => {
       SaveChatSession(activeSessionId, JSON.stringify(items)).catch(() => undefined)
     }, 300)
@@ -1072,17 +1086,28 @@ export default function App() {
 
   async function restoreChat(projectPath: string) {
     try {
-      const {list, activeId} = await refreshSessions()
+      // Load sessions and transcript first, then commit all state in one batch.
+      // (refreshSessions() would set activeSessionId mid-way and the debounced
+      // persist effect could then save an empty transcript over real history.)
+      const bundle = await ListChatSessions()
+      const list = asList((bundle as any)?.sessions).map((s: any) => ({
+        id: String(s.id || ''),
+        title: String(s.title || ''),
+      }))
+      const activeId = String((bundle as any)?.activeId || list[0]?.id || '')
       const raw = await LoadChat(projectPath)
       const parsed = JSON.parse(raw || '[]')
       const chatItems: ChatItem[] = Array.isArray(parsed) && parsed.length > 0
         ? parsed as ChatItem[]
         : [{kind: 'system', content: 'Чат с агентом. История пуста — задайте задачу. Можно вставить скриншот (Ctrl+V) или перетащить файл.'}]
+      setSessions(list)
       if (activeId) {
         setItemsBySession((prev) => ({...prev, [activeId]: chatItems}))
+        setActiveSessionId(activeId)
         applyRetryState(chatItems)
       } else if (list[0]) {
         setItemsBySession((prev) => ({...prev, [list[0].id]: chatItems}))
+        setActiveSessionId(list[0].id)
         applyRetryState(chatItems)
       }
       await applyUsageStats()
@@ -1152,9 +1177,8 @@ export default function App() {
 
   async function removeSession(id: string) {
     if (sessions.length <= 1) {
-      await ClearChat()
-      const empty: ChatItem[] = [{kind: 'system', content: 'Чат очищен'}]
-      setSessionItems(id, () => empty)
+      // Do not silently wipe the last chat: this branch is unreachable from
+      // the tab UI (x is hidden for a single tab). Keep the data safe.
       return
     }
     const raw = await DeleteChatSession(id)

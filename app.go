@@ -183,6 +183,21 @@ func (a *App) refreshProvider() {
 	}
 }
 
+func (a *App) logAgentLine(line string) {
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return
+	}
+	dir = filepath.Join(dir, "NotCursor")
+	_ = os.MkdirAll(dir, 0o700)
+	f, err := os.OpenFile(filepath.Join(dir, "agent.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	_, _ = fmt.Fprintf(f, "%s %s\n", time.Now().Format("2006-01-02 15:04:05"), line)
+}
+
 func (a *App) emit(evt agent.Event) {
 	if a.ctx == nil {
 		return
@@ -1007,6 +1022,11 @@ func (a *App) SaveChatSession(sessionID, itemsJSON string) error {
 	if err != nil {
 		return err
 	}
+	// Race protection: an empty transcript (e.g. while switching projects)
+	// must never overwrite existing history.
+	if !isMeaningfulItemsJSON(itemsJSON) && isMeaningfulItemsJSON(sess.ItemsJSON) {
+		return nil
+	}
 	sess.ItemsJSON = itemsJSON
 	a.mu.Lock()
 	if a.sessionID == sessionID {
@@ -1017,6 +1037,11 @@ func (a *App) SaveChatSession(sessionID, itemsJSON string) error {
 		sess.Title = t
 	}
 	return a.chats.SaveSession(a.projectKey(), sess)
+}
+
+func isMeaningfulItemsJSON(s string) bool {
+	t := strings.TrimSpace(s)
+	return t != "" && t != "[]" && t != "null"
 }
 
 func titleFromItemsJSON(itemsJSON string) string {
@@ -1168,6 +1193,7 @@ func (a *App) RunAgentWithAttachments(userMessage string, attachments []agent.At
 			if evt.Type == "model" && evt.Content != "" {
 				_ = a.cfg.SetActiveModel(evt.Content)
 				a.refreshProvider()
+				a.logAgentLine(fmt.Sprintf("model=%s session=%s reason=%q", evt.Content, sid, evt.Name))
 			}
 			a.emitFor(sid, evt)
 		}

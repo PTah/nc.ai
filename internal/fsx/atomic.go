@@ -35,8 +35,11 @@ func WriteFileAtomic(path string, data []byte, perm os.FileMode) error {
 	if err := os.Chmod(tmpName, perm); err != nil {
 		return err
 	}
-	// Rotate previous version to .bak (best-effort).
+	// Rotate previous versions: .bak (prev) -> .bak1 -> .bak2 (best-effort).
 	if old, err := os.ReadFile(path); err == nil && len(old) > 0 {
+		_ = os.Remove(path + ".bak2")
+		_ = os.Rename(path+".bak1", path+".bak2")
+		_ = os.Rename(path+".bak", path+".bak1")
 		_ = os.WriteFile(path+".bak", old, perm)
 	}
 	return os.Rename(tmpName, path)
