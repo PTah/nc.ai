@@ -38,6 +38,7 @@ type Settings struct {
 
 	Shell          string   `json:"shell"`
 	RecentProjects []string `json:"recentProjects"`
+	LastProject   string   `json:"lastProject,omitempty"`
 	GitUsername    string   `json:"gitUsername"`
 	GitPassword    string   `json:"gitPassword"`
 	SSHUser        string   `json:"sshUser"`
@@ -608,6 +609,22 @@ func (s *Store) SetComposerH(h int) error {
 	}
 	s.mu.Lock()
 	s.settings.LayoutComposerH = h
+	s.mu.Unlock()
+	return s.Save()
+}
+
+func (s *Store) LastProject() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.settings.LastProject
+}
+
+func (s *Store) SetLastProject(path string) error {
+	if path == "" {
+		return nil
+	}
+	s.mu.Lock()
+	s.settings.LastProject = path
 	s.mu.Unlock()
 	return s.Save()
 }

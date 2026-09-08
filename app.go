@@ -86,6 +86,16 @@ func (a *App) startup(ctx context.Context) {
 	for _, p := range a.cfg.Get().RecentProjects {
 		_, _ = a.ws.Open(p)
 	}
+	// Re-activate the project that was open when the app was closed, so the
+	// chat shown on startup matches where the user left off.
+	if last := a.cfg.LastProject(); last != "" {
+		for _, p := range a.cfg.Get().RecentProjects {
+			if p == last {
+				_, _ = a.ws.Open(p)
+				break
+			}
+		}
+	}
 	a.loadRules()
 	costing.ApplyPersisted(a.cfg)
 	go a.priceRefreshLoop()
@@ -152,12 +162,20 @@ func (a *App) RefreshProviderPrices() map[string]any {
 func (a *App) beforeClose(ctx context.Context) (prevent bool) {
 	a.ctx = ctx
 	a.saveWindowGeometry()
+	a.saveLastProject()
 	return false
 }
 
 func (a *App) shutdown(ctx context.Context) {
 	a.ctx = ctx
 	a.saveWindowGeometry()
+	a.saveLastProject()
+}
+
+func (a *App) saveLastProject() {
+	if root, err := a.ws.ActiveRoot(); err == nil && root != "" {
+		_ = a.cfg.SetLastProject(root)
+	}
 }
 
 func (a *App) refreshProvider() {
@@ -726,6 +744,7 @@ func (a *App) OpenProject(path string) (*workspace.Project, error) {
 		return nil, err
 	}
 	_ = a.cfg.AddRecentProject(p.Path)
+	_ = a.cfg.SetLastProject(p.Path)
 	a.loadRules()
 	return p, nil
 }
