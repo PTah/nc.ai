@@ -121,7 +121,7 @@ wails dev
 ```
 
 Артефакты: `build/bin/`.
-Windows: `build/bin/NotCursor.exe`. macOS: `build/bin/NotCursor.app` (+ подписанная копия `/tmp/NotCursor.app`).
+Windows: `build/bin/NotCursor.exe`. macOS: `build/bin/NotCursor.app`.
 
 ## Commit + push
 
