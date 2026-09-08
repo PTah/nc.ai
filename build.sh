@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build NotCursor.app for macOS (counterpart of build.ps1).
-# Default: build darwin/<host-arch>, adhoc-sign, (re)launch the app.
+# Output: build/bin/NotCursor.app (canonical). /tmp is only a staging area for codesign.
 # Usage:
 #   ./build.sh              # build + restart
 #   ./build.sh --no-restart # build only
@@ -11,8 +11,8 @@ REPO="$(cd "$(dirname "$0")" && pwd)"
 APP_NAME="NotCursor.app"
 BIN_DIR="$REPO/build/bin"
 APP_PATH="$BIN_DIR/$APP_NAME"
-TMP_APP="/tmp/$APP_NAME"
 LOG="$(mktemp -t nc-wails-build.XXXXXX)"
+STAGE_DIR=""
 
 NO_RESTART=0
 UNIVERSAL=0
@@ -26,6 +26,8 @@ Usage: ./build.sh [--no-restart] [--universal]
 
   --no-restart   Build and sign only; do not quit/relaunch NotCursor.
   --universal    Build darwin/universal instead of host arch.
+
+Artifact: build/bin/NotCursor.app
 EOF
       exit 0
       ;;
@@ -36,7 +38,12 @@ EOF
   esac
 done
 
-cleanup() { rm -f "$LOG"; }
+cleanup() {
+  rm -f "$LOG"
+  if [[ -n "$STAGE_DIR" && -d "$STAGE_DIR" ]]; then
+    rm -rf "$STAGE_DIR"
+  fi
+}
 trap cleanup EXIT
 
 export PATH="/opt/homebrew/bin:/usr/local/go/bin:$(go env GOPATH 2>/dev/null)/bin:${PATH:-}"
@@ -92,32 +99,42 @@ if [[ ! -d "$APP_PATH" ]]; then
   exit 1
 fi
 
-# Only tolerate the known Documents/xattr codesign failure after a successful package.
+# We deleted $APP_PATH before the build. If it exists again, packaging succeeded.
+# Wails often then fails codesign inside Documents (xattrs / Finder info).
 if [[ "$WAILS_RC" -ne 0 ]]; then
-  if grep -q 'codesign failed' "$LOG" && grep -q 'Packaging application: Done' "$LOG"; then
-    echo "wails codesign failed in-tree (Documents xattrs) — signing via /tmp…"
+  LOG_PLAIN="$(sed $'s/\033\\[[0-9;]*[[:alpha:]]//g' "$LOG" 2>/dev/null || cat "$LOG")"
+  if printf '%s\n' "$LOG_PLAIN" | grep -qiE 'codesign failed|resource fork|Finder information|Self-signing application'; then
+    echo "wails in-tree codesign failed (Documents xattrs) — will adhoc-sign into $APP_PATH…"
+  elif printf '%s\n' "$LOG_PLAIN" | grep -q 'Packaging application: Done'; then
+    echo "wails exited $WAILS_RC after packaging — will adhoc-sign into $APP_PATH…"
   else
-    echo "wails build failed (exit $WAILS_RC). Not signing a stale/incomplete app." >&2
-    exit "$WAILS_RC"
+    echo "wails exited $WAILS_RC but $APP_NAME exists — will adhoc-sign into $APP_PATH…"
   fi
 fi
 
-echo "Adhoc codesign via clean /tmp copy…"
-rm -rf "$TMP_APP"
-ditto --norsrc --noextattr --noacl "$APP_PATH" "$TMP_APP"
-xattr -cr "$TMP_APP" 2>/dev/null || true
-codesign --force --deep --sign - "$TMP_APP"
+# Stage outside Documents only for codesign; final artifact is always build/bin.
+STAGE_DIR="$(mktemp -d -t nc-app-sign.XXXXXX)"
+STAGE_APP="$STAGE_DIR/$APP_NAME"
+echo "Adhoc codesign (staging $STAGE_DIR → $APP_PATH)…"
+xattr -cr "$APP_PATH" 2>/dev/null || true
+find "$APP_PATH" -type f -exec xattr -c {} \; 2>/dev/null || true
+ditto --norsrc --noextattr --noacl "$APP_PATH" "$STAGE_APP"
+xattr -cr "$STAGE_APP" 2>/dev/null || true
+codesign --force --deep --sign - "$STAGE_APP"
 rm -rf "$APP_PATH"
-ditto --norsrc --noextattr --noacl "$TMP_APP" "$APP_PATH"
+mkdir -p "$BIN_DIR"
+ditto --norsrc --noextattr --noacl "$STAGE_APP" "$APP_PATH"
+rm -rf "$STAGE_DIR"
+STAGE_DIR=""
+codesign --verify --deep --strict "$APP_PATH" 2>/dev/null || true
 echo "Build finished: $APP_PATH"
-echo "Also signed:    $TMP_APP"
 
 if [[ "$NO_RESTART" -eq 1 ]]; then
   echo "Done (no restart)."
   exit 0
 fi
 
-echo "Restarting NotCursor…"
+echo "Restarting NotCursor from $APP_PATH…"
 pkill -x NotCursor 2>/dev/null || true
 for _ in $(seq 1 40); do
   if ! pgrep -x NotCursor >/dev/null 2>&1; then
@@ -125,6 +142,6 @@ for _ in $(seq 1 40); do
   fi
   sleep 0.25
 done
-open "$TMP_APP"
-echo "Launched: $TMP_APP"
+open "$APP_PATH"
+echo "Launched: $APP_PATH"
 exit 0
