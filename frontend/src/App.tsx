@@ -1,4 +1,4 @@
-﻿﻿﻿import {FormEvent, MouseEvent as ReactMouseEvent, useCallback, useEffect, useRef, useState} from 'react'
+﻿﻿﻿﻿import {FormEvent, MouseEvent as ReactMouseEvent, useCallback, useEffect, useRef, useState} from 'react'
 import {Terminal} from '@xterm/xterm'
 import {FitAddon} from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
@@ -955,13 +955,23 @@ export default function App() {
           })(),
         })
       }).catch(() => undefined)
-      ListProjects().then((v) => {
+      ListProjects().then(async (v) => {
         const list = asList(v)
         setProjects(list)
-        if (list.length > 0) {
-          setActive(list[0])
-          void refreshFiles('.')
+        if (list.length === 0) return
+        // The backend restores the last active project at startup. Pick it from
+        // the recent list instead of always activating the first entry.
+        let target: (typeof list)[number] | undefined
+        try {
+          const b = await ListChatSessions()
+          const projPath = String((b as any)?.project || '')
+          if (projPath) target = list.find((p: any) => p.path === projPath)
+        } catch {
+          target = undefined
         }
+        if (!target) target = list[0]
+        setActive(target)
+        void refreshFiles('.')
       }).catch(() => undefined)
       ReloadCursorRules().then((b) => setRulesInfo(normalizeRules(b))).catch(() => undefined)
     } catch {
