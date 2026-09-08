@@ -12,6 +12,7 @@ APP_NAME="NotCursor.app"
 BIN_DIR="$REPO/build/bin"
 APP_PATH="$BIN_DIR/$APP_NAME"
 TMP_APP="/tmp/$APP_NAME"
+LOG="$(mktemp -t nc-wails-build.XXXXXX)"
 
 NO_RESTART=0
 UNIVERSAL=0
@@ -35,7 +36,12 @@ EOF
   esac
 done
 
+cleanup() { rm -f "$LOG"; }
+trap cleanup EXIT
+
 export PATH="/opt/homebrew/bin:/usr/local/go/bin:$(go env GOPATH 2>/dev/null)/bin:${PATH:-}"
+# proxy.golang.org often RSTs on this LAN — keep fallbacks.
+export GOPROXY="${GOPROXY:-https://proxy.golang.org,https://goproxy.io,https://goproxy.cn,direct}"
 
 if ! command -v go >/dev/null 2>&1; then
   echo "go not found in PATH" >&2
@@ -66,18 +72,34 @@ PY
 
 cd "$REPO"
 
+echo "Fetching Go modules (GOPROXY=$GOPROXY)…"
+if ! go mod download; then
+  echo "go mod download failed — check network / GOPROXY" >&2
+  exit 1
+fi
+
+# Drop previous bundle so a failed compile cannot be mistaken for success.
+rm -rf "$APP_PATH"
+
 echo "Building ($PLATFORM)…"
-# codesign inside Documents often fails (xattrs); package still lands in build/bin.
 set +e
-wails build -platform "$PLATFORM"
-WAILS_RC=$?
+wails build -platform "$PLATFORM" 2>&1 | tee "$LOG"
+WAILS_RC=${PIPESTATUS[0]}
 set -e
+
 if [[ ! -d "$APP_PATH" ]]; then
   echo "Build failed: missing $APP_PATH (wails exit $WAILS_RC)" >&2
   exit 1
 fi
+
+# Only tolerate the known Documents/xattr codesign failure after a successful package.
 if [[ "$WAILS_RC" -ne 0 ]]; then
-  echo "wails reported exit $WAILS_RC (often codesign in Documents) — signing via /tmp…"
+  if grep -q 'codesign failed' "$LOG" && grep -q 'Packaging application: Done' "$LOG"; then
+    echo "wails codesign failed in-tree (Documents xattrs) — signing via /tmp…"
+  else
+    echo "wails build failed (exit $WAILS_RC). Not signing a stale/incomplete app." >&2
+    exit "$WAILS_RC"
+  fi
 fi
 
 echo "Adhoc codesign via clean /tmp copy…"
