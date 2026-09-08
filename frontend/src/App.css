@@ -370,8 +370,10 @@ textarea { resize: none; }
 }
 .nc-thread-inner {
   position: relative;
-  width: min(var(--layout-chat-max, 960px), 100%);
-  padding: 1.1rem 1rem 1.6rem;
+  box-sizing: border-box;
+  width: min(var(--layout-chat-max, 100%), 100%);
+  max-width: 100%;
+  padding: 1.1rem 1.25rem 1.6rem;
   display: flex; flex-direction: column; gap: 0.7rem;
 }
 .nc-composer-wrap {
@@ -392,7 +394,9 @@ textarea { resize: none; }
 .nc-chat-hsplit:hover { background: var(--border); }
 .nc-composer {
   position: relative;
-  width: min(var(--layout-chat-max, 960px), 100%);
+  box-sizing: border-box;
+  width: min(var(--layout-chat-max, 100%), 100%);
+  max-width: 100%;
   height: 100%;
   display: flex; flex-direction: column; gap: 0.35rem;
   background: var(--composer-bg);

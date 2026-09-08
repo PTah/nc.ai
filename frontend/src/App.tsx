@@ -595,7 +595,7 @@ export default function App() {
     settingsW: 230,
     terminalH: 160,
     composerH: 150,
-    chatMaxW: 960,
+    chatMaxW: 0, // 0 = на всю ширину панели чата
   })
   const layoutRef = useRef(layout)
   const [sessions, setSessions] = useState<ChatSessionMeta[]>([])
@@ -780,7 +780,12 @@ export default function App() {
         const delta = ev.clientX - startX
         const signed = chatSide === 'left' ? -delta : delta
         const maxW = Math.max(640, Math.floor(window.innerWidth - 80))
-        next = {...start, chatMaxW: clamp(start.chatMaxW + signed, 420, maxW)}
+        let base = start.chatMaxW
+        if (base <= 0) {
+          const el = document.querySelector('.nc-thread-inner') as HTMLElement | null
+          base = el ? Math.round(el.getBoundingClientRect().width) : Math.min(1200, maxW)
+        }
+        next = {...start, chatMaxW: clamp(base + signed, 420, maxW)}
       } else {
         const maxH = Math.max(160, Math.floor(window.innerHeight * 0.75))
         next = {...start, terminalH: clamp(start.terminalH - (ev.clientY - startY), 90, maxH)}
@@ -877,7 +882,12 @@ export default function App() {
           settingsW: Number(s.layoutSettingsW) || 230,
           terminalH: Number(s.layoutTerminalH) || 160,
           composerH: Number(s.layoutComposerH) || 150,
-          chatMaxW: Number(s.layoutChatMaxW) || 960,
+          chatMaxW: (() => {
+            const raw = Number(s.layoutChatMaxW)
+            // 0 / missing = fill pane; migrate old narrow defaults (760/960).
+            if (!Number.isFinite(raw) || raw <= 0 || raw === 760 || raw === 960) return 0
+            return raw
+          })(),
         })
       }).catch(() => undefined)
       ListProjects().then((v) => {
@@ -1932,7 +1942,7 @@ export default function App() {
             className="nc-chat"
             style={{
               ['--layout-composer' as string]: `${layout.composerH}px`,
-              ['--layout-chat-max' as string]: `${layout.chatMaxW}px`,
+              ['--layout-chat-max' as string]: layout.chatMaxW > 0 ? `${layout.chatMaxW}px` : '100%',
             }}
           >
             <header className="nc-chat-head">

@@ -282,7 +282,8 @@ func (a *App) GetSettings() map[string]any {
 		"layoutSettingsW":    nonzero(s.LayoutSettingsW, 230),
 		"layoutTerminalH":    nonzero(s.LayoutTerminalH, 160),
 		"layoutComposerH":    nonzero(s.LayoutComposerH, 150),
-		"layoutChatMaxW":     nonzero(s.LayoutChatMaxW, 960),
+		// 0 = fill the whole chat pane (no artificial max-width).
+		"layoutChatMaxW":     s.LayoutChatMaxW,
 	}
 }
 

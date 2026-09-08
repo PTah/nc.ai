@@ -591,7 +591,8 @@ func (s *Store) SetLayoutSizes(projectsW, treeW, settingsW, terminalH, chatMaxW 
 	if terminalH > 0 {
 		s.settings.LayoutTerminalH = terminalH
 	}
-	if chatMaxW > 0 {
+	// 0 means “fill chat pane”; always persist the value from the UI snapshot.
+	if chatMaxW >= 0 {
 		s.settings.LayoutChatMaxW = chatMaxW
 	}
 	s.mu.Unlock()
