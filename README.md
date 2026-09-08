@@ -4,7 +4,7 @@
 
 **Версия UI/бинаря:** `0.5.8`
 
-**Артефакт Windows:** `build/bin/NotCursor.exe`
+**Сборка Windows:** `build/bin/NotCursor.exe`
 
 ---
 
