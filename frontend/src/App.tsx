@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿import {FormEvent, MouseEvent as ReactMouseEvent, useCallback, useEffect, useRef, useState} from 'react'
+﻿import {FormEvent, MouseEvent as ReactMouseEvent, useCallback, useEffect, useRef, useState} from 'react'
 import {Terminal} from '@xterm/xterm'
 import {FitAddon} from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
@@ -613,7 +613,7 @@ function parseAgentEvent(...args: unknown[]): AgentEvent | null {
 }
 
 export default function App() {
-  const [info, setInfo] = useState({name: 'NotCursor.ai', version: '0.5.20'})
+  const [info, setInfo] = useState({name: 'NotCursor.ai', version: '0.5.21'})
   const [usage, setUsage] = useState<UsageSnapshot>(emptyUsage)
   const [welcome, setWelcome] = useState<WelcomeState | null>(null)
   const [showPrices, setShowPrices] = useState(false)
@@ -1399,8 +1399,10 @@ export default function App() {
 
   useEffect(() => {
     void restoreChat('')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
-  // Global in-app hotkey: Ctrl-Alt-K toggles the terminal.
+  // Global in-app hotkey: Ctrl-Alt-T toggles the terminal.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.ctrlKey && e.altKey && e.code === 'KeyT') {
@@ -1412,9 +1414,6 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showTerm])
-
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
 
   useEffect(() => {
     if (!showTerm) {
