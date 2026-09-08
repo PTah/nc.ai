@@ -1,10 +1,10 @@
 ﻿# UTF-8 with BOM expected for Windows PowerShell 5.1
 param(
-    # After a successful build, quit the running NotCursor and start the new exe.
-    # Auto-enabled when NotCursor.exe is already running (typical: build from in-app terminal).
-    [switch]$Restart,
-    # Never restart even if NotCursor is running (build only; uses rename trick if exe is locked).
-    [switch]$NoRestart
+    # Default: after a successful build, (re)start NotCursor.exe.
+    # Pass -NoRestart to only build (rename trick still used if the exe is locked).
+    [switch]$NoRestart,
+    # Kept for compatibility; restart is already the default.
+    [switch]$Restart
 )
 
 $ErrorActionPreference = 'Stop'
@@ -35,7 +35,11 @@ function Get-NotCursorProcesses {
 
 $running = @(Get-NotCursorProcesses)
 $isLocked = $running.Count -gt 0
-$doRestart = -not $NoRestart -and ($Restart -or $isLocked)
+# Default behaviour is restart; -NoRestart opts out. -Restart is a no-op alias.
+$doRestart = -not $NoRestart
+if ($Restart -and $NoRestart) {
+    Write-Warning "Both -Restart and -NoRestart passed; -NoRestart wins."
+}
 
 if ($isLocked) {
     Write-Host "NotCursor is running (PID: $($running.Id -join ', '))."
@@ -143,9 +147,9 @@ $argList = @(
     '-TargetPids', $pidArgs
 )
 
-Write-Host "Self-update: starting helper, then quitting NotCursor…"
+Write-Host "Self-update: starting helper (stop old process if any, then launch new exe)…"
 Start-Process -FilePath $psExe -ArgumentList $argList -WindowStyle Hidden
 
-# Give the helper a moment to spawn, then this process tree exits with the app.
+# Give the helper a moment to spawn; if NotCursor was running, this shell exits with it.
 Start-Sleep -Milliseconds 300
 exit 0
