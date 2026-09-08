@@ -1,4 +1,4 @@
-﻿﻿﻿﻿import {FormEvent, MouseEvent as ReactMouseEvent, useCallback, useEffect, useRef, useState} from 'react'
+﻿import {FormEvent, MouseEvent as ReactMouseEvent, useCallback, useEffect, useRef, useState} from 'react'
 import {Terminal} from '@xterm/xterm'
 import {FitAddon} from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
@@ -1847,83 +1847,86 @@ export default function App() {
   return (
     <div className="nc-app" data-theme={theme}>
       <header className="nc-topbar">
-        <BrandMark size={34} />
-        <strong>{info.name}</strong>
-        <span className="nc-sub">v{info.version}</span>
-        <span className="nc-top-sep" />
-        <label className="nc-top-field" title={`Модель активного провайдера: ${providerLabel}`}>
-          Model ({providerLabel})
-          <select
-            value={model}
-            onChange={(e) => void applyModel(e.target.value)}
-            title={
-              autoModels
-                ? 'Auto-models выберет модель сама; ручной выбор отключает Auto'
-                : `Модель ${providerLabel}`
-            }
-          >
-            {activeProvider === 'zai'
-              ? modelOptions(zaiModels, zaiModel).map((m) => (
-                  <option key={m} value={m}>{m}</option>
-                ))
-              : activeProvider === 'openrouter'
-                ? modelOptions(openrouterModels, openrouterModel).map((m) => (
+        <div className="nc-top-brand">
+          <BrandMark size={34} />
+          <strong>{info.name}</strong>
+          <span className="nc-sub">v{info.version}</span>
+        </div>
+        <div className="nc-top-controls">
+          <label className="nc-top-field" title={`Модель активного провайдера: ${providerLabel}`}>
+            <span className="nc-top-field-label">Model ({providerLabel})</span>
+            <select
+              value={model}
+              onChange={(e) => void applyModel(e.target.value)}
+              title={
+                autoModels
+                  ? 'Auto-models выберет модель сама; ручной выбор отключает Auto'
+                  : `Модель ${providerLabel}`
+              }
+            >
+              {activeProvider === 'zai'
+                ? modelOptions(zaiModels, zaiModel).map((m) => (
                     <option key={m} value={m}>{m}</option>
                   ))
-              : modelOptions(DEEPSEEK_MODELS, deepseekModel).map((m) => (
-                  <option key={m} value={m}>{m}</option>
-                ))}
-          </select>
-        </label>
-        <label
-          className="nc-top-check"
-          title={
-            activeProvider === 'zai'
-              ? 'Автовыбор: glm-4.7-flash (free) → glm-5.3 на сложных задачах; картинки → glm-5.3-flash'
-              : activeProvider === 'openrouter'
-                ? 'Автовыбор: qwen3-coder-flash:floor → qwen3-coder:floor; картинки → qwen3-vl'
-              : 'Автовыбор flash / pro / vision по задаче и длине прогона'
-          }
-        >
-          <input
-            type="checkbox"
-            checked={autoModels}
-            onChange={(e) => {
-              const on = e.target.checked
-              setAutoModels(on)
-              void SaveAutoModels(on)
-            }}
-          />
-          Auto-models
-        </label>
-        <span className={`nc-pill ${keySet ? 'ok' : ''}`}>{keySet ? `${providerLabel} key OK` : `no ${providerLabel} key`}</span>
-        <span
-          className="nc-cost"
-          title={
-            activeProvider === 'zai'
-              ? `Провайдер Z.ai · чат: ${usage.chatInputTokens} in / ${usage.chatOutputTokens} out (${fmtUsd(usage.chatCostUsd)}) · total Z.ai: ${usage.inputTokens} in / ${usage.outputTokens} out (${fmtUsd(usage.costUsd)})` +
-                (usage.balanceDetail ? ` · ${usage.balanceDetail}` : '')
-              : activeProvider === 'openrouter'
-                ? `Провайдер OpenRouter · чат: ${usage.chatInputTokens} in / ${usage.chatOutputTokens} out (${fmtUsd(usage.chatCostUsd)}) · total OR: ${usage.inputTokens} in / ${usage.outputTokens} out (${fmtUsd(usage.costUsd)})` +
+                : activeProvider === 'openrouter'
+                  ? modelOptions(openrouterModels, openrouterModel).map((m) => (
+                      <option key={m} value={m}>{m}</option>
+                    ))
+                : modelOptions(DEEPSEEK_MODELS, deepseekModel).map((m) => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+            </select>
+          </label>
+          <label
+            className="nc-top-check"
+            title={
+              activeProvider === 'zai'
+                ? 'Автовыбор: glm-4.7-flash (free) → glm-5.3 на сложных задачах; картинки → glm-5.3-flash'
+                : activeProvider === 'openrouter'
+                  ? 'Автовыбор: qwen3-coder-flash:floor → qwen3-coder:floor; картинки → qwen3-vl'
+                : 'Автовыбор flash / pro / vision по задаче и длине прогона'
+            }
+          >
+            <input
+              type="checkbox"
+              checked={autoModels}
+              onChange={(e) => {
+                const on = e.target.checked
+                setAutoModels(on)
+                void SaveAutoModels(on)
+              }}
+            />
+            <span>Auto-models</span>
+          </label>
+          <span className={`nc-pill ${keySet ? 'ok' : ''}`}>{keySet ? `${providerLabel} key OK` : `no ${providerLabel} key`}</span>
+          <span
+            className="nc-cost"
+            title={
+              activeProvider === 'zai'
+                ? `Провайдер Z.ai · чат: ${usage.chatInputTokens} in / ${usage.chatOutputTokens} out (${fmtUsd(usage.chatCostUsd)}) · total Z.ai: ${usage.inputTokens} in / ${usage.outputTokens} out (${fmtUsd(usage.costUsd)})` +
                   (usage.balanceDetail ? ` · ${usage.balanceDetail}` : '')
-              : `Провайдер DeepSeek · чат: ${usage.chatInputTokens} in / ${usage.chatOutputTokens} out (${fmtUsd(usage.chatCostUsd)}) · total DeepSeek: ${usage.inputTokens} in / ${usage.outputTokens} out (${fmtUsd(usage.costUsd)})`
-          }
-        >
-          <span className="nc-cost-chat">{providerLabel} chat {fmtUsd(usage.chatCostUsd)}</span>
-          <span className="nc-cost-sep">·</span>
-          <span className="nc-cost-total">total {fmtUsd(usage.costUsd)}</span>
-          {showBalance && (
-            <>
-              <span className="nc-cost-sep">·</span>
-              <span className="nc-cost-bal" title={usage.balanceDetail || 'Refresh balance в Settings'}>
-                {usage.balanceOk ? `bal ${fmtUsd(usage.balanceUsd)}` : 'bal —'}
-              </span>
-            </>
-          )}
-        </span>
-        <button type="button" className="nc-ghost" onClick={() => setSettingsVisible((v) => !v)}>
-          {showSettings ? 'Hide settings' : 'Settings'}
-        </button>
+                : activeProvider === 'openrouter'
+                  ? `Провайдер OpenRouter · чат: ${usage.chatInputTokens} in / ${usage.chatOutputTokens} out (${fmtUsd(usage.chatCostUsd)}) · total OR: ${usage.inputTokens} in / ${usage.outputTokens} out (${fmtUsd(usage.costUsd)})` +
+                    (usage.balanceDetail ? ` · ${usage.balanceDetail}` : '')
+                : `Провайдер DeepSeek · чат: ${usage.chatInputTokens} in / ${usage.chatOutputTokens} out (${fmtUsd(usage.chatCostUsd)}) · total DeepSeek: ${usage.inputTokens} in / ${usage.outputTokens} out (${fmtUsd(usage.costUsd)})`
+            }
+          >
+            <span className="nc-cost-chat">{providerLabel} chat {fmtUsd(usage.chatCostUsd)}</span>
+            <span className="nc-cost-sep">·</span>
+            <span className="nc-cost-total">total {fmtUsd(usage.costUsd)}</span>
+            {showBalance && (
+              <>
+                <span className="nc-cost-sep">·</span>
+                <span className="nc-cost-bal" title={usage.balanceDetail || 'Refresh balance в Settings'}>
+                  {usage.balanceOk ? `bal ${fmtUsd(usage.balanceUsd)}` : 'bal —'}
+                </span>
+              </>
+            )}
+          </span>
+          <button type="button" className="nc-ghost" onClick={() => setSettingsVisible((v) => !v)}>
+            {showSettings ? 'Hide settings' : 'Settings'}
+          </button>
+        </div>
       </header>
       <div
         className={`nc-root ${showTree ? '' : 'no-tree'} ${showSettings ? '' : 'no-settings'}`}

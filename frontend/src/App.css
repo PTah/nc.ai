@@ -125,25 +125,49 @@ textarea { resize: none; }
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 0.55rem 0.7rem;
+  justify-content: space-between;
+  gap: 0.55rem 0.85rem;
   min-height: 48px;
   padding: 0.35rem 0.8rem;
   border-bottom: 1px solid var(--border);
   background: var(--panel);
   min-width: 0;
 }
+.nc-top-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.nc-top-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.45rem 0.65rem;
+  flex: 1 1 auto;
+  justify-content: flex-end;
+  min-width: 0;
+}
 .nc-top-sep { flex: 1; }
 .nc-top-field {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 0.4rem;
   font-size: 0.78rem;
   color: var(--muted);
+  flex: 0 1 16rem;
+  min-width: 0;
+  max-width: 100%;
+}
+.nc-top-field-label {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 .nc-top-field input, .nc-top-field select {
   min-width: 0;
   width: 11rem;
-  max-width: 18rem;
+  max-width: min(18rem, 100%);
   flex: 1 1 8rem;
 }
 .nc-top-check {
@@ -155,6 +179,9 @@ textarea { resize: none; }
   white-space: nowrap;
   user-select: none;
   cursor: pointer;
+  flex: 0 0 auto;
+  position: relative;
+  z-index: 1;
 }
 .nc-top-check.is-disabled {
   opacity: 0.55;
@@ -162,10 +189,17 @@ textarea { resize: none; }
 }
 .nc-top-check input {
   margin: 0;
+  flex: 0 0 auto;
   cursor: pointer;
 }
 .nc-top-check.is-disabled input {
   cursor: not-allowed;
+}
+.nc-topbar .nc-pill {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  position: relative;
+  z-index: 1;
 }
 .nc-pill.ok { color: var(--pill-ok); border-color: var(--pill-ok-border); }
 .nc-cost {
@@ -178,7 +212,7 @@ textarea { resize: none; }
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
-  flex-shrink: 0;
+  flex: 0 0 auto;
   font-variant-numeric: tabular-nums;
 }
 .nc-cost-chat { color: var(--cost); }
