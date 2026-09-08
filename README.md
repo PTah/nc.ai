@@ -2,7 +2,7 @@
 
 Лёгкий нативный AI-IDE агент (аналог Cursor) на **Wails v2 + Go + React/TypeScript**.
 
-**Версия UI/бинаря:** `0.5.9`
+**Версия UI/бинаря:** `0.5.10`
 
 **Сборка Windows:** `build/bin/NotCursor.exe`
 
@@ -104,23 +104,33 @@ wails dev
 
 ## Build
 
-```bash
-# Windows
-wails build -platform windows/amd64
-# или готовый скрипт (перезапускает приложение после сборки):
+```powershell
+# Windows (перезапускает NotCursor.exe после сборки):
 .\build.ps1
+# только сборка:
+.\build.ps1 -NoRestart
+```
 
-# macOS — только на macOS-хосте
-wails build -platform darwin/universal
+```bash
+# macOS — только на macOS-хосте (перезапускает .app после сборки):
+./build.sh
+# только сборка:
+./build.sh --no-restart
+# fat binary:
+./build.sh --universal
 ```
 
 Артефакты: `build/bin/`.
-Windows: `build/bin/NotCursor.exe`.
+Windows: `build/bin/NotCursor.exe`. macOS: `build/bin/NotCursor.app` (+ подписанная копия `/tmp/NotCursor.app`).
 
 ## Commit + push
 
 ```powershell
 .\commit.ps1 "feat: описание изменений"
+```
+
+```bash
+./commit.sh "feat: описание изменений"
 ```
 
 ---
