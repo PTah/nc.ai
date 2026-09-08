@@ -3,25 +3,25 @@ package appmeta
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "0.5.7"
+	Version = "0.5.8"
 )
 
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
+	"Ширину колонки чата можно тянуть мышкой (края ленты сообщений)",
 	"build.ps1 умеет пересобрать и перезапустить уже открытый NotCursor",
 	"Кнопка «Закрыть» в Model prices — внизу по центру",
 	"Диалоги подтверждения внутри приложения (без заголовка wails.localhost)",
 	"Исправлен ПКМ «Закрыть папку проекта»",
-	"Обновлена функция терминала: PowerShell (Windows) / shell (macOS)",
 }
 
 var HighlightsEN = []string{
+	"Drag the chat column edges to resize its width",
 	"build.ps1 can rebuild and restart a running NotCursor",
 	"Model prices Close button centered at the bottom",
 	"In-app confirm dialogs (no wails.localhost title bar)",
 	"Fixed right-click “Close project folder”",
-	"Terminal uses real PowerShell (Windows) or login shell (macOS)",
 }
 
 // UICopy is localized chrome for the Welcome splash.

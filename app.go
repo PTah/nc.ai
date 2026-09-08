@@ -282,6 +282,7 @@ func (a *App) GetSettings() map[string]any {
 		"layoutSettingsW":    nonzero(s.LayoutSettingsW, 230),
 		"layoutTerminalH":    nonzero(s.LayoutTerminalH, 160),
 		"layoutComposerH":    nonzero(s.LayoutComposerH, 150),
+		"layoutChatMaxW":     nonzero(s.LayoutChatMaxW, 960),
 	}
 }
 
@@ -498,9 +499,9 @@ func (a *App) SaveShowSettings(show bool) error {
 	return a.cfg.SetShowSettings(show)
 }
 
-// SaveLayoutSizes persists inner pane widths/heights (projects/tree/settings/terminal).
-func (a *App) SaveLayoutSizes(projectsW, treeW, settingsW, terminalH int) error {
-	return a.cfg.SetLayoutSizes(projectsW, treeW, settingsW, terminalH)
+// SaveLayoutSizes persists inner pane widths/heights (projects/tree/settings/terminal/chat column).
+func (a *App) SaveLayoutSizes(projectsW, treeW, settingsW, terminalH, chatMaxW int) error {
+	return a.cfg.SetLayoutSizes(projectsW, treeW, settingsW, terminalH, chatMaxW)
 }
 
 // SaveComposerHeight persists the resizable chat input area height.

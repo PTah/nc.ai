@@ -71,6 +71,7 @@ type Settings struct {
 	LayoutSettingsW  int `json:"layoutSettingsW,omitempty"`
 	LayoutTerminalH  int `json:"layoutTerminalH,omitempty"`
 	LayoutComposerH  int `json:"layoutComposerH,omitempty"`
+	LayoutChatMaxW   int `json:"layoutChatMaxW,omitempty"`
 
 	// All-time API usage counters (legacy combined + per-provider).
 	TotalCostUSD      float64 `json:"totalCostUsd"`
@@ -576,7 +577,7 @@ func (s *Store) SetWindowGeometry(width, height, x, y int, maximised bool) error
 	return s.Save()
 }
 
-func (s *Store) SetLayoutSizes(projectsW, treeW, settingsW, terminalH int) error {
+func (s *Store) SetLayoutSizes(projectsW, treeW, settingsW, terminalH, chatMaxW int) error {
 	s.mu.Lock()
 	if projectsW > 0 {
 		s.settings.LayoutProjectsW = projectsW
@@ -589,6 +590,9 @@ func (s *Store) SetLayoutSizes(projectsW, treeW, settingsW, terminalH int) error
 	}
 	if terminalH > 0 {
 		s.settings.LayoutTerminalH = terminalH
+	}
+	if chatMaxW > 0 {
+		s.settings.LayoutChatMaxW = chatMaxW
 	}
 	s.mu.Unlock()
 	return s.Save()

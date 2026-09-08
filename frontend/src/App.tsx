@@ -561,7 +561,7 @@ function parseAgentEvent(...args: unknown[]): AgentEvent | null {
 }
 
 export default function App() {
-  const [info, setInfo] = useState({name: 'NotCursor.ai', version: '0.5.7'})
+  const [info, setInfo] = useState({name: 'NotCursor.ai', version: '0.5.8'})
   const [usage, setUsage] = useState<UsageSnapshot>(emptyUsage)
   const [welcome, setWelcome] = useState<WelcomeState | null>(null)
   const [showPrices, setShowPrices] = useState(false)
@@ -595,6 +595,7 @@ export default function App() {
     settingsW: 230,
     terminalH: 160,
     composerH: 150,
+    chatMaxW: 960,
   })
   const layoutRef = useRef(layout)
   const [sessions, setSessions] = useState<ChatSessionMeta[]>([])
@@ -750,12 +751,17 @@ export default function App() {
   }, [layout])
 
   const persistLayout = useCallback((next = layoutRef.current) => {
-    SaveLayoutSizes(next.projectsW, next.treeW, next.settingsW, next.terminalH).catch(() => undefined)
+    SaveLayoutSizes(next.projectsW, next.treeW, next.settingsW, next.terminalH, next.chatMaxW).catch(() => undefined)
     SaveComposerHeight(next.composerH).catch(() => undefined)
   }, [])
 
-  const beginResize = useCallback((kind: 'projects' | 'tree' | 'settings' | 'terminal' | 'composer', e: ReactMouseEvent) => {
+  const beginResize = useCallback((
+    kind: 'projects' | 'tree' | 'settings' | 'terminal' | 'composer' | 'chat',
+    e: ReactMouseEvent,
+    chatSide: 'left' | 'right' = 'right',
+  ) => {
     e.preventDefault()
+    e.stopPropagation()
     const startX = e.clientX
     const startY = e.clientY
     const start = layoutRef.current
@@ -770,6 +776,11 @@ export default function App() {
         next = {...start, settingsW: clamp(start.settingsW - (ev.clientX - startX), 180, 420)}
       } else if (kind === 'composer') {
         next = {...start, composerH: clamp(start.composerH - (ev.clientY - startY), 110, 480)}
+      } else if (kind === 'chat') {
+        const delta = ev.clientX - startX
+        const signed = chatSide === 'left' ? -delta : delta
+        const maxW = Math.max(640, Math.floor(window.innerWidth - 80))
+        next = {...start, chatMaxW: clamp(start.chatMaxW + signed, 420, maxW)}
       } else {
         const maxH = Math.max(160, Math.floor(window.innerHeight * 0.75))
         next = {...start, terminalH: clamp(start.terminalH - (ev.clientY - startY), 90, maxH)}
@@ -866,6 +877,7 @@ export default function App() {
           settingsW: Number(s.layoutSettingsW) || 230,
           terminalH: Number(s.layoutTerminalH) || 160,
           composerH: Number(s.layoutComposerH) || 150,
+          chatMaxW: Number(s.layoutChatMaxW) || 960,
         })
       }).catch(() => undefined)
       ListProjects().then((v) => {
@@ -1916,7 +1928,13 @@ export default function App() {
           className={`nc-main ${showTerm ? '' : 'no-term'}`}
           style={{['--layout-terminal' as string]: `${layout.terminalH}px`}}
         >
-          <section className="nc-chat" style={{['--layout-composer' as string]: `${layout.composerH}px`}}>
+          <section
+            className="nc-chat"
+            style={{
+              ['--layout-composer' as string]: `${layout.composerH}px`,
+              ['--layout-chat-max' as string]: `${layout.chatMaxW}px`,
+            }}
+          >
             <header className="nc-chat-head">
               <div className="nc-tabs">
                 {sessions.map((s) => (
@@ -1981,6 +1999,16 @@ export default function App() {
             </header>
             <div className="nc-thread" ref={chatRef}>
               <div className="nc-thread-inner">
+                <div
+                  className="nc-chat-wsplit left"
+                  title="Изменить ширину чата"
+                  onMouseDown={(e) => beginResize('chat', e, 'left')}
+                />
+                <div
+                  className="nc-chat-wsplit right"
+                  title="Изменить ширину чата"
+                  onMouseDown={(e) => beginResize('chat', e, 'right')}
+                />
                 {buildDisplayRows(items, !busy).map((row) => {
                   if (row.kind === 'process') {
                     return <ProcessGroup key={row.key} rows={row.rows} />
@@ -2045,6 +2073,16 @@ export default function App() {
                   void addFiles(e.dataTransfer.files)
                 }}
               >
+                <div
+                  className="nc-chat-wsplit left"
+                  title="Изменить ширину чата"
+                  onMouseDown={(e) => beginResize('chat', e, 'left')}
+                />
+                <div
+                  className="nc-chat-wsplit right"
+                  title="Изменить ширину чата"
+                  onMouseDown={(e) => beginResize('chat', e, 'right')}
+                />
                 {pendingAtts.length > 0 && (
                   <div className="nc-att-pending">
                     {pendingAtts.map((a) => (

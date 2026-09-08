@@ -101,7 +101,7 @@ export function SaveDeepSeekModel(arg1:string):Promise<void>;
 
 export function SaveGitAuth(arg1:string,arg2:string):Promise<void>;
 
-export function SaveLayoutSizes(arg1:number,arg2:number,arg3:number,arg4:number):Promise<void>;
+export function SaveLayoutSizes(arg1:number,arg2:number,arg3:number,arg4:number,arg5:number):Promise<void>;
 
 export function SaveOpenRouterKey(arg1:string):Promise<void>;
 

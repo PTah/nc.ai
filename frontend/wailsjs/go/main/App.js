@@ -186,8 +186,8 @@ export function SaveGitAuth(arg1, arg2) {
   return window['go']['main']['App']['SaveGitAuth'](arg1, arg2);
 }
 
-export function SaveLayoutSizes(arg1, arg2, arg3, arg4) {
-  return window['go']['main']['App']['SaveLayoutSizes'](arg1, arg2, arg3, arg4);
+export function SaveLayoutSizes(arg1, arg2, arg3, arg4, arg5) {
+  return window['go']['main']['App']['SaveLayoutSizes'](arg1, arg2, arg3, arg4, arg5);
 }
 
 export function SaveOpenRouterKey(arg1) {
