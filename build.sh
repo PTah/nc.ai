@@ -9,8 +9,8 @@ set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")" && pwd)"
 APP_NAME="NotCursor.app"
-BIN_DIR="$REPO/build/bin"
-APP_PATH="$BIN_DIR/$APP_NAME"
+BIN_DIR="${REPO}/build/bin"
+APP_PATH="${BIN_DIR}/${APP_NAME}"
 LOG="$(mktemp -t nc-wails-build.XXXXXX)"
 STAGE_DIR=""
 
@@ -39,15 +39,15 @@ EOF
 done
 
 cleanup() {
-  rm -f "$LOG"
-  if [[ -n "$STAGE_DIR" && -d "$STAGE_DIR" ]]; then
-    rm -rf "$STAGE_DIR"
+  rm -f "${LOG}"
+  if [[ -n "${STAGE_DIR}" && -d "${STAGE_DIR}" ]]; then
+    rm -rf "${STAGE_DIR}"
   fi
 }
 trap cleanup EXIT
 
 export PATH="/opt/homebrew/bin:/usr/local/go/bin:$(go env GOPATH 2>/dev/null)/bin:${PATH:-}"
-# proxy.golang.org often RSTs on this LAN — keep fallbacks.
+# proxy.golang.org often RSTs on this LAN - keep fallbacks.
 export GOPROXY="${GOPROXY:-https://proxy.golang.org,https://goproxy.io,https://goproxy.cn,direct}"
 
 if ! command -v go >/dev/null 2>&1; then
@@ -55,21 +55,21 @@ if ! command -v go >/dev/null 2>&1; then
   exit 1
 fi
 if ! command -v wails >/dev/null 2>&1; then
-  echo "wails not found — install: go install github.com/wailsapp/wails/v2/cmd/wails@v2.15.0" >&2
+  echo "wails not found - install: go install github.com/wailsapp/wails/v2/cmd/wails@v2.15.0" >&2
   exit 1
 fi
 
 ARCH="$(uname -m)"
-if [[ "$UNIVERSAL" -eq 1 ]]; then
+if [[ "${UNIVERSAL}" -eq 1 ]]; then
   PLATFORM="darwin/universal"
-elif [[ "$ARCH" == "arm64" ]]; then
+elif [[ "${ARCH}" == "arm64" ]]; then
   PLATFORM="darwin/arm64"
 else
   PLATFORM="darwin/amd64"
 fi
 
 # Wails rejects UTF-8 BOM in wails.json.
-python3 - "$REPO/wails.json" <<'PY'
+python3 - "${REPO}/wails.json" <<'PY'
 from pathlib import Path
 import sys
 p = Path(sys.argv[1])
@@ -77,64 +77,64 @@ if p.is_file():
     p.write_bytes(p.read_text(encoding="utf-8-sig").encode("utf-8"))
 PY
 
-cd "$REPO"
+cd "${REPO}"
 
-echo "Fetching Go modules (GOPROXY=$GOPROXY)…"
+echo "Fetching Go modules (GOPROXY=${GOPROXY})..."
 if ! go mod download; then
-  echo "go mod download failed — check network / GOPROXY" >&2
+  echo "go mod download failed - check network / GOPROXY" >&2
   exit 1
 fi
 
 # Drop previous bundle so a failed compile cannot be mistaken for success.
-rm -rf "$APP_PATH"
+rm -rf "${APP_PATH}"
 
-echo "Building ($PLATFORM)…"
+echo "Building (${PLATFORM})..."
 set +e
-wails build -platform "$PLATFORM" 2>&1 | tee "$LOG"
+wails build -platform "${PLATFORM}" 2>&1 | tee "${LOG}"
 WAILS_RC=${PIPESTATUS[0]}
 set -e
 
-if [[ ! -d "$APP_PATH" ]]; then
-  echo "Build failed: missing $APP_PATH (wails exit $WAILS_RC)" >&2
+if [[ ! -d "${APP_PATH}" ]]; then
+  echo "Build failed: missing ${APP_PATH} (wails exit ${WAILS_RC})" >&2
   exit 1
 fi
 
-# We deleted $APP_PATH before the build. If it exists again, packaging succeeded.
+# We deleted ${APP_PATH} before the build. If it exists again, packaging succeeded.
 # Wails often then fails codesign inside Documents (xattrs / Finder info).
-if [[ "$WAILS_RC" -ne 0 ]]; then
-  LOG_PLAIN="$(sed $'s/\033\\[[0-9;]*[[:alpha:]]//g' "$LOG" 2>/dev/null || cat "$LOG")"
-  if printf '%s\n' "$LOG_PLAIN" | grep -qiE 'codesign failed|resource fork|Finder information|Self-signing application'; then
-    echo "wails in-tree codesign failed (Documents xattrs) — will adhoc-sign into $APP_PATH…"
-  elif printf '%s\n' "$LOG_PLAIN" | grep -q 'Packaging application: Done'; then
-    echo "wails exited $WAILS_RC after packaging — will adhoc-sign into $APP_PATH…"
+if [[ "${WAILS_RC}" -ne 0 ]]; then
+  LOG_PLAIN="$(sed $'s/\033\\[[0-9;]*[[:alpha:]]//g' "${LOG}" 2>/dev/null || cat "${LOG}")"
+  if printf '%s\n' "${LOG_PLAIN}" | grep -qiE 'codesign failed|resource fork|Finder information|Self-signing application'; then
+    echo "wails in-tree codesign failed (Documents xattrs) - will adhoc-sign into ${APP_PATH}..."
+  elif printf '%s\n' "${LOG_PLAIN}" | grep -q 'Packaging application: Done'; then
+    echo "wails exited ${WAILS_RC} after packaging - will adhoc-sign into ${APP_PATH}..."
   else
-    echo "wails exited $WAILS_RC but $APP_NAME exists — will adhoc-sign into $APP_PATH…"
+    echo "wails exited ${WAILS_RC} but ${APP_NAME} exists - will adhoc-sign into ${APP_PATH}..."
   fi
 fi
 
 # Stage outside Documents only for codesign; final artifact is always build/bin.
 STAGE_DIR="$(mktemp -d -t nc-app-sign.XXXXXX)"
-STAGE_APP="$STAGE_DIR/$APP_NAME"
-echo "Adhoc codesign (staging $STAGE_DIR → $APP_PATH)…"
-xattr -cr "$APP_PATH" 2>/dev/null || true
-find "$APP_PATH" -type f -exec xattr -c {} \; 2>/dev/null || true
-ditto --norsrc --noextattr --noacl "$APP_PATH" "$STAGE_APP"
-xattr -cr "$STAGE_APP" 2>/dev/null || true
-codesign --force --deep --sign - "$STAGE_APP"
-rm -rf "$APP_PATH"
-mkdir -p "$BIN_DIR"
-ditto --norsrc --noextattr --noacl "$STAGE_APP" "$APP_PATH"
-rm -rf "$STAGE_DIR"
+STAGE_APP="${STAGE_DIR}/${APP_NAME}"
+echo "Adhoc codesign (staging ${STAGE_DIR} -> ${APP_PATH})..."
+xattr -cr "${APP_PATH}" 2>/dev/null || true
+find "${APP_PATH}" -type f -exec xattr -c {} \; 2>/dev/null || true
+ditto --norsrc --noextattr --noacl "${APP_PATH}" "${STAGE_APP}"
+xattr -cr "${STAGE_APP}" 2>/dev/null || true
+codesign --force --deep --sign - "${STAGE_APP}"
+rm -rf "${APP_PATH}"
+mkdir -p "${BIN_DIR}"
+ditto --norsrc --noextattr --noacl "${STAGE_APP}" "${APP_PATH}"
+rm -rf "${STAGE_DIR}"
 STAGE_DIR=""
-codesign --verify --deep --strict "$APP_PATH" 2>/dev/null || true
-echo "Build finished: $APP_PATH"
+codesign --verify --deep --strict "${APP_PATH}" 2>/dev/null || true
+echo "Build finished: ${APP_PATH}"
 
-if [[ "$NO_RESTART" -eq 1 ]]; then
+if [[ "${NO_RESTART}" -eq 1 ]]; then
   echo "Done (no restart)."
   exit 0
 fi
 
-echo "Restarting NotCursor from $APP_PATH…"
+echo "Restarting NotCursor from ${APP_PATH}..."
 pkill -x NotCursor 2>/dev/null || true
 for _ in $(seq 1 40); do
   if ! pgrep -x NotCursor >/dev/null 2>&1; then
@@ -142,6 +142,6 @@ for _ in $(seq 1 40); do
   fi
   sleep 0.25
 done
-open "$APP_PATH"
-echo "Launched: $APP_PATH"
+open "${APP_PATH}"
+echo "Launched: ${APP_PATH}"
 exit 0
