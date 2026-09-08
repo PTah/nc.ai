@@ -91,6 +91,58 @@ type ChatSessionMeta = {
   title: string
 }
 
+type ArchiveChat = {
+  id: string
+  projectName: string
+  title: string
+  archivedAt: string
+  messageCount: number
+  items: ChatItem[]
+}
+
+// TODO(archives): заменить mock на данные из Go (ListArchivedChats).
+const MOCK_ARCHIVES: ArchiveChat[] = [
+  {
+    id: 'arc-1',
+    projectName: 'nc.ai',
+    title: 'сейчас будем тестировать переход между п…',
+    archivedAt: '07.03.2026 12:05:41',
+    messageCount: 18,
+    items: [
+      {kind: 'user', content: 'сейчас будем тестировать переход между проектами и чатами, посмотрим — будут они исчезать или нет'},
+      {kind: 'assistant', content: 'Принял, я на связи. Переключайся между проектами и чатами как тебе удобно — я никуда не денусь.'},
+      {kind: 'user', content: 'действие первое: создаю новый проект и открываю папку Answer.and.other.shit'},
+      {kind: 'assistant', content: 'Окей, действие первое зафиксировано. Мой статус: я всё ещё помню наш контекст, ничего не «умерло». Жду, что будет дальше.'},
+      {kind: 'user', content: 'а, такой вопрос: предыдущий чат я заархивировал. а его можно потом восстановить?'},
+      {kind: 'assistant', content: 'Хороший вопрос. Коротко: восстановить заархивированный чат можно — он просто прячется в истории.'},
+    ],
+  },
+  {
+    id: 'arc-2',
+    projectName: 'Answers.and.other.shit',
+    title: 'Chat 1',
+    archivedAt: '07.03.2026 12:30:09',
+    messageCount: 42,
+    items: [
+      {kind: 'user', content: 'привет, тут будем вести конспект по архитектуре'},
+      {kind: 'assistant', content: 'Привет! Давай. Опиши тему, и я помогу структурировать конспект.'},
+      {kind: 'user', content: 'какие бывают архитектурные стили?'},
+      {kind: 'assistant', content: 'Основные стили:\n- Монолит\n- Модульный монолит\n- Микросервисы\n- Serverless\n- Событийно-ориентированная архитектура\n\nЕсли надо — распишу подробнее каждый.'},
+    ],
+  },
+  {
+    id: 'arc-3',
+    projectName: 'nc.ai',
+    title: 'фича Archived chats — дизайн',
+    archivedAt: '07.03.2026 13:02:17',
+    messageCount: 31,
+    items: [
+      {kind: 'user', content: 'сделай кнопку Archived chats над Show files в дашборде'},
+      {kind: 'assistant', content: 'Принято. Добавлю кнопку, модалку со списком архивов по проектам и read-only просмотр архивного чата.'},
+    ],
+  },
+]
+
 type AgentEvent = {
   type: string
   content?: string
@@ -565,6 +617,10 @@ export default function App() {
   const [usage, setUsage] = useState<UsageSnapshot>(emptyUsage)
   const [welcome, setWelcome] = useState<WelcomeState | null>(null)
   const [showPrices, setShowPrices] = useState(false)
+  const [showArchives, setShowArchives] = useState(false)
+  const [archives, setArchives] = useState<ArchiveChat[]>(MOCK_ARCHIVES)
+  const [archiveProjectFilter, setArchiveProjectFilter] = useState('')
+  const [archiveView, setArchiveView] = useState<ArchiveChat | null>(null)
   const [modelPrices, setModelPrices] = useState<ModelPriceRow[]>([])
   const [pricesLoading, setPricesLoading] = useState(false)
   const [rulesInfo, setRulesInfo] = useState<RulesBundle>({globalDir: '', projectDir: '', global: [], project: []})
@@ -1902,6 +1958,16 @@ export default function App() {
             ))}
           </ul>
           <div className="nc-projects-foot">
+            <button
+              type="button"
+              className="nc-ghost"
+              onClick={() => {
+                setArchiveView(null)
+                setArchiveProjectFilter('')
+                setShowArchives(true)
+              }}>
+              🗄 Archived chats
+            </button>
             <button type="button" className="nc-ghost" onClick={() => {
               setShowTree((v) => {
                 const next = !v
@@ -2764,6 +2830,146 @@ export default function App() {
               </button>
               <button type="button" className="nc-ghost" onClick={() => setCloseProjectDlg(null)}>
                 Отмена
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {showArchives && !archiveView && (
+        <div className="nc-modal-backdrop" role="presentation" onClick={() => setShowArchives(false)}>
+          <div
+            className="nc-modal nc-archives"
+            role="dialog"
+            aria-labelledby="nc-archives-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="nc-archives-head">
+              <h2 id="nc-archives-title">Архивы чатов</h2>
+              <button type="button" className="nc-prices-close" onClick={() => setShowArchives(false)}>
+                ✕
+              </button>
+            </div>
+            <p className="nc-help">
+              Прочитайте архивный чат — он откроется в режиме просмотра и не попадёт в активные чаты. Нужный
+              фрагмент можно скопировать и вставить в текущий чат.
+            </p>
+            <div className="nc-archives-search">
+              <input
+                type="text"
+                placeholder="Поиск по названию проекта или чата…"
+                value={archiveProjectFilter}
+                onChange={(e) => setArchiveProjectFilter(e.target.value)}
+                autoFocus
+              />
+            </div>
+            <div className="nc-archives-scroll">
+              {(() => {
+                const q = archiveProjectFilter.trim().toLowerCase()
+                const projects = [...new Set(archives.map((c) => c.projectName))]
+                const filtered = archives.filter((c) => {
+                  if (!q) return true
+                  return c.title.toLowerCase().includes(q) || c.projectName.toLowerCase().includes(q)
+                })
+                return projects.map((p) => {
+                  const chats = filtered.filter((c) => c.projectName === p)
+                  if (chats.length === 0) return null
+                  return (
+                    <div key={p} className="nc-archives-project">
+                      <div className="nc-archives-project-name">{p}</div>
+                      {chats.map((c) => (
+                        <button
+                          key={c.id}
+                          type="button"
+                          className="nc-archives-chat"
+                          onClick={() => setArchiveView(c)}
+                        >
+                          <span className="nc-archives-chat-title">{c.title}</span>
+                          <span className="nc-archives-chat-meta">
+                            {c.archivedAt} · {c.messageCount} сообщ.
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )
+                })
+              })()}
+              {archives.length === 0 && <div className="nc-archives-empty">Архивов пока нет</div>}
+            </div>
+            <div className="nc-archives-foot">
+              <button type="button" className="nc-ghost" onClick={() => setShowArchives(false)}>
+                Закрыть
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {showArchives && archiveView && (
+        <div className="nc-modal-backdrop" role="presentation" onClick={() => setShowArchives(false)}>
+          <div
+            className="nc-modal nc-archives nc-archives-readonly"
+            role="dialog"
+            aria-labelledby="nc-archive-view-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="nc-archives-head">
+              <div>
+                <h2 id="nc-archive-view-title">{archiveView.title}</h2>
+                <p className="nc-help">
+                  {archiveView.projectName} · архивирован {archiveView.archivedAt} · {archiveView.messageCount}{' '}
+                  сообщ.
+                </p>
+              </div>
+              <button type="button" className="nc-prices-close" onClick={() => setShowArchives(false)}>
+                ✕
+              </button>
+            </div>
+            <div className="nc-archives-scroll nc-archives-readonly-scroll">
+              {archiveView.items.map((m, i) => {
+                if (m.kind === 'user' || m.kind === 'system' || m.kind === 'reasoning') {
+                  return (
+                    <div key={i} className="nc-arc-msg nc-arc-msg-plain">
+                      <div className="nc-arc-role">
+                        {m.kind === 'user' ? 'Вы' : m.kind === 'system' ? 'Система' : 'Размышления'}
+                      </div>
+                      <div className="nc-arc-content">{m.content}</div>
+                    </div>
+                  )
+                }
+                if (m.kind === 'assistant') {
+                  return (
+                    <div key={i} className="nc-arc-msg nc-arc-msg-assistant">
+                      <div className="nc-arc-role">Агент</div>
+                      <div className="nc-arc-content">
+                        <Markdown content={m.content} />
+                      </div>
+                    </div>
+                  )
+                }
+                if (m.kind === 'tool') {
+                  return (
+                    <div key={i} className="nc-arc-msg nc-arc-msg-tool">
+                      <div className="nc-arc-role">Инструмент: {m.name}</div>
+                      <div className="nc-arc-content">{String(m.result ?? m.args ?? '')}</div>
+                    </div>
+                  )
+                }
+                if (m.kind === 'file') {
+                  return (
+                    <div key={i} className="nc-arc-msg nc-arc-msg-file">
+                      <div className="nc-arc-role">Файл: {m.path}</div>
+                      <div className="nc-arc-content">{m.content}</div>
+                    </div>
+                  )
+                }
+                return null
+              })}
+            </div>
+            <div className="nc-archives-foot">
+              <button type="button" className="nc-ghost" onClick={() => setArchiveView(null)}>
+                ← К списку архивов
+              </button>
+              <button type="button" className="nc-ghost" onClick={() => setShowArchives(false)}>
+                Закрыть
               </button>
             </div>
           </div>
