@@ -28,6 +28,10 @@ git clone --shared --no-checkout "${REPO}" "${WORK}/repo"
 cd "${WORK}/repo"
 git checkout -q "${BRANCH}"
 
+# Shared clone has no remotes from the source — add github by URL.
+GITHUB_URL="$(git -C "${REPO}" remote get-url "${REMOTE}")"
+git remote add "${REMOTE}" "${GITHUB_URL}"
+
 shopt -s nullglob
 TODOS=(docs/TODO-*.md)
 if ((${#TODOS[@]} > 0)); then
