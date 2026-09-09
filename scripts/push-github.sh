@@ -31,6 +31,7 @@ git checkout -q "${BRANCH}"
 # Shared clone has no remotes from the source — add github by URL.
 GITHUB_URL="$(git -C "${REPO}" remote get-url "${REMOTE}")"
 git remote add "${REMOTE}" "${GITHUB_URL}"
+git fetch --prune "${REMOTE}" "${BRANCH}"
 
 shopt -s nullglob
 TODOS=(docs/TODO-*.md)
@@ -41,5 +42,6 @@ else
   echo "no docs/TODO-*.md on ${BRANCH} (already clean)"
 fi
 
-git push --force-with-lease "${REMOTE}" "HEAD:${BRANCH}"
+# Public tip intentionally diverges (no ToDo files). Lease against fetched tip.
+git push --force-with-lease="${BRANCH}:refs/remotes/${REMOTE}/${BRANCH}" "${REMOTE}" "HEAD:${BRANCH}"
 echo "Pushed ${BRANCH} to ${REMOTE} without docs/TODO-*.md"
