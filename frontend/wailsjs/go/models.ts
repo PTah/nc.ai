@@ -85,12 +85,18 @@ export namespace chatstore {
 	    deepseekCostUsd?: number;
 	    deepseekInputTokens?: number;
 	    deepseekOutputTokens?: number;
+	    deepseekCacheHitTokens?: number;
+	    deepseekCacheMissTokens?: number;
 	    zaiCostUsd?: number;
 	    zaiInputTokens?: number;
 	    zaiOutputTokens?: number;
+	    zaiCacheHitTokens?: number;
+	    zaiCacheMissTokens?: number;
 	    openrouterCostUsd?: number;
 	    openrouterInputTokens?: number;
 	    openrouterOutputTokens?: number;
+	    openrouterCacheHitTokens?: number;
+	    openrouterCacheMissTokens?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new Session(source);
@@ -109,12 +115,18 @@ export namespace chatstore {
 	        this.deepseekCostUsd = source["deepseekCostUsd"];
 	        this.deepseekInputTokens = source["deepseekInputTokens"];
 	        this.deepseekOutputTokens = source["deepseekOutputTokens"];
+	        this.deepseekCacheHitTokens = source["deepseekCacheHitTokens"];
+	        this.deepseekCacheMissTokens = source["deepseekCacheMissTokens"];
 	        this.zaiCostUsd = source["zaiCostUsd"];
 	        this.zaiInputTokens = source["zaiInputTokens"];
 	        this.zaiOutputTokens = source["zaiOutputTokens"];
+	        this.zaiCacheHitTokens = source["zaiCacheHitTokens"];
+	        this.zaiCacheMissTokens = source["zaiCacheMissTokens"];
 	        this.openrouterCostUsd = source["openrouterCostUsd"];
 	        this.openrouterInputTokens = source["openrouterInputTokens"];
 	        this.openrouterOutputTokens = source["openrouterOutputTokens"];
+	        this.openrouterCacheHitTokens = source["openrouterCacheHitTokens"];
+	        this.openrouterCacheMissTokens = source["openrouterCacheMissTokens"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
