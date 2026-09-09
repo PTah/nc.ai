@@ -24,7 +24,7 @@ const (
 	// VisionModel for multimodal turns (tools + vision).
 	VisionModel = "qwen/qwen3-vl-8b-instruct"
 
-	AppReferer = "https://git.papatramp.ru/PapaTramp/nc.ai"
+	AppReferer = "https://github.com/PTah/nc.ai"
 	AppTitle   = "NotCursor.ai"
 )
 
