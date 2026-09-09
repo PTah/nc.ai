@@ -1,5 +1,7 @@
 # ToDo: phase 5 — warm project-tree / inline-режим
 
+**Только private remotes (`home`, `kalinamall`). На `github` эти ToDo не пушим.**
+
 Статус:
 
 - **Warm project-tree** — **сделано** (v0.5.25): сжатое дерево после system prompt (`ProjectMap`).
@@ -23,3 +25,4 @@
 ## Связанное
 
 - RAG/эмбеддинги: `docs/TODO-rag-semantic-index.md`
+- Secrets hardening: `docs/TODO-secrets-hardening.md`

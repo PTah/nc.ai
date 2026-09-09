@@ -1,5 +1,7 @@
 # ToDo: semantic index / RAG (phase 7)
 
+**Только private remotes (`home`, `kalinamall`). На `github` эти ToDo не пушим.**
+
 Статус: **отложено** — после grep + project map + HITL.
 
 ## Что это
