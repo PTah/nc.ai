@@ -78,18 +78,26 @@ type Settings struct {
 	TotalCostUSD      float64 `json:"totalCostUsd"`
 	TotalInputTokens  int     `json:"totalInputTokens"`
 	TotalOutputTokens int     `json:"totalOutputTokens"`
+	TotalCacheHitTokens  int `json:"totalCacheHitTokens,omitempty"`
+	TotalCacheMissTokens int `json:"totalCacheMissTokens,omitempty"`
 
 	DeepSeekCostUSD      float64 `json:"deepseekCostUsd,omitempty"`
 	DeepSeekInputTokens  int     `json:"deepseekInputTokens,omitempty"`
 	DeepSeekOutputTokens int     `json:"deepseekOutputTokens,omitempty"`
+	DeepSeekCacheHitTokens  int `json:"deepseekCacheHitTokens,omitempty"`
+	DeepSeekCacheMissTokens int `json:"deepseekCacheMissTokens,omitempty"`
 
 	ZaiCostUSD      float64 `json:"zaiCostUsd,omitempty"`
 	ZaiInputTokens  int     `json:"zaiInputTokens,omitempty"`
 	ZaiOutputTokens int     `json:"zaiOutputTokens,omitempty"`
+	ZaiCacheHitTokens  int `json:"zaiCacheHitTokens,omitempty"`
+	ZaiCacheMissTokens int `json:"zaiCacheMissTokens,omitempty"`
 
 	OpenRouterCostUSD      float64 `json:"openrouterCostUsd,omitempty"`
 	OpenRouterInputTokens  int     `json:"openrouterInputTokens,omitempty"`
 	OpenRouterOutputTokens int     `json:"openrouterOutputTokens,omitempty"`
+	OpenRouterCacheHitTokens  int `json:"openrouterCacheHitTokens,omitempty"`
+	OpenRouterCacheMissTokens int `json:"openrouterCacheMissTokens,omitempty"`
 
 	// LastSeenVersion is the app version for which Welcome was already shown.
 	LastSeenVersion string `json:"lastSeenVersion,omitempty"`
@@ -660,39 +668,50 @@ func (s *Store) RemoveRecentProject(path string) error {
 }
 
 // AddUsage accumulates all-time spend for the given provider and the legacy combined total.
-func (s *Store) AddUsage(provider string, costUSD float64, inputTokens, outputTokens int) error {
+func (s *Store) AddUsage(provider string, costUSD float64, inputTokens, outputTokens, cacheHit, cacheMiss int) error {
 	s.mu.Lock()
 	s.settings.TotalCostUSD += costUSD
 	s.settings.TotalInputTokens += inputTokens
 	s.settings.TotalOutputTokens += outputTokens
+	s.settings.TotalCacheHitTokens += cacheHit
+	s.settings.TotalCacheMissTokens += cacheMiss
 	switch normalizeProvider(provider) {
 	case ProviderZAI:
 		s.settings.ZaiCostUSD += costUSD
 		s.settings.ZaiInputTokens += inputTokens
 		s.settings.ZaiOutputTokens += outputTokens
+		s.settings.ZaiCacheHitTokens += cacheHit
+		s.settings.ZaiCacheMissTokens += cacheMiss
 	case ProviderOpenRouter:
 		s.settings.OpenRouterCostUSD += costUSD
 		s.settings.OpenRouterInputTokens += inputTokens
 		s.settings.OpenRouterOutputTokens += outputTokens
+		s.settings.OpenRouterCacheHitTokens += cacheHit
+		s.settings.OpenRouterCacheMissTokens += cacheMiss
 	default:
 		s.settings.DeepSeekCostUSD += costUSD
 		s.settings.DeepSeekInputTokens += inputTokens
 		s.settings.DeepSeekOutputTokens += outputTokens
+		s.settings.DeepSeekCacheHitTokens += cacheHit
+		s.settings.DeepSeekCacheMissTokens += cacheMiss
 	}
 	s.mu.Unlock()
 	return s.Save()
 }
 
 // ProviderUsage returns persisted totals for one provider.
-func (s *Store) ProviderUsage(provider string) (cost float64, in, out int) {
+func (s *Store) ProviderUsage(provider string) (cost float64, in, out, cacheHit, cacheMiss int) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	switch normalizeProvider(provider) {
 	case ProviderZAI:
-		return s.settings.ZaiCostUSD, s.settings.ZaiInputTokens, s.settings.ZaiOutputTokens
+		return s.settings.ZaiCostUSD, s.settings.ZaiInputTokens, s.settings.ZaiOutputTokens,
+			s.settings.ZaiCacheHitTokens, s.settings.ZaiCacheMissTokens
 	case ProviderOpenRouter:
-		return s.settings.OpenRouterCostUSD, s.settings.OpenRouterInputTokens, s.settings.OpenRouterOutputTokens
+		return s.settings.OpenRouterCostUSD, s.settings.OpenRouterInputTokens, s.settings.OpenRouterOutputTokens,
+			s.settings.OpenRouterCacheHitTokens, s.settings.OpenRouterCacheMissTokens
 	default:
-		return s.settings.DeepSeekCostUSD, s.settings.DeepSeekInputTokens, s.settings.DeepSeekOutputTokens
+		return s.settings.DeepSeekCostUSD, s.settings.DeepSeekInputTokens, s.settings.DeepSeekOutputTokens,
+			s.settings.DeepSeekCacheHitTokens, s.settings.DeepSeekCacheMissTokens
 	}
 }

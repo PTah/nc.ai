@@ -32,13 +32,19 @@ type Session struct {
 	DeepSeekCostUSD      float64 `json:"deepseekCostUsd,omitempty"`
 	DeepSeekInputTokens  int     `json:"deepseekInputTokens,omitempty"`
 	DeepSeekOutputTokens int     `json:"deepseekOutputTokens,omitempty"`
+	DeepSeekCacheHitTokens  int `json:"deepseekCacheHitTokens,omitempty"`
+	DeepSeekCacheMissTokens int `json:"deepseekCacheMissTokens,omitempty"`
 	ZaiCostUSD      float64 `json:"zaiCostUsd,omitempty"`
 	ZaiInputTokens  int     `json:"zaiInputTokens,omitempty"`
 	ZaiOutputTokens int     `json:"zaiOutputTokens,omitempty"`
+	ZaiCacheHitTokens  int `json:"zaiCacheHitTokens,omitempty"`
+	ZaiCacheMissTokens int `json:"zaiCacheMissTokens,omitempty"`
 
 	OpenRouterCostUSD      float64 `json:"openrouterCostUsd,omitempty"`
 	OpenRouterInputTokens  int     `json:"openrouterInputTokens,omitempty"`
 	OpenRouterOutputTokens int     `json:"openrouterOutputTokens,omitempty"`
+	OpenRouterCacheHitTokens  int `json:"openrouterCacheHitTokens,omitempty"`
+	OpenRouterCacheMissTokens int `json:"openrouterCacheMissTokens,omitempty"`
 }
 
 // ProjectBundle holds all sessions for one workspace.
@@ -673,36 +679,48 @@ func (s *Store) Clear(project string) error {
 	sess.DeepSeekCostUSD = 0
 	sess.DeepSeekInputTokens = 0
 	sess.DeepSeekOutputTokens = 0
+	sess.DeepSeekCacheHitTokens = 0
+	sess.DeepSeekCacheMissTokens = 0
 	sess.ZaiCostUSD = 0
 	sess.ZaiInputTokens = 0
 	sess.ZaiOutputTokens = 0
+	sess.ZaiCacheHitTokens = 0
+	sess.ZaiCacheMissTokens = 0
+	sess.OpenRouterCostUSD = 0
+	sess.OpenRouterInputTokens = 0
+	sess.OpenRouterOutputTokens = 0
+	sess.OpenRouterCacheHitTokens = 0
+	sess.OpenRouterCacheMissTokens = 0
 	return s.SaveSession(project, sess)
 }
 
 // ProviderUsage returns spend for one provider in this session.
 // Pre-split sessions: legacy CostUSD is treated as DeepSeek.
-func (sess *Session) ProviderUsage(provider string) (cost float64, in, out int) {
+func (sess *Session) ProviderUsage(provider string) (cost float64, in, out, cacheHit, cacheMiss int) {
 	if sess == nil {
-		return 0, 0, 0
+		return 0, 0, 0, 0, 0
 	}
 	switch strings.ToLower(strings.TrimSpace(provider)) {
 	case "zai":
-		return sess.ZaiCostUSD, sess.ZaiInputTokens, sess.ZaiOutputTokens
+		return sess.ZaiCostUSD, sess.ZaiInputTokens, sess.ZaiOutputTokens,
+			sess.ZaiCacheHitTokens, sess.ZaiCacheMissTokens
 	case "openrouter":
-		return sess.OpenRouterCostUSD, sess.OpenRouterInputTokens, sess.OpenRouterOutputTokens
+		return sess.OpenRouterCostUSD, sess.OpenRouterInputTokens, sess.OpenRouterOutputTokens,
+			sess.OpenRouterCacheHitTokens, sess.OpenRouterCacheMissTokens
 	default:
 		if sess.DeepSeekCostUSD == 0 && sess.DeepSeekInputTokens == 0 && sess.DeepSeekOutputTokens == 0 &&
 			sess.ZaiCostUSD == 0 && sess.ZaiInputTokens == 0 && sess.ZaiOutputTokens == 0 &&
 			sess.OpenRouterCostUSD == 0 && sess.OpenRouterInputTokens == 0 && sess.OpenRouterOutputTokens == 0 &&
 			(sess.CostUSD != 0 || sess.InputTokens != 0 || sess.OutputTokens != 0) {
-			return sess.CostUSD, sess.InputTokens, sess.OutputTokens
+			return sess.CostUSD, sess.InputTokens, sess.OutputTokens, 0, 0
 		}
-		return sess.DeepSeekCostUSD, sess.DeepSeekInputTokens, sess.DeepSeekOutputTokens
+		return sess.DeepSeekCostUSD, sess.DeepSeekInputTokens, sess.DeepSeekOutputTokens,
+			sess.DeepSeekCacheHitTokens, sess.DeepSeekCacheMissTokens
 	}
 }
 
 // AddUsage accumulates per-chat spend counters on the given session and persists.
-func (s *Store) AddUsage(project, sessionID, provider string, costUSD float64, inputTokens, outputTokens int) (*Session, error) {
+func (s *Store) AddUsage(project, sessionID, provider string, costUSD float64, inputTokens, outputTokens, cacheHit, cacheMiss int) (*Session, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	b, err := s.loadBundle(project)
@@ -722,14 +740,20 @@ func (s *Store) AddUsage(project, sessionID, provider string, costUSD float64, i
 				b.Sessions[i].ZaiCostUSD += costUSD
 				b.Sessions[i].ZaiInputTokens += inputTokens
 				b.Sessions[i].ZaiOutputTokens += outputTokens
+				b.Sessions[i].ZaiCacheHitTokens += cacheHit
+				b.Sessions[i].ZaiCacheMissTokens += cacheMiss
 			case "openrouter":
 				b.Sessions[i].OpenRouterCostUSD += costUSD
 				b.Sessions[i].OpenRouterInputTokens += inputTokens
 				b.Sessions[i].OpenRouterOutputTokens += outputTokens
+				b.Sessions[i].OpenRouterCacheHitTokens += cacheHit
+				b.Sessions[i].OpenRouterCacheMissTokens += cacheMiss
 			default:
 				b.Sessions[i].DeepSeekCostUSD += costUSD
 				b.Sessions[i].DeepSeekInputTokens += inputTokens
 				b.Sessions[i].DeepSeekOutputTokens += outputTokens
+				b.Sessions[i].DeepSeekCacheHitTokens += cacheHit
+				b.Sessions[i].DeepSeekCacheMissTokens += cacheMiss
 			}
 			b.Sessions[i].UpdatedAt = time.Now()
 			if err := s.saveBundle(b); err != nil {

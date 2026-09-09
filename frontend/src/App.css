@@ -256,6 +256,7 @@ textarea { resize: none; }
 }
 .nc-cost-chat { color: var(--cost); }
 .nc-cost-total { color: var(--cost-total); }
+.nc-cost-cache { color: var(--muted); }
 .nc-cost-bal { color: var(--muted); }
 .nc-cost-sep { color: var(--muted); }
 .nc-root {

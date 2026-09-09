@@ -11,11 +11,11 @@ import {agent} from '../models';
 
 export function AckWelcome():Promise<void>;
 
+export function AppDataDir():Promise<string>;
+
 export function AppInfo():Promise<Record<string, string>>;
 
 export function ArchiveChatSession(arg1:string,arg2:string):Promise<string>;
-
-export function AppDataDir():Promise<string>;
 
 export function ChatOnce(arg1:string):Promise<string>;
 
@@ -41,9 +41,9 @@ export function GetWelcome(arg1:string):Promise<main.WelcomeInfo>;
 
 export function GetZaiBalance():Promise<zai.AccountBalance>;
 
-export function ListChatSessions():Promise<chatstore.ProjectBundle>;
-
 export function ListArchivedChats():Promise<Array<chatstore.ArchivedChat>>;
+
+export function ListChatSessions():Promise<chatstore.ProjectBundle>;
 
 export function ListDir(arg1:string):Promise<Array<workspace.Entry>>;
 

@@ -71,8 +71,15 @@ type Runner struct {
 	UserText      string
 	HasImages     bool
 	HintPathCount int
-	// RulesText is appended to the system prompt (Cursor .cursorrules / .cursor/rules).
+	// RulesText is the stable rules block appended to the system prompt
+	// (always-apply / catalog). Keep it turn-invariant for provider prefix cache.
 	RulesText string
+	// TurnRulesText is path-scoped rules for this user turn only; sent as a
+	// separate message after history so it does not invalidate the system cache.
+	TurnRulesText string
+	// StickyModel, when AutoModels is on, reuses the session's last non-vision
+	// model so consecutive turns stay on one cache namespace.
+	StickyModel string
 	// RetryCount is the number of automatic reconnect attempts for transient network errors.
 	RetryCount int
 	// RetryBackoff is the base wait between reconnect attempts (grows linearly per attempt).
@@ -82,6 +89,9 @@ type Runner struct {
 	OnUsage func(model string, u *llm.Usage)
 
 	lastEmittedModel string
+	// runModel locks the model for the rest of this Run* after the first pick
+	// (except a one-way upgrade to vision when images appear).
+	runModel string
 }
 
 func (r *Runner) isZai() bool {
@@ -100,44 +110,57 @@ func (r *Runner) reportUsage(model string, u *llm.Usage) {
 }
 
 // resolveModel picks the model for this step and emits a "model" event when it changes.
+// After the first pick in a run the choice is sticky (cache-friendly), except a
+// one-way upgrade to the provider's vision model when the turn has images.
 func (r *Runner) resolveModel(step int, emit EmitFunc) string {
+	if locked := strings.TrimSpace(r.runModel); locked != "" {
+		if r.HasImages && !IsVisionModel(locked) {
+			vision, reason := r.visionModel()
+			if vision != "" && vision != locked {
+				r.runModel = vision
+				r.ModelOverride = vision
+				r.emitModel(emit, vision, reason)
+				return vision
+			}
+		}
+		return locked
+	}
+
 	var model, reason string
 	switch {
 	case r.AutoModels:
-		var d RouteDecision
-		switch {
-		case r.isZai():
-			d = PickZaiModel(RouteInput{
-				UserText:      r.UserText,
-				HasImages:     r.HasImages,
-				HintPathCount: r.HintPathCount,
-				Step:          step,
-			})
-		case r.isOpenRouter():
-			d = PickOpenRouterModel(RouteInput{
-				UserText:      r.UserText,
-				HasImages:     r.HasImages,
-				HintPathCount: r.HintPathCount,
-				Step:          step,
-			})
-		default:
-			d = PickModel(RouteInput{
-				UserText:      r.UserText,
-				HasImages:     r.HasImages,
-				HintPathCount: r.HintPathCount,
-				Step:          step,
-			})
+		sticky := strings.TrimSpace(r.StickyModel)
+		if sticky != "" && !r.HasImages && !IsVisionModel(sticky) {
+			model, reason = sticky, "session-sticky"
+		} else {
+			var d RouteDecision
+			switch {
+			case r.isZai():
+				d = PickZaiModel(RouteInput{
+					UserText:      r.UserText,
+					HasImages:     r.HasImages,
+					HintPathCount: r.HintPathCount,
+					Step:          step,
+				})
+			case r.isOpenRouter():
+				d = PickOpenRouterModel(RouteInput{
+					UserText:      r.UserText,
+					HasImages:     r.HasImages,
+					HintPathCount: r.HintPathCount,
+					Step:          step,
+				})
+			default:
+				d = PickModel(RouteInput{
+					UserText:      r.UserText,
+					HasImages:     r.HasImages,
+					HintPathCount: r.HintPathCount,
+					Step:          step,
+				})
+			}
+			model, reason = d.Model, d.Reason
 		}
-		model, reason = d.Model, d.Reason
 	case r.HasImages:
-		switch {
-		case r.isZai():
-			model, reason = ModelZaiVision, "image"
-		case r.isOpenRouter():
-			model, reason = ModelORVision, "image"
-		default:
-			model, reason = ModelVision, "image"
-		}
+		model, reason = r.visionModel()
 	case strings.TrimSpace(r.ModelOverride) != "":
 		model = strings.TrimSpace(r.ModelOverride)
 	case strings.TrimSpace(r.PreferredModel) != "":
@@ -152,12 +175,39 @@ func (r *Runner) resolveModel(step int, emit EmitFunc) string {
 			model = ModelFlash
 		}
 	}
+	r.runModel = model
 	r.ModelOverride = model
-	if model != "" && model != r.lastEmittedModel {
-		r.lastEmittedModel = model
-		emit(Event{Type: "model", Content: model, Name: reason})
-	}
+	r.emitModel(emit, model, reason)
 	return model
+}
+
+func (r *Runner) visionModel() (model, reason string) {
+	switch {
+	case r.isZai():
+		return ModelZaiVision, "image"
+	case r.isOpenRouter():
+		return ModelORVision, "image"
+	default:
+		return ModelVision, "image"
+	}
+}
+
+func (r *Runner) emitModel(emit EmitFunc, model, reason string) {
+	if model == "" || model == r.lastEmittedModel {
+		return
+	}
+	r.lastEmittedModel = model
+	emit(Event{Type: "model", Content: model, Name: reason})
+}
+
+// IsVisionModel reports models used only for multimodal turns.
+func IsVisionModel(model string) bool {
+	switch strings.TrimSpace(model) {
+	case ModelVision, ModelZaiVision, ModelORVision:
+		return true
+	default:
+		return false
+	}
 }
 
 func (r *Runner) systemPrompt() string {
@@ -166,10 +216,16 @@ func (r *Runner) systemPrompt() string {
 		return SystemPrompt
 	}
 	return SystemPrompt + "\n\n" +
-		"## Cursor / project rules for this turn\n" +
-		"These rules come from Cursor (.cursorrules / .cursor/rules / AGENTS.md) and were refreshed for this request. " +
-		"Follow them strictly; when they conflict with this base prompt, the rules win.\n\n" +
+		"## Cursor / project rules (stable)\n" +
+		"These rules come from Cursor (.cursorrules / .cursor/rules / AGENTS.md). " +
+		"Follow them strictly; when they conflict with this base prompt, the rules win. " +
+		"Path-scoped turn rules, if any, arrive in a later user message.\n\n" +
 		rules
+}
+
+// LockedModel returns the model locked for the current/last run (may be empty).
+func (r *Runner) LockedModel() string {
+	return strings.TrimSpace(r.runModel)
 }
 
 func (r *Runner) retryCount() int {
@@ -287,16 +343,26 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 		emit = func(Event) {}
 	}
 
-	messages := make([]llm.Message, 0, len(history)+8)
+	prior := make([]llm.Message, 0, len(history))
 	for _, m := range history {
 		if m.Role == "system" {
 			continue
 		}
-		messages = append(messages, m)
+		prior = append(prior, m)
 	}
-	// Always prepend a fresh system prompt so the current Cursor rules are in
-	// effect even when the persisted history already contains an old system message.
-	messages = append([]llm.Message{{Role: "system", Content: r.systemPrompt()}}, messages...)
+	// Compact once between user turns. Mutating tool results mid-run would
+	// invalidate the provider prefix cache on every agent step.
+	prior = CompactHistory(prior)
+
+	messages := make([]llm.Message, 0, len(prior)+8)
+	messages = append(messages, llm.Message{Role: "system", Content: r.systemPrompt()})
+	messages = append(messages, prior...)
+	if turn := strings.TrimSpace(r.TurnRulesText); turn != "" {
+		messages = append(messages, llm.UserText(
+			"<turn_rules>\n"+turn+"\n</turn_rules>\n"+
+				"Apply these path-scoped rules for this turn in addition to the stable system rules.",
+		))
+	}
 	messages = append(messages, userMsg)
 
 	for step := 0; step < max; step++ {
@@ -307,7 +373,7 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 
 		model := r.resolveModel(step, emit)
 		req := &llm.ChatRequest{
-			Messages:        CompactHistory(messages),
+			Messages:        messages,
 			Tools:           tools.Specs(),
 			ToolChoice:      "auto",
 			Thinking:        map[string]any{"type": "enabled"},
@@ -380,7 +446,7 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 	))
 	wrapModel := r.resolveModel(max, emit)
 	req := &llm.ChatRequest{
-		Messages:        CompactHistory(messages),
+		Messages:        messages,
 		Thinking:        map[string]any{"type": "enabled"},
 		ReasoningEffort: "high",
 		Stream:          false,

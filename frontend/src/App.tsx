@@ -153,9 +153,13 @@ type UsageSnapshot = {
   costUsd: number
   inputTokens: number
   outputTokens: number
+  cacheHitTokens: number
+  cacheMissTokens: number
   chatCostUsd: number
   chatInputTokens: number
   chatOutputTokens: number
+  chatCacheHitTokens: number
+  chatCacheMissTokens: number
   balanceOk: boolean
   balanceUsd: number
   balanceDetail: string
@@ -183,9 +187,13 @@ const emptyUsage: UsageSnapshot = {
   costUsd: 0,
   inputTokens: 0,
   outputTokens: 0,
+  cacheHitTokens: 0,
+  cacheMissTokens: 0,
   chatCostUsd: 0,
   chatInputTokens: 0,
   chatOutputTokens: 0,
+  chatCacheHitTokens: 0,
+  chatCacheMissTokens: 0,
   balanceOk: false,
   balanceUsd: 0,
   balanceDetail: '',
@@ -339,9 +347,13 @@ function usageFromUnknown(raw: unknown): UsageSnapshot | null {
     costUsd: pickNum(u, 'costUsd', 'CostUsd', 'CostUSD'),
     inputTokens: pickNum(u, 'inputTokens', 'InputTokens'),
     outputTokens: pickNum(u, 'outputTokens', 'OutputTokens'),
+    cacheHitTokens: pickNum(u, 'cacheHitTokens', 'CacheHitTokens'),
+    cacheMissTokens: pickNum(u, 'cacheMissTokens', 'CacheMissTokens'),
     chatCostUsd: pickNum(u, 'chatCostUsd', 'ChatCostUsd', 'ChatCostUSD'),
     chatInputTokens: pickNum(u, 'chatInputTokens', 'ChatInputTokens'),
     chatOutputTokens: pickNum(u, 'chatOutputTokens', 'ChatOutputTokens'),
+    chatCacheHitTokens: pickNum(u, 'chatCacheHitTokens', 'ChatCacheHitTokens'),
+    chatCacheMissTokens: pickNum(u, 'chatCacheMissTokens', 'ChatCacheMissTokens'),
     balanceOk: Boolean(u.balanceOk ?? u.BalanceOk),
     balanceUsd: pickNum(u, 'balanceUsd', 'BalanceUsd'),
     balanceDetail: String(u.balanceDetail || u.BalanceDetail || ''),
@@ -350,6 +362,20 @@ function usageFromUnknown(raw: unknown): UsageSnapshot | null {
 
 function fmtUsd(c: number): string {
   return `$${Number(c || 0).toFixed(4)}`
+}
+
+function cacheHitPct(hit: number, miss: number): number | null {
+  const h = Math.max(0, hit || 0)
+  const m = Math.max(0, miss || 0)
+  const total = h + m
+  if (total <= 0) return null
+  return Math.round((100 * h) / total)
+}
+
+function fmtCachePct(hit: number, miss: number): string {
+  const pct = cacheHitPct(hit, miss)
+  if (pct == null) return 'cache —'
+  return `cache ${pct}%`
 }
 
 function fmtPrice1M(c: number, free?: boolean): string {
@@ -610,7 +636,7 @@ function parseAgentEvent(...args: unknown[]): AgentEvent | null {
 }
 
 export default function App() {
-  const [info, setInfo] = useState({name: 'NotCursor.ai', version: '0.5.23'})
+  const [info, setInfo] = useState({name: 'NotCursor.ai', version: '0.5.24'})
   const [usage, setUsage] = useState<UsageSnapshot>(emptyUsage)
   const [welcome, setWelcome] = useState<WelcomeState | null>(null)
   const [showPrices, setShowPrices] = useState(false)
@@ -1996,18 +2022,34 @@ export default function App() {
           <span
             className="nc-cost"
             title={
-              activeProvider === 'zai'
-                ? `Провайдер Z.ai · чат: ${usage.chatInputTokens} in / ${usage.chatOutputTokens} out (${fmtUsd(usage.chatCostUsd)}) · total Z.ai: ${usage.inputTokens} in / ${usage.outputTokens} out (${fmtUsd(usage.costUsd)})` +
-                  (usage.balanceDetail ? ` · ${usage.balanceDetail}` : '')
-                : activeProvider === 'openrouter'
-                  ? `Провайдер OpenRouter · чат: ${usage.chatInputTokens} in / ${usage.chatOutputTokens} out (${fmtUsd(usage.chatCostUsd)}) · total OR: ${usage.inputTokens} in / ${usage.outputTokens} out (${fmtUsd(usage.costUsd)})` +
+              (() => {
+                const chatPct = cacheHitPct(usage.chatCacheHitTokens, usage.chatCacheMissTokens)
+                const totPct = cacheHitPct(usage.cacheHitTokens, usage.cacheMissTokens)
+                const cacheLine =
+                  ` · chat cache ${usage.chatCacheHitTokens} hit / ${usage.chatCacheMissTokens} miss` +
+                  (chatPct == null ? '' : ` (${chatPct}%)`) +
+                  ` · total cache ${usage.cacheHitTokens} hit / ${usage.cacheMissTokens} miss` +
+                  (totPct == null ? '' : ` (${totPct}%)`)
+                if (activeProvider === 'zai') {
+                  return `Провайдер Z.ai · чат: ${usage.chatInputTokens} in / ${usage.chatOutputTokens} out (${fmtUsd(usage.chatCostUsd)}) · total Z.ai: ${usage.inputTokens} in / ${usage.outputTokens} out (${fmtUsd(usage.costUsd)})` +
+                    cacheLine +
                     (usage.balanceDetail ? ` · ${usage.balanceDetail}` : '')
-                : `Провайдер DeepSeek · чат: ${usage.chatInputTokens} in / ${usage.chatOutputTokens} out (${fmtUsd(usage.chatCostUsd)}) · total DeepSeek: ${usage.inputTokens} in / ${usage.outputTokens} out (${fmtUsd(usage.costUsd)})`
+                }
+                if (activeProvider === 'openrouter') {
+                  return `Провайдер OpenRouter · чат: ${usage.chatInputTokens} in / ${usage.chatOutputTokens} out (${fmtUsd(usage.chatCostUsd)}) · total OR: ${usage.inputTokens} in / ${usage.outputTokens} out (${fmtUsd(usage.costUsd)})` +
+                    cacheLine +
+                    (usage.balanceDetail ? ` · ${usage.balanceDetail}` : '')
+                }
+                return `Провайдер DeepSeek · чат: ${usage.chatInputTokens} in / ${usage.chatOutputTokens} out (${fmtUsd(usage.chatCostUsd)}) · total DeepSeek: ${usage.inputTokens} in / ${usage.outputTokens} out (${fmtUsd(usage.costUsd)})` +
+                  cacheLine
+              })()
             }
           >
             <span className="nc-cost-chat">{providerLabel} chat {fmtUsd(usage.chatCostUsd)}</span>
             <span className="nc-cost-sep">·</span>
             <span className="nc-cost-total">total {fmtUsd(usage.costUsd)}</span>
+            <span className="nc-cost-sep">·</span>
+            <span className="nc-cost-cache">{fmtCachePct(usage.chatCacheHitTokens, usage.chatCacheMissTokens)}</span>
             {showBalance && (
               <>
                 <span className="nc-cost-sep">·</span>

@@ -6,16 +6,16 @@ export function AckWelcome() {
   return window['go']['main']['App']['AckWelcome']();
 }
 
+export function AppDataDir() {
+  return window['go']['main']['App']['AppDataDir']();
+}
+
 export function AppInfo() {
   return window['go']['main']['App']['AppInfo']();
 }
 
 export function ArchiveChatSession(arg1, arg2) {
   return window['go']['main']['App']['ArchiveChatSession'](arg1, arg2);
-}
-
-export function AppDataDir() {
-  return window['go']['main']['App']['AppDataDir']();
 }
 
 export function ChatOnce(arg1) {
@@ -66,12 +66,12 @@ export function GetZaiBalance() {
   return window['go']['main']['App']['GetZaiBalance']();
 }
 
-export function ListChatSessions() {
-  return window['go']['main']['App']['ListChatSessions']();
-}
-
 export function ListArchivedChats() {
   return window['go']['main']['App']['ListArchivedChats']();
+}
+
+export function ListChatSessions() {
+  return window['go']['main']['App']['ListChatSessions']();
 }
 
 export function ListDir(arg1) {

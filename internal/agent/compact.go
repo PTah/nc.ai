@@ -9,6 +9,10 @@ import (
 
 // History compaction: keep recent tool results verbatim, collapse older ones
 // into short placeholders. This bounds context growth on long agent runs.
+//
+// Call CompactHistory only between user turns (on persisted history before a
+// new Run*). Do not re-compact inside the agent step loop — rewriting earlier
+// tool messages breaks provider prefix cache hits across steps.
 
 const (
 	// keepFullToolResults is how many trailing tool results stay verbatim.

@@ -58,6 +58,18 @@ func TestSelectForPrompt_AlwaysApplyAndCatalog(t *testing.T) {
 	if !strings.Contains(outGo, "Use chi router.") {
 		t.Fatalf("glob-matched body missing:\n%s", outGo)
 	}
+
+	stable := b.SelectStableForPrompt()
+	if strings.Contains(stable, "Use chi router.") {
+		t.Fatalf("stable prompt must not include glob body:\n%s", stable)
+	}
+	turn := b.SelectTurnRules([]string{"internal/api/server.go"})
+	if !strings.Contains(turn, "Use chi router.") {
+		t.Fatalf("turn rules missing glob body:\n%s", turn)
+	}
+	if turn == "" || strings.Contains(turn, "Bare rule always on.") {
+		t.Fatalf("turn rules should be glob-only:\n%s", turn)
+	}
 }
 
 func TestLoad_AgentsMDAndCursorrules(t *testing.T) {

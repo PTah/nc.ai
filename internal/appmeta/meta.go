@@ -3,24 +3,24 @@ package appmeta
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "0.5.23"
+	Version = "0.5.24"
 )
 
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
+	"Кэш LLM: hit/miss % в шапке; стабильный system + turn-rules",
+	"Compact истории только между ходами; sticky-модель в сессии",
 	"Ctrl+Shift+S — открыть/закрыть Settings",
-	"Архивы чатов читаются из %AppData%\\Roaming\\NotCursor\\chat_archive",
-	"Мульти-запросы: новый текст «висит» над вводом, Send now прерывает агента",
-	"DeepSeek при старте: flash + Auto-Models",
+	"Мульти-запросы: pending над вводом, Send now прерывает агента",
 	"Чаты и настройки только в NotCursor — не в ~/.cursor",
 }
 
 var HighlightsEN = []string{
+	"LLM cache: hit/miss % in header; stable system + turn-rules",
+	"History compact between turns only; sticky model per session",
 	"Ctrl+Shift+S toggles Settings",
-	"Archived chats load from %AppData%\\Roaming\\NotCursor\\chat_archive",
-	"Multi-request: pending message above input; Send now interrupts the agent",
-	"DeepSeek on startup: flash + Auto-Models",
+	"Multi-request: pending above input; Send now interrupts the agent",
 	"Chats/settings live under NotCursor — never ~/.cursor",
 }
 

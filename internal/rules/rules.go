@@ -85,6 +85,48 @@ func (b Bundle) CombinedText() string {
 	return strings.Join(parts, "\n\n")
 }
 
+// SelectStableForPrompt is the cache-friendly system rules block:
+// always-apply / bare rules + catalog lines. Glob-matched bodies are excluded
+// so the system prefix does not change between turns.
+func (b Bundle) SelectStableForPrompt() string {
+	return b.SelectForPrompt(nil)
+}
+
+// SelectTurnRules returns only glob-matched rule bodies for this turn's hint
+// paths. Place this message after history and before the user prompt so the
+// stable system prefix stays cacheable.
+func (b Bundle) SelectTurnRules(hintPaths []string) string {
+	if len(hintPaths) == 0 {
+		return ""
+	}
+	var applied []Rule
+	seen := map[string]bool{}
+	for _, r := range append(append([]Rule{}, b.Global...), b.Project...) {
+		key := r.Path
+		if key == "" {
+			key = r.Name
+		}
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		if isStableFullRule(r) {
+			continue
+		}
+		if strings.TrimSpace(r.Globs) != "" && matchGlobs(r.Globs, hintPaths) {
+			applied = append(applied, r)
+		}
+	}
+	if len(applied) == 0 {
+		return ""
+	}
+	parts := []string{"## Turn-scoped rules (follow for this request)"}
+	for _, r := range applied {
+		parts = append(parts, formatRuleForLLM(r))
+	}
+	return strings.Join(parts, "\n\n")
+}
+
 // SelectForPrompt builds a Cursor-like prompt slice:
 //   - full body for always-on and glob-matched rules
 //   - name + description catalog for agent-requested (unmatched) rules
@@ -165,7 +207,9 @@ var (
 	backtickPathRe = regexp.MustCompile("`([^`\\n]{1,260})`")
 )
 
-func shouldApplyFull(r Rule, hintPaths []string) bool {
+// isStableFullRule is true for rules that belong in the stable system prefix
+// (independent of per-turn hint paths).
+func isStableFullRule(r Rule) bool {
 	if r.AlwaysApply {
 		return true
 	}
@@ -176,9 +220,14 @@ func shouldApplyFull(r Rule, hintPaths []string) bool {
 	hasDesc := strings.TrimSpace(r.Description) != ""
 	hasGlobs := strings.TrimSpace(r.Globs) != ""
 	// Bare rule file (no Cursor frontmatter semantics) → always on.
-	if !hasDesc && !hasGlobs {
+	return !hasDesc && !hasGlobs
+}
+
+func shouldApplyFull(r Rule, hintPaths []string) bool {
+	if isStableFullRule(r) {
 		return true
 	}
+	hasGlobs := strings.TrimSpace(r.Globs) != ""
 	if hasGlobs && matchGlobs(r.Globs, hintPaths) {
 		return true
 	}

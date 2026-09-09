@@ -43,6 +43,9 @@ type App struct {
 	rulesMu   sync.RWMutex
 	cancels   map[string]context.CancelFunc
 	runGens   map[string]uint64
+	// sessionStickyModel keeps the last non-vision Auto model per chat session
+	// so consecutive turns reuse one provider cache namespace.
+	sessionStickyModel map[string]string
 	sessionID string
 	history   []llm.Message
 	term      *shell.Session
@@ -59,11 +62,12 @@ type App struct {
 
 func NewApp() *App {
 	return &App{
-		cfg:     config.NewStore(),
-		ws:      workspace.NewManager(),
-		history: []llm.Message{},
-		cancels: map[string]context.CancelFunc{},
-		runGens: map[string]uint64{},
+		cfg:                config.NewStore(),
+		ws:                 workspace.NewManager(),
+		history:            []llm.Message{},
+		cancels:            map[string]context.CancelFunc{},
+		runGens:            map[string]uint64{},
+		sessionStickyModel: map[string]string{},
 	}
 }
 
@@ -462,9 +466,13 @@ type UsageStats struct {
 	CostUsd          float64 `json:"costUsd"`
 	InputTokens      int     `json:"inputTokens"`
 	OutputTokens     int     `json:"outputTokens"`
+	CacheHitTokens   int     `json:"cacheHitTokens"`
+	CacheMissTokens  int     `json:"cacheMissTokens"`
 	ChatCostUsd      float64 `json:"chatCostUsd"`
 	ChatInputTokens  int     `json:"chatInputTokens"`
 	ChatOutputTokens int     `json:"chatOutputTokens"`
+	ChatCacheHitTokens  int  `json:"chatCacheHitTokens"`
+	ChatCacheMissTokens int  `json:"chatCacheMissTokens"`
 	BalanceOk        bool    `json:"balanceOk"`
 	BalanceUsd       float64 `json:"balanceUsd"`
 	BalanceDetail    string  `json:"balanceDetail"`
@@ -473,12 +481,14 @@ type UsageStats struct {
 // GetUsageStats returns spend for the active provider plus the active chat spend.
 func (a *App) GetUsageStats() UsageStats {
 	provider := a.cfg.Provider()
-	cost, in, out := a.cfg.ProviderUsage(provider)
+	cost, in, out, hit, miss := a.cfg.ProviderUsage(provider)
 	outStats := UsageStats{
-		Provider:    provider,
-		CostUsd:     cost,
-		InputTokens: in,
-		OutputTokens: out,
+		Provider:        provider,
+		CostUsd:         cost,
+		InputTokens:     in,
+		OutputTokens:    out,
+		CacheHitTokens:  hit,
+		CacheMissTokens: miss,
 	}
 	if provider == config.ProviderZAI {
 		a.zaiBalMu.Lock()
@@ -506,10 +516,12 @@ func (a *App) GetUsageStats() UsageStats {
 		return outStats
 	}
 	if sess, err := a.chats.Get(a.projectKey(), sid); err == nil && sess != nil {
-		chatCost, chatIn, chatOut := sess.ProviderUsage(provider)
+		chatCost, chatIn, chatOut, chatHit, chatMiss := sess.ProviderUsage(provider)
 		outStats.ChatCostUsd = chatCost
 		outStats.ChatInputTokens = chatIn
 		outStats.ChatOutputTokens = chatOut
+		outStats.ChatCacheHitTokens = chatHit
+		outStats.ChatCacheMissTokens = chatMiss
 	}
 	return outStats
 }
@@ -1205,11 +1217,17 @@ func (a *App) RunAgentWithAttachments(userMessage string, attachments []agent.At
 	provider := a.cfg.Provider()
 	autoModels := cfg.AutoModels
 
+	a.mu.Lock()
+	sticky := a.sessionStickyModel[sid]
+	a.mu.Unlock()
+
 	runner := &agent.Runner{
 		Provider:       a.llm,
 		Tools:          a.tools,
 		MaxSteps:       a.cfg.MaxAgentSteps(),
-		RulesText:      bundle.SelectForPrompt(hints),
+		RulesText:      bundle.SelectStableForPrompt(),
+		TurnRulesText:  bundle.SelectTurnRules(hints),
+		StickyModel:    sticky,
 		AutoModels:     autoModels,
 		ProviderID:     provider,
 		PreferredModel: a.cfg.ActiveModel(),
@@ -1219,7 +1237,7 @@ func (a *App) RunAgentWithAttachments(userMessage string, attachments []agent.At
 	}
 
 	var costUSD float64
-	var inTokens, outTokens int
+	var inTokens, outTokens, cacheHit, cacheMiss int
 	runner.OnUsage = func(model string, u *llm.Usage) {
 		if u == nil {
 			return
@@ -1227,19 +1245,21 @@ func (a *App) RunAgentWithAttachments(userMessage string, attachments []agent.At
 		costUSD += costing.Cost(model, u)
 		inTokens += costing.InputTokens(u)
 		outTokens += max(u.CompletionTokens, 0)
+		cacheHit += max(u.PromptCacheHitTokens, 0)
+		cacheMiss += max(u.PromptCacheMissTokens, 0)
 		// Live preview in the top bar (provider totals not yet persisted until the run ends).
-		baseCost, baseIn, baseOut := a.cfg.ProviderUsage(provider)
-		chatCost, chatIn, chatOut := 0.0, 0, 0
+		baseCost, baseIn, baseOut, baseHit, baseMiss := a.cfg.ProviderUsage(provider)
+		chatCost, chatIn, chatOut, chatHit, chatMiss := 0.0, 0, 0, 0, 0
 		if a.chats != nil {
 			if sess, err := a.chats.Get(a.projectKey(), sid); err == nil && sess != nil {
-				chatCost, chatIn, chatOut = sess.ProviderUsage(provider)
+				chatCost, chatIn, chatOut, chatHit, chatMiss = sess.ProviderUsage(provider)
 			}
 		}
 		balOK, balUSD, balDetail := a.usageBalanceSnapshot(provider)
 		a.emitFor(sid, agent.Event{Type: "usage", Content: usagePayload(
 			provider,
-			baseCost+costUSD, baseIn+inTokens, baseOut+outTokens,
-			chatCost+costUSD, chatIn+inTokens, chatOut+outTokens,
+			baseCost+costUSD, baseIn+inTokens, baseOut+outTokens, baseHit+cacheHit, baseMiss+cacheMiss,
+			chatCost+costUSD, chatIn+inTokens, chatOut+outTokens, chatHit+cacheHit, chatMiss+cacheMiss,
 			balOK, balUSD, balDetail,
 		)})
 	}
@@ -1293,24 +1313,29 @@ func (a *App) RunAgentWithAttachments(userMessage string, attachments []agent.At
 				_ = a.chats.SaveSession(a.projectKey(), sess)
 			}
 		}
-		if inTokens+outTokens > 0 {
-			_ = a.cfg.AddUsage(provider, costUSD, inTokens, outTokens)
+		if inTokens+outTokens > 0 || cacheHit+cacheMiss > 0 {
+			_ = a.cfg.AddUsage(provider, costUSD, inTokens, outTokens, cacheHit, cacheMiss)
 			if a.chats != nil {
-				_, _ = a.chats.AddUsage(a.projectKey(), sid, provider, costUSD, inTokens, outTokens)
+				_, _ = a.chats.AddUsage(a.projectKey(), sid, provider, costUSD, inTokens, outTokens, cacheHit, cacheMiss)
 			}
 		}
-		totCost, totIn, totOut := a.cfg.ProviderUsage(provider)
-		chatCost, chatIn, chatOut := 0.0, 0, 0
+		if locked := runner.LockedModel(); locked != "" && !agent.IsVisionModel(locked) {
+			a.mu.Lock()
+			a.sessionStickyModel[sid] = locked
+			a.mu.Unlock()
+		}
+		totCost, totIn, totOut, totHit, totMiss := a.cfg.ProviderUsage(provider)
+		chatCost, chatIn, chatOut, chatHit, chatMiss := 0.0, 0, 0, 0, 0
 		if a.chats != nil {
 			if sess, gerr := a.chats.Get(a.projectKey(), sid); gerr == nil && sess != nil {
-				chatCost, chatIn, chatOut = sess.ProviderUsage(provider)
+				chatCost, chatIn, chatOut, chatHit, chatMiss = sess.ProviderUsage(provider)
 			}
 		}
 		balOK, balUSD, balDetail := a.usageBalanceSnapshot(provider)
 		a.emitFor(sid, agent.Event{Type: "usage", Content: usagePayload(
 			provider,
-			totCost, totIn, totOut,
-			chatCost, chatIn, chatOut,
+			totCost, totIn, totOut, totHit, totMiss,
+			chatCost, chatIn, chatOut, chatHit, chatMiss,
 			balOK, balUSD, balDetail,
 		)})
 		a.emitFor(sid, agent.Event{Type: "persist", Content: "1"})
@@ -1318,18 +1343,22 @@ func (a *App) RunAgentWithAttachments(userMessage string, attachments []agent.At
 	return nil
 }
 
-func usagePayload(provider string, totalCost float64, totalIn, totalOut int, chatCost float64, chatIn, chatOut int, balOK bool, balUSD float64, balDetail string) string {
+func usagePayload(provider string, totalCost float64, totalIn, totalOut, totalHit, totalMiss int, chatCost float64, chatIn, chatOut, chatHit, chatMiss int, balOK bool, balUSD float64, balDetail string) string {
 	b, _ := json.Marshal(map[string]any{
-		"provider":         provider,
-		"costUsd":          totalCost,
-		"inputTokens":      totalIn,
-		"outputTokens":     totalOut,
-		"chatCostUsd":      chatCost,
-		"chatInputTokens":  chatIn,
-		"chatOutputTokens": chatOut,
-		"balanceOk":        balOK,
-		"balanceUsd":       balUSD,
-		"balanceDetail":    balDetail,
+		"provider":             provider,
+		"costUsd":              totalCost,
+		"inputTokens":          totalIn,
+		"outputTokens":         totalOut,
+		"cacheHitTokens":       totalHit,
+		"cacheMissTokens":      totalMiss,
+		"chatCostUsd":          chatCost,
+		"chatInputTokens":      chatIn,
+		"chatOutputTokens":     chatOut,
+		"chatCacheHitTokens":   chatHit,
+		"chatCacheMissTokens":  chatMiss,
+		"balanceOk":            balOK,
+		"balanceUsd":           balUSD,
+		"balanceDetail":        balDetail,
 	})
 	return string(b)
 }

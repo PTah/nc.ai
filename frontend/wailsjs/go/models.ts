@@ -25,6 +25,53 @@ export namespace agent {
 
 export namespace chatstore {
 	
+	export class ArchivedChat {
+	    id: string;
+	    project: string;
+	    projectName: string;
+	    title: string;
+	    // Go type: time
+	    archivedAt: any;
+	    itemsJson: string;
+	    history?: llm.Message[];
+	    messageCount?: number;
+	    fileName?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ArchivedChat(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.project = source["project"];
+	        this.projectName = source["projectName"];
+	        this.title = source["title"];
+	        this.archivedAt = this.convertValues(source["archivedAt"], null);
+	        this.itemsJson = source["itemsJson"];
+	        this.history = this.convertValues(source["history"], llm.Message);
+	        this.messageCount = source["messageCount"];
+	        this.fileName = source["fileName"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class Session {
 	    id: string;
 	    title: string;
@@ -48,7 +95,7 @@ export namespace chatstore {
 	    static createFrom(source: any = {}) {
 	        return new Session(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -69,54 +116,7 @@ export namespace chatstore {
 	        this.openrouterInputTokens = source["openrouterInputTokens"];
 	        this.openrouterOutputTokens = source["openrouterOutputTokens"];
 	    }
-
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
-	export class ArchivedChat {
-	    id: string;
-	    project: string;
-	    projectName: string;
-	    title: string;
-	    // Go type: time
-	    archivedAt: any;
-	    itemsJson: string;
-	    history: llm.Message[];
-	    messageCount?: number;
-	    fileName?: string;
-
-	    static createFrom(source: any = {}) {
-	        return new ArchivedChat(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.project = source["project"];
-	        this.projectName = source["projectName"];
-	        this.title = source["title"];
-	        this.archivedAt = this.convertValues(source["archivedAt"], null);
-	        this.itemsJson = source["itemsJson"];
-	        this.history = this.convertValues(source["history"], llm.Message);
-	        this.messageCount = source["messageCount"];
-	        this.fileName = source["fileName"];
-	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -376,9 +376,13 @@ export namespace main {
 	    costUsd: number;
 	    inputTokens: number;
 	    outputTokens: number;
+	    cacheHitTokens: number;
+	    cacheMissTokens: number;
 	    chatCostUsd: number;
 	    chatInputTokens: number;
 	    chatOutputTokens: number;
+	    chatCacheHitTokens: number;
+	    chatCacheMissTokens: number;
 	    balanceOk: boolean;
 	    balanceUsd: number;
 	    balanceDetail: string;
@@ -393,9 +397,13 @@ export namespace main {
 	        this.costUsd = source["costUsd"];
 	        this.inputTokens = source["inputTokens"];
 	        this.outputTokens = source["outputTokens"];
+	        this.cacheHitTokens = source["cacheHitTokens"];
+	        this.cacheMissTokens = source["cacheMissTokens"];
 	        this.chatCostUsd = source["chatCostUsd"];
 	        this.chatInputTokens = source["chatInputTokens"];
 	        this.chatOutputTokens = source["chatOutputTokens"];
+	        this.chatCacheHitTokens = source["chatCacheHitTokens"];
+	        this.chatCacheMissTokens = source["chatCacheMissTokens"];
 	        this.balanceOk = source["balanceOk"];
 	        this.balanceUsd = source["balanceUsd"];
 	        this.balanceDetail = source["balanceDetail"];
