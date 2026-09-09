@@ -79,6 +79,8 @@ export function ReloadCursorRules():Promise<rules.Bundle>;
 
 export function RenameChatSession(arg1:string,arg2:string):Promise<void>;
 
+export function ResolveToolApproval(arg1:string,arg2:string,arg3:boolean):Promise<void>;
+
 export function RunAgent(arg1:string):Promise<void>;
 
 export function RunAgentWithAttachments(arg1:string,arg2:Array<agent.Attachment>):Promise<void>;
@@ -122,6 +124,8 @@ export function SaveShowSettings(arg1:boolean):Promise<void>;
 export function SaveShowTerminal(arg1:boolean):Promise<void>;
 
 export function SaveTheme(arg1:string):Promise<void>;
+
+export function SaveToolConfirm(arg1:boolean):Promise<void>;
 
 export function SaveWindowGeometry():Promise<void>;
 

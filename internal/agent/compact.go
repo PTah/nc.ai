@@ -21,14 +21,26 @@ const (
 	compactedToolMark = "[compacted] "
 )
 
-// CompactHistory returns a copy of messages where all but the last
-// keepFullToolResults tool messages have their content replaced with a short
-// summary line. Non-tool messages are never touched.
+// CompactHistory returns a copy of messages where older tool results are
+// replaced with short summaries. read_file / list_dir / grep / project dumps
+// are compressed more aggressively than short status lines.
+// Non-tool messages are never touched.
 func CompactHistory(messages []llm.Message) []llm.Message {
 	out := make([]llm.Message, len(messages))
 	copy(out, messages)
 
-	// indexes of tool messages, in order
+	toolNameByID := map[string]string{}
+	for _, m := range out {
+		if m.Role != "assistant" {
+			continue
+		}
+		for _, tc := range m.ToolCalls {
+			if tc.ID != "" {
+				toolNameByID[tc.ID] = tc.Function.Name
+			}
+		}
+	}
+
 	var toolIdx []int
 	for i, m := range out {
 		if m.Role == "tool" {
@@ -40,21 +52,37 @@ func CompactHistory(messages []llm.Message) []llm.Message {
 	}
 	cutoff := len(toolIdx) - keepFullToolResults
 	for _, i := range toolIdx[:cutoff] {
-		out[i].Content = compactedToolMark + summarizeToolContent(out[i].Content)
+		name := toolNameByID[out[i].ToolCallID]
+		out[i].Content = compactedToolMark + summarizeToolContent(name, out[i].Content)
 	}
 	return out
 }
 
 // summarizeToolContent squeezes a tool result to a few informative lines.
-func summarizeToolContent(content string) string {
+func summarizeToolContent(toolName, content string) string {
 	if content == "" {
 		return "(empty result)"
 	}
+	if strings.HasPrefix(content, compactedToolMark) {
+		return strings.TrimSpace(strings.TrimPrefix(content, compactedToolMark))
+	}
+
+	heavy := toolName == "read_file" || toolName == "list_dir" || toolName == "grep" ||
+		toolName == "search_files" || toolName == "find_files"
+	if heavy && len(content) > 200 {
+		lines := strings.Split(content, "\n")
+		head := lines[0]
+		if len(head) > 120 {
+			head = head[:120] + "…"
+		}
+		return fmt.Sprintf("%s result omitted (%d lines, %d bytes); re-read if needed. first: %s",
+			orTool(toolName), len(lines), len(content), head)
+	}
+
 	if len(content) <= 400 {
 		return strings.TrimSpace(content)
 	}
 	lines := strings.Split(content, "\n")
-	// keep first 2 and last 3 lines, note the elision size
 	head := 2
 	tail := 3
 	if len(lines) <= head+tail {
@@ -71,4 +99,11 @@ func summarizeToolContent(content string) string {
 		b.WriteByte('\n')
 	}
 	return b.String()
+}
+
+func orTool(name string) string {
+	if name == "" {
+		return "tool"
+	}
+	return name
 }

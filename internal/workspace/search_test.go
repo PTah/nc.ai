@@ -1,0 +1,82 @@
+package workspace
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestFindFilesAndGrep(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "internal", "api"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "internal", "api", "router.go"), []byte("package api\nfunc Routes() {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("hello\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	m := NewManager()
+	if _, err := m.Open(root); err != nil {
+		t.Fatal(err)
+	}
+
+	names, err := m.FindFiles("router", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(names) == 0 || !strings.Contains(names[0], "router.go") {
+		t.Fatalf("find_files: %v", names)
+	}
+
+	hits, err := m.Grep(GrepOptions{Query: "Routes", PathGlob: "**/*.go", Context: 1, Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 1 || hits[0].Line != 2 {
+		t.Fatalf("grep hits=%v", hits)
+	}
+	out := FormatGrepHits(hits)
+	if !strings.Contains(out, "router.go:2:func Routes") {
+		t.Fatalf("format: %s", out)
+	}
+}
+
+func TestReadFileRange(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "a.txt")
+	if err := os.WriteFile(path, []byte("one\ntwo\nthree\nfour\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m := NewManager()
+	if _, err := m.Open(root); err != nil {
+		t.Fatal(err)
+	}
+	got, err := m.ReadFileRange("a.txt", 2, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "lines 2-3 of") || !strings.Contains(got, "two\nthree") {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestProjectTree(t *testing.T) {
+	root := t.TempDir()
+	_ = os.MkdirAll(filepath.Join(root, "src"), 0o700)
+	_ = os.WriteFile(filepath.Join(root, "src", "main.go"), []byte("package main\n"), 0o600)
+	m := NewManager()
+	if _, err := m.Open(root); err != nil {
+		t.Fatal(err)
+	}
+	tree, err := m.ProjectTree(50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(tree, "src/") || !strings.Contains(tree, "main.go") {
+		t.Fatalf("tree=%s", tree)
+	}
+}

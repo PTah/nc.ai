@@ -20,9 +20,12 @@ Use tools to read/write files, run shell/PowerShell, use git, and SSH when neede
 
 Critical path rules:
 - NEVER invent file paths or filenames.
-- Before read_file, confirm the path via list_dir or search_files.
+- Before read_file, confirm the path via list_dir, find_files, or grep.
+- Prefer find_files (by name) and grep (contents, optional path_glob + context) over reading whole trees.
+- For large files, call read_file with start_line/end_line instead of the whole file.
 - If read_file fails with "file not found", use the suggested siblings / list_dir and retry the real path.
 - Paths are relative to the workspace root (use forward slashes).
+- Call get_env_info when OS/toolchain matters (shell commands, paths, versions).
 
 Token and edit discipline (save cost; follow project rules when they conflict with defaults):
 - Prefer apply_patch for partial file edits; use write_file only for new files or full rewrites.
@@ -37,11 +40,12 @@ After tool results, always give a final textual answer to the user.`
 
 // Event is pushed to the UI during an agent run.
 type Event struct {
-	Type      string `json:"type"` // delta|reasoning|tool_start|tool_end|reconnect|done|error|persist|usage|model
+	Type      string `json:"type"` // delta|reasoning|tool_start|tool_end|tool_ask|reconnect|done|error|persist|usage|model
 	Content   string `json:"content,omitempty"`
 	Name      string `json:"name,omitempty"`
 	OK        bool   `json:"ok,omitempty"`
 	SessionID string `json:"sessionId,omitempty"`
+	CallID    string `json:"callId,omitempty"`
 }
 
 type EmitFunc func(Event)
@@ -80,6 +84,11 @@ type Runner struct {
 	// StickyModel, when AutoModels is on, reuses the session's last non-vision
 	// model so consecutive turns stay on one cache namespace.
 	StickyModel string
+	// ProjectMap is a compact directory tree injected after the system prompt
+	// (cache-friendly warm context; see docs/TODO-cache-phase5.md).
+	ProjectMap string
+	// ApproveTool, when set, is called before dangerous tools. Return false to deny.
+	ApproveTool func(ctx context.Context, callID, name, argsJSON string) (bool, error)
 	// RetryCount is the number of automatic reconnect attempts for transient network errors.
 	RetryCount int
 	// RetryBackoff is the base wait between reconnect attempts (grows linearly per attempt).
@@ -356,6 +365,12 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 
 	messages := make([]llm.Message, 0, len(prior)+8)
 	messages = append(messages, llm.Message{Role: "system", Content: r.systemPrompt()})
+	if tree := strings.TrimSpace(r.ProjectMap); tree != "" {
+		messages = append(messages, llm.UserText(
+			"<project_map>\n"+tree+"\n</project_map>\n"+
+				"Compressed workspace tree (names only). Use find_files/grep/list_dir/read_file for details.",
+		))
+	}
 	messages = append(messages, prior...)
 	if turn := strings.TrimSpace(r.TurnRulesText); turn != "" {
 		messages = append(messages, llm.UserText(
@@ -418,13 +433,29 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 					return messages, fmt.Errorf("tool_call without id")
 				}
 				name := call.Function.Name
-				emit(Event{Type: "tool_start", Name: name, Content: call.Function.Arguments})
+				emit(Event{Type: "tool_start", Name: name, Content: call.Function.Arguments, CallID: call.ID})
+				if tools.DangerousTool(name) && r.ApproveTool != nil {
+					emit(Event{Type: "tool_ask", Name: name, Content: call.Function.Arguments, CallID: call.ID})
+					allow, err := r.ApproveTool(ctx, call.ID, name, call.Function.Arguments)
+					if err != nil {
+						result := fmt.Sprintf("ERROR: approval failed: %v", err)
+						emit(Event{Type: "tool_end", Name: name, Content: truncate(result, 4000), OK: false, CallID: call.ID})
+						messages = append(messages, llm.ToolResultMessage(call.ID, truncate(result, maxToolResultBytes)))
+						continue
+					}
+					if !allow {
+						result := "DENIED by user. Do not retry the same dangerous action unless the user explicitly asks; explain what you intended."
+						emit(Event{Type: "tool_end", Name: name, Content: result, OK: false, CallID: call.ID})
+						messages = append(messages, llm.ToolResultMessage(call.ID, result))
+						continue
+					}
+				}
 				result, execErr := r.Tools.Execute(ctx, call)
 				ok := execErr == nil
 				if execErr != nil {
 					result = fmt.Sprintf("ERROR: %v", execErr)
 				}
-				emit(Event{Type: "tool_end", Name: name, Content: truncate(result, 4000), OK: ok})
+				emit(Event{Type: "tool_end", Name: name, Content: truncate(result, 4000), OK: ok, CallID: call.ID})
 				messages = append(messages, llm.ToolResultMessage(call.ID, truncate(result, maxToolResultBytes)))
 			}
 			continue

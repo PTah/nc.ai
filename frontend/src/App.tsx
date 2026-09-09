@@ -45,6 +45,8 @@ import {
   ProjectHasChats,
   SaveActiveProvider,
   SaveAutoModels,
+  SaveToolConfirm,
+  ResolveToolApproval,
   SaveAgentMaxSteps,
   SaveComposerHeight,
   SaveShowTerminal,
@@ -146,6 +148,7 @@ type AgentEvent = {
   name?: string
   ok?: boolean
   sessionId?: string
+  callId?: string
 }
 
 type UsageSnapshot = {
@@ -630,15 +633,17 @@ function parseAgentEvent(...args: unknown[]): AgentEvent | null {
       name: inner.name != null ? String(inner.name) : inner.Name != null ? String(inner.Name) : '',
       ok: Boolean(inner.ok ?? inner.OK),
       sessionId: eventText(inner.sessionId ?? inner.SessionID ?? inner.SessionId),
+      callId: eventText(inner.callId ?? inner.CallID ?? inner.CallId),
     }
   }
   return null
 }
 
 export default function App() {
-  const [info, setInfo] = useState({name: 'NotCursor.ai', version: '0.5.24'})
+  const [info, setInfo] = useState({name: 'NotCursor.ai', version: '0.5.25'})
   const [usage, setUsage] = useState<UsageSnapshot>(emptyUsage)
   const [welcome, setWelcome] = useState<WelcomeState | null>(null)
+  const [toolAsk, setToolAsk] = useState<{sessionId: string; callId: string; name: string; args: string} | null>(null)
   const [showPrices, setShowPrices] = useState(false)
   const [showArchives, setShowArchives] = useState(false)
   const [archives, setArchives] = useState<ArchiveChat[]>([])
@@ -702,6 +707,7 @@ export default function App() {
   const [zaiBalance, setZaiBalance] = useState<{ok: boolean; availableUsd: number; detail: string; source: string} | null>(null)
   const [orBalance, setOrBalance] = useState<{ok: boolean; availableUsd: number; detail: string; source: string} | null>(null)
   const [autoModels, setAutoModels] = useState(true)
+  const [toolConfirm, setToolConfirm] = useState(true)
   const [deepseekPeak, setDeepseekPeak] = useState<{peak: boolean; tooltip: string}>({peak: false, tooltip: ''})
   const [maxSteps, setMaxSteps] = useState(40)
   const [deepseekKeySet, setDeepseekKeySet] = useState(false)
@@ -967,6 +973,7 @@ export default function App() {
         if (s.openrouterKeySet || provider === 'openrouter') void refreshOpenRouterModels()
         if (provider === 'openrouter' && s.openrouterKeySet) void refreshOpenRouterBalance()
         setAutoModels(Boolean(s.autoModels))
+        setToolConfirm(s.toolConfirm !== false)
         if (typeof s.appDataDir === 'string' && s.appDataDir) setAppDataDir(s.appDataDir)
         if (typeof s.agentMaxSteps === 'number' && s.agentMaxSteps > 0) setMaxSteps(s.agentMaxSteps)
         setShowTerm(Boolean(s.showTerminal))
@@ -1052,6 +1059,15 @@ export default function App() {
             return
           }
           if (!sid) return
+          if (ev.type === 'tool_ask') {
+            setToolAsk({
+              sessionId: sid,
+              callId: String(ev.callId || ''),
+              name: ev.name || 'tool',
+              args: ev.content || '',
+            })
+            return
+          }
           if (ev.type === 'delta') {
             assistantBuf.current[sid] = (assistantBuf.current[sid] || '') + (ev.content || '')
             const text = assistantBuf.current[sid]
@@ -1083,6 +1099,11 @@ export default function App() {
               phase: 'running',
             }])
           } else if (ev.type === 'tool_end') {
+            setToolAsk((prev) => {
+              if (prev && prev.sessionId === sid && ev.callId && prev.callId === ev.callId) return null
+              if (prev && prev.sessionId === sid && !ev.callId && prev.name === (ev.name || '')) return null
+              return prev
+            })
             setSessionItems(sid, (prev) => {
               const copy = [...prev]
               for (let i = copy.length - 1; i >= 0; i--) {
@@ -2481,6 +2502,21 @@ export default function App() {
                   : 'flash / pro / vision'}
               )
             </label>
+            <label
+              className="nc-top-check"
+              title="Спрашивать перед write_file, run_terminal, git_push, ssh_exec"
+            >
+              <input
+                type="checkbox"
+                checked={toolConfirm}
+                onChange={(e) => {
+                  const on = e.target.checked
+                  setToolConfirm(on)
+                  void SaveToolConfirm(on)
+                }}
+              />
+              Confirm dangerous tools
+            </label>
 
             {activeProvider === 'deepseek' ? (
               <>
@@ -2975,6 +3011,45 @@ export default function App() {
               </button>
               <button type="button" className="nc-ghost" onClick={() => setPendingCloseChatId(null)}>
                 Отмена
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {toolAsk && (
+        <div className="nc-modal-backdrop" role="presentation">
+          <div
+            className="nc-modal nc-confirm"
+            role="dialog"
+            aria-labelledby="nc-tool-ask-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="nc-confirm-app">{info.name || 'NotCursor.ai'}</p>
+            <h2 id="nc-tool-ask-title">Разрешить tool «{toolAsk.name}»?</h2>
+            <p className="nc-help">Агент хочет выполнить потенциально опасное действие.</p>
+            <pre className="nc-tool-ask-args">{toolAsk.args || '(no args)'}</pre>
+            <div className="nc-close-project-actions">
+              <button
+                type="button"
+                onClick={() => {
+                  const ask = toolAsk
+                  setToolAsk(null)
+                  ResolveToolApproval(ask.sessionId, ask.callId, true)
+                }}
+              >
+                Разрешить
+              </button>
+              <button
+                type="button"
+                className="nc-danger"
+                onClick={() => {
+                  const ask = toolAsk
+                  setToolAsk(null)
+                  ResolveToolApproval(ask.sessionId, ask.callId, false)
+                }}
+              >
+                Запретить
               </button>
             </div>
           </div>

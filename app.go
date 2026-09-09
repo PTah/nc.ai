@@ -46,6 +46,8 @@ type App struct {
 	// sessionStickyModel keeps the last non-vision Auto model per chat session
 	// so consecutive turns reuse one provider cache namespace.
 	sessionStickyModel map[string]string
+	approveMu          sync.Mutex
+	pendingApprove     map[string]chan bool // key: sessionID+"/"+callID
 	sessionID string
 	history   []llm.Message
 	term      *shell.Session
@@ -68,6 +70,7 @@ func NewApp() *App {
 		cancels:            map[string]context.CancelFunc{},
 		runGens:            map[string]uint64{},
 		sessionStickyModel: map[string]string{},
+		pendingApprove:     map[string]chan bool{},
 	}
 }
 
@@ -332,6 +335,7 @@ func (a *App) GetSettings() map[string]any {
 		"theme":              a.cfg.Theme(),
 		"agentMaxSteps":      a.cfg.MaxAgentSteps(),
 		"autoModels":         a.cfg.AutoModels(),
+		"toolConfirm":        a.cfg.ToolConfirmEnabled(),
 		"visionModel":        deepseek.VisionModel,
 		"appDataDir":         appData,
 		"layoutProjectsW":    nonzero(s.LayoutProjectsW, 200),
@@ -744,6 +748,56 @@ func (a *App) SaveAutoModels(on bool) error {
 	return a.cfg.SetAutoModels(on)
 }
 
+func (a *App) SaveToolConfirm(on bool) error {
+	return a.cfg.SetToolConfirm(on)
+}
+
+// ResolveToolApproval answers a pending tool_ask (HITL) for the agent loop.
+func (a *App) ResolveToolApproval(sessionID, callID string, allow bool) {
+	key := strings.TrimSpace(sessionID) + "/" + strings.TrimSpace(callID)
+	a.approveMu.Lock()
+	ch := a.pendingApprove[key]
+	delete(a.pendingApprove, key)
+	a.approveMu.Unlock()
+	if ch == nil {
+		return
+	}
+	select {
+	case ch <- allow:
+	default:
+	}
+}
+
+func (a *App) waitToolApproval(ctx context.Context, sessionID, callID, name, argsJSON string) (bool, error) {
+	key := strings.TrimSpace(sessionID) + "/" + strings.TrimSpace(callID)
+	ch := make(chan bool, 1)
+	a.approveMu.Lock()
+	if old := a.pendingApprove[key]; old != nil {
+		select {
+		case old <- false:
+		default:
+		}
+	}
+	a.pendingApprove[key] = ch
+	a.approveMu.Unlock()
+	defer func() {
+		a.approveMu.Lock()
+		if a.pendingApprove[key] == ch {
+			delete(a.pendingApprove, key)
+		}
+		a.approveMu.Unlock()
+	}()
+
+	_ = name
+	_ = argsJSON
+	select {
+	case allow := <-ch:
+		return allow, nil
+	case <-ctx.Done():
+		return false, ctx.Err()
+	}
+}
+
 func (a *App) SaveTheme(theme string) error {
 	return a.cfg.SetTheme(theme)
 }
@@ -1144,6 +1198,20 @@ func (a *App) StopAgent() {
 func (a *App) StopAgentSession(sessionID string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	denyPending := func(sid string) {
+		a.approveMu.Lock()
+		defer a.approveMu.Unlock()
+		for key, ch := range a.pendingApprove {
+			if sid != "" && !strings.HasPrefix(key, sid+"/") {
+				continue
+			}
+			select {
+			case ch <- false:
+			default:
+			}
+			delete(a.pendingApprove, key)
+		}
+	}
 	if sessionID == "" {
 		for id, c := range a.cancels {
 			if c != nil {
@@ -1151,12 +1219,14 @@ func (a *App) StopAgentSession(sessionID string) {
 			}
 			delete(a.cancels, id)
 		}
+		denyPending("")
 		return
 	}
 	if c := a.cancels[sessionID]; c != nil {
 		c()
 		delete(a.cancels, sessionID)
 	}
+	denyPending(sessionID)
 }
 
 // RunAgent starts the DeepSeek tool-using agent loop. Progress via event "agent:event".
@@ -1221,6 +1291,11 @@ func (a *App) RunAgentWithAttachments(userMessage string, attachments []agent.At
 	sticky := a.sessionStickyModel[sid]
 	a.mu.Unlock()
 
+	projectMap := ""
+	if tree, err := a.ws.ProjectTree(350); err == nil {
+		projectMap = tree
+	}
+
 	runner := &agent.Runner{
 		Provider:       a.llm,
 		Tools:          a.tools,
@@ -1228,12 +1303,18 @@ func (a *App) RunAgentWithAttachments(userMessage string, attachments []agent.At
 		RulesText:      bundle.SelectStableForPrompt(),
 		TurnRulesText:  bundle.SelectTurnRules(hints),
 		StickyModel:    sticky,
+		ProjectMap:     projectMap,
 		AutoModels:     autoModels,
 		ProviderID:     provider,
 		PreferredModel: a.cfg.ActiveModel(),
 		UserText:       userMessage,
 		HasImages:      hasImages,
 		HintPathCount:  len(hints),
+	}
+	if a.cfg.ToolConfirmEnabled() {
+		runner.ApproveTool = func(ctx context.Context, callID, name, argsJSON string) (bool, error) {
+			return a.waitToolApproval(ctx, sid, callID, name, argsJSON)
+		}
 	}
 
 	var costUSD float64

@@ -195,6 +195,13 @@ const maxReadBytes = 512 * 1024
 var errSearchLimit = errors.New("search limit reached")
 
 func (m *Manager) ReadFile(rel string) (string, error) {
+	return m.ReadFileRange(rel, 0, 0)
+}
+
+// ReadFileRange returns file content. startLine/endLine are 1-based inclusive;
+// either 0 means unbounded on that side. When a range is set, a header line
+// notes the slice so the model knows it is partial.
+func (m *Manager) ReadFileRange(rel string, startLine, endLine int) (string, error) {
 	full, err := m.Resolve(rel)
 	if err != nil {
 		return "", err
@@ -209,7 +216,29 @@ func (m *Manager) ReadFile(rel string) (string, error) {
 	if len(data) > maxReadBytes {
 		data = append(data[:maxReadBytes:maxReadBytes], []byte("\n\n/* truncated */")...)
 	}
-	return m.guardRead(rel, string(data))
+	text := string(data)
+	if startLine <= 0 && endLine <= 0 {
+		return m.guardRead(rel, text)
+	}
+	lines := strings.Split(text, "\n")
+	total := len(lines)
+	start := startLine
+	end := endLine
+	if start <= 0 {
+		start = 1
+	}
+	if end <= 0 || end > total {
+		end = total
+	}
+	if start > total {
+		return "", fmt.Errorf("start_line %d past end of file (%d lines)", startLine, total)
+	}
+	if end < start {
+		return "", fmt.Errorf("end_line %d < start_line %d", endLine, startLine)
+	}
+	slice := strings.Join(lines[start-1:end], "\n")
+	header := fmt.Sprintf("/* lines %d-%d of %d */\n", start, end, total)
+	return m.guardRead(rel, header+slice)
 }
 
 func (m *Manager) notFoundHint(rel, full string) error {
@@ -239,7 +268,7 @@ func (m *Manager) notFoundHint(rel, full string) error {
 	} else {
 		msg += "\nDirectory is empty or missing."
 	}
-	msg += "\nUse list_dir or search_files — do not invent paths."
+	msg += "\nUse list_dir, find_files or grep — do not invent paths."
 	return fmt.Errorf("%s", msg)
 }
 

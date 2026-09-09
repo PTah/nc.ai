@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"os/exec"
+	"runtime"
 	"strings"
 	"time"
 
@@ -34,6 +37,17 @@ func NewRegistry(ws *workspace.Manager, sshDir string) *Registry {
 	}
 }
 
+// DangerousTool reports tools that may mutate the system or leave the machine
+// when ToolConfirm is enabled.
+func DangerousTool(name string) bool {
+	switch name {
+	case "write_file", "run_terminal", "git_push", "ssh_exec":
+		return true
+	default:
+		return false
+	}
+}
+
 func (r *Registry) Execute(ctx context.Context, call llm.ToolCall) (string, error) {
 	name := call.Function.Name
 	args := map[string]any{}
@@ -47,7 +61,9 @@ func (r *Registry) Execute(ctx context.Context, call llm.ToolCall) (string, erro
 	switch name {
 	case "read_file":
 		path, _ := args["path"].(string)
-		return r.WS.ReadFile(path)
+		start := intArg(args, "start_line")
+		end := intArg(args, "end_line")
+		return r.WS.ReadFileRange(path, start, end)
 	case "write_file":
 		path, _ := args["path"].(string)
 		content, _ := args["content"].(string)
@@ -90,13 +106,47 @@ func (r *Registry) Execute(ctx context.Context, call llm.ToolCall) (string, erro
 		}
 		b, _ := json.MarshalIndent(entries, "", "  ")
 		return string(b), nil
-	case "search_files":
+	case "find_files":
 		query, _ := args["query"].(string)
-		hits, err := r.WS.SearchFiles(query, 40)
+		hits, err := r.WS.FindFiles(query, 40)
 		if err != nil {
 			return "", err
 		}
+		if len(hits) == 0 {
+			return "(no files matched)", nil
+		}
 		return strings.Join(hits, "\n"), nil
+	case "grep":
+		query, _ := args["query"].(string)
+		glob, _ := args["path_glob"].(string)
+		caseSens, _ := args["case_sensitive"].(bool)
+		hits, err := r.WS.Grep(workspace.GrepOptions{
+			Query:         query,
+			PathGlob:      glob,
+			Context:       intArg(args, "context"),
+			CaseSensitive: caseSens,
+			Limit:         50,
+		})
+		if err != nil {
+			return "", err
+		}
+		return workspace.FormatGrepHits(hits), nil
+	case "search_files":
+		// Legacy combined search: filename hits first, then content grep.
+		query, _ := args["query"].(string)
+		var parts []string
+		if names, err := r.WS.FindFiles(query, 20); err == nil && len(names) > 0 {
+			parts = append(parts, "## filenames\n"+strings.Join(names, "\n"))
+		}
+		if hits, err := r.WS.Grep(workspace.GrepOptions{Query: query, Context: 0, Limit: 20}); err == nil && len(hits) > 0 {
+			parts = append(parts, "## content\n"+workspace.FormatGrepHits(hits))
+		}
+		if len(parts) == 0 {
+			return "(no matches)", nil
+		}
+		return strings.Join(parts, "\n\n"), nil
+	case "get_env_info":
+		return r.envInfo(), nil
 	case "run_terminal":
 		cmd, _ := args["command"].(string)
 		root, err := r.WS.ActiveRoot()
@@ -144,13 +194,70 @@ func (r *Registry) Execute(ctx context.Context, call llm.ToolCall) (string, erro
 	}
 }
 
+func intArg(args map[string]any, key string) int {
+	switch v := args[key].(type) {
+	case float64:
+		return int(v)
+	case int:
+		return v
+	case json.Number:
+		n, _ := v.Int64()
+		return int(n)
+	default:
+		return 0
+	}
+}
+
+func (r *Registry) envInfo() string {
+	root, _ := r.WS.ActiveRoot()
+	sh := shell.ResolveShell(r.Shell)
+	var b strings.Builder
+	fmt.Fprintf(&b, "os=%s\n", runtime.GOOS)
+	fmt.Fprintf(&b, "arch=%s\n", runtime.GOARCH)
+	fmt.Fprintf(&b, "shell=%s\n", sh)
+	if root != "" {
+		fmt.Fprintf(&b, "workspace=%s\n", root)
+	}
+	if v := toolVersion("go", "version"); v != "" {
+		fmt.Fprintf(&b, "go=%s\n", v)
+	}
+	if v := toolVersion("node", "-v"); v != "" {
+		fmt.Fprintf(&b, "node=%s\n", v)
+	}
+	if v := toolVersion("npm", "-v"); v != "" {
+		fmt.Fprintf(&b, "npm=%s\n", v)
+	}
+	if v := toolVersion("python", "--version"); v != "" {
+		fmt.Fprintf(&b, "python=%s\n", v)
+	} else if v := toolVersion("python3", "--version"); v != "" {
+		fmt.Fprintf(&b, "python=%s\n", v)
+	}
+	if v := os.Getenv("TERM"); v != "" {
+		fmt.Fprintf(&b, "term=%s\n", v)
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func toolVersion(bin string, args ...string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, bin, args...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
 // Specs returns OpenAI-shaped tool definitions.
 func Specs() []llm.ToolSpec {
 	return []llm.ToolSpec{
-		fn("read_file", "Read a file from the workspace. Path must exist — if unsure, list_dir or search_files first. On not found, the tool returns sibling filenames.", map[string]any{
+		fn("read_file", "Read a workspace file. Optional start_line/end_line (1-based) to read only a slice — prefer ranges for large files.", map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"path": map[string]any{"type": "string", "description": "Existing relative path, e.g. internal/config/store.go"},
+				"path":       map[string]any{"type": "string", "description": "Existing relative path, e.g. internal/config/store.go"},
+				"start_line": map[string]any{"type": "integer", "description": "Optional 1-based start line"},
+				"end_line":   map[string]any{"type": "integer", "description": "Optional 1-based end line (inclusive)"},
 			},
 			"required": []string{"path"},
 		}),
@@ -165,11 +272,11 @@ func Specs() []llm.ToolSpec {
 		fn("apply_patch", "Apply a precise edit to an existing file. Prefer this over write_file when changing part of a file. Provide old_string+new_string (exact match) OR a patch block with <<<<<<< SEARCH / ======= / >>>>>>> REPLACE.", map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"path":         map[string]any{"type": "string", "description": "Existing relative path"},
-				"old_string":   map[string]any{"type": "string", "description": "Exact text to find (include enough context to be unique)"},
-				"new_string":   map[string]any{"type": "string", "description": "Replacement text (may be empty to delete)"},
-				"replace_all":  map[string]any{"type": "boolean", "description": "Replace every occurrence (default false = exactly one match required)"},
-				"patch":        map[string]any{"type": "string", "description": "Optional SEARCH/REPLACE block instead of old_string/new_string"},
+				"path":        map[string]any{"type": "string", "description": "Existing relative path"},
+				"old_string":  map[string]any{"type": "string", "description": "Exact text to find (include enough context to be unique)"},
+				"new_string":  map[string]any{"type": "string", "description": "Replacement text (may be empty to delete)"},
+				"replace_all": map[string]any{"type": "boolean", "description": "Replace every occurrence (default false = exactly one match required)"},
+				"patch":       map[string]any{"type": "string", "description": "Optional SEARCH/REPLACE block instead of old_string/new_string"},
 			},
 			"required": []string{"path"},
 		}),
@@ -179,12 +286,33 @@ func Specs() []llm.ToolSpec {
 				"path": map[string]any{"type": "string"},
 			},
 		}),
-		fn("search_files", "Search filenames and file contents", map[string]any{
+		fn("find_files", "Fuzzy/filename search for paths (by name). Use before read_file when you know part of the filename.", map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"query": map[string]any{"type": "string", "description": "Substring or fuzzy name, e.g. store.go or auth"},
+			},
+			"required": []string{"query"},
+		}),
+		fn("grep", "Search file contents (literal substring). Optional path_glob (e.g. **/*.go) and context lines (0-5 like ripgrep -C).", map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"query":          map[string]any{"type": "string"},
+				"path_glob":      map[string]any{"type": "string", "description": "Optional glob against relative paths"},
+				"context":        map[string]any{"type": "integer", "description": "Lines of context before/after (0-5)"},
+				"case_sensitive": map[string]any{"type": "boolean"},
+			},
+			"required": []string{"query"},
+		}),
+		fn("search_files", "Legacy combined filename+content search. Prefer find_files or grep for precision.", map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"query": map[string]any{"type": "string"},
 			},
 			"required": []string{"query"},
+		}),
+		fn("get_env_info", "OS, arch, shell, workspace root, and available toolchain versions (go/node/python).", map[string]any{
+			"type":       "object",
+			"properties": map[string]any{},
 		}),
 		fn("run_terminal", "Run a command in the configured project shell (PowerShell on Windows, login shell on macOS/Linux)", map[string]any{
 			"type": "object",

@@ -58,6 +58,10 @@ type Settings struct {
 	// Z.ai free flash → glm-5.3; OpenRouter flash → coder on complex tasks).
 	AutoModels bool `json:"autoModels,omitempty"`
 
+	// ToolConfirm asks the user before dangerous tools (write_file, run_terminal,
+	// git_push, ssh_exec). Default true when unset on first run — see ToolConfirmEnabled.
+	ToolConfirm *bool `json:"toolConfirm,omitempty"`
+
 	// Main window geometry (logical pixels). Zero width/height → defaults.
 	WindowWidth     int  `json:"windowWidth,omitempty"`
 	WindowHeight    int  `json:"windowHeight,omitempty"`
@@ -379,6 +383,25 @@ func (s *Store) AutoModels() bool {
 func (s *Store) SetAutoModels(on bool) error {
 	s.mu.Lock()
 	s.settings.AutoModels = on
+	s.mu.Unlock()
+	return s.Save()
+}
+
+// ToolConfirmEnabled reports whether dangerous tools require UI approval.
+// Default is true when the setting was never persisted.
+func (s *Store) ToolConfirmEnabled() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.settings.ToolConfirm == nil {
+		return true
+	}
+	return *s.settings.ToolConfirm
+}
+
+func (s *Store) SetToolConfirm(on bool) error {
+	s.mu.Lock()
+	v := on
+	s.settings.ToolConfirm = &v
 	s.mu.Unlock()
 	return s.Save()
 }

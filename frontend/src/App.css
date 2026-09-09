@@ -259,6 +259,19 @@ textarea { resize: none; }
 .nc-cost-cache { color: var(--muted); }
 .nc-cost-bal { color: var(--muted); }
 .nc-cost-sep { color: var(--muted); }
+
+.nc-tool-ask-args {
+  max-height: 180px;
+  overflow: auto;
+  padding: 8px 10px;
+  margin: 0 0 12px;
+  font-size: 12px;
+  line-height: 1.35;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--panel-2, rgba(0,0,0,.06));
+  border-radius: 6px;
+}
 .nc-root {
   --layout-projects: 200px;
   --layout-tree: 220px;

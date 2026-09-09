@@ -3,24 +3,24 @@ package appmeta
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "0.5.24"
+	Version = "0.5.25"
 )
 
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
-	"Кэш LLM: hit/miss % в шапке; стабильный system + turn-rules",
-	"Compact истории только между ходами; sticky-модель в сессии",
-	"Ctrl+Shift+S — открыть/закрыть Settings",
-	"Мульти-запросы: pending над вводом, Send now прерывает агента",
+	"Агент: find_files/grep, read по строкам, get_env_info, карта проекта",
+	"HITL: подтверждение опасных tools; умнее compact истории",
+	"Кэш LLM: hit/miss %; стабильный system + turn-rules",
+	"Ctrl+Shift+S — Settings; sticky-модель в сессии",
 	"Чаты и настройки только в NotCursor — не в ~/.cursor",
 }
 
 var HighlightsEN = []string{
-	"LLM cache: hit/miss % in header; stable system + turn-rules",
-	"History compact between turns only; sticky model per session",
-	"Ctrl+Shift+S toggles Settings",
-	"Multi-request: pending above input; Send now interrupts the agent",
+	"Agent: find_files/grep, ranged read_file, get_env_info, project map",
+	"HITL for dangerous tools; smarter history compact",
+	"LLM cache: hit/miss %; stable system + turn-rules",
+	"Ctrl+Shift+S Settings; sticky model per session",
 	"Chats/settings live under NotCursor — never ~/.cursor",
 }
 

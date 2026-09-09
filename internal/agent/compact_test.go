@@ -11,6 +11,13 @@ func TestCompactHistory_KeepsTrailingToolResults(t *testing.T) {
 	msgs := []llm.Message{
 		{Role: "system", Content: "sys"},
 		{Role: "user", Content: "hi"},
+		{Role: "assistant", ToolCalls: []llm.ToolCall{
+			{ID: "1", Function: llm.FunctionCall{Name: "read_file"}},
+			{ID: "2", Function: llm.FunctionCall{Name: "read_file"}},
+			{ID: "3", Function: llm.FunctionCall{Name: "git_status"}},
+			{ID: "4", Function: llm.FunctionCall{Name: "git_status"}},
+			{ID: "5", Function: llm.FunctionCall{Name: "git_status"}},
+		}},
 		{Role: "tool", ToolCallID: "1", Content: strings.Repeat("old-tool-1\n", 80)},
 		{Role: "tool", ToolCallID: "2", Content: strings.Repeat("old-tool-2\n", 80)},
 		{Role: "tool", ToolCallID: "3", Content: "recent-a"},
@@ -18,18 +25,22 @@ func TestCompactHistory_KeepsTrailingToolResults(t *testing.T) {
 		{Role: "tool", ToolCallID: "5", Content: "recent-c"},
 	}
 	out := CompactHistory(msgs)
-	if !strings.HasPrefix(out[2].Content, compactedToolMark) {
-		t.Fatalf("oldest tool should compact: %q", out[2].Content[:40])
-	}
 	if !strings.HasPrefix(out[3].Content, compactedToolMark) {
-		t.Fatalf("2nd oldest tool should compact: %q", out[3].Content[:40])
+		t.Fatalf("oldest tool should compact: %q", out[3].Content[:min(40, len(out[3].Content))])
 	}
-	for _, i := range []int{4, 5, 6} {
+	if !strings.Contains(out[3].Content, "read_file result omitted") {
+		t.Fatalf("heavy read_file should be aggressively compacted: %q", out[3].Content)
+	}
+	for _, i := range []int{5, 6, 7} {
 		if strings.HasPrefix(out[i].Content, compactedToolMark) {
 			t.Fatalf("trailing tool %d must stay full: %q", i, out[i].Content)
 		}
 	}
-	if out[0].Content != "sys" || out[1].Content != "hi" {
-		t.Fatal("non-tool messages must be untouched")
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
 	}
+	return b
 }

@@ -142,6 +142,10 @@ export function RenameChatSession(arg1, arg2) {
   return window['go']['main']['App']['RenameChatSession'](arg1, arg2);
 }
 
+export function ResolveToolApproval(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ResolveToolApproval'](arg1, arg2, arg3);
+}
+
 export function RunAgent(arg1) {
   return window['go']['main']['App']['RunAgent'](arg1);
 }
@@ -228,6 +232,10 @@ export function SaveShowTerminal(arg1) {
 
 export function SaveTheme(arg1) {
   return window['go']['main']['App']['SaveTheme'](arg1);
+}
+
+export function SaveToolConfirm(arg1) {
+  return window['go']['main']['App']['SaveToolConfirm'](arg1);
 }
 
 export function SaveWindowGeometry() {
