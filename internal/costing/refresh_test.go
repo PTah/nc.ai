@@ -6,6 +6,33 @@ import (
 	"time"
 )
 
+func TestParseDeepSeekPricingHTMLTwoColumns(t *testing.T) {
+	// Live page as of 2026-09-10: Flash + Pro only (vision column dropped).
+	// Numbers like $0.3 / $1.2 (no trailing zero) must parse.
+	html := `
+<table style="text-align:center"><tr><td colspan="3" style="text-align:center">MODEL</td><td>deepseek-flash<sup>(1)</sup></td><td>deepseek-v4-pro<sup>(2)</sup></td></tr>
+<tr><td rowspan="6">PRICING<sup>(3)</sup></td><td rowspan="2">1M INPUT TOKENS<br>(CACHE HIT)</td><td>OFF-PEAK</td><td>$0.003</td><td>$0.022</td></tr>
+<tr><td>PEAK</td><td>$0.006</td><td>$0.044</td></tr>
+<tr><td rowspan="2">1M INPUT TOKENS<br>(CACHE MISS)</td><td>OFF-PEAK</td><td>$0.15</td><td>$0.66</td></tr>
+<tr><td>PEAK</td><td>$0.3</td><td>$1.32</td></tr>
+<tr><td rowspan="2">1M OUTPUT TOKENS</td><td>OFF-PEAK</td><td>$0.6</td><td>$1.98</td></tr>
+<tr><td>PEAK</td><td>$1.2</td><td>$3.96</td></tr></table>
+<p>(3) Off-peak rates are half of the peak rates. Peak hours are 01:00 - 04:00 and 06:00 - 10:00 UTC, Monday through Friday (all other hours are off-peak).</p>
+`
+	snap, err := ParseDeepSeekPricingHTML(html)
+	if err != nil {
+		t.Fatal(err)
+	}
+	flash := snap.Peak["deepseek-v4-flash"]
+	pro := snap.Peak["deepseek-v4-pro"]
+	if !almost(flash.InputHit, 0.006) || !almost(flash.InputMiss, 0.3) || !almost(flash.Completion, 1.2) {
+		t.Fatalf("flash peak = %+v", flash)
+	}
+	if !almost(pro.InputHit, 0.044) || !almost(pro.InputMiss, 1.32) || !almost(pro.Completion, 3.96) {
+		t.Fatalf("pro peak = %+v", pro)
+	}
+}
+
 func TestParseDeepSeekPricingHTML(t *testing.T) {
 	html := `
 <table>
@@ -150,6 +177,9 @@ func TestFetchDeepSeekLive(t *testing.T) {
 	}
 	snap, err := FetchDeepSeekPricing(nil)
 	if err != nil {
+		if strings.Contains(err.Error(), "PEAK rate") || strings.Contains(err.Error(), "invalid") {
+			t.Fatal(err)
+		}
 		t.Skip("network unavailable:", err)
 	}
 	if !SheetsEqual(snap.Peak, BuiltinDeepSeekPeak()) && !strings.Contains(snap.Source, "deepseek") {

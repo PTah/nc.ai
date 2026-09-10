@@ -13,8 +13,9 @@ import (
 
 var (
 	rePeakHoursUTC = regexp.MustCompile(`(?i)Peak hours are\s+(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})\s+and\s+(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})\s+UTC`)
-	rePeakRow      = regexp.MustCompile(`(?is)>PEAK</td>\s*<td>\$([0-9.]+)</td>\s*<td>\$([0-9.]+)</td>\s*<td>\$([0-9.]+)</td>`)
-	reSectionPeak  = regexp.MustCompile(`(?is)(CACHE HIT|CACHE MISS|OUTPUT TOKENS).*?>PEAK</td>\s*<td>\$([0-9.]+)</td>\s*<td>\$([0-9.]+)</td>\s*<td>\$([0-9.]+)</td>`)
+	// Current docs: PEAK + flash + pro. Older pages also had a vision column (same as flash).
+	rePeakRow     = regexp.MustCompile(`(?is)>PEAK</td>\s*<td>\$([0-9.]+)</td>\s*<td>\$([0-9.]+)</td>(?:\s*<td>\$([0-9.]+)</td>)?`)
+	reSectionPeak = regexp.MustCompile(`(?is)(CACHE HIT|CACHE MISS|OUTPUT TOKENS).*?>PEAK</td>\s*<td>\$([0-9.]+)</td>\s*<td>\$([0-9.]+)</td>(?:\s*<td>\$([0-9.]+)</td>)?`)
 )
 
 // DeepSeekPricingSnapshot is parsed peak rates + peak windows from the docs page.
@@ -48,11 +49,11 @@ func ParseDeepSeekPricingHTML(html string) (DeepSeekPricingSnapshot, error) {
 
 	// Prefer section-aware matches (CACHE HIT / MISS / OUTPUT + PEAK row).
 	for _, m := range reSectionPeak.FindAllStringSubmatch(html, -1) {
-		if len(m) < 5 {
+		if len(m) < 4 {
 			continue
 		}
 		kind := strings.ToUpper(m[1])
-		a, b := parseFloat(m[2]), parseFloat(m[3]) // flash, pro (vision ignored / same as flash)
+		a, b := parseFloat(m[2]), parseFloat(m[3]) // flash, pro (optional vision column ignored)
 		switch {
 		case strings.Contains(kind, "CACHE HIT"):
 			hitFlash, hitPro, gotHit = a, b, true

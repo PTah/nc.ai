@@ -5,7 +5,7 @@ import "time"
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "0.6.0"
+	Version = "0.6.1"
 )
 
 // DeepSeekProRetireRFC3339 is when the provider retires V4 Pro
@@ -29,19 +29,19 @@ func DeepSeekProRetired(now time.Time) bool {
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
+	"Проверка цен DeepSeek: таблица flash+pro (без колонки vision)",
 	"Plan/Act, todo-список, ask_user, параллельные read-tools",
 	"delete_file, grep как rg, фон терминала + command_status",
 	"Редактор файла внизу чата + read_lints (go vet) и IDE-контекст",
 	"web_search / fetch_url с SSRF-guard и маскированием секретов",
-	"Промпт: без имён tools, git только по просьбе, cwd без cd",
 }
 
 var HighlightsEN = []string{
+	"DeepSeek price check: flash+pro table (vision column dropped)",
 	"Plan/Act, todo list, ask_user, parallel read-only tools",
 	"delete_file, ripgrep-like grep, background shell + command_status",
 	"In-app file editor + read_lints (go vet) and IDE context",
 	"web_search / fetch_url with SSRF guard and secret redaction",
-	"Prompt: no tool names, git only when asked, cwd instead of cd",
 }
 
 // UICopy is localized chrome for the Welcome splash.
