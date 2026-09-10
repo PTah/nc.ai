@@ -19,11 +19,12 @@
 | **DeepSeek** | `deepseek-v4-flash`, vision `deepseek-v4-flash-vision-exp` (до 14.09.2026 12:00 Beijing — ещё `deepseek-v4-pro`) | OpenAI-compatible API |
 | **Z.ai** | `glm-4.5…5.3` (flash / pro / vision) | свободные flash-модели, живой список `/models`, проверка баланса |
 | **OpenRouter** | произвольный `openrouter/…` | свой ключ/endpoint |
+| **Local** | любая из `/models` (Ollama, LM Studio, vLLM, llama.cpp) | OpenAI-compatible, по умолчанию `http://127.0.0.1:11434/v1`, ключ не обязателен |
 
 - Автоматический выбор модели: flash → pro → vision (по вложениям/шагам). После 14.09.2026 12:00 Beijing `v4-pro` выводится из списка, авто-выбор и расчёты идут по Flash.
 - HTTP-ошибки провайдеров переводятся в человекочитаемые сообщения (402 → «Пополните баланс…», 429 → «лимит запросов…»).
 - Для Z.ai: **баланс** и список моделей показываются в Settings.
-- API-ключи хранятся в **macOS Keychain** / **Windows Credential Manager** (Linux: файл `0600`), не в `settings.json`. Clear key / Clear all keys в Settings.
+- API-ключи хранятся в **macOS Keychain** / **Windows Credential Manager** (Linux: файл `0600`), не в `settings.json`. Clear key / Clear all keys в Settings. Для провайдера **Local** ключ не нужен.
 
 ### Agent loop
 
@@ -146,7 +147,7 @@ Windows: `build/bin/NotCursor.exe`. macOS: `build/bin/NotCursor.app`.
 
 ## Settings (UI)
 
-- **Provider**: DeepSeek / Z.ai / OpenRouter (+ ключ, модель, vision-модель).
+- **Provider**: DeepSeek / Z.ai / OpenRouter / **Local** (+ ключ, модель, vision-модель, base URL для Local).
 - **Agent**: лимит шагов, Plan mode, confirm dangerous tools.
 - **Interface**: тема, показ терминала / дерева / настроек.
 - **Cursor Rules**: список + reload.
@@ -163,11 +164,10 @@ app.go                 # Wails façade / bindings
 main.go                # окно: размер/позиция/maximised
 frontend/src/          # React UI (чат, вкладки, вложения, темы)
 internal/agent/        # agent loop + retry + компакция + plan
-internal/llm/          # типы, общий OpenAI-compat слой, providers/deepseek, providers/zai
+internal/llm/          # типы, общий OpenAI-compat слой, providers/deepseek, providers/zai, providers/openrouter, providers/local
 internal/tools/        # registry + executor
 internal/netx/         # SSRF-safe HTTP
 internal/redact/       # маскирование секретов в выводе tools
-internal/workspace/    # проекты, FS sandbox, guard секретов
 internal/workspace/    # проекты, FS sandbox, guard секретов
 internal/chatstore/    # multi-session persistence + archive
 internal/rules/        # загрузчик Cursor rules
