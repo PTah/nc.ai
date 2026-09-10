@@ -20,10 +20,14 @@ const (
 	ProviderDeepSeek   = "deepseek"
 	ProviderZAI        = "zai"
 	ProviderOpenRouter = "openrouter"
+	ProviderLocal      = "local"
 )
 
+// DefaultLocalBaseURL is the Ollama OpenAI-compatible root on localhost.
+const DefaultLocalBaseURL = "http://127.0.0.1:11434/v1"
+
 type Settings struct {
-	// ActiveProvider selects which LLM backend is used ("deepseek" | "zai" | "openrouter").
+	// ActiveProvider selects which LLM backend is used ("deepseek" | "zai" | "openrouter" | "local").
 	ActiveProvider string `json:"activeProvider,omitempty"`
 
 	DeepSeekAPIKey string `json:"deepseekApiKey"`
@@ -36,6 +40,12 @@ type Settings struct {
 
 	OpenRouterAPIKey string `json:"openrouterApiKey,omitempty"`
 	OpenRouterModel  string `json:"openrouterModel,omitempty"`
+
+	// LocalBaseURL is an OpenAI-compatible root (e.g. http://127.0.0.1:11434/v1).
+	LocalBaseURL string `json:"localBaseUrl,omitempty"`
+	LocalModel   string `json:"localModel,omitempty"`
+	// LocalAPIKey is legacy; live tokens live in the OS secret store under "local".
+	LocalAPIKey string `json:"localApiKey,omitempty"`
 
 	Shell          string   `json:"shell"`
 	RecentProjects []string `json:"recentProjects"`
@@ -107,6 +117,12 @@ type Settings struct {
 	OpenRouterCacheHitTokens  int     `json:"openrouterCacheHitTokens,omitempty"`
 	OpenRouterCacheMissTokens int     `json:"openrouterCacheMissTokens,omitempty"`
 
+	LocalCostUSD         float64 `json:"localCostUsd,omitempty"`
+	LocalInputTokens     int     `json:"localInputTokens,omitempty"`
+	LocalOutputTokens    int     `json:"localOutputTokens,omitempty"`
+	LocalCacheHitTokens  int     `json:"localCacheHitTokens,omitempty"`
+	LocalCacheMissTokens int     `json:"localCacheMissTokens,omitempty"`
+
 	// LastSeenVersion is the app version for which Welcome was already shown.
 	LastSeenVersion string `json:"lastSeenVersion,omitempty"`
 
@@ -127,6 +143,7 @@ func (s Settings) MarshalJSON() ([]byte, error) {
 	p.DeepSeekAPIKey = ""
 	p.ZaiAPIKey = ""
 	p.OpenRouterAPIKey = ""
+	p.LocalAPIKey = ""
 	p.GitPassword = ""
 	return json.Marshal(p)
 }
@@ -149,6 +166,7 @@ func NewStore() *Store {
 			ZaiModel:        "glm-4.7-flash",
 			ZaiEndpoint:     "paas",
 			OpenRouterModel: "qwen/qwen3-coder-flash:floor",
+			LocalBaseURL:    DefaultLocalBaseURL,
 			Shell:           "",
 			AgentMaxSteps:   40,
 			AutoModels:      true,
@@ -244,6 +262,9 @@ func (s *Store) Load() error {
 	if s.settings.OpenRouterModel == "" {
 		s.settings.OpenRouterModel = "qwen/qwen3-coder-flash:floor"
 	}
+	if strings.TrimSpace(s.settings.LocalBaseURL) == "" {
+		s.settings.LocalBaseURL = DefaultLocalBaseURL
+	}
 	// Legacy default was the bare name "powershell"; empty now means auto-detect (pwsh → PS5).
 	if strings.EqualFold(strings.TrimSpace(s.settings.Shell), "powershell") {
 		s.settings.Shell = ""
@@ -328,6 +349,47 @@ func (s *Store) SetOpenRouterModel(model string) error {
 	return s.Save()
 }
 
+func (s *Store) SetLocalAPIKey(key string) error {
+	return s.setAPIKey(ProviderLocal, key)
+}
+
+func (s *Store) SetLocalModel(model string) error {
+	s.mu.Lock()
+	s.settings.LocalModel = strings.TrimSpace(model)
+	s.mu.Unlock()
+	return s.Save()
+}
+
+func (s *Store) SetLocalBaseURL(baseURL string) error {
+	s.mu.Lock()
+	s.settings.LocalBaseURL = normalizeLocalBaseURL(baseURL)
+	s.mu.Unlock()
+	return s.Save()
+}
+
+func (s *Store) LocalBaseURL() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return normalizeLocalBaseURL(s.settings.LocalBaseURL)
+}
+
+func (s *Store) LocalModel() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return strings.TrimSpace(s.settings.LocalModel)
+}
+
+func normalizeLocalBaseURL(u string) string {
+	u = strings.TrimSpace(u)
+	if u == "" {
+		return DefaultLocalBaseURL
+	}
+	if !strings.Contains(u, "://") {
+		u = "http://" + u
+	}
+	return strings.TrimRight(u, "/")
+}
+
 func (s *Store) ZaiEndpoint() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -393,7 +455,7 @@ func (s *Store) ClearAPIKey(provider string) error {
 
 func (s *Store) ClearAllAPIKeys() error {
 	var first error
-	for _, id := range []string{ProviderDeepSeek, ProviderZAI, ProviderOpenRouter} {
+	for _, id := range []string{ProviderDeepSeek, ProviderZAI, ProviderOpenRouter, ProviderLocal} {
 		if err := s.setAPIKey(id, ""); err != nil && first == nil {
 			first = err
 		}
@@ -411,6 +473,8 @@ func secretID(provider string) string {
 		return secrets.IDZai
 	case ProviderOpenRouter:
 		return secrets.IDOpenRouter
+	case ProviderLocal:
+		return secrets.IDLocal
 	default:
 		return secrets.IDDeepSeek
 	}
@@ -455,11 +519,12 @@ func (s *Store) migrateLegacyKeysLocked() bool {
 	move(secrets.IDDeepSeek, s.settings.DeepSeekAPIKey, func() { s.settings.DeepSeekAPIKey = "" })
 	move(secrets.IDZai, s.settings.ZaiAPIKey, func() { s.settings.ZaiAPIKey = "" })
 	move(secrets.IDOpenRouter, s.settings.OpenRouterAPIKey, func() { s.settings.OpenRouterAPIKey = "" })
+	move(secrets.IDLocal, s.settings.LocalAPIKey, func() { s.settings.LocalAPIKey = "" })
 	if strings.TrimSpace(s.settings.GitPassword) != "" {
 		s.settings.GitPassword = ""
 		changed = true
 	}
-	for _, id := range []string{secrets.IDDeepSeek, secrets.IDZai, secrets.IDOpenRouter} {
+	for _, id := range []string{secrets.IDDeepSeek, secrets.IDZai, secrets.IDOpenRouter, secrets.IDLocal} {
 		if s.keys[id] != "" {
 			continue
 		}
@@ -491,6 +556,7 @@ func (s *Store) setAPIKey(provider, key string) error {
 	s.settings.DeepSeekAPIKey = ""
 	s.settings.ZaiAPIKey = ""
 	s.settings.OpenRouterAPIKey = ""
+	s.settings.LocalAPIKey = ""
 	s.mu.Unlock()
 	if err != nil {
 		return err
@@ -507,6 +573,8 @@ func (s *Store) ActiveModel() string {
 		return s.settings.ZaiModel
 	case ProviderOpenRouter:
 		return s.settings.OpenRouterModel
+	case ProviderLocal:
+		return s.settings.LocalModel
 	default:
 		return s.settings.DeepSeekModel
 	}
@@ -520,6 +588,8 @@ func (s *Store) SetActiveModel(model string) error {
 		s.settings.ZaiModel = model
 	case ProviderOpenRouter:
 		s.settings.OpenRouterModel = model
+	case ProviderLocal:
+		s.settings.LocalModel = strings.TrimSpace(model)
 	default:
 		s.settings.DeepSeekModel = model
 	}
@@ -533,6 +603,8 @@ func normalizeProvider(p string) string {
 		return ProviderZAI
 	case ProviderOpenRouter:
 		return ProviderOpenRouter
+	case ProviderLocal:
+		return ProviderLocal
 	default:
 		return ProviderDeepSeek
 	}
@@ -917,6 +989,12 @@ func (s *Store) AddUsage(provider string, costUSD float64, inputTokens, outputTo
 		s.settings.OpenRouterOutputTokens += outputTokens
 		s.settings.OpenRouterCacheHitTokens += cacheHit
 		s.settings.OpenRouterCacheMissTokens += cacheMiss
+	case ProviderLocal:
+		s.settings.LocalCostUSD += costUSD
+		s.settings.LocalInputTokens += inputTokens
+		s.settings.LocalOutputTokens += outputTokens
+		s.settings.LocalCacheHitTokens += cacheHit
+		s.settings.LocalCacheMissTokens += cacheMiss
 	default:
 		s.settings.DeepSeekCostUSD += costUSD
 		s.settings.DeepSeekInputTokens += inputTokens
@@ -939,6 +1017,9 @@ func (s *Store) ProviderUsage(provider string) (cost float64, in, out, cacheHit,
 	case ProviderOpenRouter:
 		return s.settings.OpenRouterCostUSD, s.settings.OpenRouterInputTokens, s.settings.OpenRouterOutputTokens,
 			s.settings.OpenRouterCacheHitTokens, s.settings.OpenRouterCacheMissTokens
+	case ProviderLocal:
+		return s.settings.LocalCostUSD, s.settings.LocalInputTokens, s.settings.LocalOutputTokens,
+			s.settings.LocalCacheHitTokens, s.settings.LocalCacheMissTokens
 	default:
 		return s.settings.DeepSeekCostUSD, s.settings.DeepSeekInputTokens, s.settings.DeepSeekOutputTokens,
 			s.settings.DeepSeekCacheHitTokens, s.settings.DeepSeekCacheMissTokens

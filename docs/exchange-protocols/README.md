@@ -28,7 +28,7 @@ type Provider interface {
 | [openrouter.md](./openrouter.md) | OpenRouter | **реализовано** |
 | [anthropic.md](./anthropic.md) | Anthropic Claude | спецификация + маппинг |
 | [zai-glm.md](./zai-glm.md) | Z.ai / BigModel GLM | спецификация |
-| [ollama.md](./ollama.md) | Ollama (локально) | спецификация |
+| [ollama.md](./ollama.md) | Local / Ollama / LM Studio (OpenAI-compat) | **реализовано** |
 | [tools-and-agent-loop.md](./tools-and-agent-loop.md) | Function calling / agent loop | обязательно |
 
 ## Быстрая таблица endpoint'ов
@@ -40,7 +40,7 @@ type Provider interface {
 | OpenRouter | `https://openrouter.ai/api/v1` | `POST /chat/completions` | `Authorization: Bearer <key>` |
 | Anthropic | `https://api.anthropic.com` | `POST /v1/messages` | `x-api-key` + `anthropic-version` |
 | Z.ai | `https://open.bigmodel.cn/api/paas/v4` | `POST /chat/completions` | `Authorization: Bearer <key>` |
-| Ollama | `http://localhost:11434/v1` | `POST /chat/completions` | обычно без ключа |
+| Local | `http://127.0.0.1:11434/v1` (настраивается) | `POST /chat/completions` | опциональный Bearer |
 
 ## Источники (официальные)
 

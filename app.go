@@ -20,6 +20,7 @@ import (
 	"notcursor.ai/app/internal/dockicon"
 	"notcursor.ai/app/internal/llm"
 	"notcursor.ai/app/internal/llm/providers/deepseek"
+	"notcursor.ai/app/internal/llm/providers/local"
 	"notcursor.ai/app/internal/llm/providers/openrouter"
 	"notcursor.ai/app/internal/llm/providers/zai"
 	"notcursor.ai/app/internal/redact"
@@ -261,6 +262,8 @@ func (a *App) refreshProvider() {
 			model = openrouter.DefaultModel
 		}
 		a.llm = openrouter.New(key, model)
+	case config.ProviderLocal:
+		a.llm = local.New(a.cfg.LocalBaseURL(), key, model)
 	default:
 		if model == "" {
 			model = deepseek.DefaultModel
@@ -375,6 +378,9 @@ func (a *App) GetSettings() map[string]any {
 		"zaiEndpoint":        a.cfg.ZaiEndpoint(),
 		"openrouterModel":    orDefault(s.OpenRouterModel, openrouter.DefaultModel),
 		"openrouterKeySet":   a.cfg.HasAPIKey(config.ProviderOpenRouter),
+		"localBaseUrl":       a.cfg.LocalBaseURL(),
+		"localModel":         s.LocalModel,
+		"localKeySet":        a.cfg.HasAPIKey(config.ProviderLocal),
 		"secretsBackend":     a.cfg.SecretsBackendLabel(),
 		"shell":              s.Shell,
 		"shellResolved":      shell.ResolveShell(s.Shell),
@@ -727,6 +733,64 @@ func (a *App) SaveOpenRouterModel(model string) error {
 	}
 	a.refreshProvider()
 	return nil
+}
+
+func (a *App) SaveLocalKey(apiKey string) error {
+	if err := a.cfg.SetLocalAPIKey(apiKey); err != nil {
+		return err
+	}
+	a.refreshProvider()
+	return nil
+}
+
+func (a *App) ClearLocalKey() error {
+	if err := a.cfg.ClearAPIKey(config.ProviderLocal); err != nil {
+		return err
+	}
+	a.refreshProvider()
+	return nil
+}
+
+func (a *App) SaveLocalModel(model string) error {
+	if err := a.cfg.SetLocalModel(model); err != nil {
+		return err
+	}
+	a.refreshProvider()
+	return nil
+}
+
+func (a *App) SaveLocalBaseURL(baseURL string) error {
+	if err := a.cfg.SetLocalBaseURL(baseURL); err != nil {
+		return err
+	}
+	a.refreshProvider()
+	return nil
+}
+
+// ListLocalModels fetches model ids from the configured OpenAI-compatible / Ollama server.
+func (a *App) ListLocalModels() ([]string, error) {
+	client := local.New(a.cfg.LocalBaseURL(), a.cfg.APIKey(config.ProviderLocal), a.cfg.LocalModel())
+	ctx := a.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	return client.ListModels(ctx)
+}
+
+// PreferLocalModel keeps the saved model when listed; otherwise first available or saved.
+func (a *App) PreferLocalModel(available []string) string {
+	cur := strings.TrimSpace(a.cfg.LocalModel())
+	if len(available) == 0 {
+		return cur
+	}
+	for _, id := range available {
+		if id == cur {
+			return cur
+		}
+	}
+	return available[0]
 }
 
 // ListZaiModels returns model ids from GET {base}/models for the saved Z.ai key.
@@ -1408,15 +1472,8 @@ func (a *App) RunAgent(userMessage string) error {
 
 // RunAgentWithAttachments accepts pasted/dropped images and files (multimodal + text inline).
 func (a *App) RunAgentWithAttachments(userMessage string, attachments []agent.Attachment) error {
-	if a.cfg.ActiveAPIKey() == "" {
-		switch a.cfg.Provider() {
-		case config.ProviderZAI:
-			return fmt.Errorf("Z.ai API key is not set")
-		case config.ProviderOpenRouter:
-			return fmt.Errorf("OpenRouter API key is not set")
-		default:
-			return fmt.Errorf("DeepSeek API key is not set")
-		}
+	if err := a.requireProviderReady(); err != nil {
+		return err
 	}
 	if a.llm == nil {
 		return fmt.Errorf("LLM provider is not configured")
@@ -1458,6 +1515,10 @@ func (a *App) RunAgentWithAttachments(userMessage string, attachments []agent.At
 	cfg := a.cfg.Get()
 	provider := a.cfg.Provider()
 	autoModels := cfg.AutoModels
+	if provider == config.ProviderLocal {
+		// Local has no flash/pro catalog — always use the saved model id.
+		autoModels = false
+	}
 
 	a.mu.Lock()
 	sticky := a.sessionStickyModel[sid]
@@ -1646,6 +1707,33 @@ func (a *App) usageBalanceSnapshot(provider string) (ok bool, usd float64, detai
 	}
 }
 
+// requireProviderReady checks credentials / base URL for the active provider.
+func (a *App) requireProviderReady() error {
+	switch a.cfg.Provider() {
+	case config.ProviderLocal:
+		if strings.TrimSpace(a.cfg.LocalBaseURL()) == "" {
+			return fmt.Errorf("Local Base URL is not set")
+		}
+		if strings.TrimSpace(a.cfg.LocalModel()) == "" {
+			return fmt.Errorf("Local model is not set — выберите модель или введите id вручную")
+		}
+		return nil
+	case config.ProviderZAI:
+		if a.cfg.ActiveAPIKey() == "" {
+			return fmt.Errorf("Z.ai API key is not set")
+		}
+	case config.ProviderOpenRouter:
+		if a.cfg.ActiveAPIKey() == "" {
+			return fmt.Errorf("OpenRouter API key is not set")
+		}
+	default:
+		if a.cfg.ActiveAPIKey() == "" {
+			return fmt.Errorf("DeepSeek API key is not set")
+		}
+	}
+	return nil
+}
+
 // loadActiveIntoMemoryUnlocked assumes caller may or may not hold lock — only used carefully.
 func (a *App) loadActiveIntoMemoryUnlocked() error {
 	if a.chats == nil {
@@ -1669,15 +1757,8 @@ func (a *App) ChatOnce(userMessage string) (string, error) {
 	if a.llm == nil {
 		return "", fmt.Errorf("LLM provider is not configured")
 	}
-	if a.cfg.ActiveAPIKey() == "" {
-		switch a.cfg.Provider() {
-		case config.ProviderZAI:
-			return "", fmt.Errorf("Z.ai API key is not set")
-		case config.ProviderOpenRouter:
-			return "", fmt.Errorf("OpenRouter API key is not set")
-		default:
-			return "", fmt.Errorf("DeepSeek API key is not set")
-		}
+	if err := a.requireProviderReady(); err != nil {
+		return "", err
 	}
 	maxTokens := 64
 	chatReq := &llm.ChatRequest{

@@ -45,6 +45,12 @@ type Session struct {
 	OpenRouterOutputTokens int     `json:"openrouterOutputTokens,omitempty"`
 	OpenRouterCacheHitTokens  int `json:"openrouterCacheHitTokens,omitempty"`
 	OpenRouterCacheMissTokens int `json:"openrouterCacheMissTokens,omitempty"`
+
+	LocalCostUSD         float64 `json:"localCostUsd,omitempty"`
+	LocalInputTokens     int     `json:"localInputTokens,omitempty"`
+	LocalOutputTokens    int     `json:"localOutputTokens,omitempty"`
+	LocalCacheHitTokens  int     `json:"localCacheHitTokens,omitempty"`
+	LocalCacheMissTokens int     `json:"localCacheMissTokens,omitempty"`
 }
 
 // ProjectBundle holds all sessions for one workspace.
@@ -691,6 +697,11 @@ func (s *Store) Clear(project string) error {
 	sess.OpenRouterOutputTokens = 0
 	sess.OpenRouterCacheHitTokens = 0
 	sess.OpenRouterCacheMissTokens = 0
+	sess.LocalCostUSD = 0
+	sess.LocalInputTokens = 0
+	sess.LocalOutputTokens = 0
+	sess.LocalCacheHitTokens = 0
+	sess.LocalCacheMissTokens = 0
 	return s.SaveSession(project, sess)
 }
 
@@ -707,10 +718,14 @@ func (sess *Session) ProviderUsage(provider string) (cost float64, in, out, cach
 	case "openrouter":
 		return sess.OpenRouterCostUSD, sess.OpenRouterInputTokens, sess.OpenRouterOutputTokens,
 			sess.OpenRouterCacheHitTokens, sess.OpenRouterCacheMissTokens
+	case "local":
+		return sess.LocalCostUSD, sess.LocalInputTokens, sess.LocalOutputTokens,
+			sess.LocalCacheHitTokens, sess.LocalCacheMissTokens
 	default:
 		if sess.DeepSeekCostUSD == 0 && sess.DeepSeekInputTokens == 0 && sess.DeepSeekOutputTokens == 0 &&
 			sess.ZaiCostUSD == 0 && sess.ZaiInputTokens == 0 && sess.ZaiOutputTokens == 0 &&
 			sess.OpenRouterCostUSD == 0 && sess.OpenRouterInputTokens == 0 && sess.OpenRouterOutputTokens == 0 &&
+			sess.LocalCostUSD == 0 && sess.LocalInputTokens == 0 && sess.LocalOutputTokens == 0 &&
 			(sess.CostUSD != 0 || sess.InputTokens != 0 || sess.OutputTokens != 0) {
 			return sess.CostUSD, sess.InputTokens, sess.OutputTokens, 0, 0
 		}
@@ -748,6 +763,12 @@ func (s *Store) AddUsage(project, sessionID, provider string, costUSD float64, i
 				b.Sessions[i].OpenRouterOutputTokens += outputTokens
 				b.Sessions[i].OpenRouterCacheHitTokens += cacheHit
 				b.Sessions[i].OpenRouterCacheMissTokens += cacheMiss
+			case "local":
+				b.Sessions[i].LocalCostUSD += costUSD
+				b.Sessions[i].LocalInputTokens += inputTokens
+				b.Sessions[i].LocalOutputTokens += outputTokens
+				b.Sessions[i].LocalCacheHitTokens += cacheHit
+				b.Sessions[i].LocalCacheMissTokens += cacheMiss
 			default:
 				b.Sessions[i].DeepSeekCostUSD += costUSD
 				b.Sessions[i].DeepSeekInputTokens += inputTokens

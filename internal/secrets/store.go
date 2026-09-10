@@ -13,6 +13,7 @@ const (
 	IDDeepSeek   = "deepseek"
 	IDZai        = "zai"
 	IDOpenRouter = "openrouter"
+	IDLocal      = "local"
 )
 
 var (
@@ -55,6 +56,8 @@ func NormalizeID(id string) string {
 		return IDZai
 	case IDOpenRouter:
 		return IDOpenRouter
+	case IDLocal:
+		return IDLocal
 	default:
 		return IDDeepSeek
 	}

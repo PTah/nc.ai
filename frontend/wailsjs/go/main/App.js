@@ -34,6 +34,10 @@ export function ClearDeepSeekKey() {
   return window['go']['main']['App']['ClearDeepSeekKey']();
 }
 
+export function ClearLocalKey() {
+  return window['go']['main']['App']['ClearLocalKey']();
+}
+
 export function ClearOpenRouterKey() {
   return window['go']['main']['App']['ClearOpenRouterKey']();
 }
@@ -98,6 +102,10 @@ export function ListModelPrices() {
   return window['go']['main']['App']['ListModelPrices']();
 }
 
+export function ListLocalModels() {
+  return window['go']['main']['App']['ListLocalModels']();
+}
+
 export function ListOpenRouterModels() {
   return window['go']['main']['App']['ListOpenRouterModels']();
 }
@@ -124,6 +132,10 @@ export function OpenProject(arg1) {
 
 export function PickProjectDir() {
   return window['go']['main']['App']['PickProjectDir']();
+}
+
+export function PreferLocalModel(arg1) {
+  return window['go']['main']['App']['PreferLocalModel'](arg1);
 }
 
 export function PreferOpenRouterModel(arg1) {
@@ -224,6 +236,18 @@ export function SaveGitAuth(arg1, arg2) {
 
 export function SaveLayoutSizes(arg1, arg2, arg3, arg4, arg5) {
   return window['go']['main']['App']['SaveLayoutSizes'](arg1, arg2, arg3, arg4, arg5);
+}
+
+export function SaveLocalBaseURL(arg1) {
+  return window['go']['main']['App']['SaveLocalBaseURL'](arg1);
+}
+
+export function SaveLocalKey(arg1) {
+  return window['go']['main']['App']['SaveLocalKey'](arg1);
+}
+
+export function SaveLocalModel(arg1) {
+  return window['go']['main']['App']['SaveLocalModel'](arg1);
 }
 
 export function SaveOpenRouterKey(arg1) {

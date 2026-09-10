@@ -101,7 +101,7 @@ type Runner struct {
 	PreferredModel string
 	// AutoModels enables PickModel / PickZaiModel / PickOpenRouterModel routing.
 	AutoModels bool
-	// ProviderID is "deepseek", "zai", or "openrouter" (Auto routing + image defaults).
+	// ProviderID is "deepseek", "zai", "openrouter", or "local" (Auto routing + image defaults).
 	ProviderID string
 	// Route context for AutoModels (filled by the app before Run*).
 	UserText      string
@@ -148,6 +148,10 @@ func (r *Runner) isOpenRouter() bool {
 	return strings.EqualFold(strings.TrimSpace(r.ProviderID), "openrouter")
 }
 
+func (r *Runner) isLocal() bool {
+	return strings.EqualFold(strings.TrimSpace(r.ProviderID), "local")
+}
+
 func (r *Runner) reportUsage(model string, u *llm.Usage) {
 	if r.OnUsage == nil {
 		return
@@ -160,7 +164,7 @@ func (r *Runner) reportUsage(model string, u *llm.Usage) {
 // one-way upgrade to the provider's vision model when the turn has images.
 func (r *Runner) resolveModel(step int, emit EmitFunc) string {
 	if locked := strings.TrimSpace(r.runModel); locked != "" {
-		if r.HasImages && !IsVisionModel(locked) {
+		if r.HasImages && !r.isLocal() && !IsVisionModel(locked) {
 			vision, reason := r.visionModel()
 			if vision != "" && vision != locked {
 				r.runModel = vision
@@ -174,6 +178,13 @@ func (r *Runner) resolveModel(step int, emit EmitFunc) string {
 
 	var model, reason string
 	switch {
+	case r.isLocal():
+		// No Auto flash/pro catalog — always the configured local model.
+		model = strings.TrimSpace(r.ModelOverride)
+		if model == "" {
+			model = strings.TrimSpace(r.PreferredModel)
+		}
+		reason = "local"
 	case r.AutoModels:
 		sticky := strings.TrimSpace(r.StickyModel)
 		if sticky != "" && !r.HasImages && !IsVisionModel(sticky) {
@@ -233,6 +244,12 @@ func (r *Runner) resolveModel(step int, emit EmitFunc) string {
 
 func (r *Runner) visionModel() (model, reason string) {
 	switch {
+	case r.isLocal():
+		m := strings.TrimSpace(r.PreferredModel)
+		if m == "" {
+			m = strings.TrimSpace(r.ModelOverride)
+		}
+		return m, "local"
 	case r.isZai():
 		return ModelZaiVision, "image"
 	case r.isOpenRouter():

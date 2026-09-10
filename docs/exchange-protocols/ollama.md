@@ -1,18 +1,29 @@
-# Ollama — локальный OpenAI-совместимый endpoint
+# Local — OpenAI-совместимый LAN / localhost
 
-**Docs:** https://github.com/ollama/ollama/blob/main/docs/openai.md  
-**Назначение:** офлайн / локальные модели без внешнего API key.
+**Назначение:** офлайн и LAN-модели без облачного API (Ollama, LM Studio, vLLM, LocalAI, Open WebUI и т.п.).
+
+**Код:** `internal/llm/providers/local`  
+**Settings:** Provider → Local (LAN / Ollama)
 
 ---
 
 ## Endpoint
 
 ```
-POST http://localhost:11434/v1/chat/completions
+POST {baseURL}/chat/completions
 Content-Type: application/json
+Authorization: Bearer <token>   # только если задан токен
 ```
 
-Auth обычно не требуется (localhost). При remote Ollama — опциональный Bearer.
+Типичные base URL:
+
+| Сервер | Base URL |
+|---|---|
+| Ollama | `http://127.0.0.1:11434/v1` |
+| LM Studio | `http://127.0.0.1:1234/v1` |
+| LAN Ollama | `http://192.168.x.x:11434/v1` |
+
+Auth обычно не требуется на localhost. На remote — опциональный Bearer.
 
 ---
 
@@ -25,10 +36,21 @@ Auth обычно не требуется (localhost). При remote Ollama — 
     { "role": "system", "content": "You are NotCursor local agent." },
     { "role": "user", "content": "List TODOs in the project" }
   ],
-  "stream": true,
+  "stream": false,
   "tools": []
 }
 ```
+
+Поля `thinking` / `reasoning_effort` **не** отправляются (многие локальные серверы их отвергают).
+
+---
+
+## Список моделей
+
+1. `GET {baseURL}/models` → `data[].id`
+2. Если пусто/ошибка и base оканчивается на `/v1`: `GET {origin}/api/tags` (Ollama) → `models[].name`
+
+В UI: select из списка + поле **Custom model id** + кнопка Refresh models.
 
 ---
 
@@ -36,9 +58,11 @@ Auth обычно не требуется (localhost). При remote Ollama — 
 
 | Тема | Поведение |
 |---|---|
-| Модели | Локальные теги Ollama (`ollama list`) |
+| Модели | Теги сервера; ручной id всегда допустим |
 | Tools | Зависит от модели; не все поддерживают function calling |
-| Latency | Холодный старт модели может быть долгим |
+| Auto-models | Выключен — всегда выбранная модель |
+| Latency | Холодный старт может быть долгим (timeout клиента 300s) |
+| Cost | $0 (локально) |
 | Privacy | Данные не уходят в облако |
 
 ---
@@ -46,14 +70,13 @@ Auth обычно не требуется (localhost). При remote Ollama — 
 ## Healthcheck
 
 ```
-GET http://localhost:11434/api/tags
+GET http://127.0.0.1:11434/api/tags
 ```
 
-NotCursor перед выбором Ollama проверяет доступность демона и список моделей.
+или
 
----
+```
+GET http://127.0.0.1:11434/v1/models
+```
 
-## Реализация
-
-Этап 2: `internal/llm/providers/ollama`.  
-В Settings: host (default `http://localhost:11434`), model tag.
+В приложении: Settings → Test connect (Local).

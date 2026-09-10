@@ -25,6 +25,8 @@ export function ClearChat():Promise<void>;
 
 export function ClearDeepSeekKey():Promise<void>;
 
+export function ClearLocalKey():Promise<void>;
+
 export function ClearOpenRouterKey():Promise<void>;
 
 export function ClearZaiKey():Promise<void>;
@@ -57,6 +59,8 @@ export function ListDir(arg1:string):Promise<Array<workspace.Entry>>;
 
 export function ListModelPrices():Promise<Array<costing.ModelPrice>>;
 
+export function ListLocalModels():Promise<Array<string>>;
+
 export function ListOpenRouterModels():Promise<Array<string>>;
 
 export function ListProjects():Promise<Array<workspace.Project>>;
@@ -70,6 +74,8 @@ export function NewChatSession(arg1:string):Promise<chatstore.Session>;
 export function OpenProject(arg1:string):Promise<workspace.Project>;
 
 export function PickProjectDir():Promise<string>;
+
+export function PreferLocalModel(arg1:Array<string>):Promise<string>;
 
 export function PreferOpenRouterModel(arg1:Array<string>):Promise<string>;
 
@@ -120,6 +126,12 @@ export function SaveDeepSeekModel(arg1:string):Promise<void>;
 export function SaveGitAuth(arg1:string,arg2:string):Promise<void>;
 
 export function SaveLayoutSizes(arg1:number,arg2:number,arg3:number,arg4:number,arg5:number):Promise<void>;
+
+export function SaveLocalBaseURL(arg1:string):Promise<void>;
+
+export function SaveLocalKey(arg1:string):Promise<void>;
+
+export function SaveLocalModel(arg1:string):Promise<void>;
 
 export function SaveOpenRouterKey(arg1:string):Promise<void>;
 

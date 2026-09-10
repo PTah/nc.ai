@@ -5,7 +5,7 @@ import "time"
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "0.6.3"
+	Version = "0.6.4"
 )
 
 // DeepSeekProRetireRFC3339 is when the provider retires V4 Pro
@@ -29,19 +29,19 @@ func DeepSeekProRetired(now time.Time) bool {
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
-	"API-ключи в Keychain / Credential Manager (не в settings.json)",
-	"glob, grep path/limit, номера строк в read_file",
-	"git_log + commit по списку файлов, move_file",
-	"Проверка цен DeepSeek: таблица flash+pro (без колонки vision)",
-	"Plan/Act, todo-список, ask_user, параллельные read-tools",
+	"Локальный LLM: Ollama / LM Studio / LAN (OpenAI-совместимый)",
+	"Список моделей с сервера + ручной model id",
+	"Опциональный Bearer-токен для remote local API",
+	"API-ключи по-прежнему в Keychain / Credential Manager",
+	"Auto-models для Local выключен — одна выбранная модель",
 }
 
 var HighlightsEN = []string{
-	"API keys in Keychain / Credential Manager (not settings.json)",
-	"glob, grep path/limit, numbered read_file lines",
-	"git_log + path-scoped commit, move_file",
-	"DeepSeek price check: flash+pro table (vision column dropped)",
-	"Plan/Act, todo list, ask_user, parallel read-only tools",
+	"Local LLM: Ollama / LM Studio / LAN (OpenAI-compatible)",
+	"Fetch model list from the server + manual model id",
+	"Optional Bearer token for remote local APIs",
+	"API keys still in Keychain / Credential Manager",
+	"Auto-models off for Local — sticky selected model",
 }
 
 // UICopy is localized chrome for the Welcome splash.

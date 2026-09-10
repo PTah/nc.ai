@@ -2,7 +2,7 @@
 
 Лёгкий нативный AI-IDE агент (аналог Cursor) на **Wails v2 + Go + React/TypeScript**.
 
-**Версия UI/бинаря:** `0.6.3`
+**Версия UI/бинаря:** `0.6.4`
 
 **Сборка Windows:** `build/bin/NotCursor.exe`
 
