@@ -26,4 +26,5 @@
 ## Связанное
 
 - RAG/эмбеддинги: `docs/TODO-rag-semantic-index.md`
-- Secrets hardening: `docs/TODO-secrets-hardening.md`
+- Secrets hardening: `docs/TODO-secrets-hardening.md` (этап 1 / Keychain — v0.6.3)
+- Follow-ups агента: `docs/TODO-agent-followups.md`

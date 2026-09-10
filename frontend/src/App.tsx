@@ -8,7 +8,11 @@ import {
   ArchiveChatSession,
   AckWelcome,
   ChatOnce,
+  ClearAllProviderKeys,
   ClearChat,
+  ClearDeepSeekKey,
+  ClearOpenRouterKey,
+  ClearZaiKey,
   CloseProject,
   DeleteChatSession,
   DetectDefaultShell,
@@ -723,6 +727,7 @@ export default function App() {
   const [archiveProjectFilter, setArchiveProjectFilter] = useState('')
   const [archiveView, setArchiveView] = useState<ArchiveChat | null>(null)
   const [appDataDir, setAppDataDir] = useState('')
+  const [secretsBackend, setSecretsBackend] = useState('')
   const [modelPrices, setModelPrices] = useState<ModelPriceRow[]>([])
   const [pricesLoading, setPricesLoading] = useState(false)
   const [rulesInfo, setRulesInfo] = useState<RulesBundle>({globalDir: '', projectDir: '', global: [], project: []})
@@ -1050,6 +1055,7 @@ export default function App() {
         setDeepseekKeySet(Boolean(s.deepseekKeySet))
         setZaiKeySet(Boolean(s.zaiKeySet))
         setOpenrouterKeySet(Boolean(s.openrouterKeySet))
+        if (typeof s.secretsBackend === 'string' && s.secretsBackend) setSecretsBackend(s.secretsBackend)
         setDeepseekProRetired(Boolean(s.deepseekProRetired))
         if (typeof s.deepseekModel === 'string' && s.deepseekModel) setDeepseekModel(s.deepseekModel)
         if (typeof s.zaiModel === 'string' && s.zaiModel) setZaiModel(s.zaiModel)
@@ -1984,6 +1990,45 @@ export default function App() {
     if (activeSessionId) setSessionItems(activeSessionId, (m) => [...m, {kind: 'system', content: 'Settings saved'}])
   }
 
+  async function clearProviderKey(which: ProviderId) {
+    try {
+      if (which === 'zai') {
+        await ClearZaiKey()
+        setZaiKey('')
+        setZaiKeySet(false)
+      } else if (which === 'openrouter') {
+        await ClearOpenRouterKey()
+        setOpenrouterKey('')
+        setOpenrouterKeySet(false)
+      } else {
+        await ClearDeepSeekKey()
+        setDeepseekKey('')
+        setDeepseekKeySet(false)
+      }
+      if (activeSessionId) setSessionItems(activeSessionId, (m) => [...m, {kind: 'system', content: 'API key cleared'}])
+    } catch (e) {
+      if (activeSessionId) setSessionItems(activeSessionId, (m) => [...m, {kind: 'system', content: String(e)}])
+    }
+  }
+
+  async function clearAllKeys() {
+    if (!window.confirm('Удалить все сохранённые API-ключи с этого компьютера? Смените ключи на сайте провайдера, если они могли утечь.')) {
+      return
+    }
+    try {
+      await ClearAllProviderKeys()
+      setDeepseekKey('')
+      setZaiKey('')
+      setOpenrouterKey('')
+      setDeepseekKeySet(false)
+      setZaiKeySet(false)
+      setOpenrouterKeySet(false)
+      if (activeSessionId) setSessionItems(activeSessionId, (m) => [...m, {kind: 'system', content: 'Все API-ключи удалены. При необходимости смените ключ у провайдера.'}])
+    } catch (e) {
+      if (activeSessionId) setSessionItems(activeSessionId, (m) => [...m, {kind: 'system', content: String(e)}])
+    }
+  }
+
   async function toggleTerminal(next: boolean) {
     setShowTerm(next)
     try {
@@ -2732,6 +2777,11 @@ export default function App() {
                     placeholder={deepseekKeySet ? '•••• set' : 'sk-...'}
                   />
                 </label>
+                <p className="nc-help">
+                  Ключ хранится в {secretsBackend || 'системном хранилище'}, не в settings.json.
+                  {deepseekKeySet ? ' Сменить: вставьте новый и Save. ' : ' '}
+                  {deepseekKeySet ? <button type="button" className="nc-ghost" onClick={() => void clearProviderKey('deepseek')}>Clear key</button> : null}
+                </p>
               </>
             ) : activeProvider === 'openrouter' ? (
               <>
@@ -2796,6 +2846,10 @@ export default function App() {
                     placeholder={openrouterKeySet ? '•••• set' : 'sk-or-v1-...'}
                   />
                 </label>
+                <p className="nc-help">
+                  Ключ хранится в {secretsBackend || 'системном хранилище'}.
+                  {openrouterKeySet ? <button type="button" className="nc-ghost" onClick={() => void clearProviderKey('openrouter')}>Clear key</button> : null}
+                </p>
               </>
             ) : (
               <>
@@ -2879,17 +2933,22 @@ export default function App() {
                     placeholder={zaiKeySet ? '•••• set' : 'zai-...'}
                   />
                 </label>
+                <p className="nc-help">
+                  Ключ хранится в {secretsBackend || 'системном хранилище'}.
+                  {zaiKeySet ? <button type="button" className="nc-ghost" onClick={() => void clearProviderKey('zai')}>Clear key</button> : null}
+                </p>
               </>
             )}
             {appDataDir ? (
               <p className="nc-help">
                 Данные приложения: <code>{appDataDir}</code>
                 <br />
-                Чаты: <code>chats</code>, архивы: <code>chat_archive</code>, настройки: <code>settings.json</code>
+                Чаты: <code>chats</code>, архивы: <code>chat_archive</code>, настройки: <code>settings.json</code> (без API-ключей)
               </p>
             ) : null}
             <button type="button" onClick={saveSettings}>Save settings</button>
             <button type="button" className="nc-ghost" onClick={testConnect}>Test connect ({providerLabel})</button>
+            <button type="button" className="nc-ghost" onClick={() => void clearAllKeys()}>Clear all keys</button>
 
             <div className="nc-section-label">Agent</div>
             <label>

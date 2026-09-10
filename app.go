@@ -369,12 +369,13 @@ func (a *App) GetSettings() map[string]any {
 		"activeProvider":     provider,
 		"deepseekModel":      s.DeepSeekModel,
 		"deepseekProRetired": appmeta.DeepSeekProRetired(time.Now()),
-		"deepseekKeySet":     s.DeepSeekAPIKey != "",
+		"deepseekKeySet":     a.cfg.HasAPIKey(config.ProviderDeepSeek),
 		"zaiModel":           orDefault(s.ZaiModel, zai.DefaultModel),
-		"zaiKeySet":          s.ZaiAPIKey != "",
+		"zaiKeySet":          a.cfg.HasAPIKey(config.ProviderZAI),
 		"zaiEndpoint":        a.cfg.ZaiEndpoint(),
 		"openrouterModel":    orDefault(s.OpenRouterModel, openrouter.DefaultModel),
-		"openrouterKeySet":   s.OpenRouterAPIKey != "",
+		"openrouterKeySet":   a.cfg.HasAPIKey(config.ProviderOpenRouter),
+		"secretsBackend":     a.cfg.SecretsBackendLabel(),
 		"shell":              s.Shell,
 		"shellResolved":      shell.ResolveShell(s.Shell),
 		"shellDetected":      shell.DetectDefaultShell(),
@@ -644,6 +645,14 @@ func (a *App) SaveDeepSeekKey(apiKey string) error {
 	return nil
 }
 
+func (a *App) ClearDeepSeekKey() error {
+	if err := a.cfg.ClearAPIKey(config.ProviderDeepSeek); err != nil {
+		return err
+	}
+	a.refreshProvider()
+	return nil
+}
+
 func (a *App) SaveDeepSeekModel(model string) error {
 	if appmeta.DeepSeekProRetired(time.Now()) && strings.EqualFold(strings.TrimSpace(model), "deepseek-v4-pro") {
 		// V4 Pro is retired: keep the user on V4 Flash.
@@ -658,6 +667,14 @@ func (a *App) SaveDeepSeekModel(model string) error {
 
 func (a *App) SaveZaiKey(apiKey string) error {
 	if err := a.cfg.SetZaiAPIKey(apiKey); err != nil {
+		return err
+	}
+	a.refreshProvider()
+	return nil
+}
+
+func (a *App) ClearZaiKey() error {
+	if err := a.cfg.ClearAPIKey(config.ProviderZAI); err != nil {
 		return err
 	}
 	a.refreshProvider()
@@ -688,6 +705,22 @@ func (a *App) SaveOpenRouterKey(apiKey string) error {
 	return nil
 }
 
+func (a *App) ClearOpenRouterKey() error {
+	if err := a.cfg.ClearAPIKey(config.ProviderOpenRouter); err != nil {
+		return err
+	}
+	a.refreshProvider()
+	return nil
+}
+
+func (a *App) ClearAllProviderKeys() error {
+	if err := a.cfg.ClearAllAPIKeys(); err != nil {
+		return err
+	}
+	a.refreshProvider()
+	return nil
+}
+
 func (a *App) SaveOpenRouterModel(model string) error {
 	if err := a.cfg.SetOpenRouterModel(model); err != nil {
 		return err
@@ -699,7 +732,7 @@ func (a *App) SaveOpenRouterModel(model string) error {
 // ListZaiModels returns model ids from GET {base}/models for the saved Z.ai key.
 // Official free-tier ids are always merged in (API catalog often omits them).
 func (a *App) ListZaiModels() []string {
-	key := a.cfg.Get().ZaiAPIKey
+	key := a.cfg.APIKey(config.ProviderZAI)
 	var out []string
 	if key == "" {
 		out = append([]string{}, zai.FallbackModels()...)
@@ -740,7 +773,7 @@ func (a *App) PreferZaiModel(available []string) string {
 
 // GetZaiBalance best-effort remaining credits / Coding Plan quota for the saved key.
 func (a *App) GetZaiBalance() zai.AccountBalance {
-	key := a.cfg.Get().ZaiAPIKey
+	key := a.cfg.APIKey(config.ProviderZAI)
 	ctx := a.ctx
 	if ctx == nil {
 		ctx = context.Background()
@@ -754,7 +787,7 @@ func (a *App) GetZaiBalance() zai.AccountBalance {
 
 // ListOpenRouterModels returns curated + coding tool models from OpenRouter.
 func (a *App) ListOpenRouterModels() []string {
-	key := a.cfg.Get().OpenRouterAPIKey
+	key := a.cfg.APIKey(config.ProviderOpenRouter)
 	if key == "" {
 		return openrouter.OrderModels(openrouter.FallbackModels())
 	}
@@ -779,7 +812,7 @@ func (a *App) PreferOpenRouterModel(available []string) string {
 
 // GetOpenRouterBalance best-effort remaining prepaid credits for the saved key.
 func (a *App) GetOpenRouterBalance() openrouter.AccountBalance {
-	key := a.cfg.Get().OpenRouterAPIKey
+	key := a.cfg.APIKey(config.ProviderOpenRouter)
 	ctx := a.ctx
 	if ctx == nil {
 		ctx = context.Background()

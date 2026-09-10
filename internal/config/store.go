@@ -10,6 +10,7 @@ import (
 
 	"notcursor.ai/app/internal/costing"
 	"notcursor.ai/app/internal/fsx"
+	"notcursor.ai/app/internal/secrets"
 )
 
 const appDirName = "NotCursor"
@@ -119,10 +120,25 @@ type Settings struct {
 	OpenRouterPricesCheckedAt string                    `json:"openrouterPricesCheckedAt,omitempty"`
 }
 
+// MarshalJSON never writes API keys or git passwords to disk.
+func (s Settings) MarshalJSON() ([]byte, error) {
+	type persist Settings
+	p := persist(s)
+	p.DeepSeekAPIKey = ""
+	p.ZaiAPIKey = ""
+	p.OpenRouterAPIKey = ""
+	p.GitPassword = ""
+	return json.Marshal(p)
+}
+
 type Store struct {
 	mu       sync.RWMutex
 	settings Settings
 	path     string
+	baseDir  string
+	sec      *secrets.Store
+	keys     map[string]string
+	fileOnly bool
 }
 
 func NewStore() *Store {
@@ -137,10 +153,26 @@ func NewStore() *Store {
 			AgentMaxSteps:   40,
 			AutoModels:      true,
 		},
+		keys: map[string]string{},
 	}
 }
 
+// NewStoreForTest writes settings + secrets under dir and never uses the OS vault.
+func NewStoreForTest(dir string) *Store {
+	s := NewStore()
+	s.baseDir = dir
+	s.path = filepath.Join(dir, "settings.json")
+	s.fileOnly = true
+	return s
+}
+
 func (s *Store) AppDataDir() (string, error) {
+	if strings.TrimSpace(s.baseDir) != "" {
+		if err := os.MkdirAll(s.baseDir, 0o700); err != nil {
+			return "", err
+		}
+		return s.baseDir, nil
+	}
 	base, err := os.UserConfigDir()
 	if err != nil {
 		return "", err
@@ -189,8 +221,8 @@ func (s *Store) Load() error {
 		return err
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if err := json.Unmarshal(data, &s.settings); err != nil {
+		s.mu.Unlock()
 		return err
 	}
 	if s.settings.ActiveProvider == "" {
@@ -224,6 +256,15 @@ func (s *Store) Load() error {
 		s.settings.DeepSeekInputTokens = s.settings.TotalInputTokens
 		s.settings.DeepSeekOutputTokens = s.settings.TotalOutputTokens
 	}
+	if err := s.ensureSecretsLocked(); err != nil {
+		s.mu.Unlock()
+		return err
+	}
+	migrated := s.migrateLegacyKeysLocked()
+	s.mu.Unlock()
+	if migrated {
+		return s.Save()
+	}
 	return nil
 }
 
@@ -248,10 +289,7 @@ func (s *Store) Get() Settings {
 }
 
 func (s *Store) SetDeepSeekAPIKey(key string) error {
-	s.mu.Lock()
-	s.settings.DeepSeekAPIKey = key
-	s.mu.Unlock()
-	return s.Save()
+	return s.setAPIKey(ProviderDeepSeek, key)
 }
 
 func (s *Store) SetDeepSeekModel(model string) error {
@@ -262,10 +300,7 @@ func (s *Store) SetDeepSeekModel(model string) error {
 }
 
 func (s *Store) SetZaiAPIKey(key string) error {
-	s.mu.Lock()
-	s.settings.ZaiAPIKey = key
-	s.mu.Unlock()
-	return s.Save()
+	return s.setAPIKey(ProviderZAI, key)
 }
 
 func (s *Store) SetZaiModel(model string) error {
@@ -283,10 +318,7 @@ func (s *Store) SetZaiEndpoint(endpoint string) error {
 }
 
 func (s *Store) SetOpenRouterAPIKey(key string) error {
-	s.mu.Lock()
-	s.settings.OpenRouterAPIKey = key
-	s.mu.Unlock()
-	return s.Save()
+	return s.setAPIKey(ProviderOpenRouter, key)
 }
 
 func (s *Store) SetOpenRouterModel(model string) error {
@@ -327,16 +359,143 @@ func (s *Store) SetActiveProvider(provider string) error {
 
 // ActiveAPIKey returns the API key for the active provider.
 func (s *Store) ActiveAPIKey() string {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	switch normalizeProvider(s.settings.ActiveProvider) {
-	case ProviderZAI:
-		return s.settings.ZaiAPIKey
-	case ProviderOpenRouter:
-		return s.settings.OpenRouterAPIKey
-	default:
-		return s.settings.DeepSeekAPIKey
+	return s.APIKey(s.Provider())
+}
+
+func (s *Store) APIKey(provider string) string {
+	id := secretID(provider)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.keys == nil {
+		s.keys = map[string]string{}
 	}
+	if v, ok := s.keys[id]; ok {
+		return v
+	}
+	if err := s.ensureSecretsLocked(); err != nil {
+		return ""
+	}
+	v, err := s.sec.Get(id)
+	if err != nil {
+		return ""
+	}
+	s.keys[id] = v
+	return v
+}
+
+func (s *Store) HasAPIKey(provider string) bool {
+	return strings.TrimSpace(s.APIKey(provider)) != ""
+}
+
+func (s *Store) ClearAPIKey(provider string) error {
+	return s.setAPIKey(provider, "")
+}
+
+func (s *Store) ClearAllAPIKeys() error {
+	var first error
+	for _, id := range []string{ProviderDeepSeek, ProviderZAI, ProviderOpenRouter} {
+		if err := s.setAPIKey(id, ""); err != nil && first == nil {
+			first = err
+		}
+	}
+	return first
+}
+
+func (s *Store) SecretsBackendLabel() string {
+	return secrets.BackendLabel()
+}
+
+func secretID(provider string) string {
+	switch normalizeProvider(provider) {
+	case ProviderZAI:
+		return secrets.IDZai
+	case ProviderOpenRouter:
+		return secrets.IDOpenRouter
+	default:
+		return secrets.IDDeepSeek
+	}
+}
+
+func (s *Store) ensureSecretsLocked() error {
+	if s.sec != nil {
+		return nil
+	}
+	dir, err := s.AppDataDir()
+	if err != nil {
+		return err
+	}
+	if s.fileOnly {
+		s.sec = secrets.OpenFileOnly(dir)
+	} else {
+		s.sec = secrets.Open(dir)
+	}
+	if s.keys == nil {
+		s.keys = map[string]string{}
+	}
+	return nil
+}
+
+func (s *Store) migrateLegacyKeysLocked() bool {
+	if s.sec == nil {
+		return false
+	}
+	changed := false
+	move := func(id, raw string, clear func()) {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			return
+		}
+		if err := s.sec.Set(id, raw); err != nil {
+			return
+		}
+		s.keys[id] = raw
+		clear()
+		changed = true
+	}
+	move(secrets.IDDeepSeek, s.settings.DeepSeekAPIKey, func() { s.settings.DeepSeekAPIKey = "" })
+	move(secrets.IDZai, s.settings.ZaiAPIKey, func() { s.settings.ZaiAPIKey = "" })
+	move(secrets.IDOpenRouter, s.settings.OpenRouterAPIKey, func() { s.settings.OpenRouterAPIKey = "" })
+	if strings.TrimSpace(s.settings.GitPassword) != "" {
+		s.settings.GitPassword = ""
+		changed = true
+	}
+	for _, id := range []string{secrets.IDDeepSeek, secrets.IDZai, secrets.IDOpenRouter} {
+		if s.keys[id] != "" {
+			continue
+		}
+		if v, err := s.sec.Get(id); err == nil && v != "" {
+			s.keys[id] = v
+		}
+	}
+	return changed
+}
+
+func (s *Store) setAPIKey(provider, key string) error {
+	id := secretID(provider)
+	key = strings.TrimSpace(key)
+	s.mu.Lock()
+	if err := s.ensureSecretsLocked(); err != nil {
+		s.mu.Unlock()
+		return err
+	}
+	var err error
+	if key == "" {
+		err = s.sec.Delete(id)
+		delete(s.keys, id)
+	} else {
+		err = s.sec.Set(id, key)
+		if err == nil {
+			s.keys[id] = key
+		}
+	}
+	s.settings.DeepSeekAPIKey = ""
+	s.settings.ZaiAPIKey = ""
+	s.settings.OpenRouterAPIKey = ""
+	s.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	return s.Save()
 }
 
 // ActiveModel returns the model id for the active provider.

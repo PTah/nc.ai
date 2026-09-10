@@ -2,7 +2,7 @@
 
 Лёгкий нативный AI-IDE агент (аналог Cursor) на **Wails v2 + Go + React/TypeScript**.
 
-**Версия UI/бинаря:** `0.6.2`
+**Версия UI/бинаря:** `0.6.3`
 
 **Сборка Windows:** `build/bin/NotCursor.exe`
 
@@ -23,6 +23,7 @@
 - Автоматический выбор модели: flash → pro → vision (по вложениям/шагам). После 14.09.2026 12:00 Beijing `v4-pro` выводится из списка, авто-выбор и расчёты идут по Flash.
 - HTTP-ошибки провайдеров переводятся в человекочитаемые сообщения (402 → «Пополните баланс…», 429 → «лимит запросов…»).
 - Для Z.ai: **баланс** и список моделей показываются в Settings.
+- API-ключи хранятся в **macOS Keychain** / **Windows Credential Manager** (Linux: файл `0600`), не в `settings.json`. Clear key / Clear all keys в Settings.
 
 ### Agent loop
 
