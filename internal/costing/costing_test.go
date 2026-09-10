@@ -101,6 +101,21 @@ func TestCostProOffPeak(t *testing.T) {
 	}
 }
 
+func TestCostProRetiredBillsAsFlash(t *testing.T) {
+	SetDeepSeekPeakSheet(BuiltinDeepSeekPeak())
+	SetPeakWindows(DefaultPeakWindows())
+	// After 2026-09-14 12:00 Beijing the provider routes V4 Pro to V4.1 Flash.
+	at := time.Date(2026, 9, 15, 12, 0, 0, 0, time.UTC)
+	u := &llm.Usage{
+		PromptCacheHitTokens:  500_000,
+		PromptCacheMissTokens: 500_000,
+		CompletionTokens:      100_000,
+	}
+	if got, want := CostAt("deepseek-v4-pro", u, at), CostAt("deepseek-v4-flash", u, at); !almost(got, want) {
+		t.Fatalf("retired pro = %v, want flash %v", got, want)
+	}
+}
+
 func TestCostNoCacheSplitFallsBackToMiss(t *testing.T) {
 	SetDeepSeekPeakSheet(BuiltinDeepSeekPeak())
 	SetPeakWindows(DefaultPeakWindows())

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sort"
 	"time"
+
+	"notcursor.ai/app/internal/appmeta"
 )
 
 // ModelPrice is one rate-card row for the Model prices UI (USD per 1M tokens).
@@ -73,6 +75,16 @@ func Catalog() []ModelPrice {
 		{Provider: "OpenRouter", Model: "qwen/qwen3-vl-8b-instruct", InputUSD: 0.117, OutputUSD: 0.455, Strength: 19, Note: "vision"},
 		{Provider: "OpenRouter", Model: "qwen/qwen3-coder", InputUSD: 0.30, OutputUSD: 1.00, Strength: 28, Note: "Auto complex"},
 		{Provider: "OpenRouter", Model: "qwen/qwen3-coder-plus", InputUSD: 0.65, OutputUSD: 3.25, Strength: 42, Note: "strongest curated coder"},
+	}
+	if appmeta.DeepSeekProRetired(time.Now()) {
+		kept := rows[:0]
+		for _, r := range rows {
+			if r.Provider == "DeepSeek" && r.Model == "deepseek-v4-pro" {
+				continue
+			}
+			kept = append(kept, r)
+		}
+		rows = kept
 	}
 	sort.SliceStable(rows, func(i, j int) bool {
 		if rows[i].Strength != rows[j].Strength {

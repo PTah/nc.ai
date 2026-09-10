@@ -699,6 +699,7 @@ export default function App() {
   const [zaiKey, setZaiKey] = useState('')
   const [openrouterKey, setOpenrouterKey] = useState('')
   const [deepseekModel, setDeepseekModel] = useState('deepseek-v4-flash')
+  const [deepseekProRetired, setDeepseekProRetired] = useState(false)
   const [zaiModel, setZaiModel] = useState('glm-4.7-flash')
   const [openrouterModel, setOpenrouterModel] = useState('qwen/qwen3-coder-flash:floor')
   const [zaiEndpoint, setZaiEndpoint] = useState<ZaiEndpointId>('paas')
@@ -972,6 +973,7 @@ export default function App() {
         setDeepseekKeySet(Boolean(s.deepseekKeySet))
         setZaiKeySet(Boolean(s.zaiKeySet))
         setOpenrouterKeySet(Boolean(s.openrouterKeySet))
+        setDeepseekProRetired(Boolean(s.deepseekProRetired))
         if (typeof s.deepseekModel === 'string' && s.deepseekModel) setDeepseekModel(s.deepseekModel)
         if (typeof s.zaiModel === 'string' && s.zaiModel) setZaiModel(s.zaiModel)
         if (typeof s.openrouterModel === 'string' && s.openrouterModel) setOpenrouterModel(s.openrouterModel)
@@ -2020,7 +2022,7 @@ export default function App() {
                   ? modelOptions(openrouterModels, openrouterModel).map((m) => (
                       <option key={m} value={m}>{m}</option>
                     ))
-                : modelOptions(DEEPSEEK_MODELS, deepseekModel).map((m) => (
+                : modelOptions(deepseekProRetired ? DEEPSEEK_MODELS.filter((m) => m !== 'deepseek-v4-pro') : DEEPSEEK_MODELS, deepseekModel).map((m) => (
                     <option key={m} value={m}>{m}</option>
                   ))}
             </select>
@@ -2551,7 +2553,7 @@ export default function App() {
                       void SaveDeepSeekModel(next)
                     }}
                   >
-                    {modelOptions(DEEPSEEK_MODELS, deepseekModel).map((m) => (
+                    {modelOptions(deepseekProRetired ? DEEPSEEK_MODELS.filter((m) => m !== 'deepseek-v4-pro') : DEEPSEEK_MODELS, deepseekModel).map((m) => (
                       <option key={m} value={m}>{m}</option>
                     ))}
                   </select>

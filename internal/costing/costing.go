@@ -4,6 +4,7 @@ import (
 	"strings"
 	"time"
 
+	"notcursor.ai/app/internal/appmeta"
 	"notcursor.ai/app/internal/llm"
 )
 
@@ -150,6 +151,10 @@ var zaiFallbackKey = "glm-4.7"
 // Price returns the rate card for model at the given instant.
 func Price(model string, at time.Time) Prices {
 	key := NormalizeModel(model)
+	if key == "deepseek-v4-pro" && appmeta.DeepSeekProRetired(at) {
+		// V4 Pro is retired: provider routes it to V4.1 Flash and bills as Flash.
+		key = "deepseek-v4-flash"
+	}
 	zai := currentZaiSheet()
 	dsPeak := currentDeepSeekPeak()
 

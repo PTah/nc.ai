@@ -2,7 +2,7 @@
 
 Лёгкий нативный AI-IDE агент (аналог Cursor) на **Wails v2 + Go + React/TypeScript**.
 
-**Версия UI/бинаря:** `0.5.25`
+**Версия UI/бинаря:** `0.5.26`
 
 **Сборка Windows:** `build/bin/NotCursor.exe`
 
@@ -16,11 +16,11 @@
 
 | Провайдер | Модели | Особенности |
 |---|---|---|
-| **DeepSeek** | `deepseek-v4-flash`, `deepseek-v4-pro`, vision `deepseek-v4-flash-vision-exp` | OpenAI-compatible API |
+| **DeepSeek** | `deepseek-v4-flash`, vision `deepseek-v4-flash-vision-exp` (до 14.09.2026 12:00 Beijing — ещё `deepseek-v4-pro`) | OpenAI-compatible API |
 | **Z.ai** | `glm-4.5…5.3` (flash / pro / vision) | свободные flash-модели, живой список `/models`, проверка баланса |
 | **OpenRouter** | произвольный `openrouter/…` | свой ключ/endpoint |
 
-- Автоматический выбор модели: flash → pro → vision (по вложениям/шагам).
+- Автоматический выбор модели: flash → pro → vision (по вложениям/шагам). После 14.09.2026 12:00 Beijing `v4-pro` выводится из списка, авто-выбор и расчёты идут по Flash.
 - HTTP-ошибки провайдеров переводятся в человекочитаемые сообщения (402 → «Пополните баланс…», 429 → «лимит запросов…»).
 - Для Z.ai: **баланс** и список моделей показываются в Settings.
 

@@ -43,6 +43,8 @@ type App struct {
 	rulesMu   sync.RWMutex
 	cancels   map[string]context.CancelFunc
 	runGens   map[string]uint64
+	// deepSeekRetireNoticed guards the one-time chat notice about V4 Pro retirement.
+	deepSeekRetireNoticed bool
 	// sessionStickyModel keeps the last non-vision Auto model per chat session
 	// so consecutive turns reuse one provider cache namespace.
 	sessionStickyModel map[string]string
@@ -121,6 +123,7 @@ func (a *App) applyDeepSeekStartupDefaults() {
 }
 
 func (a *App) domReady(ctx context.Context) {
+	a.noticeDeepSeekProRetired()
 	s := a.cfg.Get()
 	if s.WindowMaximised {
 		runtime.WindowMaximise(ctx)
@@ -129,6 +132,15 @@ func (a *App) domReady(ctx context.Context) {
 	if s.WindowPosSet {
 		runtime.WindowSetPosition(ctx, s.WindowX, s.WindowY)
 	}
+}
+
+// noticeDeepSeekProRetired tells the chat once per launch that V4 Pro is retired.
+func (a *App) noticeDeepSeekProRetired() {
+	if a.deepSeekRetireNoticed || !appmeta.DeepSeekProRetired(time.Now()) {
+		return
+	}
+	a.deepSeekRetireNoticed = true
+	a.emit(agent.Event{Type: "notice", Content: "Система: DeepSeek V4 Pro выведена из эксплуатации — доступны V4 Flash и V4 Flash Vision; запросы Pro тарифицируются как Flash"})
 }
 
 func (a *App) saveWindowGeometry() {
@@ -348,6 +360,7 @@ func (a *App) GetSettings() map[string]any {
 	return map[string]any{
 		"activeProvider":     provider,
 		"deepseekModel":      s.DeepSeekModel,
+		"deepseekProRetired": appmeta.DeepSeekProRetired(time.Now()),
 		"deepseekKeySet":     s.DeepSeekAPIKey != "",
 		"zaiModel":           orDefault(s.ZaiModel, zai.DefaultModel),
 		"zaiKeySet":          s.ZaiAPIKey != "",
@@ -623,6 +636,10 @@ func (a *App) SaveDeepSeekKey(apiKey string) error {
 }
 
 func (a *App) SaveDeepSeekModel(model string) error {
+	if appmeta.DeepSeekProRetired(time.Now()) && strings.EqualFold(strings.TrimSpace(model), "deepseek-v4-pro") {
+		// V4 Pro is retired: keep the user on V4 Flash.
+		model = "deepseek-v4-flash"
+	}
 	if err := a.cfg.SetDeepSeekModel(model); err != nil {
 		return err
 	}
