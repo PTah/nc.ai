@@ -50,7 +50,7 @@ func NewRegistry(ws *workspace.Manager, sshDir string) *Registry {
 // when ToolConfirm is enabled.
 func DangerousTool(name string) bool {
 	switch name {
-	case "write_file", "apply_patch", "delete_file", "run_terminal", "git_commit", "git_push", "ssh_exec":
+	case "write_file", "apply_patch", "delete_file", "move_file", "run_terminal", "git_commit", "git_push", "ssh_exec":
 		return true
 	default:
 		return false
@@ -60,8 +60,8 @@ func DangerousTool(name string) bool {
 // ReadOnlyTool reports tools that can run in parallel with each other.
 func ReadOnlyTool(name string) bool {
 	switch name {
-	case "read_file", "list_dir", "find_files", "grep", "search_files", "get_env_info",
-		"git_status", "git_diff", "command_status", "web_search", "fetch_url", "read_lints":
+	case "read_file", "list_dir", "find_files", "glob", "grep", "get_env_info",
+		"git_status", "git_diff", "git_log", "command_status", "web_search", "fetch_url", "read_lints":
 		return true
 	default:
 		return false
@@ -70,7 +70,7 @@ func ReadOnlyTool(name string) bool {
 
 func PlanBlocked(name string) bool {
 	switch name {
-	case "write_file", "apply_patch", "delete_file", "run_terminal",
+	case "write_file", "apply_patch", "delete_file", "move_file", "run_terminal",
 		"git_commit", "git_push", "ssh_exec", "ssh_keygen":
 		return true
 	default:
@@ -122,6 +122,22 @@ func (r *Registry) Execute(ctx context.Context, call llm.ToolCall) (string, erro
 			return "", err
 		}
 		return fmt.Sprintf("deleted %s", path), nil
+	case "move_file":
+		if r.PlanMode {
+			return "", fmt.Errorf("plan mode: move_file is disabled")
+		}
+		from, _ := args["from"].(string)
+		to, _ := args["to"].(string)
+		if strings.TrimSpace(from) == "" || strings.TrimSpace(to) == "" {
+			return "", fmt.Errorf("from and to are required")
+		}
+		if _, err := r.Git.Mv(from, to); err == nil {
+			return fmt.Sprintf("moved %s → %s (git)", from, to), nil
+		}
+		if err := r.WS.MovePath(from, to); err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("moved %s → %s", from, to), nil
 	case "apply_patch":
 		if r.PlanMode {
 			return "", fmt.Errorf("plan mode: apply_patch is disabled")
@@ -170,14 +186,35 @@ func (r *Registry) Execute(ctx context.Context, call llm.ToolCall) (string, erro
 			return "(no files matched)", nil
 		}
 		return strings.Join(hits, "\n"), nil
+	case "glob":
+		pattern, _ := args["pattern"].(string)
+		searchDir, _ := args["path"].(string)
+		limit := intArg(args, "head_limit")
+		hits, err := r.WS.Glob(pattern, searchDir, limit)
+		if err != nil {
+			return "", err
+		}
+		if len(hits) == 0 {
+			return "(no files matched)", nil
+		}
+		return strings.Join(hits, "\n"), nil
 	case "grep":
 		query, _ := args["query"].(string)
 		glob, _ := args["path_glob"].(string)
+		searchPath, _ := args["path"].(string)
 		caseSens, _ := args["case_sensitive"].(bool)
 		multiline, _ := args["multiline"].(bool)
 		mode, _ := args["output_mode"].(string)
+		limit := intArg(args, "head_limit")
+		if limit <= 0 {
+			limit = 50
+		}
+		if limit > 200 {
+			limit = 200
+		}
 		hits, err := r.WS.Grep(workspace.GrepOptions{
 			Query:         query,
+			Path:          searchPath,
 			PathGlob:      glob,
 			Context:       intArg(args, "context"),
 			Before:        intArg(args, "before"),
@@ -185,30 +222,16 @@ func (r *Registry) Execute(ctx context.Context, call llm.ToolCall) (string, erro
 			CaseSensitive: caseSens,
 			Multiline:     multiline,
 			OutputMode:    mode,
-			Limit:         50,
+			Limit:         limit,
 		})
 		if err != nil {
 			return "", err
 		}
 		out := workspace.FormatGrepHitsMode(hits, mode)
-		if len(hits) >= 50 {
-			out += "\n(truncated; at least 50 matches — narrow path_glob or query)"
+		if len(hits) >= limit {
+			out += fmt.Sprintf("\n(truncated; at least %d matches — narrow path, path_glob or query)", limit)
 		}
 		return out, nil
-	case "search_files":
-		// Legacy combined search: filename hits first, then content grep.
-		query, _ := args["query"].(string)
-		var parts []string
-		if names, err := r.WS.FindFiles(query, 20); err == nil && len(names) > 0 {
-			parts = append(parts, "## filenames\n"+strings.Join(names, "\n"))
-		}
-		if hits, err := r.WS.Grep(workspace.GrepOptions{Query: query, Context: 0, Limit: 20}); err == nil && len(hits) > 0 {
-			parts = append(parts, "## content\n"+workspace.FormatGrepHits(hits))
-		}
-		if len(parts) == 0 {
-			return "(no matches)", nil
-		}
-		return strings.Join(parts, "\n\n"), nil
 	case "get_env_info":
 		return r.envInfo(), nil
 	case "run_terminal":
@@ -324,8 +347,16 @@ func (r *Registry) Execute(ctx context.Context, call llm.ToolCall) (string, erro
 		path, _ := args["path"].(string)
 		staged, _ := args["staged"].(bool)
 		return r.Git.Diff(path, staged)
+	case "git_log":
+		path, _ := args["path"].(string)
+		n := intArg(args, "n")
+		return r.Git.Log(n, path)
 	case "git_commit":
 		msg, _ := args["message"].(string)
+		paths := stringSlice(args["paths"])
+		if len(paths) > 0 {
+			return r.Git.CommitPaths(msg, paths)
+		}
 		return r.Git.Commit(msg)
 	case "git_push":
 		remote, _ := args["remote"].(string)
@@ -365,6 +396,35 @@ func intArg(args map[string]any, key string) int {
 		return int(n)
 	default:
 		return 0
+	}
+}
+
+func stringSlice(v any) []string {
+	switch x := v.(type) {
+	case []string:
+		out := make([]string, 0, len(x))
+		for _, s := range x {
+			s = strings.TrimSpace(s)
+			if s != "" {
+				out = append(out, s)
+			}
+		}
+		return out
+	case []any:
+		out := make([]string, 0, len(x))
+		for _, item := range x {
+			s, ok := item.(string)
+			if !ok {
+				continue
+			}
+			s = strings.TrimSpace(s)
+			if s != "" {
+				out = append(out, s)
+			}
+		}
+		return out
+	default:
+		return nil
 	}
 }
 
@@ -416,7 +476,7 @@ func Specs() []llm.ToolSpec {
 
 func SpecsFor(plan bool) []llm.ToolSpec {
 	all := []llm.ToolSpec{
-		fn("read_file", "Read a workspace file. Optional start_line/end_line (1-based) to read only a slice — prefer ranges for large files.", map[string]any{
+		fn("read_file", "Read a workspace file. Lines are numbered (N|text) — do not copy those numbers into patches. Optional start_line/end_line (1-based).", map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"path":       map[string]any{"type": "string", "description": "Existing relative path, e.g. internal/config/store.go"},
@@ -453,6 +513,15 @@ func SpecsFor(plan bool) []llm.ToolSpec {
 			},
 			"required": []string{"path"},
 		}),
+		fn("move_file", "Rename or move a workspace file (git mv when tracked). Fails if the destination exists.", map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"from":        map[string]any{"type": "string", "description": "Existing relative path"},
+				"to":          map[string]any{"type": "string", "description": "Destination relative path"},
+				"explanation": map[string]any{"type": "string"},
+			},
+			"required": []string{"from", "to"},
+		}),
 		fn("list_dir", "List directory entries", map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -466,24 +535,28 @@ func SpecsFor(plan bool) []llm.ToolSpec {
 			},
 			"required": []string{"query"},
 		}),
+		fn("glob", "Find files by glob pattern. Prefer this over find_files when you know **/*.go or a directory prefix.", map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"pattern":    map[string]any{"type": "string", "description": "Glob, e.g. **/*.go or internal/costing/*.go"},
+				"path":       map[string]any{"type": "string", "description": "Optional subdirectory to search under"},
+				"head_limit": map[string]any{"type": "integer", "description": "Max paths (default 80, max 200)"},
+			},
+			"required": []string{"pattern"},
+		}),
 		fn("grep", "Ripgrep-like content search. query is a regex (escape special chars). Prefer this over shell rg/grep.", map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"query":          map[string]any{"type": "string", "description": "Regex, e.g. func\\s+Routes or foo\\.bar\\("},
+				"path":           map[string]any{"type": "string", "description": "Optional file or directory to search (workspace-relative)"},
 				"path_glob":      map[string]any{"type": "string", "description": "Optional glob against relative paths, e.g. **/*.go"},
+				"head_limit":     map[string]any{"type": "integer", "description": "Max matches (default 50, max 200)"},
 				"context":        map[string]any{"type": "integer", "description": "Lines before/after (like rg -C, 0-10)"},
 				"before":         map[string]any{"type": "integer", "description": "Lines before match (rg -B)"},
 				"after":          map[string]any{"type": "integer", "description": "Lines after match (rg -A)"},
 				"output_mode":    map[string]any{"type": "string", "description": "content (default) | files_with_matches | count"},
 				"case_sensitive": map[string]any{"type": "boolean"},
 				"multiline":      map[string]any{"type": "boolean", "description": "Let . match newlines"},
-			},
-			"required": []string{"query"},
-		}),
-		fn("search_files", "Legacy combined filename+content search. Prefer find_files or grep for precision.", map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"query": map[string]any{"type": "string"},
 			},
 			"required": []string{"query"},
 		}),
@@ -571,10 +644,18 @@ func SpecsFor(plan bool) []llm.ToolSpec {
 				"staged": map[string]any{"type": "boolean"},
 			},
 		}),
-		fn("git_commit", "Stage tracked changes and commit. Only when the user explicitly asked to commit.", map[string]any{
+		fn("git_log", "Recent commit log (read-only). Call with git_status and git_diff before committing.", map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"n":    map[string]any{"type": "integer", "description": "How many commits (default 15, max 50)"},
+				"path": map[string]any{"type": "string", "description": "Optional path to limit the log"},
+			},
+		}),
+		fn("git_commit", "Commit. Pass paths of files you changed. Only when the user explicitly asked to commit.", map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"message":     map[string]any{"type": "string"},
+				"paths":       map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Files to stage; omit only if you must commit all tracked changes"},
 				"explanation": map[string]any{"type": "string"},
 			},
 			"required": []string{"message"},

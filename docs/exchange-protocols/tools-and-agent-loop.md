@@ -1,4 +1,4 @@
-﻿# Tools и Agent Loop
+# Tools и Agent Loop
 
 Это ядро агентного поведения NotCursor (как у Cursor / Cline).
 
@@ -53,13 +53,15 @@ User → [messages + tools] → Provider
 
 | name | params | side effect |
 |---|---|---|
-| `read_file` | `path`, optional `start_line`/`end_line` | нет |
+| `read_file` | `path`, optional `start_line`/`end_line` | нет; строки с номерами `N\|` |
 | `write_file` | `path`, `content` | пишет диск |
 | `apply_patch` | `path`, `old_string`/`new_string` или `patch` | пишет диск |
 | `delete_file` | `path` | удаляет файл/пустую папку |
+| `move_file` | `from`, `to` | rename (`git mv` если tracked) |
 | `list_dir` | `path` | нет |
-| `find_files` | `query` | нет |
-| `grep` | `query` (regex), optional `path_glob`, `context`/`before`/`after`, `output_mode` | нет |
+| `find_files` | `query` | нечёткое имя |
+| `glob` | `pattern`, optional `path`, `head_limit` | нет |
+| `grep` | `query` (regex), optional `path`, `path_glob`, `head_limit`, `context`/`before`/`after`, `output_mode` | нет |
 
 ### Shell / jobs / UX
 
@@ -73,7 +75,7 @@ User → [messages + tools] → Provider
 | `web_search` | `query` | публичный поиск, SSRF-guard |
 | `fetch_url` | `url` | GET http(s), без LAN/loopback |
 
-В **Plan mode** скрыты mutating tools (`write_file`, `apply_patch`, `delete_file`, `run_terminal`, `git_commit`/`push`, `ssh_*`).
+В **Plan mode** скрыты mutating tools (`write_file`, `apply_patch`, `delete_file`, `move_file`, `run_terminal`, `git_commit`/`push`, `ssh_*`).
 
 ### Git / Gitea
 
@@ -81,6 +83,7 @@ User → [messages + tools] → Provider
 |---|---|
 | `git_status` | optional `path` |
 | `git_diff` | optional `path`, `staged` |
+| `git_log` | optional `n`, `path` |
 | `git_commit` | `message`, optional `paths[]` |
 | `git_push` | optional `remote`, `branch` |
 

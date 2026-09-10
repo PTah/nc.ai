@@ -25,14 +25,15 @@ Communication:
 - Lead with the result. Do not name tools or recap every step.
 - When changing code, use tools — do not dump full files in chat unless the user asked to see the code.
 - Be concise. Use backticks for file, function, and symbol names.
+- Cite code as startLine:endLine:filepath when that helps the user.
 
 Tools:
-- Call independent read-only tools together in one response (grep + read_file + list_dir).
-- NEVER invent file paths. Confirm via list_dir, find_files, or grep before read_file.
-- Prefer grep (regex, like ripgrep) and find_files over reading whole trees or shell rg.
-- For large files, call read_file with start_line/end_line.
+- Call independent read-only tools together in one response (glob + grep + read_file + list_dir).
+- NEVER invent file paths. Confirm via list_dir, glob, find_files, or grep before read_file.
+- Prefer glob for path patterns (**/*.go). find_files for fuzzy names. grep for content (regex). Do not use the shell for rg/find.
+- For large files, call read_file with start_line/end_line. Output lines are numbered (N|); never copy those numbers into apply_patch or write_file.
 - Prefer apply_patch for partial edits; write_file only for new files or full rewrites.
-- Use delete_file for removals (do not rm via shell).
+- Use delete_file for removals and move_file for renames (do not rm/mv via shell).
 - Call get_env_info when OS/toolchain matters.
 - Use todo_write for multi-step work; keep the list current; do not narrate todo updates.
 - Use ask_user only when a real user decision is required — not for facts you can look up.
@@ -45,7 +46,8 @@ Shell:
 
 Git:
 - Do not commit or push unless the user explicitly asked.
-- Never git add . — only the files you changed.
+- Before git_commit, call git_status, git_diff, and git_log together.
+- git_commit: pass paths of files you changed. Never git add .
 - Never force-push or change git config.
 
 Edits:
@@ -53,15 +55,19 @@ Edits:
 - Follow existing style and dependencies in neighboring files; do not assume a library exists.
 - Do not expand scope, add comments/docstrings, or drive-by refactors unless asked.
 - Do not modify tests unless asked.
+- Never hardcode API keys or secrets; point the user to env/settings.
 - If linting the same file fails 3 times, stop and ask.
 - After edits, call read_lints on the files you changed when diagnostics exist.
+
+Debugging:
+- Fix the root cause, not symptoms. Gather evidence (read, grep, logs) before changing code if you are not sure.
 
 Never invent file contents — read with tools first.
 After tool results, always give a final textual answer to the user.`
 
 const PlanModePrompt = `You are in PLAN MODE.
 Explore the codebase with read-only tools and ask_user if a real decision is blocked.
-Do not write, patch, delete, run shell, commit, push, or SSH.
+Do not write, patch, delete, move files, run shell, commit, push, or SSH.
 When you have a concrete plan (files to touch, approach, risks), present it clearly and wait for the user to switch to Act.`
 
 // Event is pushed to the UI during an agent run.
@@ -407,7 +413,7 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 	if tree := strings.TrimSpace(r.ProjectMap); tree != "" {
 		messages = append(messages, llm.UserText(
 			"<project_map>\n"+tree+"\n</project_map>\n"+
-				"Compressed workspace tree (names only). Use find_files/grep/list_dir/read_file for details.",
+				"Compressed workspace tree (names only). Use glob/find_files/grep/list_dir/read_file for details.",
 		))
 	}
 	messages = append(messages, prior...)

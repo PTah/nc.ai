@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"notcursor.ai/app/internal/workspace"
@@ -72,6 +73,42 @@ func (s *Service) Diff(path string, staged bool) (string, error) {
 		return "(no diff)", nil
 	}
 	return out, nil
+}
+
+func (s *Service) Log(n int, path string) (string, error) {
+	if n <= 0 {
+		n = 15
+	}
+	if n > 50 {
+		n = 50
+	}
+	args := []string{"log", "--format=fuller", "-n", fmt.Sprintf("%d", n)}
+	if strings.TrimSpace(path) != "" {
+		args = append(args, "--", path)
+	}
+	out, err := s.run(args...)
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(out) == "" {
+		return "(no commits)", nil
+	}
+	return out, nil
+}
+
+func (s *Service) Mv(from, to string) (string, error) {
+	from = strings.TrimSpace(from)
+	to = strings.TrimSpace(to)
+	if from == "" || to == "" {
+		return "", fmt.Errorf("from and to are required")
+	}
+	dir := filepath.ToSlash(filepath.Dir(to))
+	if dir != "." && dir != "" {
+		if err := s.WS.Mkdir(dir); err != nil {
+			return "", err
+		}
+	}
+	return s.run("mv", "--", from, to)
 }
 
 func (s *Service) Commit(message string) (string, error) {

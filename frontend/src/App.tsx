@@ -1,4 +1,4 @@
-﻿import {FormEvent, MouseEvent as ReactMouseEvent, useCallback, useEffect, useRef, useState} from 'react'
+import {FormEvent, MouseEvent as ReactMouseEvent, useCallback, useEffect, useRef, useState} from 'react'
 import {Terminal} from '@xterm/xterm'
 import {FitAddon} from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
@@ -424,7 +424,9 @@ function toolTitle(name: string, phase: 'running' | 'done', ok?: boolean): strin
     list_dir: 'Listing directory',
     grep: 'Searching',
     find_files: 'Finding files',
+    glob: 'Matching glob',
     delete_file: 'Deleting',
+    move_file: 'Moving file',
     todo_write: 'Updating todos',
     ask_user: 'Asking you',
     command_status: 'Checking job',
@@ -435,6 +437,7 @@ function toolTitle(name: string, phase: 'running' | 'done', ok?: boolean): strin
     run_terminal: 'Running terminal',
     git_status: 'Git status',
     git_diff: 'Git diff',
+    git_log: 'Git log',
     git_commit: 'Git commit',
     git_push: 'Git push',
     ssh_exec: 'SSH exec',
@@ -528,10 +531,14 @@ function summarizeTools(tools: Extract<ChatItem, {kind: 'tool'}>[]): string {
     list_dir: ['dir listed', 'dirs listed'],
     write_file: ['file written', 'files written'],
     apply_patch: ['file patched', 'files patched'],
-    search_files: ['search', 'searches'],
+    glob: ['glob', 'globs'],
+    grep: ['search', 'searches'],
+    find_files: ['file found', 'files found'],
+    move_file: ['file moved', 'files moved'],
     run_terminal: ['command', 'commands'],
     git_status: ['git status', 'git status'],
     git_diff: ['git diff', 'git diffs'],
+    git_log: ['git log', 'git logs'],
     git_commit: ['commit', 'commits'],
     git_push: ['push', 'pushes'],
     ssh_exec: ['ssh', 'ssh'],

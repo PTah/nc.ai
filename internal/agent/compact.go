@@ -68,7 +68,7 @@ func summarizeToolContent(toolName, content string) string {
 	}
 
 	heavy := toolName == "read_file" || toolName == "list_dir" || toolName == "grep" ||
-		toolName == "search_files" || toolName == "find_files"
+		toolName == "glob" || toolName == "find_files"
 	if heavy && len(content) > 200 {
 		lines := strings.Split(content, "\n")
 		head := lines[0]

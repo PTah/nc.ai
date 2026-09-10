@@ -70,9 +70,75 @@ func (m *Manager) FindFiles(query string, limit int) ([]string, error) {
 	return out, nil
 }
 
+// Glob returns workspace-relative paths matching a glob (e.g. **/*.go).
+// searchDir optionally restricts the walk to a subdirectory.
+func (m *Manager) Glob(pattern, searchDir string, limit int) ([]string, error) {
+	root, err := m.ActiveRoot()
+	if err != nil {
+		return nil, err
+	}
+	pattern = strings.TrimSpace(pattern)
+	if pattern == "" {
+		return nil, fmt.Errorf("pattern is empty")
+	}
+	if limit <= 0 {
+		limit = 80
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	walkRoot := root
+	if strings.TrimSpace(searchDir) != "" && searchDir != "." {
+		full, err := m.Resolve(searchDir)
+		if err != nil {
+			return nil, err
+		}
+		st, err := os.Stat(full)
+		if err != nil {
+			return nil, err
+		}
+		if !st.IsDir() {
+			return nil, fmt.Errorf("path is not a directory: %s", searchDir)
+		}
+		walkRoot = full
+	}
+	var out []string
+	err = filepath.WalkDir(walkRoot, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		name := d.Name()
+		if d.IsDir() {
+			if ignoredName(name) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		rel, _ := filepath.Rel(root, path)
+		rel = filepath.ToSlash(rel)
+		if !matchPathGlob(pattern, rel) {
+			return nil
+		}
+		out = append(out, rel)
+		if len(out) >= 500 {
+			return errSearchLimit
+		}
+		return nil
+	})
+	if err != nil && err != errSearchLimit {
+		return nil, err
+	}
+	sort.Strings(out)
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
+
 // GrepOptions controls content search (ripgrep-like).
 type GrepOptions struct {
 	Query         string
+	Path          string // optional file or directory (workspace-relative)
 	PathGlob      string // optional filepath-style glob against relative path
 	Context       int    // lines before/after match (like -C)
 	Before        int    // -B; overrides Context for before when > 0
@@ -124,7 +190,28 @@ func (m *Manager) Grep(opts GrepOptions) ([]GrepHit, error) {
 	}
 
 	var hits []GrepHit
-	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+	walkRoot := root
+	if strings.TrimSpace(opts.Path) != "" {
+		full, err := m.Resolve(opts.Path)
+		if err != nil {
+			return nil, err
+		}
+		st, err := os.Stat(full)
+		if err != nil {
+			return nil, fmt.Errorf("grep path: %w", err)
+		}
+		if !st.IsDir() {
+			rel, _ := filepath.Rel(root, full)
+			rel = filepath.ToSlash(rel)
+			if opts.PathGlob != "" && !matchPathGlob(opts.PathGlob, rel) {
+				return nil, nil
+			}
+			grepOneFile(&hits, full, rel, re, opts, before, after, limit)
+			return hits, nil
+		}
+		walkRoot = full
+	}
+	err = filepath.WalkDir(walkRoot, func(path string, d fs.DirEntry, err error) error {
 		if err != nil || len(hits) >= limit {
 			if len(hits) >= limit {
 				return errSearchLimit
@@ -143,59 +230,9 @@ func (m *Manager) Grep(opts GrepOptions) ([]GrepHit, error) {
 		if opts.PathGlob != "" && !matchPathGlob(opts.PathGlob, rel) {
 			return nil
 		}
-		info, e := d.Info()
-		if e != nil || info.Size() > 512*1024 {
-			return nil
-		}
-		if !looksTextish(name) {
-			return nil
-		}
-		data, e := os.ReadFile(path)
-		if e != nil || isBinary(data) {
-			return nil
-		}
-		text := string(data)
-		lines := strings.Split(text, "\n")
-		if opts.Multiline {
-			if !re.MatchString(text) {
-				return nil
-			}
-			// Report the first matching line for orientation.
-			idx := re.FindStringIndex(text)
-			lineNo := 1
-			if idx != nil {
-				lineNo = strings.Count(text[:idx[0]], "\n") + 1
-			}
-			hits = append(hits, GrepHit{Path: rel, Line: lineNo, Content: trimRightSpace(lineAt(lines, lineNo))})
-			return nil
-		}
-		for i, line := range lines {
-			if len(hits) >= limit {
-				return errSearchLimit
-			}
-			if !re.MatchString(line) {
-				continue
-			}
-			h := GrepHit{Path: rel, Line: i + 1, Content: trimRightSpace(line)}
-			if before > 0 {
-				start := i - before
-				if start < 0 {
-					start = 0
-				}
-				for _, l := range lines[start:i] {
-					h.Before = append(h.Before, trimRightSpace(l))
-				}
-			}
-			if after > 0 {
-				end := i + 1 + after
-				if end > len(lines) {
-					end = len(lines)
-				}
-				for _, l := range lines[i+1 : end] {
-					h.After = append(h.After, trimRightSpace(l))
-				}
-			}
-			hits = append(hits, h)
+		grepOneFile(&hits, path, rel, re, opts, before, after, limit)
+		if len(hits) >= limit {
+			return errSearchLimit
 		}
 		return nil
 	})
@@ -203,6 +240,65 @@ func (m *Manager) Grep(opts GrepOptions) ([]GrepHit, error) {
 		return hits, err
 	}
 	return hits, nil
+}
+
+func grepOneFile(hits *[]GrepHit, path, rel string, re *regexp.Regexp, opts GrepOptions, before, after, limit int) {
+	if len(*hits) >= limit {
+		return
+	}
+	info, e := os.Stat(path)
+	if e != nil || info.Size() > 512*1024 {
+		return
+	}
+	if !looksTextish(filepath.Base(path)) {
+		return
+	}
+	data, e := os.ReadFile(path)
+	if e != nil || isBinary(data) {
+		return
+	}
+	text := string(data)
+	lines := strings.Split(text, "\n")
+	if opts.Multiline {
+		if !re.MatchString(text) {
+			return
+		}
+		idx := re.FindStringIndex(text)
+		lineNo := 1
+		if idx != nil {
+			lineNo = strings.Count(text[:idx[0]], "\n") + 1
+		}
+		*hits = append(*hits, GrepHit{Path: rel, Line: lineNo, Content: trimRightSpace(lineAt(lines, lineNo))})
+		return
+	}
+	for i, line := range lines {
+		if len(*hits) >= limit {
+			return
+		}
+		if !re.MatchString(line) {
+			continue
+		}
+		h := GrepHit{Path: rel, Line: i + 1, Content: trimRightSpace(line)}
+		if before > 0 {
+			start := i - before
+			if start < 0 {
+				start = 0
+			}
+			for _, l := range lines[start:i] {
+				h.Before = append(h.Before, trimRightSpace(l))
+			}
+		}
+		if after > 0 {
+			end := i + 1 + after
+			if end > len(lines) {
+				end = len(lines)
+			}
+			for _, l := range lines[i+1 : end] {
+				h.After = append(h.After, trimRightSpace(l))
+			}
+		}
+		*hits = append(*hits, h)
+	}
 }
 
 func grepContext(opts GrepOptions) (before, after int) {

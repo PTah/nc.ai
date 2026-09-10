@@ -61,8 +61,8 @@ func TestWriteReadRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
-	if got != "hello world" {
-		t.Fatalf("ReadFile = %q, want %q", got, "hello world")
+	if got != "     1|hello world" {
+		t.Fatalf("ReadFile = %q, want numbered line", got)
 	}
 	// The file must actually land inside the workspace root.
 	if _, err := os.Stat(filepath.Join(root, "dir", "file.txt")); err != nil {

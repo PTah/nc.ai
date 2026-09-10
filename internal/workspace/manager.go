@@ -198,9 +198,10 @@ func (m *Manager) ReadFile(rel string) (string, error) {
 	return m.ReadFileRange(rel, 0, 0)
 }
 
-// ReadFileRange returns file content. startLine/endLine are 1-based inclusive;
-// either 0 means unbounded on that side. When a range is set, a header line
-// notes the slice so the model knows it is partial.
+// ReadFileRange returns file content with 1-based line numbers (`   12|text`).
+// startLine/endLine are 1-based inclusive; 0 means unbounded. A range adds a
+// header so the model knows the slice is partial. Line numbers are display-only
+// — do not copy them into apply_patch.
 func (m *Manager) ReadFileRange(rel string, startLine, endLine int) (string, error) {
 	full, err := m.Resolve(rel)
 	if err != nil {
@@ -217,11 +218,18 @@ func (m *Manager) ReadFileRange(rel string, startLine, endLine int) (string, err
 		data = append(data[:maxReadBytes:maxReadBytes], []byte("\n\n/* truncated */")...)
 	}
 	text := string(data)
-	if startLine <= 0 && endLine <= 0 {
-		return m.guardRead(rel, text)
+	guarded, err := m.guardRead(rel, text)
+	if err != nil {
+		return "", err
 	}
-	lines := strings.Split(text, "\n")
+	if IsSecretPath(rel) {
+		return guarded, nil
+	}
+	lines := splitFileLines(guarded)
 	total := len(lines)
+	if startLine <= 0 && endLine <= 0 {
+		return numberFileLines(lines, 1), nil
+	}
 	start := startLine
 	end := endLine
 	if start <= 0 {
@@ -236,9 +244,34 @@ func (m *Manager) ReadFileRange(rel string, startLine, endLine int) (string, err
 	if end < start {
 		return "", fmt.Errorf("end_line %d < start_line %d", endLine, startLine)
 	}
-	slice := strings.Join(lines[start-1:end], "\n")
 	header := fmt.Sprintf("/* lines %d-%d of %d */\n", start, end, total)
-	return m.guardRead(rel, header+slice)
+	return header + numberFileLines(lines[start-1:end], start), nil
+}
+
+func splitFileLines(text string) []string {
+	text = strings.ReplaceAll(text, "\r\n", "\n")
+	lines := strings.Split(text, "\n")
+	if len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	return lines
+}
+
+func numberFileLines(lines []string, start int) string {
+	if start < 1 {
+		start = 1
+	}
+	if len(lines) == 0 {
+		return fmt.Sprintf("%6d|", start)
+	}
+	var b strings.Builder
+	for i, line := range lines {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		fmt.Fprintf(&b, "%6d|%s", start+i, line)
+	}
+	return b.String()
 }
 
 func (m *Manager) notFoundHint(rel, full string) error {
@@ -268,7 +301,7 @@ func (m *Manager) notFoundHint(rel, full string) error {
 	} else {
 		msg += "\nDirectory is empty or missing."
 	}
-	msg += "\nUse list_dir, find_files or grep — do not invent paths."
+	msg += "\nUse list_dir, glob, find_files or grep — do not invent paths."
 	return fmt.Errorf("%s", msg)
 }
 
@@ -305,6 +338,31 @@ func (m *Manager) DeletePath(rel string) error {
 		return err
 	}
 	return os.Remove(full)
+}
+
+// MovePath renames a file or directory inside the workspace. Fails if dest exists.
+func (m *Manager) MovePath(from, to string) error {
+	src, err := m.Resolve(from)
+	if err != nil {
+		return err
+	}
+	dst, err := m.Resolve(to)
+	if err != nil {
+		return err
+	}
+	if src == dst {
+		return fmt.Errorf("from and to are the same path")
+	}
+	if _, err := os.Stat(src); err != nil {
+		return err
+	}
+	if _, err := os.Stat(dst); err == nil {
+		return fmt.Errorf("destination exists: %s", to)
+	}
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return err
+	}
+	return os.Rename(src, dst)
 }
 
 func (m *Manager) Mkdir(rel string) error {

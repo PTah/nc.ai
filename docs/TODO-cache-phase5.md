@@ -1,4 +1,4 @@
-﻿# ToDo: phase 5 — warm project-tree / inline-режим
+# ToDo: phase 5 — warm project-tree / inline-режим
 
 **Только private remotes (`home`, `kalinamall`). На `github` эти ToDo не пушим.**
 
@@ -6,7 +6,7 @@
 
 - **Warm project-tree** — **сделано** (v0.5.25): сжатое дерево после system prompt (`ProjectMap`).
 - **Редактор файла** — **сделано** (v0.6.0): клик в дереве открывает textarea + IDE-контекст (`active_file` / `cursor_line`).
-- **Inline-режим (Ctrl+K)** — **отложено**.
+- **Inline-режим (Ctrl+K)** — **отложено**. Не продуктный пробел: точечные правки уже идут через чат + редактор внизу + IDE-контекст. Ctrl+K — второй агентный контур (своя история, кэш, HITL). Сейчас это дублирует чат и ломает prefix-cache, не добавляя нового tool. Браться, когда понадобится править файл, *не открывая* боковой тред.
 
 ## Что осталось
 

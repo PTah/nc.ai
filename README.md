@@ -2,7 +2,7 @@
 
 Лёгкий нативный AI-IDE агент (аналог Cursor) на **Wails v2 + Go + React/TypeScript**.
 
-**Версия UI/бинаря:** `0.6.1`
+**Версия UI/бинаря:** `0.6.2`
 
 **Сборка Windows:** `build/bin/NotCursor.exe`
 
@@ -37,12 +37,12 @@
 
 | Tool | Назначение |
 |---|---|
-| `read_file` / `write_file` / `apply_patch` / `delete_file` | чтение/запись/точечный патч / удаление в sandbox |
-| `list_dir` / `find_files` / `grep` | обход, имя, содержимое (regex как ripgrep) |
+| `read_file` / `write_file` / `apply_patch` / `delete_file` / `move_file` | чтение (с номерами строк) / запись / патч / удаление / rename в sandbox |
+| `list_dir` / `find_files` / `glob` / `grep` | обход, нечёткое имя, glob (`**/*.go`), содержимое (regex как ripgrep) |
 | `run_terminal` / `command_status` | shell; `cwd`, фон (`is_background`) |
 | `todo_write` / `ask_user` / `read_lints` | список задач, вопрос пользователю, `go vet` |
 | `web_search` / `fetch_url` | веб (SSRF-guard: без LAN/loopback/metadata) |
-| `git_*` | status / diff / commit / push через **системный `git`** |
+| `git_*` | status / diff / log / commit (`paths`) / push через **системный `git`** |
 | `ssh_*` | exec + keygen по ключам из **`~/.ssh`** |
 
 - `read_file` при not-found подсказывает соседние файлы (siblings).

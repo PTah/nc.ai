@@ -1,4 +1,4 @@
-﻿package workspace
+package workspace
 
 import (
 	"os"
@@ -67,8 +67,54 @@ func TestReadFileRange(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(got, "lines 2-3 of") || !strings.Contains(got, "two\nthree") {
+	if !strings.Contains(got, "lines 2-3 of") || !strings.Contains(got, "     2|two") || !strings.Contains(got, "     3|three") {
 		t.Fatalf("got %q", got)
+	}
+}
+
+func TestGlobAndGrepPath(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "internal", "api"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "internal", "api", "router.go"), []byte("package api\nfunc Routes() {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("hello Routes\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m := NewManager()
+	if _, err := m.Open(root); err != nil {
+		t.Fatal(err)
+	}
+	names, err := m.Glob("**/*.go", "", 10)
+	if err != nil || len(names) != 1 || !strings.Contains(names[0], "router.go") {
+		t.Fatalf("glob: %v %v", names, err)
+	}
+	hits, err := m.Grep(GrepOptions{Query: "Routes", Path: "internal", Limit: 10})
+	if err != nil || len(hits) != 1 || !strings.Contains(hits[0].Path, "router.go") {
+		t.Fatalf("grep path dir: %v %v", hits, err)
+	}
+	mdHits, err := m.Grep(GrepOptions{Query: "Routes", Path: "README.md", Limit: 10})
+	if err != nil || len(mdHits) != 1 {
+		t.Fatalf("grep path file: %v %v", mdHits, err)
+	}
+}
+
+func TestMovePath(t *testing.T) {
+	m, _ := newTestManager(t)
+	if err := m.WriteFile("old.txt", "x"); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.MovePath("old.txt", "dir/new.txt"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := m.ReadFile("dir/new.txt")
+	if err != nil || !strings.Contains(got, "x") {
+		t.Fatalf("moved: %q %v", got, err)
+	}
+	if _, err := m.ReadFile("old.txt"); err == nil {
+		t.Fatal("old path should be gone")
 	}
 }
 
