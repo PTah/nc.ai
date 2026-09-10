@@ -97,6 +97,11 @@ export namespace chatstore {
 	    openrouterOutputTokens?: number;
 	    openrouterCacheHitTokens?: number;
 	    openrouterCacheMissTokens?: number;
+	    localCostUsd?: number;
+	    localInputTokens?: number;
+	    localOutputTokens?: number;
+	    localCacheHitTokens?: number;
+	    localCacheMissTokens?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new Session(source);
@@ -127,6 +132,11 @@ export namespace chatstore {
 	        this.openrouterOutputTokens = source["openrouterOutputTokens"];
 	        this.openrouterCacheHitTokens = source["openrouterCacheHitTokens"];
 	        this.openrouterCacheMissTokens = source["openrouterCacheMissTokens"];
+	        this.localCostUsd = source["localCostUsd"];
+	        this.localInputTokens = source["localInputTokens"];
+	        this.localOutputTokens = source["localOutputTokens"];
+	        this.localCacheHitTokens = source["localCacheHitTokens"];
+	        this.localCacheMissTokens = source["localCacheMissTokens"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

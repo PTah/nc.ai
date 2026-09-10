@@ -98,12 +98,12 @@ export function ListDir(arg1) {
   return window['go']['main']['App']['ListDir'](arg1);
 }
 
-export function ListModelPrices() {
-  return window['go']['main']['App']['ListModelPrices']();
-}
-
 export function ListLocalModels() {
   return window['go']['main']['App']['ListLocalModels']();
+}
+
+export function ListModelPrices() {
+  return window['go']['main']['App']['ListModelPrices']();
 }
 
 export function ListOpenRouterModels() {

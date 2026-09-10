@@ -57,9 +57,9 @@ export function ListChatSessions():Promise<chatstore.ProjectBundle>;
 
 export function ListDir(arg1:string):Promise<Array<workspace.Entry>>;
 
-export function ListModelPrices():Promise<Array<costing.ModelPrice>>;
-
 export function ListLocalModels():Promise<Array<string>>;
+
+export function ListModelPrices():Promise<Array<costing.ModelPrice>>;
 
 export function ListOpenRouterModels():Promise<Array<string>>;
 
@@ -153,13 +153,13 @@ export function SaveToolConfirm(arg1:boolean):Promise<void>;
 
 export function SaveWindowGeometry():Promise<void>;
 
-export function SetIDEContext(arg1:string,arg2:number):Promise<void>;
-
 export function SaveZaiEndpoint(arg1:string):Promise<void>;
 
 export function SaveZaiKey(arg1:string):Promise<void>;
 
 export function SaveZaiModel(arg1:string):Promise<void>;
+
+export function SetIDEContext(arg1:string,arg2:number):Promise<void>;
 
 export function StartTerminal():Promise<void>;
 
