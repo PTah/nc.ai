@@ -89,9 +89,10 @@ var builtinZaiSheet = map[string]Prices{
 var (
 	sheetMu sync.RWMutex
 	// live sheets start as builtins; Apply* replaces them after refresh / load from settings.
-	liveDeepSeekPeak = cloneSheet(builtinDeepSeekPeak)
-	liveZaiSheet     = cloneSheet(builtinZaiSheet)
-	livePeakWindows  = cloneWindows(defaultPeakWindows)
+	liveDeepSeekPeak   = cloneSheet(builtinDeepSeekPeak)
+	liveZaiSheet       = cloneSheet(builtinZaiSheet)
+	liveOpenRouterSheet = cloneSheet(builtinOpenRouterSheet)
+	livePeakWindows    = cloneWindows(defaultPeakWindows)
 )
 
 func cloneSheet(in map[string]Prices) map[string]Prices {
@@ -113,6 +114,9 @@ func BuiltinDeepSeekPeak() map[string]Prices { return cloneSheet(builtinDeepSeek
 
 // BuiltinZaiSheet returns a copy of compile-time Z.ai rates.
 func BuiltinZaiSheet() map[string]Prices { return cloneSheet(builtinZaiSheet) }
+
+// BuiltinOpenRouterSheet returns a copy of compile-time OpenRouter rates.
+func BuiltinOpenRouterSheet() map[string]Prices { return cloneSheet(builtinOpenRouterSheet) }
 
 // DefaultPeakWindows returns official DeepSeek peak windows.
 func DefaultPeakWindows() []PeakWindow { return cloneWindows(defaultPeakWindows) }
@@ -139,6 +143,30 @@ func SetZaiSheet(sheet map[string]Prices) {
 	}
 	liveZaiSheet = merged
 	sheetMu.Unlock()
+}
+
+// SetOpenRouterSheet merges fetched OpenRouter rates over builtin keys.
+func SetOpenRouterSheet(sheet map[string]Prices) {
+	if len(sheet) == 0 {
+		return
+	}
+	sheetMu.Lock()
+	merged := cloneSheet(builtinOpenRouterSheet)
+	for k, v := range sheet {
+		merged[k] = v
+	}
+	liveOpenRouterSheet = merged
+	sheetMu.Unlock()
+}
+
+// liveOpenRouterPrices returns current OpenRouter rates (builtin when no live data).
+func liveOpenRouterPrices() map[string]Prices {
+	sheetMu.RLock()
+	defer sheetMu.RUnlock()
+	if len(liveOpenRouterSheet) == 0 {
+		return cloneSheet(builtinOpenRouterSheet)
+	}
+	return cloneSheet(liveOpenRouterSheet)
 }
 
 // SetPeakWindows replaces DeepSeek peak UTC windows. Empty → defaults.

@@ -112,6 +112,8 @@ type Settings struct {
 	DeepSeekPricesCheckedAt string                        `json:"deepseekPricesCheckedAt,omitempty"` // RFC3339 UTC
 	ZaiPrices               map[string]costing.Prices     `json:"zaiPrices,omitempty"`
 	ZaiPricesCheckedAt      string                        `json:"zaiPricesCheckedAt,omitempty"`
+	OpenRouterPrices        map[string]costing.Prices     `json:"openrouterPrices,omitempty"`
+	OpenRouterPricesCheckedAt string                      `json:"openrouterPricesCheckedAt,omitempty"`
 }
 
 type Store struct {
@@ -520,6 +522,35 @@ func (s *Store) SetZaiPricing(sheet map[string]costing.Prices, checkedAt time.Ti
 	s.settings.ZaiPrices = clonePriceMap(sheet)
 	if !checkedAt.IsZero() {
 		s.settings.ZaiPricesCheckedAt = checkedAt.UTC().Format(time.RFC3339)
+	}
+	s.mu.Unlock()
+	return s.Save()
+}
+
+// OpenRouterModel returns the saved OpenRouter model id.
+func (s *Store) OpenRouterModel() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.settings.OpenRouterModel
+}
+
+func (s *Store) OpenRouterPrices() map[string]costing.Prices {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return clonePriceMap(s.settings.OpenRouterPrices)
+}
+
+func (s *Store) OpenRouterPricesCheckedAt() time.Time {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return parseRFC3339(s.settings.OpenRouterPricesCheckedAt)
+}
+
+func (s *Store) SetOpenRouterPricing(sheet map[string]costing.Prices, checkedAt time.Time) error {
+	s.mu.Lock()
+	s.settings.OpenRouterPrices = clonePriceMap(sheet)
+	if !checkedAt.IsZero() {
+		s.settings.OpenRouterPricesCheckedAt = checkedAt.UTC().Format(time.RFC3339)
 	}
 	s.mu.Unlock()
 	return s.Save()

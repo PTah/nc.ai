@@ -722,6 +722,7 @@ export default function App() {
   const fitRef = useRef<FitAddon | null>(null)
   const assistantBuf = useRef<Record<string, string>>({})
   const activeSessionRef = useRef('')
+  const noticeQueueRef = useRef<string[]>([])
   const lastRequestRef = useRef<{text: string; atts: PendingAtt[]} | null>(null)
   const lastModelRef = useRef<Record<string, string>>({})
   const busyRef = useRef(false)
@@ -777,6 +778,13 @@ export default function App() {
       [sessionId]: updater(asList(prev[sessionId])),
     }))
   }, [])
+
+  useEffect(() => {
+    if (!activeSessionId || noticeQueueRef.current.length === 0) return
+    const q = noticeQueueRef.current
+    noticeQueueRef.current = []
+    setSessionItems(activeSessionId, (m) => [...m, ...q.map((t) => ({kind: 'system' as const, content: t}))])
+  }, [activeSessionId, setSessionItems])
 
   const refreshFiles = useCallback(async (root = '.') => {
     try {
@@ -1036,6 +1044,14 @@ export default function App() {
             const next = usageFromUnknown(ev.content)
             if (next) setUsage(next)
             else void applyUsageStats()
+            return
+          }
+          if (ev.type === 'notice') {
+            const text = String(ev.content || '').trim()
+            if (!text) return
+            const sid = ev.sessionId || activeSessionRef.current
+            if (sid) setSessionItems(sid, (m) => [...m, {kind: 'system' as const, content: text}])
+            else noticeQueueRef.current = [...noticeQueueRef.current, text]
             return
           }
           const sid = ev.sessionId || activeSessionRef.current

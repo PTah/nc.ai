@@ -67,18 +67,39 @@ func TestParseZaiPricingMarkdown(t *testing.T) {
 	}
 }
 
-func TestDeepSeekCheckDueLocalDay(t *testing.T) {
-	now := time.Date(2026, 9, 10, 15, 0, 0, 0, time.Local)
+func TestDeepSeekCheckDueBeijing(t *testing.T) {
+	bj := beijingLoc()
+
+	now := time.Date(2026, 9, 10, 15, 0, 0, 0, bj)
 	if !deepSeekCheckDue(time.Time{}, now) {
 		t.Fatal("zero last should be due")
 	}
-	sameDay := time.Date(2026, 9, 10, 1, 0, 0, 0, time.Local)
-	if deepSeekCheckDue(sameDay, now) {
-		t.Fatal("same local day should not be due")
+
+	// Before 13:00 Beijing never triggers a refresh.
+	early := time.Date(2026, 9, 10, 10, 0, 0, 0, bj)
+	if deepSeekCheckDue(time.Time{}, early) {
+		t.Fatal("before 13:00 Beijing should not be due")
 	}
-	prevDay := time.Date(2026, 9, 9, 23, 0, 0, 0, time.Local)
-	if !deepSeekCheckDue(prevDay, now) {
-		t.Fatal("previous local day should be due")
+
+	// A check after 13:00 Beijing on the same Beijing day is not due again.
+	if deepSeekCheckDue(time.Date(2026, 9, 10, 14, 0, 0, 0, bj), now) {
+		t.Fatal("same Beijing day after rotate should not be due")
+	}
+
+	// A pre-rotate check the same Beijing day may be stale, so it is due again.
+	if !deepSeekCheckDue(time.Date(2026, 9, 10, 9, 0, 0, 0, bj), now) {
+		t.Fatal("pre-rotate check same Beijing day should be due again")
+	}
+
+	// Previous Beijing day is due.
+	if !deepSeekCheckDue(time.Date(2026, 9, 9, 20, 0, 0, 0, bj), now) {
+		t.Fatal("previous Beijing day should be due")
+	}
+
+	// Same Beijing instant expressed in UTC must not change the decision.
+	utc14BJ := time.Date(2026, 9, 10, 6, 0, 0, 0, time.UTC) // 14:00 Beijing
+	if deepSeekCheckDue(utc14BJ, now) {
+		t.Fatal("same Beijing day via UTC should not be due")
 	}
 }
 

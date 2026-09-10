@@ -31,9 +31,9 @@ type Prices struct {
 	Completion float64 `json:"completion"` // completion tokens (incl. reasoning)
 }
 
-// openrouterSheet is approximate USD / 1M (mid-market). Prefer Usage.CostUSD from API.
+// builtinOpenRouterSheet is approximate USD / 1M (mid-market). Prefer Usage.CostUSD from API.
 // Source snapshot: openrouter.ai/api/v1/models (per-token * 1e6).
-var openrouterSheet = map[string]Prices{
+var builtinOpenRouterSheet = map[string]Prices{
 	"qwen/qwen3-coder-flash": {
 		InputMiss: 0.195, InputHit: 0.195, Completion: 0.975,
 	},
@@ -165,12 +165,12 @@ func Price(model string, at time.Time) Prices {
 		if strings.HasPrefix(m, "deepseek") {
 			key = "deepseek-v4-flash"
 		} else if strings.HasPrefix(m, "qwen/") {
-			return openrouterSheet["qwen/qwen3-coder"]
+			return liveOpenRouterPrices()["qwen/qwen3-coder"]
 		} else {
 			return Prices{}
 		}
 	}
-	if p, ok := openrouterSheet[key]; ok {
+	if p, ok := liveOpenRouterPrices()[key]; ok {
 		return p
 	}
 	if p, ok := zai[key]; ok {

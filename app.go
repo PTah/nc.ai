@@ -142,33 +142,59 @@ func (a *App) saveWindowGeometry() {
 }
 
 // priceRefreshLoop loads persisted sheets, then refreshes when due:
-// DeepSeek at most once per local calendar day; Z.ai weekly.
+// DeepSeek and OpenRouter at most once per Beijing day after 13:05 Beijing;
+// Z.ai weekly. The loop checks every 15 minutes.
 func (a *App) priceRefreshLoop() {
 	costing.ApplyPersisted(a.cfg)
 	ctx := a.ctx
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	_ = costing.RefreshIfDue(ctx, a.cfg, false)
-	t := time.NewTicker(24 * time.Hour)
+	a.emitPriceNotices(costing.RefreshIfDue(ctx, a.cfg, false))
+	t := time.NewTicker(15 * time.Minute)
 	defer t.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			_ = costing.RefreshIfDue(context.Background(), a.cfg, false)
+			a.emitPriceNotices(costing.RefreshIfDue(context.Background(), a.cfg, false))
 		}
 	}
 }
 
-// RefreshProviderPrices forces a re-fetch of DeepSeek + Z.ai official price docs.
+// priceNotice builds a chat system notice for a price check result.
+func priceNotice(provider string, updated bool, errMsg string) string {
+	switch {
+	case errMsg != "":
+		return fmt.Sprintf("Система: проверка цен %s выполнена — ошибка: %s", provider, errMsg)
+	case updated:
+		return fmt.Sprintf("Система: проверка цен %s выполнена — обновлено", provider)
+	default:
+		return fmt.Sprintf("Система: проверка цен %s выполнена — без изменений", provider)
+	}
+}
+
+func (a *App) emitPriceNotices(r costing.RefreshResult) {
+	if r.DeepSeekChecked {
+		a.emit(agent.Event{Type: "notice", Content: priceNotice("DeepSeek", r.DeepSeekUpdated, r.DeepSeekErr)})
+	}
+	if r.ZaiChecked {
+		a.emit(agent.Event{Type: "notice", Content: priceNotice("z.ai", r.ZaiUpdated, r.ZaiErr)})
+	}
+	if r.OpenRouterChecked {
+		a.emit(agent.Event{Type: "notice", Content: priceNotice("OpenRouter", r.OpenRouterUpdated, r.OpenRouterErr)})
+	}
+}
+
+// RefreshProviderPrices forces a re-fetch of DeepSeek + Z.ai + OpenRouter price data.
 func (a *App) RefreshProviderPrices() map[string]any {
 	ctx := a.ctx
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	r := costing.RefreshIfDue(ctx, a.cfg, true)
+	a.emitPriceNotices(r)
 	return map[string]any{
 		"deepseekChecked": r.DeepSeekChecked,
 		"deepseekUpdated": r.DeepSeekUpdated,
@@ -176,6 +202,9 @@ func (a *App) RefreshProviderPrices() map[string]any {
 		"zaiChecked":      r.ZaiChecked,
 		"zaiUpdated":      r.ZaiUpdated,
 		"zaiError":        r.ZaiErr,
+		"openrouterChecked": r.OpenRouterChecked,
+		"openrouterUpdated": r.OpenRouterUpdated,
+		"openrouterError":   r.OpenRouterErr,
 	}
 }
 

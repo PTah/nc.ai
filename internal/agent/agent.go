@@ -40,7 +40,7 @@ After tool results, always give a final textual answer to the user.`
 
 // Event is pushed to the UI during an agent run.
 type Event struct {
-	Type      string `json:"type"` // delta|reasoning|tool_start|tool_end|tool_ask|reconnect|done|error|persist|usage|model
+	Type      string `json:"type"` // delta|reasoning|tool_start|tool_end|tool_ask|reconnect|done|error|persist|usage|model|notice
 	Content   string `json:"content,omitempty"`
 	Name      string `json:"name,omitempty"`
 	OK        bool   `json:"ok,omitempty"`

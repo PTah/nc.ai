@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// RefreshResult summarizes one weekly price check.
+// RefreshResult summarizes one price check pass.
 type RefreshResult struct {
 	DeepSeekChecked bool
 	DeepSeekUpdated bool
@@ -15,6 +15,9 @@ type RefreshResult struct {
 	ZaiChecked      bool
 	ZaiUpdated      bool
 	ZaiErr          string
+	OpenRouterChecked bool
+	OpenRouterUpdated bool
+	OpenRouterErr     string
 }
 
 // PriceStore persists live rate cards between app launches.
@@ -27,6 +30,11 @@ type PriceStore interface {
 	ZaiPrices() map[string]Prices
 	ZaiPricesCheckedAt() time.Time
 	SetZaiPricing(sheet map[string]Prices, checkedAt time.Time) error
+
+	OpenRouterPrices() map[string]Prices
+	OpenRouterPricesCheckedAt() time.Time
+	OpenRouterModel() string
+	SetOpenRouterPricing(sheet map[string]Prices, checkedAt time.Time) error
 }
 
 // ApplyPersisted loads saved sheets into the live costing tables (no network).
@@ -44,21 +52,73 @@ func ApplyPersisted(store PriceStore) {
 	if sheet := store.ZaiPrices(); len(sheet) > 0 {
 		SetZaiSheet(sheet)
 	}
+	if sheet := store.OpenRouterPrices(); len(sheet) > 0 {
+		SetOpenRouterSheet(sheet)
+	}
 }
 
-// deepSeekCheckDue is true when we have never checked, or the last check was on a
-// previous local calendar day (once per day on launch / ticker).
+// deepSeekPriceRotateHour is the Beijing hour after which the current day's rate
+// card is final: DeepSeek publishes price changes at 12:00 Beijing, so we wait
+// until 13:00 Beijing before treating the day as already checked.
+const (
+	deepSeekPriceRotateHour = 13
+	deepSeekPriceSlotMin    = deepSeekPriceRotateHour*60 + 5 // 13:05 Beijing
+)
+
+// beijingLoc returns DeepSeek's billing timezone (Asia/Shanghai).
+func beijingLoc() *time.Location {
+	if loc, err := time.LoadLocation("Asia/Shanghai"); err == nil {
+		return loc
+	}
+	return time.FixedZone("CST", 8*60*60)
+}
+
+// deepSeekCheckDue is true when we have never checked, or the last effective check
+// (one made after 13:00 Beijing) belongs to a previous Beijing calendar day.
+// The local clock/DST never decides: DeepSeek rate cards are published in Beijing
+// time, so only that calendar matters.
 func deepSeekCheckDue(last, now time.Time) bool {
+	bj := beijingLoc()
+	nb := now.In(bj)
+	if nb.Hour()*60+nb.Minute() < deepSeekPriceSlotMin {
+		return false
+	}
 	if last.IsZero() {
 		return true
 	}
-	ly, lm, ld := last.In(time.Local).Date()
-	ny, nm, nd := now.In(time.Local).Date()
+	ly, lm, ld := deepSeekEffectiveDay(last.In(bj))
+	ny, nm, nd := nb.Date()
 	return ly != ny || lm != nm || ld != nd
 }
 
+// deepSeekEffectiveDay maps a check to the Beijing day it validates: a check made
+// before the rotate hour still belongs to the previous day, because that day's
+// rates may not have been published yet.
+func deepSeekEffectiveDay(t time.Time) (int, time.Month, int) {
+	if t.Hour() < deepSeekPriceRotateHour {
+		return t.AddDate(0, 0, -1).Date()
+	}
+	return t.Date()
+}
+
+// openRouterCheckDue allows one OpenRouter price check per Beijing day after 13:05 Beijing.
+func openRouterCheckDue(last, now time.Time) bool {
+	bj := beijingLoc()
+	nb := now.In(bj)
+	if nb.Hour()*60+nb.Minute() < deepSeekPriceSlotMin {
+		return false
+	}
+	if last.IsZero() {
+		return true
+	}
+	lb := last.In(bj)
+	return lb.Year() != nb.Year() || lb.Month() != nb.Month() || lb.Day() != nb.Day()
+}
+
 // RefreshIfDue fetches official docs when due.
-// DeepSeek: at most once per local calendar day. Z.ai: weekly interval.
+// DeepSeek: at most once per Beijing calendar day, only after 13:05 Beijing.
+// Z.ai: weekly interval.
+// OpenRouter: at most once per Beijing calendar day, after 13:05 Beijing.
 // force=true always fetches. Updates live sheets and persists when rates change.
 func RefreshIfDue(ctx context.Context, store PriceStore, force bool) RefreshResult {
 	var out RefreshResult
@@ -127,5 +187,33 @@ func RefreshIfDue(ctx context.Context, store PriceStore, force bool) RefreshResu
 			}
 		}
 	}
+
+	orDue := force || openRouterCheckDue(store.OpenRouterPricesCheckedAt(), now)
+	if orDue {
+		out.OpenRouterChecked = true
+		wanted := openRouterWantedModels(store.OpenRouterModel())
+		sheet, err := FetchOpenRouterPricing(ctx, wanted)
+		if err != nil {
+			out.OpenRouterErr = err.Error()
+			log.Printf("costing: openrouter price check failed: %v", err)
+		} else {
+			cur := liveOpenRouterPrices()
+			changed := false
+			for k, v := range sheet {
+				if old, ok := cur[k]; !ok || !pricesEqual(old, v) {
+					changed = true
+					break
+				}
+			}
+			SetOpenRouterSheet(sheet)
+			if err := store.SetOpenRouterPricing(sheet, now); err != nil {
+				out.OpenRouterErr = err.Error()
+			} else if changed {
+				out.OpenRouterUpdated = true
+				log.Printf("costing: openrouter sheet updated from %s", openRouterModelsURL)
+			}
+		}
+	}
+
 	return out
 }
