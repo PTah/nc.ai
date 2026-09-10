@@ -1357,10 +1357,14 @@ func (a *App) RunAgentWithAttachments(userMessage string, attachments []agent.At
 		HasImages:      hasImages,
 		HintPathCount:  len(hints),
 	}
-	if a.cfg.ToolConfirmEnabled() {
-		runner.ApproveTool = func(ctx context.Context, callID, name, argsJSON string) (bool, error) {
-			return a.waitToolApproval(ctx, sid, callID, name, argsJSON)
+	// ApproveTool is always wired; it decides per call whether a prompt is
+	// needed, so toggling "Confirm dangerous tools" applies immediately.
+	runner.ApproveTool = func(ctx context.Context, callID, name, argsJSON string) (bool, error) {
+		if !a.cfg.ToolConfirmEnabled() {
+			return true, nil
 		}
+		a.emit(agent.Event{Type: "tool_ask", Name: name, Content: argsJSON, CallID: callID})
+		return a.waitToolApproval(ctx, sid, callID, name, argsJSON)
 	}
 
 	var costUSD float64

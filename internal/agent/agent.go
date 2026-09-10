@@ -89,6 +89,7 @@ type Runner struct {
 	// (cache-friendly warm context; see docs/TODO-cache-phase5.md).
 	ProjectMap string
 	// ApproveTool, when set, is called before dangerous tools. Return false to deny.
+	// The callback is responsible for asking the user (emitting tool_ask).
 	ApproveTool func(ctx context.Context, callID, name, argsJSON string) (bool, error)
 	// RetryCount is the number of automatic reconnect attempts for transient network errors.
 	RetryCount int
@@ -440,7 +441,6 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 				name := call.Function.Name
 				emit(Event{Type: "tool_start", Name: name, Content: call.Function.Arguments, CallID: call.ID})
 				if tools.DangerousTool(name) && r.ApproveTool != nil {
-					emit(Event{Type: "tool_ask", Name: name, Content: call.Function.Arguments, CallID: call.ID})
 					allow, err := r.ApproveTool(ctx, call.ID, name, call.Function.Arguments)
 					if err != nil {
 						result := fmt.Sprintf("ERROR: approval failed: %v", err)
