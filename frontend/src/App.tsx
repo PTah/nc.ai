@@ -717,7 +717,7 @@ function parseAgentEvent(...args: unknown[]): AgentEvent | null {
 }
 
 export default function App() {
-  const [info, setInfo] = useState({name: 'NotCursor.ai', version: '0.5.25'})
+  const [info, setInfo] = useState({name: 'NotCursor.ai', version: '0.6.3'})
   const [usage, setUsage] = useState<UsageSnapshot>(emptyUsage)
   const [welcome, setWelcome] = useState<WelcomeState | null>(null)
   const [toolAsk, setToolAsk] = useState<{sessionId: string; callId: string; name: string; args: string} | null>(null)
