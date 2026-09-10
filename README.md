@@ -2,7 +2,7 @@
 
 Лёгкий нативный AI-IDE агент (аналог Cursor) на **Wails v2 + Go + React/TypeScript**.
 
-**Версия UI/бинаря:** `0.5.27`
+**Версия UI/бинаря:** `0.6.0`
 
 **Сборка Windows:** `build/bin/NotCursor.exe`
 
@@ -37,9 +37,11 @@
 
 | Tool | Назначение |
 |---|---|
-| `read_file` / `write_file` | чтение/запись в sandbox workspace |
-| `list_dir` / `search_files` | обход и поиск |
-| `run_terminal` | скрытый PowerShell (`CREATE_NO_WINDOW`), UTF-8 |
+| `read_file` / `write_file` / `apply_patch` / `delete_file` | чтение/запись/точечный патч / удаление в sandbox |
+| `list_dir` / `find_files` / `grep` | обход, имя, содержимое (regex как ripgrep) |
+| `run_terminal` / `command_status` | shell; `cwd`, фон (`is_background`) |
+| `todo_write` / `ask_user` / `read_lints` | список задач, вопрос пользователю, `go vet` |
+| `web_search` / `fetch_url` | веб (SSRF-guard: без LAN/loopback/metadata) |
 | `git_*` | status / diff / commit / push через **системный `git`** |
 | `ssh_*` | exec + keygen по ключам из **`~/.ssh`** |
 
@@ -48,7 +50,9 @@
 
 ### Чат UX
 
-- **Markdown** в ответах (таблицы, код, списки, ссылки).
+- **Plan / Act** в шапке чата: Plan — только исследование и план, без правок и shell.
+- Клик по файлу в дереве открывает **редактор** (не дамп в чат); курсор уходит в IDE-контекст агента.
+- **Todo-список** агента над тредом, когда вызван `todo_write`.
 - Thinking-блоки и завершённые tools после финального ответа группируются в один блок **Thinking & Explored**.
 - **Вкладки чатов**: `+` создаёт новую сессию, старые сохраняются; переименование по двойному клику.
 - **Archive**: кнопка в шапке чата переносит чат в `%APPDATA%/NotCursor/chat_archive/<имя>.json`.
@@ -142,7 +146,7 @@ Windows: `build/bin/NotCursor.exe`. macOS: `build/bin/NotCursor.app`.
 ## Settings (UI)
 
 - **Provider**: DeepSeek / Z.ai / OpenRouter (+ ключ, модель, vision-модель).
-- **Agent**: лимит шагов.
+- **Agent**: лимит шагов, Plan mode, confirm dangerous tools.
 - **Interface**: тема, показ терминала / дерева / настроек.
 - **Cursor Rules**: список + reload.
 - **Git & SSH**: без логинов в UI — системный `git` + `~/.ssh`.
@@ -157,9 +161,12 @@ Windows: `build/bin/NotCursor.exe`. macOS: `build/bin/NotCursor.app`.
 app.go                 # Wails façade / bindings
 main.go                # окно: размер/позиция/maximised
 frontend/src/          # React UI (чат, вкладки, вложения, темы)
-internal/agent/        # agent loop + retry + компакция истории
+internal/agent/        # agent loop + retry + компакция + plan
 internal/llm/          # типы, общий OpenAI-compat слой, providers/deepseek, providers/zai
 internal/tools/        # registry + executor
+internal/netx/         # SSRF-safe HTTP
+internal/redact/       # маскирование секретов в выводе tools
+internal/workspace/    # проекты, FS sandbox, guard секретов
 internal/workspace/    # проекты, FS sandbox, guard секретов
 internal/chatstore/    # multi-session persistence + archive
 internal/rules/        # загрузчик Cursor rules
@@ -177,6 +184,6 @@ docs/                  # ТЗ + архитектура + протоколы
 ## TODO / дальше
 
 - [ ] Streaming SSE ответов
-- [ ] Diff viewer / встроенный редактор
+- [ ] Полноценный diff viewer / LSP (сейчас простой редактор + `go vet`)
 - [ ] macOS `.app` на mac-хосте
 - [ ] Разбиение `frontend/src/App.tsx` на хуки

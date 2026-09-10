@@ -22,6 +22,7 @@ import (
 	"notcursor.ai/app/internal/llm/providers/deepseek"
 	"notcursor.ai/app/internal/llm/providers/openrouter"
 	"notcursor.ai/app/internal/llm/providers/zai"
+	"notcursor.ai/app/internal/redact"
 	"notcursor.ai/app/internal/rules"
 	"notcursor.ai/app/internal/shell"
 	"notcursor.ai/app/internal/sshx"
@@ -39,10 +40,10 @@ type App struct {
 	llm   llm.Provider
 	chats *chatstore.Store
 
-	mu        sync.Mutex
-	rulesMu   sync.RWMutex
-	cancels   map[string]context.CancelFunc
-	runGens   map[string]uint64
+	mu      sync.Mutex
+	rulesMu sync.RWMutex
+	cancels map[string]context.CancelFunc
+	runGens map[string]uint64
 	// deepSeekRetireNoticed guards the one-time chat notice about V4 Pro retirement.
 	deepSeekRetireNoticed bool
 	// sessionStickyModel keeps the last non-vision Auto model per chat session
@@ -50,10 +51,15 @@ type App struct {
 	sessionStickyModel map[string]string
 	approveMu          sync.Mutex
 	pendingApprove     map[string]chan bool // key: sessionID+"/"+callID
-	sessionID string
-	history   []llm.Message
-	term      *shell.Session
-	sshDir    string
+	pendingAsk         map[string]chan string
+	sessionID          string
+	history            []llm.Message
+	term               *shell.Session
+	sshDir             string
+
+	ideMu   sync.Mutex
+	ideFile string
+	ideLine int
 
 	cursorRules rules.Bundle
 
@@ -73,6 +79,7 @@ func NewApp() *App {
 		runGens:            map[string]uint64{},
 		sessionStickyModel: map[string]string{},
 		pendingApprove:     map[string]chan bool{},
+		pendingAsk:         map[string]chan string{},
 	}
 }
 
@@ -208,12 +215,12 @@ func (a *App) RefreshProviderPrices() map[string]any {
 	r := costing.RefreshIfDue(ctx, a.cfg, true)
 	a.emitPriceNotices(r)
 	return map[string]any{
-		"deepseekChecked": r.DeepSeekChecked,
-		"deepseekUpdated": r.DeepSeekUpdated,
-		"deepseekError":   r.DeepSeekErr,
-		"zaiChecked":      r.ZaiChecked,
-		"zaiUpdated":      r.ZaiUpdated,
-		"zaiError":        r.ZaiErr,
+		"deepseekChecked":   r.DeepSeekChecked,
+		"deepseekUpdated":   r.DeepSeekUpdated,
+		"deepseekError":     r.DeepSeekErr,
+		"zaiChecked":        r.ZaiChecked,
+		"zaiUpdated":        r.ZaiUpdated,
+		"zaiError":          r.ZaiErr,
 		"openrouterChecked": r.OpenRouterChecked,
 		"openrouterUpdated": r.OpenRouterUpdated,
 		"openrouterError":   r.OpenRouterErr,
@@ -281,6 +288,7 @@ func (a *App) emit(evt agent.Event) {
 	if a.ctx == nil {
 		return
 	}
+	evt.Content = redact.String(evt.Content)
 	runtime.EventsEmit(a.ctx, "agent:event", evt)
 }
 
@@ -378,6 +386,7 @@ func (a *App) GetSettings() map[string]any {
 		"agentMaxSteps":      a.cfg.MaxAgentSteps(),
 		"autoModels":         a.cfg.AutoModels(),
 		"toolConfirm":        a.cfg.ToolConfirmEnabled(),
+		"planMode":           a.cfg.PlanModeEnabled(),
 		"visionModel":        deepseek.VisionModel,
 		"appDataDir":         appData,
 		"layoutProjectsW":    nonzero(s.LayoutProjectsW, 200),
@@ -386,7 +395,7 @@ func (a *App) GetSettings() map[string]any {
 		"layoutTerminalH":    nonzero(s.LayoutTerminalH, 160),
 		"layoutComposerH":    nonzero(s.LayoutComposerH, 150),
 		// 0 = fill the whole chat pane (no artificial max-width).
-		"layoutChatMaxW":     s.LayoutChatMaxW,
+		"layoutChatMaxW": s.LayoutChatMaxW,
 	}
 }
 
@@ -508,20 +517,20 @@ func (a *App) WriteCursorRule(absPath, content string) error {
 // Typed struct (not map[string]any) so Wails/WebKit on macOS reliably
 // delivers numeric fields to the frontend.
 type UsageStats struct {
-	Provider         string  `json:"provider"`
-	CostUsd          float64 `json:"costUsd"`
-	InputTokens      int     `json:"inputTokens"`
-	OutputTokens     int     `json:"outputTokens"`
-	CacheHitTokens   int     `json:"cacheHitTokens"`
-	CacheMissTokens  int     `json:"cacheMissTokens"`
-	ChatCostUsd      float64 `json:"chatCostUsd"`
-	ChatInputTokens  int     `json:"chatInputTokens"`
-	ChatOutputTokens int     `json:"chatOutputTokens"`
-	ChatCacheHitTokens  int  `json:"chatCacheHitTokens"`
-	ChatCacheMissTokens int  `json:"chatCacheMissTokens"`
-	BalanceOk        bool    `json:"balanceOk"`
-	BalanceUsd       float64 `json:"balanceUsd"`
-	BalanceDetail    string  `json:"balanceDetail"`
+	Provider            string  `json:"provider"`
+	CostUsd             float64 `json:"costUsd"`
+	InputTokens         int     `json:"inputTokens"`
+	OutputTokens        int     `json:"outputTokens"`
+	CacheHitTokens      int     `json:"cacheHitTokens"`
+	CacheMissTokens     int     `json:"cacheMissTokens"`
+	ChatCostUsd         float64 `json:"chatCostUsd"`
+	ChatInputTokens     int     `json:"chatInputTokens"`
+	ChatOutputTokens    int     `json:"chatOutputTokens"`
+	ChatCacheHitTokens  int     `json:"chatCacheHitTokens"`
+	ChatCacheMissTokens int     `json:"chatCacheMissTokens"`
+	BalanceOk           bool    `json:"balanceOk"`
+	BalanceUsd          float64 `json:"balanceUsd"`
+	BalanceDetail       string  `json:"balanceDetail"`
 }
 
 // GetUsageStats returns spend for the active provider plus the active chat spend.
@@ -798,6 +807,32 @@ func (a *App) SaveToolConfirm(on bool) error {
 	return a.cfg.SetToolConfirm(on)
 }
 
+func (a *App) SavePlanMode(on bool) error {
+	return a.cfg.SetPlanMode(on)
+}
+
+// SetIDEContext records the file open in the in-app editor for the next agent turn.
+func (a *App) SetIDEContext(path string, line int) {
+	a.ideMu.Lock()
+	a.ideFile = strings.TrimSpace(path)
+	a.ideLine = line
+	a.ideMu.Unlock()
+}
+
+func (a *App) ideContextText() string {
+	a.ideMu.Lock()
+	path := a.ideFile
+	line := a.ideLine
+	a.ideMu.Unlock()
+	if path == "" {
+		return ""
+	}
+	if line <= 0 {
+		return "active_file=" + path
+	}
+	return fmt.Sprintf("active_file=%s\ncursor_line=%d", path, line)
+}
+
 // ResolveToolApproval answers a pending tool_ask (HITL) for the agent loop.
 func (a *App) ResolveToolApproval(sessionID, callID string, allow bool) {
 	key := strings.TrimSpace(sessionID) + "/" + strings.TrimSpace(callID)
@@ -810,6 +845,22 @@ func (a *App) ResolveToolApproval(sessionID, callID string, allow bool) {
 	}
 	select {
 	case ch <- allow:
+	default:
+	}
+}
+
+// ResolveUserAsk answers a pending ask_user tool call.
+func (a *App) ResolveUserAsk(sessionID, callID, answer string) {
+	key := strings.TrimSpace(sessionID) + "/" + strings.TrimSpace(callID)
+	a.approveMu.Lock()
+	ch := a.pendingAsk[key]
+	delete(a.pendingAsk, key)
+	a.approveMu.Unlock()
+	if ch == nil {
+		return
+	}
+	select {
+	case ch <- answer:
 	default:
 	}
 }
@@ -841,6 +892,38 @@ func (a *App) waitToolApproval(ctx context.Context, sessionID, callID, name, arg
 		return allow, nil
 	case <-ctx.Done():
 		return false, ctx.Err()
+	}
+}
+
+func (a *App) waitUserAsk(ctx context.Context, sessionID, callID, question string, options []string) (string, error) {
+	key := strings.TrimSpace(sessionID) + "/" + strings.TrimSpace(callID)
+	ch := make(chan string, 1)
+	a.approveMu.Lock()
+	if old := a.pendingAsk[key]; old != nil {
+		select {
+		case old <- "":
+		default:
+		}
+	}
+	a.pendingAsk[key] = ch
+	a.approveMu.Unlock()
+	defer func() {
+		a.approveMu.Lock()
+		if a.pendingAsk[key] == ch {
+			delete(a.pendingAsk, key)
+		}
+		a.approveMu.Unlock()
+	}()
+	_ = question
+	_ = options
+	select {
+	case ans := <-ch:
+		if strings.TrimSpace(ans) == "" {
+			return "", fmt.Errorf("user dismissed the question")
+		}
+		return ans, nil
+	case <-ctx.Done():
+		return "", ctx.Err()
 	}
 }
 
@@ -1257,6 +1340,16 @@ func (a *App) StopAgentSession(sessionID string) {
 			}
 			delete(a.pendingApprove, key)
 		}
+		for key, ch := range a.pendingAsk {
+			if sid != "" && !strings.HasPrefix(key, sid+"/") {
+				continue
+			}
+			select {
+			case ch <- "":
+			default:
+			}
+			delete(a.pendingAsk, key)
+		}
 	}
 	if sessionID == "" {
 		for id, c := range a.cancels {
@@ -1350,6 +1443,8 @@ func (a *App) RunAgentWithAttachments(userMessage string, attachments []agent.At
 		TurnRulesText:  bundle.SelectTurnRules(hints),
 		StickyModel:    sticky,
 		ProjectMap:     projectMap,
+		IDEContext:     a.ideContextText(),
+		PlanMode:       a.cfg.PlanModeEnabled(),
 		AutoModels:     autoModels,
 		ProviderID:     provider,
 		PreferredModel: a.cfg.ActiveModel(),
@@ -1365,6 +1460,13 @@ func (a *App) RunAgentWithAttachments(userMessage string, attachments []agent.At
 		}
 		a.emit(agent.Event{Type: "tool_ask", Name: name, Content: argsJSON, CallID: callID})
 		return a.waitToolApproval(ctx, sid, callID, name, argsJSON)
+	}
+	if a.tools != nil {
+		a.tools.AskUser = func(ctx context.Context, callID, question string, options []string) (string, error) {
+			payload, _ := json.Marshal(map[string]any{"question": question, "options": options})
+			a.emitFor(sid, agent.Event{Type: "tool_ask", Name: "ask_user", Content: string(payload), CallID: callID})
+			return a.waitUserAsk(ctx, sid, callID, question, options)
+		}
 	}
 
 	var costUSD float64
@@ -1476,20 +1578,20 @@ func (a *App) RunAgentWithAttachments(userMessage string, attachments []agent.At
 
 func usagePayload(provider string, totalCost float64, totalIn, totalOut, totalHit, totalMiss int, chatCost float64, chatIn, chatOut, chatHit, chatMiss int, balOK bool, balUSD float64, balDetail string) string {
 	b, _ := json.Marshal(map[string]any{
-		"provider":             provider,
-		"costUsd":              totalCost,
-		"inputTokens":          totalIn,
-		"outputTokens":         totalOut,
-		"cacheHitTokens":       totalHit,
-		"cacheMissTokens":      totalMiss,
-		"chatCostUsd":          chatCost,
-		"chatInputTokens":      chatIn,
-		"chatOutputTokens":     chatOut,
-		"chatCacheHitTokens":   chatHit,
-		"chatCacheMissTokens":  chatMiss,
-		"balanceOk":            balOK,
-		"balanceUsd":           balUSD,
-		"balanceDetail":        balDetail,
+		"provider":            provider,
+		"costUsd":             totalCost,
+		"inputTokens":         totalIn,
+		"outputTokens":        totalOut,
+		"cacheHitTokens":      totalHit,
+		"cacheMissTokens":     totalMiss,
+		"chatCostUsd":         chatCost,
+		"chatInputTokens":     chatIn,
+		"chatOutputTokens":    chatOut,
+		"chatCacheHitTokens":  chatHit,
+		"chatCacheMissTokens": chatMiss,
+		"balanceOk":           balOK,
+		"balanceUsd":          balUSD,
+		"balanceDetail":       balDetail,
 	})
 	return string(b)
 }

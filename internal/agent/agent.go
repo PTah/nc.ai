@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"notcursor.ai/app/internal/appmeta"
 	"notcursor.ai/app/internal/llm"
+	"notcursor.ai/app/internal/redact"
 	"notcursor.ai/app/internal/tools"
 )
 
@@ -17,27 +19,50 @@ const maxToolResultBytes = 12288
 
 const SystemPrompt = `You are NotCursor.ai, a coding agent like Cursor.
 You work inside the user's local workspace.
-Use tools to read/write files, run shell/PowerShell, use git, and SSH when needed.
 
-Critical path rules:
-- NEVER invent file paths or filenames.
-- Before read_file, confirm the path via list_dir, find_files, or grep.
-- Prefer find_files (by name) and grep (contents, optional path_glob + context) over reading whole trees.
-- For large files, call read_file with start_line/end_line instead of the whole file.
-- If read_file fails with "file not found", use the suggested siblings / list_dir and retry the real path.
-- Paths are relative to the workspace root (use forward slashes).
-- Call get_env_info when OS/toolchain matters (shell commands, paths, versions).
+Communication:
+- Match the user's language.
+- Lead with the result. Do not name tools or recap every step.
+- When changing code, use tools — do not dump full files in chat unless the user asked to see the code.
+- Be concise. Use backticks for file, function, and symbol names.
 
-Token and edit discipline (save cost; follow project rules when they conflict with defaults):
-- Prefer apply_patch for partial file edits; use write_file only for new files or full rewrites.
-- Prefer small precise edits over rewrites or copy-paste duplicates.
-- Do not add verbose comments, docstrings, or drive-by refactors unless the user asks.
-- Do not expand scope beyond the requested task.
-- Avoid re-reading huge files or dumping entire directories when a targeted search/read suffices.
+Tools:
+- Call independent read-only tools together in one response (grep + read_file + list_dir).
+- NEVER invent file paths. Confirm via list_dir, find_files, or grep before read_file.
+- Prefer grep (regex, like ripgrep) and find_files over reading whole trees or shell rg.
+- For large files, call read_file with start_line/end_line.
+- Prefer apply_patch for partial edits; write_file only for new files or full rewrites.
+- Use delete_file for removals (do not rm via shell).
+- Call get_env_info when OS/toolchain matters.
+- Use todo_write for multi-step work; keep the list current; do not narrate todo updates.
+- Use ask_user only when a real user decision is required — not for facts you can look up.
 
-When the user attaches screenshots/images, describe and use what you see; then act with tools.
+Shell:
+- cwd is the workspace root unless you pass cwd (relative). Do not cd inside the command.
+- Non-interactive only: pass -y/--yes; never wait for a prompt.
+- No pagers. Long-running servers: is_background=true, then command_status.
+- Never include newlines in command.
+
+Git:
+- Do not commit or push unless the user explicitly asked.
+- Never git add . — only the files you changed.
+- Never force-push or change git config.
+
+Edits:
+- Read the section you will change first.
+- Follow existing style and dependencies in neighboring files; do not assume a library exists.
+- Do not expand scope, add comments/docstrings, or drive-by refactors unless asked.
+- Do not modify tests unless asked.
+- If linting the same file fails 3 times, stop and ask.
+- After edits, call read_lints on the files you changed when diagnostics exist.
+
 Never invent file contents — read with tools first.
 After tool results, always give a final textual answer to the user.`
+
+const PlanModePrompt = `You are in PLAN MODE.
+Explore the codebase with read-only tools and ask_user if a real decision is blocked.
+Do not write, patch, delete, run shell, commit, push, or SSH.
+When you have a concrete plan (files to touch, approach, risks), present it clearly and wait for the user to switch to Act.`
 
 // Event is pushed to the UI during an agent run.
 type Event struct {
@@ -88,6 +113,10 @@ type Runner struct {
 	// ProjectMap is a compact directory tree injected after the system prompt
 	// (cache-friendly warm context; see docs/TODO-cache-phase5.md).
 	ProjectMap string
+	// IDEContext is the active editor file + cursor, injected per turn (not cached).
+	IDEContext string
+	// PlanMode restricts mutating tools and appends PlanModePrompt.
+	PlanMode bool
 	// ApproveTool, when set, is called before dangerous tools. Return false to deny.
 	// The callback is responsible for asking the user (emitting tool_ask).
 	ApproveTool func(ctx context.Context, callID, name, argsJSON string) (bool, error)
@@ -226,11 +255,15 @@ func IsVisionModel(model string) bool {
 }
 
 func (r *Runner) systemPrompt() string {
+	base := SystemPrompt
+	if r.PlanMode {
+		base += "\n\n" + PlanModePrompt
+	}
 	rules := strings.TrimSpace(r.RulesText)
 	if rules == "" {
-		return SystemPrompt
+		return base
 	}
-	return SystemPrompt + "\n\n" +
+	return base + "\n\n" +
 		"## Cursor / project rules (stable)\n" +
 		"These rules come from Cursor (.cursorrules / .cursor/rules / AGENTS.md). " +
 		"Follow them strictly; when they conflict with this base prompt, the rules win. " +
@@ -384,7 +417,17 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 				"Apply these path-scoped rules for this turn in addition to the stable system rules.",
 		))
 	}
+	if ide := strings.TrimSpace(r.IDEContext); ide != "" {
+		messages = append(messages, llm.UserText(
+			"<ide_context>\n"+ide+"\n</ide_context>\n"+
+				"Active editor snapshot for this turn. Prefer these files when they are relevant.",
+		))
+	}
 	messages = append(messages, userMsg)
+
+	if r.Tools != nil {
+		r.Tools.PlanMode = r.PlanMode
+	}
 
 	for step := 0; step < max; step++ {
 		if ctx.Err() != nil {
@@ -395,7 +438,7 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 		model := r.resolveModel(step, emit)
 		req := &llm.ChatRequest{
 			Messages:        messages,
-			Tools:           tools.Specs(),
+			Tools:           tools.SpecsFor(r.PlanMode),
 			ToolChoice:      "auto",
 			Thinking:        map[string]any{"type": "enabled"},
 			ReasoningEffort: "high",
@@ -433,36 +476,12 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 			emit(Event{Type: "error", Content: detail})
 			return messages, fmt.Errorf("%s", detail)
 		case ActionExecuteTools:
-			for _, call := range msg.ToolCalls {
-				if call.ID == "" {
-					emit(Event{Type: "error", Content: "tool_call without id — protocol violation"})
-					return messages, fmt.Errorf("tool_call without id")
-				}
-				name := call.Function.Name
-				emit(Event{Type: "tool_start", Name: name, Content: call.Function.Arguments, CallID: call.ID})
-				if tools.DangerousTool(name) && r.ApproveTool != nil {
-					allow, err := r.ApproveTool(ctx, call.ID, name, call.Function.Arguments)
-					if err != nil {
-						result := fmt.Sprintf("ERROR: approval failed: %v", err)
-						emit(Event{Type: "tool_end", Name: name, Content: truncate(result, 4000), OK: false, CallID: call.ID})
-						messages = append(messages, llm.ToolResultMessage(call.ID, truncate(result, maxToolResultBytes)))
-						continue
-					}
-					if !allow {
-						result := "DENIED by user. Do not retry the same dangerous action unless the user explicitly asks; explain what you intended."
-						emit(Event{Type: "tool_end", Name: name, Content: result, OK: false, CallID: call.ID})
-						messages = append(messages, llm.ToolResultMessage(call.ID, result))
-						continue
-					}
-				}
-				result, execErr := r.Tools.Execute(ctx, call)
-				ok := execErr == nil
-				if execErr != nil {
-					result = fmt.Sprintf("ERROR: %v", execErr)
-				}
-				emit(Event{Type: "tool_end", Name: name, Content: truncate(result, 4000), OK: ok, CallID: call.ID})
-				messages = append(messages, llm.ToolResultMessage(call.ID, truncate(result, maxToolResultBytes)))
+			outs, err := r.execTools(ctx, msg.ToolCalls, emit)
+			if err != nil {
+				emit(Event{Type: "error", Content: err.Error()})
+				return messages, err
 			}
+			messages = append(messages, outs...)
 			continue
 		default:
 			if strings.TrimSpace(msg.Content) == "" {
@@ -518,6 +537,73 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n] + "…"
+}
+
+func (r *Runner) execTools(ctx context.Context, calls []llm.ToolCall, emit EmitFunc) ([]llm.Message, error) {
+	for _, call := range calls {
+		if call.ID == "" {
+			return nil, fmt.Errorf("tool_call without id")
+		}
+	}
+	parallel := len(calls) > 1
+	for _, call := range calls {
+		if !tools.ReadOnlyTool(call.Function.Name) {
+			parallel = false
+			break
+		}
+	}
+	outs := make([]llm.Message, len(calls))
+	if !parallel {
+		for i, call := range calls {
+			outs[i] = r.execOne(ctx, call, emit)
+		}
+		return outs, nil
+	}
+	var mu sync.Mutex
+	safe := func(e Event) {
+		mu.Lock()
+		defer mu.Unlock()
+		emit(e)
+	}
+	var wg sync.WaitGroup
+	for i, call := range calls {
+		wg.Add(1)
+		go func(i int, call llm.ToolCall) {
+			defer wg.Done()
+			outs[i] = r.execOne(ctx, call, safe)
+		}(i, call)
+	}
+	wg.Wait()
+	return outs, nil
+}
+
+func (r *Runner) execOne(ctx context.Context, call llm.ToolCall, emit EmitFunc) llm.Message {
+	name := call.Function.Name
+	emit(Event{Type: "tool_start", Name: name, Content: call.Function.Arguments, CallID: call.ID})
+	if tools.DangerousTool(name) && r.ApproveTool != nil {
+		allow, err := r.ApproveTool(ctx, call.ID, name, call.Function.Arguments)
+		if err != nil {
+			result := redact.String(fmt.Sprintf("ERROR: approval failed: %v", err))
+			emit(Event{Type: "tool_end", Name: name, Content: truncate(result, 4000), OK: false, CallID: call.ID})
+			return llm.ToolResultMessage(call.ID, truncate(result, maxToolResultBytes))
+		}
+		if !allow {
+			result := "DENIED by user. Do not retry the same dangerous action unless the user explicitly asks; explain what you intended."
+			emit(Event{Type: "tool_end", Name: name, Content: result, OK: false, CallID: call.ID})
+			return llm.ToolResultMessage(call.ID, result)
+		}
+	}
+	result, execErr := r.Tools.Execute(ctx, call)
+	ok := execErr == nil
+	if execErr != nil {
+		result = fmt.Sprintf("ERROR: %v", execErr)
+	}
+	result = redact.String(result)
+	if name == "todo_write" && ok {
+		emit(Event{Type: "todos", Content: result, CallID: call.ID})
+	}
+	emit(Event{Type: "tool_end", Name: name, Content: truncate(result, 4000), OK: ok, CallID: call.ID})
+	return llm.ToolResultMessage(call.ID, truncate(result, maxToolResultBytes))
 }
 
 // billingModel prefers the model id DeepSeek returned; falls back to the

@@ -46,6 +46,9 @@ import {
   SaveActiveProvider,
   SaveAutoModels,
   SaveToolConfirm,
+  SavePlanMode,
+  SetIDEContext,
+  ResolveUserAsk,
   ResolveToolApproval,
   SaveAgentMaxSteps,
   SaveComposerHeight,
@@ -65,6 +68,7 @@ import {
   TerminalResize,
   TerminalWrite,
   WriteCursorRule,
+  WriteFile,
   ListProjects,
 } from '../wailsjs/go/main/App'
 import {EventsOn, EventsOff} from '../wailsjs/runtime/runtime'
@@ -103,6 +107,10 @@ type ArchiveChat = {
   messageCount: number
   items: ChatItem[]
 }
+
+type TodoItem = {id: string; content: string; status: string}
+
+type EditorState = {path: string; content: string; orig: string}
 
 type QueuedMsg = {
   id: string
@@ -414,7 +422,16 @@ function toolTitle(name: string, phase: 'running' | 'done', ok?: boolean): strin
     write_file: 'Writing file',
     apply_patch: 'Patching file',
     list_dir: 'Listing directory',
-    search_files: 'Searching files',
+    grep: 'Searching',
+    find_files: 'Finding files',
+    delete_file: 'Deleting',
+    todo_write: 'Updating todos',
+    ask_user: 'Asking you',
+    command_status: 'Checking job',
+    read_lints: 'Reading lints',
+    web_search: 'Searching the web',
+    fetch_url: 'Fetching URL',
+    get_env_info: 'Env info',
     run_terminal: 'Running terminal',
     git_status: 'Git status',
     git_diff: 'Git diff',
@@ -427,6 +444,55 @@ function toolTitle(name: string, phase: 'running' | 'done', ok?: boolean): strin
   if (phase === 'running') return `${base}…`
   if (ok === false) return `${base} failed`
   return base
+}
+
+function AskUserDialog({
+  sessionId, callId, args, answer, setAnswer, onDone,
+}: {
+  sessionId: string
+  callId: string
+  args: string
+  answer: string
+  setAnswer: (s: string) => void
+  onDone: () => void
+}) {
+  let question = 'Вопрос агента'
+  let options: string[] = []
+  try {
+    const p = JSON.parse(args || '{}') as {question?: string; options?: string[]}
+    if (p.question) question = p.question
+    if (Array.isArray(p.options)) options = p.options.map(String).filter(Boolean)
+  } catch { /* raw */ }
+  function reply(text: string) {
+    const t = text.trim()
+    if (!t) return
+    onDone()
+    ResolveUserAsk(sessionId, callId, t)
+  }
+  return (
+    <>
+      <h2 id="nc-tool-ask-title">{question}</h2>
+      <p className="nc-help">Агенту нужно ваше решение, прежде чем продолжить.</p>
+      {options.length > 0 && (
+        <div className="nc-ask-opts">
+          {options.map((o) => (
+            <button key={o} type="button" onClick={() => reply(o)}>{o}</button>
+          ))}
+        </div>
+      )}
+      <textarea
+        className="nc-ask-text"
+        value={answer}
+        onChange={(e) => setAnswer(e.target.value)}
+        placeholder="Свой ответ"
+        rows={3}
+      />
+      <div className="nc-close-project-actions">
+        <button type="button" onClick={() => reply(answer)} disabled={!answer.trim()}>Ответить</button>
+        <button type="button" className="nc-ghost" onClick={() => { onDone(); ResolveUserAsk(sessionId, callId, '') }}>Отмена</button>
+      </div>
+    </>
+  )
 }
 
 function ToolCard({item}: {item: Extract<ChatItem, {kind: 'tool'}>}) {
@@ -709,6 +775,10 @@ export default function App() {
   const [orBalance, setOrBalance] = useState<{ok: boolean; availableUsd: number; detail: string; source: string} | null>(null)
   const [autoModels, setAutoModels] = useState(true)
   const [toolConfirm, setToolConfirm] = useState(true)
+  const [planMode, setPlanMode] = useState(false)
+  const [todos, setTodos] = useState<TodoItem[]>([])
+  const [editor, setEditor] = useState<EditorState | null>(null)
+  const [askAnswer, setAskAnswer] = useState('')
   const [deepseekPeak, setDeepseekPeak] = useState<{peak: boolean; tooltip: string}>({peak: false, tooltip: ''})
   const [maxSteps, setMaxSteps] = useState(40)
   const [deepseekKeySet, setDeepseekKeySet] = useState(false)
@@ -984,6 +1054,7 @@ export default function App() {
         if (provider === 'openrouter' && s.openrouterKeySet) void refreshOpenRouterBalance()
         setAutoModels(Boolean(s.autoModels))
         setToolConfirm(s.toolConfirm !== false)
+        setPlanMode(Boolean(s.planMode))
         if (typeof s.appDataDir === 'string' && s.appDataDir) setAppDataDir(s.appDataDir)
         if (typeof s.agentMaxSteps === 'number' && s.agentMaxSteps > 0) setMaxSteps(s.agentMaxSteps)
         setShowTerm(Boolean(s.showTerminal))
@@ -1108,6 +1179,17 @@ export default function App() {
               }
               return [...copy, {kind: 'reasoning', content: ev.content || ''}]
             })
+          } else if (ev.type === 'todos') {
+            try {
+              const parsed = JSON.parse(ev.content || '[]')
+              if (Array.isArray(parsed)) {
+                setTodos(parsed.map((t: {id?: string; content?: string; status?: string}) => ({
+                  id: String(t.id || ''),
+                  content: String(t.content || ''),
+                  status: String(t.status || 'pending'),
+                })))
+              }
+            } catch { /* ignore */ }
           } else if (ev.type === 'tool_start') {
             assistantBuf.current[sid] = ''
             setSessionItems(sid, (prev) => [...prev, {
@@ -1712,7 +1794,19 @@ export default function App() {
   async function openFile(path: string) {
     try {
       const content = await ReadFile(path)
-      if (activeSessionId) setSessionItems(activeSessionId, (m) => [...m, {kind: 'file', path, content}])
+      setEditor({path, content, orig: content})
+      void SetIDEContext(path, 1)
+    } catch (e) {
+      if (activeSessionId) setSessionItems(activeSessionId, (m) => [...m, {kind: 'system', content: String(e)}])
+    }
+  }
+
+  async function saveEditor() {
+    if (!editor) return
+    try {
+      await WriteFile(editor.path, editor.content)
+      setEditor({...editor, orig: editor.content})
+      void SetIDEContext(editor.path, 1)
     } catch (e) {
       if (activeSessionId) setSessionItems(activeSessionId, (m) => [...m, {kind: 'system', content: String(e)}])
     }
@@ -1985,7 +2079,7 @@ export default function App() {
             {expanded[f.path] ? '▾' : '▸'} {f.name}
           </button>
         ) : (
-          <button type="button" className="tree-btn file" onClick={() => openFile(f.path)}>
+          <button type="button" className={`tree-btn file ${editor?.path === f.path ? 'active' : ''}`} onClick={() => openFile(f.path)}>
             {f.name}
           </button>
         )}
@@ -2204,7 +2298,7 @@ export default function App() {
         )}
 
         <main
-          className={`nc-main ${showTerm ? '' : 'no-term'}`}
+          className={`nc-main ${showTerm ? '' : 'no-term'} ${editor ? 'has-editor' : ''}`}
           style={{['--layout-terminal' as string]: `${layout.terminalH}px`}}
         >
           <section
@@ -2262,6 +2356,18 @@ export default function App() {
                   Rules Total/Applied: {rulesTotal}/{rulesApplied}
                 </span>
                 {statusText ? <span className="nc-pill">{statusText}</span> : null}
+                <button
+                  type="button"
+                  className={`nc-ghost ${planMode ? 'on' : ''}`}
+                  onClick={() => {
+                    const on = !planMode
+                    setPlanMode(on)
+                    void SavePlanMode(on)
+                  }}
+                  title="Plan: только чтение и план. Act — правки и shell."
+                >
+                  {planMode ? 'Plan' : 'Act'}
+                </button>
                 <button type="button" className="nc-ghost" onClick={async () => {
                   await ClearChat()
                   const empty: ChatItem[] = [{kind: 'system', content: 'Чат очищен'}]
@@ -2276,6 +2382,16 @@ export default function App() {
                 <button type="button" className="nc-ghost" disabled={!busy} onClick={() => StopAgent()} title="Остановить текущий запуск агента">Stop</button>
               </div>
             </header>
+            {todos.length > 0 && (
+              <ul className="nc-todos">
+                {todos.map((t) => (
+                  <li key={t.id} className={`nc-todo ${t.status}`}>
+                    <span className="nc-todo-st">{t.status === 'completed' ? '✓' : t.status === 'in_progress' ? '▶' : t.status === 'cancelled' ? '×' : '○'}</span>
+                    {t.content}
+                  </li>
+                ))}
+              </ul>
+            )}
             <div className="nc-thread" ref={chatRef}>
               <div className="nc-thread-inner">
                 <div
@@ -2458,6 +2574,33 @@ export default function App() {
             </div>
           </section>
 
+          {editor && (
+            <section className="nc-editor">
+              <div className="nc-hsplit" onMouseDown={(e) => beginResize('terminal', e)} />
+              <div className="nc-term-head">
+                <span className="nc-editor-path" title={editor.path}>{editor.path}{editor.content !== editor.orig ? ' •' : ''}</span>
+                <div className="nc-term-run">
+                  <button type="button" onClick={() => void saveEditor()} disabled={editor.content === editor.orig}>Save</button>
+                  <button type="button" className="nc-ghost" onClick={() => { setEditor(null); void SetIDEContext('', 0) }}>Close</button>
+                </div>
+              </div>
+              <textarea
+                className="nc-editor-body"
+                spellCheck={false}
+                value={editor.content}
+                onChange={(e) => {
+                  const content = e.target.value
+                  setEditor((prev) => prev ? {...prev, content} : prev)
+                }}
+                onSelect={(e) => {
+                  const el = e.currentTarget
+                  const line = el.value.slice(0, el.selectionStart).split('\n').length
+                  void SetIDEContext(editor.path, line)
+                }}
+              />
+            </section>
+          )}
+
           {showTerm && (
             <section className="nc-terminal">
               <div className="nc-hsplit" onMouseDown={(e) => beginResize('terminal', e)} />
@@ -2534,6 +2677,21 @@ export default function App() {
                 }}
               />
               Confirm dangerous tools
+            </label>
+            <label
+              className="nc-top-check"
+              title="Plan: агент только исследует и предлагает план, без правок и shell"
+            >
+              <input
+                type="checkbox"
+                checked={planMode}
+                onChange={(e) => {
+                  const on = e.target.checked
+                  setPlanMode(on)
+                  void SavePlanMode(on)
+                }}
+              />
+              Plan mode (без правок)
             </label>
 
             {activeProvider === 'deepseek' ? (
@@ -3043,33 +3201,46 @@ export default function App() {
             aria-labelledby="nc-tool-ask-title"
             onClick={(e) => e.stopPropagation()}
           >
-            <p className="nc-confirm-app">{info.name || 'NotCursor.ai'}</p>
-            <h2 id="nc-tool-ask-title">Разрешить tool «{toolAsk.name}»?</h2>
-            <p className="nc-help">Агент хочет выполнить потенциально опасное действие.</p>
-            <pre className="nc-tool-ask-args">{toolAsk.args || '(no args)'}</pre>
-            <div className="nc-close-project-actions">
-              <button
-                type="button"
-                onClick={() => {
-                  const ask = toolAsk
-                  setToolAsk(null)
-                  ResolveToolApproval(ask.sessionId, ask.callId, true)
-                }}
-              >
-                Разрешить
-              </button>
-              <button
-                type="button"
-                className="nc-danger"
-                onClick={() => {
-                  const ask = toolAsk
-                  setToolAsk(null)
-                  ResolveToolApproval(ask.sessionId, ask.callId, false)
-                }}
-              >
-                Запретить
-              </button>
-            </div>
+            {toolAsk.name === 'ask_user' ? (
+              <AskUserDialog
+                sessionId={toolAsk.sessionId}
+                callId={toolAsk.callId}
+                args={toolAsk.args}
+                answer={askAnswer}
+                setAnswer={setAskAnswer}
+                onDone={() => { setToolAsk(null); setAskAnswer('') }}
+              />
+            ) : (
+              <>
+                <p className="nc-confirm-app">{info.name || 'NotCursor.ai'}</p>
+                <h2 id="nc-tool-ask-title">Разрешить «{toolAsk.name}»?</h2>
+                <p className="nc-help">Агент хочет выполнить потенциально опасное действие.</p>
+                <pre className="nc-tool-ask-args">{toolAsk.args || '(no args)'}</pre>
+                <div className="nc-close-project-actions">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const ask = toolAsk
+                      setToolAsk(null)
+                      ResolveToolApproval(ask.sessionId, ask.callId, true)
+                    }}
+                  >
+                    Разрешить
+                  </button>
+                  <button
+                    type="button"
+                    className="nc-danger"
+                    onClick={() => {
+                      const ask = toolAsk
+                      setToolAsk(null)
+                      ResolveToolApproval(ask.sessionId, ask.callId, false)
+                    }}
+                  >
+                    Запретить
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

@@ -49,6 +49,9 @@ func Run(ctx context.Context, command, cwd, shellPath string, timeout time.Durat
 	if cwd != "" {
 		cmd.Dir = cwd
 	}
+	env := os.Environ()
+	env = append(env, "GIT_PAGER=cat", "PAGER=cat", "CI=1")
+	cmd.Env = env
 	configureCmd(cmd)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

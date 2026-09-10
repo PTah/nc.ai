@@ -1,4 +1,4 @@
-# Архитектура NotCursor.ai
+﻿# Архитектура NotCursor.ai
 
 См. также [ТЗ](../TZ.md) и [протоколы](../exchange-protocols/README.md).
 
@@ -13,8 +13,10 @@ internal/
   llm/providers/
     deepseek/              DeepSeek (OpenAI-compatible)
     zai/                   Z.ai (glm-*, /models, balance, err mapping)
-  tools/                   registry + executor (read/write/list/search/terminal/git/ssh)
-  agent/                   tool loop + autoroute + retry + компакция истории
+  tools/                   registry + executor (read/write/patch/delete/grep/terminal/git/ssh/web)
+  agent/                   tool loop + autoroute + retry + компакция + plan mode
+  netx/                    SSRF-safe HTTP + web_search
+  redact/                  маскирование секретов в tool output / events
   shell/                   PowerShell / oneshot (скрытое окно)
   gitx/                    OS git (status/diff/commit/push)
   sshx/                    SSH exec + keygen (known_hosts/TOFU)

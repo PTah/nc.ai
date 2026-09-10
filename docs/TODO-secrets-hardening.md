@@ -1,4 +1,4 @@
-# ToDo: secrets hardening (Keychain + redact + revoke)
+﻿# ToDo: secrets hardening (Keychain + redact + revoke)
 
 **Только private remotes (`home`, `kalinamall`). На `github` эти ToDo не пушим.**
 
@@ -10,6 +10,8 @@
 
 - UI видит только `*KeySet`, не сам ключ
 - `IsSecretPath` / `MaskSecrets` для workspace-файлов
+- `internal/redact` на tool-результаты и agent events
+- `fetch_url` / `web_search` — SSRF-guard (`internal/netx`)
 - HITL (`ToolConfirm`) на опасные tools
 - Git без хранения паролей в приложении (OS credential helper / `~/.ssh`)
 

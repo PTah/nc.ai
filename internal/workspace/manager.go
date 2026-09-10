@@ -304,7 +304,7 @@ func (m *Manager) DeletePath(rel string) error {
 	if err != nil {
 		return err
 	}
-	return os.RemoveAll(full)
+	return os.Remove(full)
 }
 
 func (m *Manager) Mkdir(rel string) error {

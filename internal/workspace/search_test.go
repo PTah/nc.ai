@@ -1,4 +1,4 @@
-package workspace
+﻿package workspace
 
 import (
 	"os"
@@ -38,6 +38,14 @@ func TestFindFilesAndGrep(t *testing.T) {
 	}
 	if len(hits) != 1 || hits[0].Line != 2 {
 		t.Fatalf("grep hits=%v", hits)
+	}
+	reHits, err := m.Grep(GrepOptions{Query: `func\s+Routes`, PathGlob: "**/*.go", Limit: 10})
+	if err != nil || len(reHits) != 1 {
+		t.Fatalf("regex grep: %v %v", reHits, err)
+	}
+	files := FormatGrepHitsMode(hits, "files_with_matches")
+	if !strings.Contains(files, "router.go") {
+		t.Fatalf("files mode: %s", files)
 	}
 	out := FormatGrepHits(hits)
 	if !strings.Contains(out, "router.go:2:func Routes") {

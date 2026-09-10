@@ -1,4 +1,4 @@
-# Tools и Agent Loop
+﻿# Tools и Agent Loop
 
 Это ядро агентного поведения NotCursor (как у Cursor / Cline).
 
@@ -47,22 +47,33 @@ User → [messages + tools] → Provider
 
 ---
 
-## 3. Набор tools этапа 1
+## 3. Набор tools
 
 ### Файлы
 
 | name | params | side effect |
 |---|---|---|
-| `read_file` | `path`, optional `offset`, `limit` | нет |
+| `read_file` | `path`, optional `start_line`/`end_line` | нет |
 | `write_file` | `path`, `content` | пишет диск |
+| `apply_patch` | `path`, `old_string`/`new_string` или `patch` | пишет диск |
+| `delete_file` | `path` | удаляет файл/пустую папку |
 | `list_dir` | `path` | нет |
-| `search_files` | `query`, optional `glob` | нет (этап 1.1) |
+| `find_files` | `query` | нет |
+| `grep` | `query` (regex), optional `path_glob`, `context`/`before`/`after`, `output_mode` | нет |
 
-### Shell
+### Shell / jobs / UX
 
 | name | params | notes |
 |---|---|---|
-| `run_terminal` | `command`, optional `cwd`, `timeout_sec` | PowerShell на Windows |
+| `run_terminal` | `command`, optional `cwd`, `timeout_sec`, `is_background`, `explanation` | HITL; фон → `command_status` |
+| `command_status` | `id`, optional `wait_sec` | статус фоновой команды |
+| `todo_write` | `todos[]`, `merge` | список в UI |
+| `ask_user` | `question`, optional `options[]` | блокирующий вопрос |
+| `read_lints` | `paths[]` | `go vet` для `.go` |
+| `web_search` | `query` | публичный поиск, SSRF-guard |
+| `fetch_url` | `url` | GET http(s), без LAN/loopback |
+
+В **Plan mode** скрыты mutating tools (`write_file`, `apply_patch`, `delete_file`, `run_terminal`, `git_commit`/`push`, `ssh_*`).
 
 ### Git / Gitea
 
@@ -147,15 +158,9 @@ func (a *Agent) Run(ctx context.Context, userMsg string) error {
 
 ---
 
-## 7. System prompt (черновик этапа 1)
+## 7. System prompt
 
-```
-Ты — агент NotCursor.ai. Работай в текущем workspace.
-Используй tools для чтения/правки файлов, shell, git и ssh.
-Не выдумывай содержимое файлов — читай через tools.
-После изменений кратко объясни, что сделал.
-Для git push указывай remote/branch явно, если они не очевидны.
-```
+См. `internal/agent/agent.go` (`SystemPrompt` + `PlanModePrompt`). Кратко: не выдумывать пути, патчить через tools, git только по явной просьбе, параллельные read-only tools, в Plan — без правок.
 
 ---
 

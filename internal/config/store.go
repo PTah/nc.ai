@@ -38,7 +38,7 @@ type Settings struct {
 
 	Shell          string   `json:"shell"`
 	RecentProjects []string `json:"recentProjects"`
-	LastProject   string   `json:"lastProject,omitempty"`
+	LastProject    string   `json:"lastProject,omitempty"`
 	GitUsername    string   `json:"gitUsername"`
 	GitPassword    string   `json:"gitPassword"`
 	SSHUser        string   `json:"sshUser"`
@@ -62,6 +62,9 @@ type Settings struct {
 	// git_push, ssh_exec). Default true when unset on first run — see ToolConfirmEnabled.
 	ToolConfirm *bool `json:"toolConfirm,omitempty"`
 
+	// PlanMode: explore-only (no writes/shell/git push/ssh).
+	PlanMode bool `json:"planMode,omitempty"`
+
 	// Main window geometry (logical pixels). Zero width/height → defaults.
 	WindowWidth     int  `json:"windowWidth,omitempty"`
 	WindowHeight    int  `json:"windowHeight,omitempty"`
@@ -71,49 +74,49 @@ type Settings struct {
 	WindowMaximised bool `json:"windowMaximised,omitempty"`
 
 	// Inner layout sizes (px). Zero → CSS defaults.
-	LayoutProjectsW  int `json:"layoutProjectsW,omitempty"`
-	LayoutTreeW      int `json:"layoutTreeW,omitempty"`
-	LayoutSettingsW  int `json:"layoutSettingsW,omitempty"`
-	LayoutTerminalH  int `json:"layoutTerminalH,omitempty"`
-	LayoutComposerH  int `json:"layoutComposerH,omitempty"`
-	LayoutChatMaxW   int `json:"layoutChatMaxW,omitempty"`
+	LayoutProjectsW int `json:"layoutProjectsW,omitempty"`
+	LayoutTreeW     int `json:"layoutTreeW,omitempty"`
+	LayoutSettingsW int `json:"layoutSettingsW,omitempty"`
+	LayoutTerminalH int `json:"layoutTerminalH,omitempty"`
+	LayoutComposerH int `json:"layoutComposerH,omitempty"`
+	LayoutChatMaxW  int `json:"layoutChatMaxW,omitempty"`
 
 	// All-time API usage counters (legacy combined + per-provider).
-	TotalCostUSD      float64 `json:"totalCostUsd"`
-	TotalInputTokens  int     `json:"totalInputTokens"`
-	TotalOutputTokens int     `json:"totalOutputTokens"`
-	TotalCacheHitTokens  int `json:"totalCacheHitTokens,omitempty"`
-	TotalCacheMissTokens int `json:"totalCacheMissTokens,omitempty"`
+	TotalCostUSD         float64 `json:"totalCostUsd"`
+	TotalInputTokens     int     `json:"totalInputTokens"`
+	TotalOutputTokens    int     `json:"totalOutputTokens"`
+	TotalCacheHitTokens  int     `json:"totalCacheHitTokens,omitempty"`
+	TotalCacheMissTokens int     `json:"totalCacheMissTokens,omitempty"`
 
-	DeepSeekCostUSD      float64 `json:"deepseekCostUsd,omitempty"`
-	DeepSeekInputTokens  int     `json:"deepseekInputTokens,omitempty"`
-	DeepSeekOutputTokens int     `json:"deepseekOutputTokens,omitempty"`
-	DeepSeekCacheHitTokens  int `json:"deepseekCacheHitTokens,omitempty"`
-	DeepSeekCacheMissTokens int `json:"deepseekCacheMissTokens,omitempty"`
+	DeepSeekCostUSD         float64 `json:"deepseekCostUsd,omitempty"`
+	DeepSeekInputTokens     int     `json:"deepseekInputTokens,omitempty"`
+	DeepSeekOutputTokens    int     `json:"deepseekOutputTokens,omitempty"`
+	DeepSeekCacheHitTokens  int     `json:"deepseekCacheHitTokens,omitempty"`
+	DeepSeekCacheMissTokens int     `json:"deepseekCacheMissTokens,omitempty"`
 
-	ZaiCostUSD      float64 `json:"zaiCostUsd,omitempty"`
-	ZaiInputTokens  int     `json:"zaiInputTokens,omitempty"`
-	ZaiOutputTokens int     `json:"zaiOutputTokens,omitempty"`
-	ZaiCacheHitTokens  int `json:"zaiCacheHitTokens,omitempty"`
-	ZaiCacheMissTokens int `json:"zaiCacheMissTokens,omitempty"`
+	ZaiCostUSD         float64 `json:"zaiCostUsd,omitempty"`
+	ZaiInputTokens     int     `json:"zaiInputTokens,omitempty"`
+	ZaiOutputTokens    int     `json:"zaiOutputTokens,omitempty"`
+	ZaiCacheHitTokens  int     `json:"zaiCacheHitTokens,omitempty"`
+	ZaiCacheMissTokens int     `json:"zaiCacheMissTokens,omitempty"`
 
-	OpenRouterCostUSD      float64 `json:"openrouterCostUsd,omitempty"`
-	OpenRouterInputTokens  int     `json:"openrouterInputTokens,omitempty"`
-	OpenRouterOutputTokens int     `json:"openrouterOutputTokens,omitempty"`
-	OpenRouterCacheHitTokens  int `json:"openrouterCacheHitTokens,omitempty"`
-	OpenRouterCacheMissTokens int `json:"openrouterCacheMissTokens,omitempty"`
+	OpenRouterCostUSD         float64 `json:"openrouterCostUsd,omitempty"`
+	OpenRouterInputTokens     int     `json:"openrouterInputTokens,omitempty"`
+	OpenRouterOutputTokens    int     `json:"openrouterOutputTokens,omitempty"`
+	OpenRouterCacheHitTokens  int     `json:"openrouterCacheHitTokens,omitempty"`
+	OpenRouterCacheMissTokens int     `json:"openrouterCacheMissTokens,omitempty"`
 
 	// LastSeenVersion is the app version for which Welcome was already shown.
 	LastSeenVersion string `json:"lastSeenVersion,omitempty"`
 
 	// Cached official price sheets (weekly refresh from provider docs).
-	DeepSeekPeakPrices      map[string]costing.Prices     `json:"deepseekPeakPrices,omitempty"`
-	DeepSeekPeakWindows     []costing.PeakWindow          `json:"deepseekPeakWindows,omitempty"`
-	DeepSeekPricesCheckedAt string                        `json:"deepseekPricesCheckedAt,omitempty"` // RFC3339 UTC
-	ZaiPrices               map[string]costing.Prices     `json:"zaiPrices,omitempty"`
-	ZaiPricesCheckedAt      string                        `json:"zaiPricesCheckedAt,omitempty"`
-	OpenRouterPrices        map[string]costing.Prices     `json:"openrouterPrices,omitempty"`
-	OpenRouterPricesCheckedAt string                      `json:"openrouterPricesCheckedAt,omitempty"`
+	DeepSeekPeakPrices        map[string]costing.Prices `json:"deepseekPeakPrices,omitempty"`
+	DeepSeekPeakWindows       []costing.PeakWindow      `json:"deepseekPeakWindows,omitempty"`
+	DeepSeekPricesCheckedAt   string                    `json:"deepseekPricesCheckedAt,omitempty"` // RFC3339 UTC
+	ZaiPrices                 map[string]costing.Prices `json:"zaiPrices,omitempty"`
+	ZaiPricesCheckedAt        string                    `json:"zaiPricesCheckedAt,omitempty"`
+	OpenRouterPrices          map[string]costing.Prices `json:"openrouterPrices,omitempty"`
+	OpenRouterPricesCheckedAt string                    `json:"openrouterPricesCheckedAt,omitempty"`
 }
 
 type Store struct {
@@ -404,6 +407,19 @@ func (s *Store) SetToolConfirm(on bool) error {
 	s.mu.Lock()
 	v := on
 	s.settings.ToolConfirm = &v
+	s.mu.Unlock()
+	return s.Save()
+}
+
+func (s *Store) PlanModeEnabled() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.settings.PlanMode
+}
+
+func (s *Store) SetPlanMode(on bool) error {
+	s.mu.Lock()
+	s.settings.PlanMode = on
 	s.mu.Unlock()
 	return s.Save()
 }

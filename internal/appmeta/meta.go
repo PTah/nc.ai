@@ -5,7 +5,7 @@ import "time"
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "0.5.27"
+	Version = "0.6.0"
 )
 
 // DeepSeekProRetireRFC3339 is when the provider retires V4 Pro
@@ -29,27 +29,27 @@ func DeepSeekProRetired(now time.Time) bool {
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
-	"Агент: find_files/grep, read по строкам, get_env_info, карта проекта",
-	"HITL: подтверждение опасных tools; умнее compact истории",
-	"Проверка цен DeepSeek/OpenRouter/z.ai — системные сообщения в чате",
-	"V4 Pro (DeepSeek) отключён с 14.09 — авто-выбор и расчёты идут по Flash",
-	"Чаты и настройки только в NotCursor — не в ~/.cursor",
+	"Plan/Act, todo-список, ask_user, параллельные read-tools",
+	"delete_file, grep как rg, фон терминала + command_status",
+	"Редактор файла внизу чата + read_lints (go vet) и IDE-контекст",
+	"web_search / fetch_url с SSRF-guard и маскированием секретов",
+	"Промпт: без имён tools, git только по просьбе, cwd без cd",
 }
 
 var HighlightsEN = []string{
-	"Agent: find_files/grep, ranged read_file, get_env_info, project map",
-	"HITL for dangerous tools; smarter history compact",
-	"Price checks for DeepSeek/OpenRouter/z.ai — chat system notices",
-	"DeepSeek V4 Pro retired on 2026-09-14 — auto routing and billing use Flash",
-	"Chats/settings live under NotCursor — never ~/.cursor",
+	"Plan/Act, todo list, ask_user, parallel read-only tools",
+	"delete_file, ripgrep-like grep, background shell + command_status",
+	"In-app file editor + read_lints (go vet) and IDE context",
+	"web_search / fetch_url with SSRF guard and secret redaction",
+	"Prompt: no tool names, git only when asked, cwd instead of cd",
 }
 
 // UICopy is localized chrome for the Welcome splash.
 type UICopy struct {
-	Eyebrow   string
-	Version   string // prefix before version number, e.g. "версия" / "version"
-	WhatsNew  string
-	Continue  string
+	Eyebrow  string
+	Version  string // prefix before version number, e.g. "версия" / "version"
+	WhatsNew string
+	Continue string
 }
 
 var CopyRU = UICopy{
