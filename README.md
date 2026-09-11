@@ -153,7 +153,7 @@ Windows: `build/bin/NotCursor.exe`. macOS: `build/bin/NotCursor.app`.
 - **Cursor Rules**: список + reload.
 - **Git & SSH**: без логинов в UI — системный `git` + `~/.ssh`.
 
-Данные: `%APPDATA%/NotCursor/` (не коммитить).
+Данные: `%APPDATA%/NotCursor/`.
 
 ---
 
