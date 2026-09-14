@@ -94,6 +94,10 @@ export function ListChatSessions() {
   return window['go']['main']['App']['ListChatSessions']();
 }
 
+export function ListDeepSeekModels() {
+  return window['go']['main']['App']['ListDeepSeekModels']();
+}
+
 export function ListDir(arg1) {
   return window['go']['main']['App']['ListDir'](arg1);
 }
@@ -132,6 +136,10 @@ export function OpenProject(arg1) {
 
 export function PickProjectDir() {
   return window['go']['main']['App']['PickProjectDir']();
+}
+
+export function PreferDeepSeekModel(arg1) {
+  return window['go']['main']['App']['PreferDeepSeekModel'](arg1);
 }
 
 export function PreferLocalModel(arg1) {
