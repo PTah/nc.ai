@@ -86,7 +86,7 @@ import {
 import {EventsOn, EventsOff} from '../wailsjs/runtime/runtime'
 import BrandMark from './BrandMark'
 import Markdown from './Markdown'
-import {applyChatFindMarks, clearChatFindMarks} from './chatFind'
+import {applyChatFindMarks, clearChatFindMarks, focusChatFindMark} from './chatFind'
 
 type Project = { name: string; path: string; opened?: string }
 type FileEntry = { name: string; path: string; isDir: boolean }
@@ -838,6 +838,9 @@ export default function App() {
   const chatRef = useRef<HTMLDivElement>(null)
   const chatFindInputRef = useRef<HTMLInputElement>(null)
   const chatFindOpenRef = useRef(false)
+  const chatFindRunAt = useRef(0)
+  const chatFindMarksRef = useRef<HTMLElement[]>([])
+  const chatFindIndexRef = useRef(0)
   const termRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const xtermRef = useRef<Terminal | null>(null)
@@ -1378,6 +1381,10 @@ export default function App() {
   }, [chatFindOpen])
 
   useEffect(() => {
+    chatFindIndexRef.current = chatFindIndex
+  }, [chatFindIndex])
+
+  useEffect(() => {
     if (!chatFindOpen) {
       const el = chatRef.current
       if (el) clearChatFindMarks(el)
@@ -1395,12 +1402,25 @@ export default function App() {
     if (!chatFindOpen) return
     const root = chatRef.current
     if (!root) return
-    const id = window.requestAnimationFrame(() => {
-      const n = applyChatFindMarks(root, chatFindQuery, chatFindIndex)
-      setChatFindCount(n)
-    })
-    return () => window.cancelAnimationFrame(id)
-  }, [chatFindOpen, chatFindQuery, chatFindIndex, items, busy, activeSessionId])
+    // Throttle: while the agent streams, `items` changes on every token. Re-running
+    // the full mark pass that often froze the UI, so coalesce to one pass per gap.
+    const gap = busy ? 350 : 60
+    const wait = Math.max(0, gap - (performance.now() - chatFindRunAt.current))
+    const id = window.setTimeout(() => {
+      chatFindRunAt.current = performance.now()
+      const res = applyChatFindMarks(root, chatFindQuery)
+      chatFindMarksRef.current = res.marks
+      setChatFindCount(res.count)
+      focusChatFindMark(res.marks, chatFindIndexRef.current)
+    }, wait)
+    return () => window.clearTimeout(id)
+  }, [chatFindOpen, chatFindQuery, items, busy, activeSessionId])
+
+  // Navigation (↑/↓, F3) only moves the highlight — no DOM re-walk.
+  useEffect(() => {
+    if (!chatFindOpen) return
+    focusChatFindMark(chatFindMarksRef.current, chatFindIndex)
+  }, [chatFindOpen, chatFindIndex])
 
   // Process queued messages once the agent is idle.
   useEffect(() => {
