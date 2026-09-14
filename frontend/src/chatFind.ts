@@ -21,8 +21,13 @@ function acceptTextNode(node: Node): number {
     return NodeFilter.FILTER_REJECT
   }
   if (p.closest(`mark.${FIND_MARK_CLASS}`)) return NodeFilter.FILTER_REJECT
+  // Skip collapsed <details> content (thinking, tool groups) — its text is in the DOM
+  // but not visible, which inflated the match counter.
+  const closed = p.closest('details:not([open])')
+  if (closed && !p.closest('summary')) return NodeFilter.FILTER_REJECT
   const t = node.textContent
   if (!t || !t.trim()) return NodeFilter.FILTER_REJECT
+  if (!p.getClientRects().length) return NodeFilter.FILTER_REJECT
   return NodeFilter.FILTER_ACCEPT
 }
 
