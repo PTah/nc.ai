@@ -4,7 +4,10 @@ param(
     # Pass -NoRestart to only build (rename trick still used if the exe is locked).
     [switch]$NoRestart,
     # Kept for compatibility; restart is already the default.
-    [switch]$Restart
+    [switch]$Restart,
+    # Optional: copy finished NotCursor.exe into this folder (e.g. network share).
+    # If omitted, the artifact stays in build\bin only.
+    [string]$CopyTo = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -31,6 +34,20 @@ function Get-NotCursorProcesses {
             $_.ProcessName -eq 'NotCursor' -or
             ($_.Path -and ($_.Path -ieq $exe))
         }
+}
+
+function Copy-BuildArtifact {
+    param([Parameter(Mandatory = $true)][string]$SourceExe)
+    if (-not $CopyTo) { return }
+    $destDir = $CopyTo.Trim()
+    if (-not $destDir) { return }
+    if (-not (Test-Path -LiteralPath $SourceExe)) {
+        throw "Cannot copy: missing $SourceExe"
+    }
+    New-Item -ItemType Directory -Force -Path $destDir | Out-Null
+    $dest = Join-Path $destDir 'NotCursor.exe'
+    Copy-Item -LiteralPath $SourceExe -Destination $dest -Force
+    Write-Host "Copied to: $dest"
 }
 
 $running = @(Get-NotCursorProcesses)
@@ -80,6 +97,14 @@ finally {
 }
 
 if (-not $buildOk) { exit 1 }
+
+try {
+    Copy-BuildArtifact -SourceExe $exe
+}
+catch {
+    Write-Host "Copy failed: $_" -ForegroundColor Red
+    exit 1
+}
 
 if (-not $doRestart) {
     if (Test-Path -LiteralPath $old) {

@@ -1,10 +1,11 @@
-#!/usr/bin/env bash
+!/usr/bin/env bash
 # Build NotCursor.app for macOS (counterpart of build.ps1).
 # Output: build/bin/NotCursor.app (canonical). /tmp is only a staging area for codesign.
 # Usage:
 #   ./build.sh              # build + restart
 #   ./build.sh --no-restart # build only
 #   ./build.sh --universal  # fat binary (arm64+amd64)
+#   ./build.sh --copy-to /path/to/share   # also copy .app into folder
 set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")" && pwd)"
@@ -16,23 +17,39 @@ STAGE_DIR=""
 
 NO_RESTART=0
 UNIVERSAL=0
-for arg in "$@"; do
-  case "$arg" in
-    --no-restart|-NoRestart) NO_RESTART=1 ;;
-    --universal|-Universal) UNIVERSAL=1 ;;
+COPY_TO=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --no-restart|-NoRestart) NO_RESTART=1; shift ;;
+    --universal|-Universal) UNIVERSAL=1; shift ;;
+    --copy-to|-CopyTo)
+      if [[ $# -lt 2 || -z "${2:-}" ]]; then
+        echo "Missing path after $1" >&2
+        exit 2
+      fi
+      COPY_TO="$2"
+      shift 2
+      ;;
+    --copy-to=*|-CopyTo=*)
+      COPY_TO="${1#*=}"
+      shift
+      ;;
     -h|--help)
       cat <<'EOF'
-Usage: ./build.sh [--no-restart] [--universal]
+Usage: ./build.sh [--no-restart] [--universal] [--copy-to DIR]
 
   --no-restart   Build and sign only; do not quit/relaunch NotCursor.
   --universal    Build darwin/universal instead of host arch.
+  --copy-to DIR  After a successful build, copy NotCursor.app into DIR
+                 (e.g. network share). If omitted, artifact stays in build/bin.
 
 Artifact: build/bin/NotCursor.app
 EOF
       exit 0
       ;;
     *)
-      echo "Unknown argument: $arg" >&2
+      echo "Unknown argument: $1" >&2
       exit 2
       ;;
   esac
@@ -128,6 +145,14 @@ rm -rf "${STAGE_DIR}"
 STAGE_DIR=""
 codesign --verify --deep --strict "${APP_PATH}" 2>/dev/null || true
 echo "Build finished: ${APP_PATH}"
+
+if [[ -n "${COPY_TO}" ]]; then
+  mkdir -p "${COPY_TO}"
+  DEST="${COPY_TO%/}/${APP_NAME}"
+  rm -rf "${DEST}"
+  ditto --norsrc --noextattr --noacl "${APP_PATH}" "${DEST}"
+  echo "Copied to: ${DEST}"
+fi
 
 if [[ "${NO_RESTART}" -eq 1 ]]; then
   echo "Done (no restart)."

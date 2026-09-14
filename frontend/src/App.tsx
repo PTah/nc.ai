@@ -84,6 +84,7 @@ import {
 import {EventsOn, EventsOff} from '../wailsjs/runtime/runtime'
 import BrandMark from './BrandMark'
 import Markdown from './Markdown'
+import {applyChatFindMarks, clearChatFindMarks} from './chatFind'
 
 type Project = { name: string; path: string; opened?: string }
 type FileEntry = { name: string; path: string; isDir: boolean }
@@ -826,7 +827,15 @@ export default function App() {
   const [localKeySet, setLocalKeySet] = useState(false)
   const [theme, setTheme] = useState<'dark' | 'light'>('dark')
   const [termCmd, setTermCmd] = useState('')
+  const [chatFindOpen, setChatFindOpen] = useState(false)
+  const [chatFindQuery, setChatFindQuery] = useState('')
+  const [chatFindIndex, setChatFindIndex] = useState(0)
+  const [chatFindCount, setChatFindCount] = useState(0)
+  const [modelsRefreshing, setModelsRefreshing] = useState(false)
+  const [modelsRefreshHint, setModelsRefreshHint] = useState('')
   const chatRef = useRef<HTMLDivElement>(null)
+  const chatFindInputRef = useRef<HTMLInputElement>(null)
+  const chatFindOpenRef = useRef(false)
   const termRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const xtermRef = useRef<Terminal | null>(null)
@@ -1356,10 +1365,40 @@ export default function App() {
   }, [setSessionItems, applyUsageStats])
 
   useEffect(() => {
+    if (chatFindOpen) return
     const el = chatRef.current
     if (!el) return
     el.scrollTop = el.scrollHeight
-  }, [items, busy, activeSessionId])
+  }, [items, busy, activeSessionId, chatFindOpen])
+
+  useEffect(() => {
+    chatFindOpenRef.current = chatFindOpen
+  }, [chatFindOpen])
+
+  useEffect(() => {
+    if (!chatFindOpen) {
+      const el = chatRef.current
+      if (el) clearChatFindMarks(el)
+      setChatFindCount(0)
+      return
+    }
+    const id = window.requestAnimationFrame(() => {
+      chatFindInputRef.current?.focus()
+      chatFindInputRef.current?.select()
+    })
+    return () => window.cancelAnimationFrame(id)
+  }, [chatFindOpen])
+
+  useEffect(() => {
+    if (!chatFindOpen) return
+    const root = chatRef.current
+    if (!root) return
+    const id = window.requestAnimationFrame(() => {
+      const n = applyChatFindMarks(root, chatFindQuery, chatFindIndex)
+      setChatFindCount(n)
+    })
+    return () => window.cancelAnimationFrame(id)
+  }, [chatFindOpen, chatFindQuery, chatFindIndex, items, busy, activeSessionId])
 
   // Process queued messages once the agent is idle.
   useEffect(() => {
@@ -1654,9 +1693,34 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Global in-app hotkeys: Ctrl-Alt-T terminal, Ctrl-Shift-S settings.
+  // Global in-app hotkeys: Ctrl-F chat find, Esc close find, Ctrl-Alt-T terminal, Ctrl-Shift-S settings.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      const mod = e.ctrlKey || e.metaKey
+      if (mod && !e.altKey && !e.shiftKey && e.code === 'KeyF') {
+        e.preventDefault()
+        setChatFindOpen((open) => {
+          if (open) {
+            setChatFindQuery('')
+            setChatFindIndex(0)
+            return false
+          }
+          return true
+        })
+        return
+      }
+      if (chatFindOpenRef.current && e.key === 'Escape') {
+        e.preventDefault()
+        setChatFindOpen(false)
+        setChatFindQuery('')
+        setChatFindIndex(0)
+        return
+      }
+      if (chatFindOpenRef.current && e.code === 'F3') {
+        e.preventDefault()
+        setChatFindIndex((i) => (e.shiftKey ? i - 1 : i + 1))
+        return
+      }
       if (e.ctrlKey && e.altKey && e.code === 'KeyT') {
         e.preventDefault()
         void toggleTerminal(!showTerm)
@@ -1995,6 +2059,34 @@ export default function App() {
     }
   }
 
+  async function refreshActiveProviderModels() {
+    if (modelsRefreshing) return
+    setModelsRefreshing(true)
+    setModelsRefreshHint('')
+    try {
+      if (activeProvider === 'deepseek') {
+        setModelsRefreshHint('DeepSeek: фиксированный список')
+        return
+      }
+      let list: string[] = []
+      if (activeProvider === 'zai') {
+        list = await refreshZaiModels({applyPreferred: true})
+      } else if (activeProvider === 'openrouter') {
+        list = await refreshOpenRouterModels({applyPreferred: true})
+      } else {
+        list = await refreshLocalModels({applyPreferred: true})
+      }
+      setModelsRefreshHint(
+        list.length > 0
+          ? `${providerLabel}: ${list.length} моделей`
+          : `${providerLabel}: список пуст / ошибка`,
+      )
+    } finally {
+      setModelsRefreshing(false)
+      window.setTimeout(() => setModelsRefreshHint(''), 3500)
+    }
+  }
+
   async function applyProvider(next: ProviderId) {
     setActiveProvider(next)
     try {
@@ -2293,6 +2385,22 @@ export default function App() {
                   ))}
             </select>
           </label>
+          <button
+            type="button"
+            className="nc-ghost"
+            disabled={modelsRefreshing}
+            onClick={() => void refreshActiveProviderModels()}
+            title={
+              activeProvider === 'deepseek'
+                ? 'DeepSeek: список моделей фиксированный'
+                : `Перечитать модели у ${providerLabel}`
+            }
+          >
+            {modelsRefreshing ? '…' : '↻ Models'}
+          </button>
+          {modelsRefreshHint ? (
+            <span className="nc-pill" title={modelsRefreshHint}>{modelsRefreshHint}</span>
+          ) : null}
           <label
             className="nc-top-check"
             title={
@@ -2560,8 +2668,97 @@ export default function App() {
                   <button type="button" className="nc-ghost" onClick={() => void retryLast()} title="Повторить последний запрос">Reconnect</button>
                 )}
                 <button type="button" className="nc-ghost" disabled={!busy} onClick={() => StopAgent()} title="Остановить текущий запуск агента">Stop</button>
+                <button
+                  type="button"
+                  className={`nc-ghost ${chatFindOpen ? 'on' : ''}`}
+                  onClick={() => {
+                    setChatFindOpen((open) => {
+                      if (open) {
+                        setChatFindQuery('')
+                        setChatFindIndex(0)
+                        return false
+                      }
+                      return true
+                    })
+                  }}
+                  title="Поиск по чату (Ctrl+F)"
+                >
+                  Find
+                </button>
               </div>
             </header>
+            {chatFindOpen && (
+              <div className="nc-find-bar" role="search">
+                <label className="nc-find-label">
+                  <span className="nc-find-label-text">Найти</span>
+                  <input
+                    ref={chatFindInputRef}
+                    className="nc-find-input"
+                    type="search"
+                    value={chatFindQuery}
+                    placeholder="слово или фраза…"
+                    autoComplete="off"
+                    spellCheck={false}
+                    onChange={(e) => {
+                      setChatFindQuery(e.target.value)
+                      setChatFindIndex(0)
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Escape') {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        setChatFindOpen(false)
+                        setChatFindQuery('')
+                        setChatFindIndex(0)
+                        return
+                      }
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        if (!chatFindQuery.trim() || chatFindCount === 0) return
+                        setChatFindIndex((i) => (e.shiftKey ? i - 1 : i + 1))
+                      }
+                    }}
+                  />
+                </label>
+                <span className="nc-find-count" title="Совпадения в чате">
+                  {chatFindQuery.trim()
+                    ? chatFindCount > 0
+                      ? `${((chatFindIndex % chatFindCount) + chatFindCount) % chatFindCount + 1}/${chatFindCount}`
+                      : '0/0'
+                    : '—'}
+                </span>
+                <button
+                  type="button"
+                  className="nc-ghost"
+                  disabled={!chatFindQuery.trim() || chatFindCount === 0}
+                  onClick={() => setChatFindIndex((i) => i - 1)}
+                  title="Предыдущее (Shift+Enter / Shift+F3)"
+                >
+                  ↑
+                </button>
+                <button
+                  type="button"
+                  className="nc-ghost"
+                  disabled={!chatFindQuery.trim() || chatFindCount === 0}
+                  onClick={() => setChatFindIndex((i) => i + 1)}
+                  title="Следующее (Enter / F3)"
+                >
+                  ↓
+                </button>
+                <button
+                  type="button"
+                  className="nc-ghost"
+                  onClick={() => {
+                    setChatFindOpen(false)
+                    setChatFindQuery('')
+                    setChatFindIndex(0)
+                  }}
+                  title="Закрыть (Esc / Ctrl+F)"
+                >
+                  ×
+                </button>
+              </div>
+            )}
             {todos.length > 0 && (
               <ul className="nc-todos">
                 {todos.map((t) => (
