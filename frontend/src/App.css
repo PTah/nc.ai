@@ -460,6 +460,15 @@ mark.nc-find-mark.nc-find-current {
   color: #06144d;
   outline: 1px solid #0a1f6e;
 }
+/* Preferred path: CSS Custom Highlight API (no <mark> DOM mutation). */
+::highlight(nc-find) {
+  background-color: #ffe566;
+  color: #0a1f6e;
+}
+::highlight(nc-find-current) {
+  background-color: #ffd000;
+  color: #06144d;
+}
 .nc-tabs {
   display: flex; align-items: center; gap: 0.25rem; min-width: 0; flex: 1;
   overflow-x: auto;
