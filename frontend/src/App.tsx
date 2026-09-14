@@ -86,7 +86,7 @@ import {
 import {EventsOn, EventsOff} from '../wailsjs/runtime/runtime'
 import BrandMark from './BrandMark'
 import Markdown from './Markdown'
-import {applyChatFindMarks, clearChatFindMarks, focusChatFindMark} from './chatFind'
+import {applyChatFindMarks, clearChatFindMarks, focusChatFindHit, type ChatFindHit} from './chatFind'
 
 type Project = { name: string; path: string; opened?: string }
 type FileEntry = { name: string; path: string; isDir: boolean }
@@ -839,8 +839,9 @@ export default function App() {
   const chatFindInputRef = useRef<HTMLInputElement>(null)
   const chatFindOpenRef = useRef(false)
   const chatFindRunAt = useRef(0)
-  const chatFindMarksRef = useRef<HTMLElement[]>([])
+  const chatFindHitsRef = useRef<ChatFindHit[]>([])
   const chatFindIndexRef = useRef(0)
+  const chatFindQueryDebounced = useRef('')
   const termRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const xtermRef = useRef<Terminal | null>(null)
@@ -1388,6 +1389,8 @@ export default function App() {
     if (!chatFindOpen) {
       const el = chatRef.current
       if (el) clearChatFindMarks(el)
+      chatFindHitsRef.current = []
+      chatFindQueryDebounced.current = ''
       setChatFindCount(0)
       return
     }
@@ -1398,28 +1401,34 @@ export default function App() {
     return () => window.cancelAnimationFrame(id)
   }, [chatFindOpen])
 
+  // Debounced find: typing must not re-scan on every key.
+  // CSS Highlight API keeps the scan cheap; debounce still avoids storms.
   useEffect(() => {
     if (!chatFindOpen) return
     const root = chatRef.current
     if (!root) return
-    // Throttle: while the agent streams, `items` changes on every token. Re-running
-    // the full mark pass that often froze the UI, so coalesce to one pass per gap.
-    const gap = busy ? 350 : 60
-    const wait = Math.max(0, gap - (performance.now() - chatFindRunAt.current))
+    const q = chatFindQuery
+    const queryChanged = q !== chatFindQueryDebounced.current
+    // Pause after typing; slower while the agent streams new DOM.
+    const delay = queryChanged ? 180 : busy ? 400 : 100
     const id = window.setTimeout(() => {
       chatFindRunAt.current = performance.now()
-      const res = applyChatFindMarks(root, chatFindQuery)
-      chatFindMarksRef.current = res.marks
+      chatFindQueryDebounced.current = q
+      const res = applyChatFindMarks(root, q)
+      chatFindHitsRef.current = res.hits
       setChatFindCount(res.count)
-      focusChatFindMark(res.marks, chatFindIndexRef.current)
-    }, wait)
+      focusChatFindHit(res.hits, chatFindIndexRef.current, {
+        scroll: queryChanged,
+        smooth: false,
+      })
+    }, delay)
     return () => window.clearTimeout(id)
   }, [chatFindOpen, chatFindQuery, items, busy, activeSessionId])
 
-  // Navigation (↑/↓, F3) only moves the highlight — no DOM re-walk.
+  // Navigation (↑/↓, F3) only moves the current highlight — no re-scan.
   useEffect(() => {
     if (!chatFindOpen) return
-    focusChatFindMark(chatFindMarksRef.current, chatFindIndex)
+    focusChatFindHit(chatFindHitsRef.current, chatFindIndex, {scroll: true, smooth: false})
   }, [chatFindOpen, chatFindIndex])
 
   // Process queued messages once the agent is idle.
