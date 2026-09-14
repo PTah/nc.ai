@@ -15,10 +15,11 @@ func almost(a, b float64) bool {
 func TestNormalizeModel(t *testing.T) {
 	cases := map[string]string{
 		"":                             "",
-		"deepseek-v4-flash":            "deepseek-v4-flash",
-		"deepseek-v4-flash-0731":       "deepseek-v4-flash",
-		"deepseek-v4-flash-vision-exp": "deepseek-v4-flash",
-		"deepseek/deepseek-v4-flash":   "deepseek-v4-flash",
+		"deepseek-flash":               "deepseek-flash",
+		"deepseek-v4-flash":            "deepseek-flash",
+		"deepseek-v4-flash-0731":       "deepseek-flash",
+		"deepseek-v4-flash-vision-exp": "deepseek-flash",
+		"deepseek/deepseek-v4-flash":   "deepseek-flash",
 		"deepseek-v4-pro":              "deepseek-v4-pro",
 		"deepseek-v4-pro-0813":         "deepseek-v4-pro",
 		"DeepSeek-V4-Pro":              "deepseek-v4-pro",

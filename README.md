@@ -2,7 +2,7 @@
 
 Лёгкий нативный AI-IDE агент (аналог Cursor) на **Wails v2 + Go + React/TypeScript**.
 
-**Версия UI/бинаря:** `0.6.7`
+**Версия UI/бинаря:** `0.6.8`
 
 **Сборка Windows:** `build/bin/NotCursor.exe`
 
@@ -16,12 +16,12 @@
 
 | Провайдер | Модели | Особенности |
 |---|---|---|
-| **DeepSeek** | `deepseek-v4-flash`, vision `deepseek-v4-flash-vision-exp` (до 14.09.2026 12:00 Beijing — ещё `deepseek-v4-pro`) | OpenAI-compatible API |
+| **DeepSeek** | `deepseek-flash` (V4.1 Flash, нативно мультимодальная; legacy `deepseek-v4-flash`, `…-vision-exp` и `deepseek-v4-pro` роутятся на неё) | OpenAI-compatible API |
 | **Z.ai** | `glm-4.5…5.3` (flash / pro / vision) | свободные flash-модели, живой список `/models`, проверка баланса |
 | **OpenRouter** | произвольный `openrouter/…` | свой ключ/endpoint |
 | **Local** | любая из `/models` (Ollama, LM Studio, vLLM, llama.cpp) | OpenAI-compatible, по умолчанию `http://127.0.0.1:11434/v1`, ключ не обязателен |
 
-- Автоматический выбор модели: flash → pro → vision (по вложениям/шагам). После 14.09.2026 12:00 Beijing `v4-pro` выводится из списка, авто-выбор и расчёты идут по Flash.
+- Автоматический выбор модели: flash (V4.1) → legacy `deepseek-v4-pro` (до retire) → multimodal (V4.1 Flash). После 14.09.2026 12:00 Beijing `v4-pro` выводится из списка, авто-выбор и расчёты идут по `deepseek-flash`.
 - HTTP-ошибки провайдеров переводятся в человекочитаемые сообщения (402 → «Пополните баланс…», 429 → «лимит запросов…»).
 - Для Z.ai: **баланс** и список моделей показываются в Settings.
 - Кнопка **«↻ Models»** — перечитать список моделей у активного провайдера (DeepSeek тянет его через `GET /models`, как остальные).

@@ -234,9 +234,7 @@ const LOCAL_PRESETS: {id: string; label: string; url: string}[] = [
 ]
 
 const DEEPSEEK_MODELS = [
-  'deepseek-v4-flash',
-  'deepseek-v4-pro',
-  'deepseek-v4-flash-vision-exp',
+  'deepseek-flash',
 ] as const
 
 const ZAI_MODELS_FALLBACK = [
@@ -803,7 +801,7 @@ export default function App() {
   const [zaiKey, setZaiKey] = useState('')
   const [openrouterKey, setOpenrouterKey] = useState('')
   const [localKey, setLocalKey] = useState('')
-  const [deepseekModel, setDeepseekModel] = useState('deepseek-v4-flash')
+  const [deepseekModel, setDeepseekModel] = useState('deepseek-flash')
   const [deepseekModels, setDeepseekModels] = useState<string[]>([...DEEPSEEK_MODELS])
   const [zaiModel, setZaiModel] = useState('glm-4.7-flash')
   const [openrouterModel, setOpenrouterModel] = useState('qwen/qwen3-coder-flash:floor')
@@ -2221,7 +2219,7 @@ export default function App() {
       setLocalKeySet(true)
     }
     await SaveActiveProvider(activeProvider)
-    await SaveDeepSeekModel(deepseekModel.trim() || 'deepseek-v4-flash')
+    await SaveDeepSeekModel(deepseekModel.trim() || 'deepseek-flash')
     await SaveZaiModel(zaiModel.trim() || 'glm-4.7-flash')
     await SaveZaiEndpoint(zaiEndpoint)
     await SaveOpenRouterModel(openrouterModel.trim() || 'qwen/qwen3-coder-flash:floor')

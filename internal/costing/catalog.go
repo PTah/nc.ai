@@ -26,7 +26,7 @@ type ModelPrice struct {
 // Catalog returns curated models ordered weakest → strongest (by Strength).
 func Catalog() []ModelPrice {
 	ds := currentDeepSeekPeak()
-	flash := flashPeakRatesAt(time.Now().UTC(), ds["deepseek-v4-flash"])
+	flash := flashPeakRatesAt(time.Now().UTC(), ds["deepseek-flash"])
 	pro := ds["deepseek-v4-pro"]
 	if pro.InputMiss <= 0 {
 		pro = BuiltinDeepSeekPeak()["deepseek-v4-pro"]
@@ -43,16 +43,10 @@ func Catalog() []ModelPrice {
 
 	rows := []ModelPrice{
 		{
-			Provider: "DeepSeek", Model: "deepseek-v4-flash",
+			Provider: "DeepSeek", Model: "deepseek-flash",
 			InputUSD: flash.InputMiss, OutputUSD: flash.Completion, CacheHitUSD: flash.InputHit,
 			InputOffUSD: flash.InputMiss / 2, OutputOffUSD: flash.Completion / 2, CacheHitOffUSD: flash.InputHit / 2,
-			Strength: 10, Note: flashNote,
-		},
-		{
-			Provider: "DeepSeek", Model: "deepseek-v4-flash-vision-exp",
-			InputUSD: flash.InputMiss, OutputUSD: flash.Completion, CacheHitUSD: flash.InputHit,
-			InputOffUSD: flash.InputMiss / 2, OutputOffUSD: flash.Completion / 2, CacheHitOffUSD: flash.InputHit / 2,
-			Strength: 12, Note: "vision · same Flash card · " + wins,
+			Strength: 10, Note: "V4.1 Flash · multimodal · " + flashNote,
 		},
 		{
 			Provider: "DeepSeek", Model: "deepseek-v4-pro",

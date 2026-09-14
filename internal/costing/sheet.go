@@ -40,7 +40,7 @@ var (
 // Built-in DeepSeek peak rates (USD / 1M). Off-peak = half.
 // Flash uses the post-2026-09-10 card; CostAt still applies legacy before that instant.
 var builtinDeepSeekPeak = map[string]Prices{
-	"deepseek-v4-flash": flashPeakNew,
+	"deepseek-flash": flashPeakNew,
 	"deepseek-v4-pro": {
 		InputHit: 0.044, InputMiss: 1.32, Completion: 3.96,
 	},

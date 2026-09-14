@@ -126,7 +126,7 @@ func (a *App) applyDeepSeekStartupDefaults() {
 	if a.cfg.Provider() != config.ProviderDeepSeek {
 		return
 	}
-	_ = a.cfg.SetDeepSeekModel("deepseek-v4-flash")
+	_ = a.cfg.SetDeepSeekModel("deepseek-flash")
 	_ = a.cfg.SetAutoModels(true)
 }
 
@@ -661,8 +661,8 @@ func (a *App) ClearDeepSeekKey() error {
 
 func (a *App) SaveDeepSeekModel(model string) error {
 	if appmeta.DeepSeekProRetired(time.Now()) && strings.EqualFold(strings.TrimSpace(model), "deepseek-v4-pro") {
-		// V4 Pro is retired: keep the user on V4 Flash.
-		model = "deepseek-v4-flash"
+		// V4 Pro is retired: keep the user on V4.1 Flash.
+		model = "deepseek-flash"
 	}
 	if err := a.cfg.SetDeepSeekModel(model); err != nil {
 		return err
@@ -811,6 +811,19 @@ func (a *App) ListDeepSeekModels() []string {
 			filtered = append(filtered, id)
 		}
 		out = filtered
+	}
+	// Track the provider catalog: new/retired models surface as a chat notice.
+	added, removed := deepseek.ModelDiff(a.cfg.DeepSeekModelsSeen(), out)
+	if len(added) > 0 || len(removed) > 0 {
+		parts := make([]string, 0, 2)
+		if len(added) > 0 {
+			parts = append(parts, "новые: "+strings.Join(added, ", "))
+		}
+		if len(removed) > 0 {
+			parts = append(parts, "больше не доступны: "+strings.Join(removed, ", "))
+		}
+		a.emit(agent.Event{Type: "notice", Content: "Система: список моделей DeepSeek изменился — " + strings.Join(parts, "; ")})
+		_ = a.cfg.SetDeepSeekModelsSeen(out)
 	}
 	return out
 }

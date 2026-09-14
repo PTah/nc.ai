@@ -270,7 +270,9 @@ func (r *Runner) emitModel(emit EmitFunc, model, reason string) {
 // IsVisionModel reports models used only for multimodal turns.
 func IsVisionModel(model string) bool {
 	switch strings.TrimSpace(model) {
-	case ModelVision, ModelZaiVision, ModelORVision:
+	// NOTE: DeepSeek's V4.1 Flash is multimodal, so ModelVision == ModelFlash and
+	// must not be treated as a vision-only model (that would break sticky routing).
+	case ModelZaiVision, ModelORVision:
 		return true
 	default:
 		return false

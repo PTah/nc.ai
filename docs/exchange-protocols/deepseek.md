@@ -39,13 +39,13 @@ Content-Type: application/json
 
 | Model ID | Назначение |
 |---|---|
-| `deepseek-v4-flash` | Быстрый / дешёвый кодинг |
-| `deepseek-v4-pro` | Максимальное качество |
-| `deepseek-v4-flash-vision-exp` | Экспериментальный vision |
+| `deepseek-flash` | **Основная**: V4.1 Flash — быстрый/дешёвый кодинг + нативное мультимодальное понимание |
+| `deepseek-v4-pro` | Legacy: выводится из эксплуатации; с 14.09.2026 (04:00 UTC) роутится на V4.1 Flash по тарифам Flash |
+| ~~`deepseek-v4-flash`~~, ~~`…-vision-exp`~~ | Retired: ID сохранены для совместимости, временно роутятся на V4.1 Flash |
 
 > Устаревшие алиасы вроде `deepseek-chat` / `deepseek-reasoner` не использовать в новом коде.
 
-Default в NotCursor (этап 1): `deepseek-v4-flash` (скорость) с возможностью выбрать `deepseek-v4-pro`.
+Default в NotCursor (этап 1): `deepseek-flash` (V4.1 Flash: скорость + мультимодальность) с возможностью выбрать `deepseek-v4-pro` до его вывода из эксплуатации.
 
 ---
 
@@ -53,7 +53,7 @@ Default в NotCursor (этап 1): `deepseek-v4-flash` (скорость) с в�
 
 ```json
 {
-  "model": "deepseek-v4-pro",
+  "model": "deepseek-flash",
   "messages": [
     {
       "role": "system",
@@ -168,7 +168,7 @@ Default в NotCursor (этап 1): `deepseek-v4-flash` (скорость) с в�
   "id": "chatcmpl-...",
   "object": "chat.completion",
   "created": 1725600000,
-  "model": "deepseek-v4-pro",
+  "model": "deepseek-flash",
   "system_fingerprint": "...",
   "choices": [
     {
@@ -267,7 +267,7 @@ DeepSeek возвращает:
 
 ## 9. Thinking mode
 
-Thinking **включён по умолчанию** на `deepseek-v4-flash` / `deepseek-v4-pro`. Default effort — `high`.
+Thinking **включён по умолчанию** на `deepseek-flash` / `deepseek-v4-pro`. Default effort — `high`.
 
 ```json
 "thinking": { "type": "enabled" },
@@ -336,7 +336,7 @@ curl https://api.deepseek.com/chat/completions \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer ${DEEPSEEK_API_KEY}" \
   -d "{
-    \"model\": \"deepseek-v4-flash\",
+    \"model\": \"deepseek-flash\",
     \"messages\": [
       {\"role\": \"user\", \"content\": \"ping\"}
     ],
