@@ -23,7 +23,7 @@ func TestParseDeepSeekPricingHTMLTwoColumns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	flash := snap.Peak["deepseek-v4-flash"]
+	flash := snap.Peak["deepseek-flash"]
 	pro := snap.Peak["deepseek-v4-pro"]
 	if !almost(flash.InputHit, 0.006) || !almost(flash.InputMiss, 0.3) || !almost(flash.Completion, 1.2) {
 		t.Fatalf("flash peak = %+v", flash)
@@ -49,7 +49,7 @@ func TestParseDeepSeekPricingHTML(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	flash := snap.Peak["deepseek-v4-flash"]
+	flash := snap.Peak["deepseek-flash"]
 	pro := snap.Peak["deepseek-v4-pro"]
 	if !almost(flash.InputHit, 0.014) || !almost(flash.InputMiss, 0.44) || !almost(flash.Completion, 1.32) {
 		t.Fatalf("flash peak = %+v", flash)
@@ -185,7 +185,7 @@ func TestFetchDeepSeekLive(t *testing.T) {
 	if !SheetsEqual(snap.Peak, BuiltinDeepSeekPeak()) && !strings.Contains(snap.Source, "deepseek") {
 		t.Logf("live sheet differs from builtin: %+v", snap.Peak)
 	}
-	flash := snap.Peak["deepseek-v4-flash"]
+	flash := snap.Peak["deepseek-flash"]
 	if flash.InputMiss <= 0 || flash.Completion <= 0 {
 		t.Fatalf("bad live flash: %+v", flash)
 	}

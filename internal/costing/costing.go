@@ -71,8 +71,9 @@ func NormalizeModel(model string) string {
 	switch {
 	case strings.HasPrefix(m, "deepseek-v4-pro"):
 		return "deepseek-v4-pro"
-	case strings.HasPrefix(m, "deepseek-v4-flash"), strings.HasPrefix(m, "deepseek"):
-		return "deepseek-v4-flash"
+	case strings.HasPrefix(m, "deepseek"):
+		// deepseek-flash (V4.1) plus legacy deepseek-v4-flash / -vision-exp.
+		return "deepseek-flash"
 	case strings.HasPrefix(m, "glm-5.3-flash"):
 		return "glm-5.3-flash"
 	case strings.HasPrefix(m, "glm-5.3"):
@@ -153,7 +154,7 @@ func Price(model string, at time.Time) Prices {
 	key := NormalizeModel(model)
 	if key == "deepseek-v4-pro" && appmeta.DeepSeekProRetired(at) {
 		// V4 Pro is retired: provider routes it to V4.1 Flash and bills as Flash.
-		key = "deepseek-v4-flash"
+		key = "deepseek-flash"
 	}
 	zai := currentZaiSheet()
 	dsPeak := currentDeepSeekPeak()
@@ -168,7 +169,7 @@ func Price(model string, at time.Time) Prices {
 			return zai[zaiFallbackKey]
 		}
 		if strings.HasPrefix(m, "deepseek") {
-			key = "deepseek-v4-flash"
+			key = "deepseek-flash"
 		} else if strings.HasPrefix(m, "qwen/") {
 			return liveOpenRouterPrices()["qwen/qwen3-coder"]
 		} else {
@@ -188,7 +189,7 @@ func Price(model string, at time.Time) Prices {
 	if !isDeepSeekKey(key) {
 		return peak
 	}
-	if key == "deepseek-v4-flash" {
+	if key == "deepseek-flash" {
 		peak = flashPeakRatesAt(at, peak)
 	}
 	if IsOffPeak(at) {
@@ -219,8 +220,8 @@ func sanitizeFlashPeak(sheet map[string]Prices, at time.Time) {
 	if at.Before(flashNewRatesFrom) || sheet == nil {
 		return
 	}
-	if f, ok := sheet["deepseek-v4-flash"]; ok && f.InputMiss >= 0.40 {
-		sheet["deepseek-v4-flash"] = flashPeakNew
+	if f, ok := sheet["deepseek-flash"]; ok && f.InputMiss >= 0.40 {
+		sheet["deepseek-flash"] = flashPeakNew
 	}
 }
 

@@ -48,7 +48,12 @@ func TestResolveModel_VisionUpgrade(t *testing.T) {
 }
 
 func TestIsVisionModel(t *testing.T) {
-	if !IsVisionModel(ModelVision) || IsVisionModel(ModelFlash) {
-		t.Fatal("vision detection failed")
+	// DeepSeek V4.1 Flash is multimodal, so ModelVision == ModelFlash and neither
+	// may be treated as a vision-only model (that would break sticky routing).
+	if IsVisionModel(ModelVision) || IsVisionModel(ModelFlash) || IsVisionModel(ModelPro) {
+		t.Fatal("deepseek models must not be treated as vision-only")
+	}
+	if !IsVisionModel(ModelZaiVision) || !IsVisionModel(ModelORVision) {
+		t.Fatal("dedicated vision models must still be detected")
 	}
 }

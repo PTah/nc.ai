@@ -57,7 +57,7 @@ func TestSetAndClearAPIKey(t *testing.T) {
 }
 
 func TestSettingsJSONOmitsKeys(t *testing.T) {
-	st := Settings{DeepSeekAPIKey: "sk-leak", DeepSeekModel: "deepseek-v4-flash"}
+	st := Settings{DeepSeekAPIKey: "sk-leak", DeepSeekModel: "deepseek-flash"}
 	b, err := json.Marshal(st)
 	if err != nil {
 		t.Fatal(err)

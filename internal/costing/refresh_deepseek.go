@@ -83,8 +83,8 @@ func ParseDeepSeekPricingHTML(html string) (DeepSeekPricingSnapshot, error) {
 	}
 
 	peak := map[string]Prices{
-		"deepseek-v4-flash": {InputHit: hitFlash, InputMiss: missFlash, Completion: outFlash},
-		"deepseek-v4-pro":   {InputHit: hitPro, InputMiss: missPro, Completion: outPro},
+		"deepseek-flash":  {InputHit: hitFlash, InputMiss: missFlash, Completion: outFlash},
+		"deepseek-v4-pro": {InputHit: hitPro, InputMiss: missPro, Completion: outPro},
 	}
 
 	windows := DefaultPeakWindows()

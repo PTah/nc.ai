@@ -80,10 +80,36 @@ func TestThinkingEnabled(t *testing.T) {
 	}
 }
 
+func TestMergeKnownModelsUsesAPICatalog(t *testing.T) {
+	got := MergeKnownModels([]string{"deepseek-flash", "deepseek-flash", " other "})
+	if len(got) != 2 || got[0] != "deepseek-flash" || got[1] != "other" {
+		t.Fatalf("MergeKnownModels = %v, want trimmed/deduped catalog", got)
+	}
+	// Retired ids must not be injected when the API catalog is available.
+	for _, id := range got {
+		if id == "deepseek-v4-flash-vision-exp" {
+			t.Fatal("retired ids must not be merged into the catalog")
+		}
+	}
+	if fb := MergeKnownModels(nil); len(fb) == 0 || fb[0] != DefaultModel {
+		t.Fatalf("empty catalog should fall back to %s, got %v", DefaultModel, fb)
+	}
+}
+
+func TestModelDiff(t *testing.T) {
+	added, removed := ModelDiff([]string{"a", "b"}, []string{"b", "c"})
+	if len(added) != 1 || added[0] != "c" {
+		t.Fatalf("added = %v, want [c]", added)
+	}
+	if len(removed) != 1 || removed[0] != "a" {
+		t.Fatalf("removed = %v, want [a]", removed)
+	}
+}
+
 func TestPreferAndOrderModels(t *testing.T) {
-	got := OrderModels(MergeKnownModels([]string{"deepseek-v4-pro", "other"}))
-	if len(got) < 3 || got[0] != DefaultModel {
-		t.Fatalf("OrderModels = %v, want flash first + known merge", got)
+	got := OrderModels(MergeKnownModels([]string{"deepseek-flash", "deepseek-v4-pro"}))
+	if len(got) != 2 {
+		t.Fatalf("OrderModels = %v, want the API catalog", got)
 	}
 	if PreferModel(got, "deepseek-v4-pro") != "deepseek-v4-pro" {
 		t.Fatal("PreferModel should keep current when listed")

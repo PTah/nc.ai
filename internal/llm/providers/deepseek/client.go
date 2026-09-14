@@ -15,8 +15,11 @@ import (
 
 const (
 	DefaultBaseURL = "https://api.deepseek.com"
-	DefaultModel   = "deepseek-v4-flash"
-	VisionModel    = "deepseek-v4-flash-vision-exp"
+	DefaultModel   = "deepseek-flash"     // V4.1 Flash (native multimodal)
+	VisionModel    = "deepseek-flash"     // V4.1 Flash handles images natively
+	LegacyModel    = "deepseek-v4-flash"  // retired id, still routed to V4.1 Flash
+	LegacyVision   = "deepseek-v4-flash-vision-exp"
+	LegacyProModel = "deepseek-v4-pro"
 )
 
 // Client talks to DeepSeek OpenAI-compatible Chat Completions API.
@@ -230,20 +233,19 @@ func (c *Client) ListModels(ctx context.Context) ([]ModelInfo, error) {
 	return out.Data, nil
 }
 
-// FallbackModels is used when /models is unavailable (no key / network).
+// FallbackModels is used only when GET /models is unavailable (no key / network).
+// V4.1 Flash is the only current DeepSeek model; legacy ids keep working as aliases.
 func FallbackModels() []string {
-	return []string{
-		DefaultModel,
-		"deepseek-v4-pro",
-		VisionModel,
-	}
+	return []string{DefaultModel}
 }
 
-// MergeKnownModels ensures fallback ids stay listed even if GET /models omits them
-// (e.g. experimental vision).
+// MergeKnownModels returns the API catalog as the single source of truth:
+// ids are trimmed/deduped, and fallback is used only for an empty catalog.
+// Retired ids (deepseek-v4-flash, -vision-exp) are deliberately NOT injected,
+// so the UI shows what DeepSeek actually serves.
 func MergeKnownModels(available []string) []string {
 	seen := map[string]bool{}
-	out := make([]string, 0, len(available)+3)
+	out := make([]string, 0, len(available)+1)
 	for _, id := range available {
 		id = strings.TrimSpace(id)
 		if id == "" || seen[id] {
@@ -252,13 +254,37 @@ func MergeKnownModels(available []string) []string {
 		seen[id] = true
 		out = append(out, id)
 	}
-	for _, known := range FallbackModels() {
-		if !seen[known] {
-			seen[known] = true
-			out = append(out, known)
-		}
+	if len(out) == 0 {
+		return FallbackModels()
 	}
 	return out
+}
+
+// ModelDiff reports ids added or removed between two catalog snapshots.
+// Used to notify the chat when DeepSeek adds/retires models.
+func ModelDiff(prev, cur []string) (added, removed []string) {
+	p := map[string]bool{}
+	c := map[string]bool{}
+	for _, id := range prev {
+		p[strings.TrimSpace(id)] = true
+	}
+	for _, id := range cur {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		c[id] = true
+		if !p[id] {
+			added = append(added, id)
+		}
+	}
+	for _, id := range prev {
+		id = strings.TrimSpace(id)
+		if id != "" && !c[id] {
+			removed = append(removed, id)
+		}
+	}
+	return added, removed
 }
 
 // PreferModel keeps current when still listed; else DefaultModel; else first id.

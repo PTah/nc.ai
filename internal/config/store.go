@@ -134,6 +134,9 @@ type Settings struct {
 	ZaiPricesCheckedAt        string                    `json:"zaiPricesCheckedAt,omitempty"`
 	OpenRouterPrices          map[string]costing.Prices `json:"openrouterPrices,omitempty"`
 	OpenRouterPricesCheckedAt string                    `json:"openrouterPricesCheckedAt,omitempty"`
+	// DeepSeekModelsSeen is the last catalog returned by GET /models; used to
+	// notify the chat when DeepSeek adds or retires models.
+	DeepSeekModelsSeen []string `json:"deepSeekModelsSeen,omitempty"`
 }
 
 // MarshalJSON never writes API keys or git passwords to disk.
@@ -162,7 +165,7 @@ func NewStore() *Store {
 	return &Store{
 		settings: Settings{
 			ActiveProvider:  ProviderDeepSeek,
-			DeepSeekModel:   "deepseek-v4-flash",
+			DeepSeekModel:   "deepseek-flash",
 			ZaiModel:        "glm-4.7-flash",
 			ZaiEndpoint:     "paas",
 			OpenRouterModel: "qwen/qwen3-coder-flash:floor",
@@ -257,7 +260,7 @@ func (s *Store) Load() error {
 		s.settings.ZaiEndpoint = normalizeZaiEndpoint(s.settings.ZaiEndpoint)
 	}
 	if s.settings.DeepSeekModel == "" {
-		s.settings.DeepSeekModel = "deepseek-v4-flash"
+		s.settings.DeepSeekModel = "deepseek-flash"
 	}
 	if s.settings.OpenRouterModel == "" {
 		s.settings.OpenRouterModel = "qwen/qwen3-coder-flash:floor"
@@ -770,6 +773,25 @@ func (s *Store) SetZaiPricing(sheet map[string]costing.Prices, checkedAt time.Ti
 	if !checkedAt.IsZero() {
 		s.settings.ZaiPricesCheckedAt = checkedAt.UTC().Format(time.RFC3339)
 	}
+	s.mu.Unlock()
+	return s.Save()
+}
+
+// DeepSeekModelsSeen returns the last catalog from GET /models (may be empty).
+func (s *Store) DeepSeekModelsSeen() []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]string, len(s.settings.DeepSeekModelsSeen))
+	copy(out, s.settings.DeepSeekModelsSeen)
+	return out
+}
+
+// SetDeepSeekModelsSeen stores the latest catalog snapshot.
+func (s *Store) SetDeepSeekModelsSeen(models []string) error {
+	s.mu.Lock()
+	seen := make([]string, len(models))
+	copy(seen, models)
+	s.settings.DeepSeekModelsSeen = seen
 	s.mu.Unlock()
 	return s.Save()
 }
