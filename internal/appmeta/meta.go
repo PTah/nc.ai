@@ -5,7 +5,7 @@ import "time"
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "0.6.5"
+	Version = "0.6.6"
 )
 
 // DeepSeekProRetireRFC3339 is when the provider retires V4 Pro
@@ -29,19 +29,19 @@ func DeepSeekProRetired(now time.Time) bool {
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
+	"DeepSeek: Refresh models через GET /models (как у остальных провайдеров)",
 	"Поиск по чату: Ctrl+F, подсветка совпадений, Esc / повторный Ctrl+F — выход",
 	"Кнопка «↻ Models» — перечитать модели у активного провайдера",
 	"build.ps1 -CopyTo / build.sh --copy-to — копия exe/app в папку раздачи",
 	"Локальный LLM: Ollama / LM Studio / LAN (OpenAI-совместимый)",
-	"API-ключи по-прежнему в Keychain / Credential Manager",
 }
 
 var HighlightsEN = []string{
+	"DeepSeek: Refresh models via GET /models (same as other providers)",
 	"Chat find: Ctrl+F, highlight matches, Esc / Ctrl+F again to exit",
 	"↻ Models button — refresh model list for the active provider",
 	"build.ps1 -CopyTo / build.sh --copy-to — copy exe/app to a share folder",
 	"Local LLM: Ollama / LM Studio / LAN (OpenAI-compatible)",
-	"API keys still in Keychain / Credential Manager",
 }
 
 // UICopy is localized chrome for the Welcome splash.

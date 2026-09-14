@@ -767,6 +767,59 @@ func (a *App) SaveLocalBaseURL(baseURL string) error {
 	return nil
 }
 
+// ListDeepSeekModels returns model ids from GET /models for the saved DeepSeek key.
+// Known fallback ids are always merged (API may omit experimental vision).
+// After V4 Pro retirement the pro id is dropped from the selectable list.
+func (a *App) ListDeepSeekModels() []string {
+	key := a.cfg.APIKey(config.ProviderDeepSeek)
+	var out []string
+	if key == "" {
+		out = append([]string{}, deepseek.FallbackModels()...)
+	} else {
+		client := deepseek.New(key, a.cfg.Get().DeepSeekModel)
+		ctx := a.ctx
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+		defer cancel()
+		items, err := client.ListModels(ctx)
+		if err != nil || len(items) == 0 {
+			out = append([]string{}, deepseek.FallbackModels()...)
+		} else {
+			seen := map[string]bool{}
+			for _, m := range items {
+				id := strings.TrimSpace(m.ID)
+				if id == "" || seen[id] {
+					continue
+				}
+				seen[id] = true
+				out = append(out, id)
+			}
+			if len(out) == 0 {
+				out = append([]string{}, deepseek.FallbackModels()...)
+			}
+		}
+	}
+	out = deepseek.OrderModels(deepseek.MergeKnownModels(out))
+	if appmeta.DeepSeekProRetired(time.Now()) {
+		filtered := make([]string, 0, len(out))
+		for _, id := range out {
+			if strings.EqualFold(id, "deepseek-v4-pro") {
+				continue
+			}
+			filtered = append(filtered, id)
+		}
+		out = filtered
+	}
+	return out
+}
+
+// PreferDeepSeekModel keeps the saved model when still listed; otherwise flash / first.
+func (a *App) PreferDeepSeekModel(available []string) string {
+	return deepseek.PreferModel(available, a.cfg.Get().DeepSeekModel)
+}
+
 // ListLocalModels fetches model ids from the configured OpenAI-compatible / Ollama server.
 func (a *App) ListLocalModels() ([]string, error) {
 	client := local.New(a.cfg.LocalBaseURL(), a.cfg.APIKey(config.ProviderLocal), a.cfg.LocalModel())

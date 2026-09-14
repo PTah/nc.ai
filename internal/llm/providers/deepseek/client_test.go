@@ -79,3 +79,16 @@ func TestThinkingEnabled(t *testing.T) {
 		}
 	}
 }
+
+func TestPreferAndOrderModels(t *testing.T) {
+	got := OrderModels(MergeKnownModels([]string{"deepseek-v4-pro", "other"}))
+	if len(got) < 3 || got[0] != DefaultModel {
+		t.Fatalf("OrderModels = %v, want flash first + known merge", got)
+	}
+	if PreferModel(got, "deepseek-v4-pro") != "deepseek-v4-pro" {
+		t.Fatal("PreferModel should keep current when listed")
+	}
+	if PreferModel(got, "gone") != DefaultModel {
+		t.Fatal("PreferModel should fall back to flash")
+	}
+}

@@ -46,6 +46,8 @@ import {
   SaveOpenRouterModel,
   ListZaiModels,
   PreferZaiModel,
+  ListDeepSeekModels,
+  PreferDeepSeekModel,
   GetZaiBalance,
   ListLocalModels,
   PreferLocalModel,
@@ -802,7 +804,7 @@ export default function App() {
   const [openrouterKey, setOpenrouterKey] = useState('')
   const [localKey, setLocalKey] = useState('')
   const [deepseekModel, setDeepseekModel] = useState('deepseek-v4-flash')
-  const [deepseekProRetired, setDeepseekProRetired] = useState(false)
+  const [deepseekModels, setDeepseekModels] = useState<string[]>([...DEEPSEEK_MODELS])
   const [zaiModel, setZaiModel] = useState('glm-4.7-flash')
   const [openrouterModel, setOpenrouterModel] = useState('qwen/qwen3-coder-flash:floor')
   const [localModel, setLocalModel] = useState('')
@@ -1116,13 +1118,13 @@ export default function App() {
         setOpenrouterKeySet(Boolean(s.openrouterKeySet))
         setLocalKeySet(Boolean(s.localKeySet))
         if (typeof s.secretsBackend === 'string' && s.secretsBackend) setSecretsBackend(s.secretsBackend)
-        setDeepseekProRetired(Boolean(s.deepseekProRetired))
         if (typeof s.deepseekModel === 'string' && s.deepseekModel) setDeepseekModel(s.deepseekModel)
         if (typeof s.zaiModel === 'string' && s.zaiModel) setZaiModel(s.zaiModel)
         if (typeof s.openrouterModel === 'string' && s.openrouterModel) setOpenrouterModel(s.openrouterModel)
         if (typeof s.localModel === 'string') setLocalModel(s.localModel)
         if (typeof s.localBaseUrl === 'string' && s.localBaseUrl) setLocalBaseUrl(s.localBaseUrl)
         setZaiEndpoint(s.zaiEndpoint === 'coding' ? 'coding' : 'paas')
+        if (s.deepseekKeySet || provider === 'deepseek') void refreshDeepSeekModels()
         if (s.zaiKeySet || provider === 'zai') void refreshZaiModels()
         if (provider === 'zai' && s.zaiKeySet) void refreshZaiBalance()
         if (s.openrouterKeySet || provider === 'openrouter') void refreshOpenRouterModels()
@@ -1985,6 +1987,29 @@ export default function App() {
     }
   }
 
+  async function refreshDeepSeekModels(opts?: {applyPreferred?: boolean}) {
+    try {
+      const list = asList(await ListDeepSeekModels()).map(String).filter(Boolean)
+      if (list.length === 0) return list
+      setDeepseekModels(list)
+      if (opts?.applyPreferred) {
+        let next = ''
+        try {
+          next = String(await PreferDeepSeekModel(list) || '').trim()
+        } catch {
+          next = list[0] || ''
+        }
+        if (next && next !== deepseekModel) {
+          setDeepseekModel(next)
+          await SaveDeepSeekModel(next)
+        }
+      }
+      return list
+    } catch {
+      return [] as string[]
+    }
+  }
+
   async function refreshZaiModels(opts?: {applyPreferred?: boolean}) {
     try {
       const list = asList(await ListZaiModels()).map(String).filter(Boolean)
@@ -2064,12 +2089,10 @@ export default function App() {
     setModelsRefreshing(true)
     setModelsRefreshHint('')
     try {
-      if (activeProvider === 'deepseek') {
-        setModelsRefreshHint('DeepSeek: фиксированный список')
-        return
-      }
       let list: string[] = []
-      if (activeProvider === 'zai') {
+      if (activeProvider === 'deepseek') {
+        list = await refreshDeepSeekModels({applyPreferred: true})
+      } else if (activeProvider === 'zai') {
         list = await refreshZaiModels({applyPreferred: true})
       } else if (activeProvider === 'openrouter') {
         list = await refreshOpenRouterModels({applyPreferred: true})
@@ -2103,6 +2126,7 @@ export default function App() {
         void refreshOpenRouterModels({applyPreferred: true})
         void refreshOpenRouterBalance().then(() => applyUsageStats())
       } else {
+        void refreshDeepSeekModels({applyPreferred: true})
         void applyUsageStats()
       }
     } catch {
@@ -2185,6 +2209,9 @@ export default function App() {
     if (activeProvider === 'local') {
       await refreshLocalModels()
     }
+    if (activeProvider === 'deepseek' || deepseekKeySet) {
+      await refreshDeepSeekModels()
+    }
     await SaveAutoModels(activeProvider === 'local' ? false : autoModels)
     await SaveAgentMaxSteps(Number(maxSteps) || 40)
     await SaveShowTerminal(showTerm)
@@ -2249,6 +2276,9 @@ export default function App() {
   async function testConnect() {
     try {
       const r = await ChatOnce('ping')
+      if (activeProvider === 'deepseek') {
+        await refreshDeepSeekModels({applyPreferred: true})
+      }
       if (activeProvider === 'zai') {
         await refreshZaiModels({applyPreferred: true})
         await refreshZaiBalance()
@@ -2256,6 +2286,9 @@ export default function App() {
       if (activeProvider === 'openrouter') {
         await refreshOpenRouterModels({applyPreferred: true})
         await refreshOpenRouterBalance()
+      }
+      if (activeProvider === 'local') {
+        await refreshLocalModels({applyPreferred: true})
       }
       if (activeSessionId) setSessionItems(activeSessionId, (m) => [...m, {kind: 'system', content: `${providerLabel} connect OK: ${r || '(empty content)'}`}])
     } catch (e) {
@@ -2380,7 +2413,7 @@ export default function App() {
                   ? modelOptions(localModels, localModel).map((m) => (
                       <option key={m} value={m}>{m}</option>
                     ))
-                : modelOptions(deepseekProRetired ? DEEPSEEK_MODELS.filter((m) => m !== 'deepseek-v4-pro') : DEEPSEEK_MODELS, deepseekModel).map((m) => (
+                : modelOptions(deepseekModels, deepseekModel).map((m) => (
                     <option key={m} value={m}>{m}</option>
                   ))}
             </select>
@@ -2390,11 +2423,7 @@ export default function App() {
             className="nc-ghost"
             disabled={modelsRefreshing}
             onClick={() => void refreshActiveProviderModels()}
-            title={
-              activeProvider === 'deepseek'
-                ? 'DeepSeek: список моделей фиксированный'
-                : `Перечитать модели у ${providerLabel}`
-            }
+            title={`Перечитать модели у ${providerLabel}`}
           >
             {modelsRefreshing ? '…' : '↻ Models'}
           </button>
@@ -3094,11 +3123,14 @@ export default function App() {
                       void SaveDeepSeekModel(next)
                     }}
                   >
-                    {modelOptions(deepseekProRetired ? DEEPSEEK_MODELS.filter((m) => m !== 'deepseek-v4-pro') : DEEPSEEK_MODELS, deepseekModel).map((m) => (
+                    {modelOptions(deepseekModels, deepseekModel).map((m) => (
                       <option key={m} value={m}>{m}</option>
                     ))}
                   </select>
                 </label>
+                <button type="button" className="nc-ghost" onClick={() => void refreshDeepSeekModels({applyPreferred: true})}>
+                  Refresh models
+                </button>
                 <label>
                   API key
                   <input

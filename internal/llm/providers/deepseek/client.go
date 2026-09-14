@@ -187,3 +187,125 @@ func thinkingEnabled(thinking map[string]any) bool {
 	return t != "disabled"
 }
 
+// ModelInfo is one entry from GET /models.
+type ModelInfo struct {
+	ID      string `json:"id"`
+	Object  string `json:"object"`
+	OwnedBy string `json:"owned_by,omitempty"`
+}
+
+type modelsListResponse struct {
+	Object string      `json:"object"`
+	Data   []ModelInfo `json:"data"`
+}
+
+// ListModels calls GET /models (OpenAI-compatible catalog for the API key).
+func (c *Client) ListModels(ctx context.Context) ([]ModelInfo, error) {
+	if c.apiKey == "" {
+		return nil, fmt.Errorf("deepseek: api key is empty")
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/models", nil)
+	if err != nil {
+		return nil, err
+	}
+	httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
+	httpReq.Header.Set("Accept", "application/json")
+
+	res, err := c.http.Do(httpReq)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+	data, err := io.ReadAll(res.Body)
+	if err != nil {
+		return nil, err
+	}
+	if res.StatusCode >= 300 {
+		return nil, mapAPIError(res.StatusCode, data)
+	}
+	var out modelsListResponse
+	if err := json.Unmarshal(data, &out); err != nil {
+		return nil, fmt.Errorf("deepseek: decode models: %w", err)
+	}
+	return out.Data, nil
+}
+
+// FallbackModels is used when /models is unavailable (no key / network).
+func FallbackModels() []string {
+	return []string{
+		DefaultModel,
+		"deepseek-v4-pro",
+		VisionModel,
+	}
+}
+
+// MergeKnownModels ensures fallback ids stay listed even if GET /models omits them
+// (e.g. experimental vision).
+func MergeKnownModels(available []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(available)+3)
+	for _, id := range available {
+		id = strings.TrimSpace(id)
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		out = append(out, id)
+	}
+	for _, known := range FallbackModels() {
+		if !seen[known] {
+			seen[known] = true
+			out = append(out, known)
+		}
+	}
+	return out
+}
+
+// PreferModel keeps current when still listed; else DefaultModel; else first id.
+func PreferModel(available []string, current string) string {
+	current = strings.TrimSpace(current)
+	if len(available) == 0 {
+		if current != "" {
+			return current
+		}
+		return DefaultModel
+	}
+	seen := map[string]bool{}
+	for _, id := range available {
+		seen[id] = true
+	}
+	if current != "" && seen[current] {
+		return current
+	}
+	if seen[DefaultModel] {
+		return DefaultModel
+	}
+	return available[0]
+}
+
+// OrderModels puts flash, then pro, then vision, then the rest (stable).
+func OrderModels(available []string) []string {
+	if len(available) == 0 {
+		return nil
+	}
+	priority := []string{DefaultModel, "deepseek-v4-pro", VisionModel}
+	seen := map[string]bool{}
+	out := make([]string, 0, len(available))
+	for _, want := range priority {
+		for _, id := range available {
+			if id == want && !seen[id] {
+				seen[id] = true
+				out = append(out, id)
+			}
+		}
+	}
+	for _, id := range available {
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		out = append(out, id)
+	}
+	return out
+}
+

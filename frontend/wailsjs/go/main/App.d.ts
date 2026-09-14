@@ -55,6 +55,8 @@ export function ListArchivedChats():Promise<Array<chatstore.ArchivedChat>>;
 
 export function ListChatSessions():Promise<chatstore.ProjectBundle>;
 
+export function ListDeepSeekModels():Promise<Array<string>>;
+
 export function ListDir(arg1:string):Promise<Array<workspace.Entry>>;
 
 export function ListLocalModels():Promise<Array<string>>;
@@ -74,6 +76,8 @@ export function NewChatSession(arg1:string):Promise<chatstore.Session>;
 export function OpenProject(arg1:string):Promise<workspace.Project>;
 
 export function PickProjectDir():Promise<string>;
+
+export function PreferDeepSeekModel(arg1:Array<string>):Promise<string>;
 
 export function PreferLocalModel(arg1:Array<string>):Promise<string>;
 
