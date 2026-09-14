@@ -5,52 +5,62 @@ export const FIND_CURRENT_CLASS = 'nc-find-current'
 
 export function clearChatFindMarks(root: HTMLElement): void {
   const marks = root.querySelectorAll(`mark.${FIND_MARK_CLASS}`)
+  const parents = new Set<Node>()
   marks.forEach((mark) => {
     const parent = mark.parentNode
     if (!parent) return
     while (mark.firstChild) parent.insertBefore(mark.firstChild, mark)
     parent.removeChild(mark)
-    parent.normalize()
+    parents.add(parent)
   })
+  parents.forEach((parent) => parent.normalize())
 }
 
-function acceptTextNode(node: Node): number {
-  const p = node.parentElement
-  if (!p) return NodeFilter.FILTER_REJECT
-  if (p.closest('script, style, textarea, input, .nc-find-bar, .nc-role')) {
-    return NodeFilter.FILTER_REJECT
+const SKIP_TAGS = new Set(['SCRIPT', 'STYLE', 'TEXTAREA', 'INPUT'])
+
+/**
+ * TreeWalker filter over SHOW_ELEMENT | SHOW_TEXT.
+ * Rejecting a whole element prunes its subtree, so collapsed <details>
+ * (thinking / tool groups) are never traversed — that keeps big sessions fast.
+ */
+function acceptFindNode(node: Node): number {
+  if (node.nodeType === Node.ELEMENT_NODE) {
+    const el = node as Element
+    if (SKIP_TAGS.has(el.tagName)) return NodeFilter.FILTER_REJECT
+    if (el.hasAttribute('hidden')) return NodeFilter.FILTER_REJECT
+    if (el.classList.contains('nc-find-bar') || el.classList.contains('nc-role')) {
+      return NodeFilter.FILTER_REJECT
+    }
+    const closed = el.closest('details:not([open])')
+    if (closed && !el.closest('summary')) return NodeFilter.FILTER_REJECT
+    return NodeFilter.FILTER_SKIP
   }
-  if (p.closest(`mark.${FIND_MARK_CLASS}`)) return NodeFilter.FILTER_REJECT
-  // Skip collapsed <details> content (thinking, tool groups) — its text is in the DOM
-  // but not visible, which inflated the match counter.
-  const closed = p.closest('details:not([open])')
-  if (closed && !p.closest('summary')) return NodeFilter.FILTER_REJECT
+  if (node.nodeType !== Node.TEXT_NODE) return NodeFilter.FILTER_REJECT
   const t = node.textContent
   if (!t || !t.trim()) return NodeFilter.FILTER_REJECT
-  if (!p.getClientRects().length) return NodeFilter.FILTER_REJECT
   return NodeFilter.FILTER_ACCEPT
 }
 
+export type ChatFindResult = {count: number; marks: HTMLElement[]}
+
 /**
- * Wrap case-insensitive matches of `query` in <mark>. Returns total match count.
- * Marks the match at `currentIndex` (mod count) as current and scrolls it into view.
+ * Wrap case-insensitive matches of `query` in <mark>. Returns the marks so the
+ * caller can move the current highlight without re-walking the DOM.
  */
-export function applyChatFindMarks(
-  root: HTMLElement,
-  query: string,
-  currentIndex: number,
-): number {
+export function applyChatFindMarks(root: HTMLElement, query: string): ChatFindResult {
   clearChatFindMarks(root)
   const q = query.trim()
-  if (!q) return 0
+  if (!q) return {count: 0, marks: []}
 
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
-    acceptNode: acceptTextNode,
-  })
+  const walker = document.createTreeWalker(
+    root,
+    NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT,
+    {acceptNode: acceptFindNode},
+  )
   const textNodes: Text[] = []
   let n: Node | null
   while ((n = walker.nextNode())) {
-    textNodes.push(n as Text)
+    if (n.nodeType === Node.TEXT_NODE) textNodes.push(n as Text)
   }
 
   const lowerQ = q.toLowerCase()
@@ -88,11 +98,19 @@ export function applyChatFindMarks(
     textNode.parentNode?.replaceChild(frag, textNode)
   }
 
-  if (marks.length === 0) return 0
+  if (marks.length === 0) return {count: 0, marks}
+  return {count: marks.length, marks}
+}
 
+/**
+ * Marks the match at `currentIndex` (mod count) as current and scrolls it into
+ * view. Cheap: only touches classes, no DOM walk.
+ */
+export function focusChatFindMark(marks: HTMLElement[], currentIndex: number): void {
+  if (marks.length === 0) return
   const i = ((currentIndex % marks.length) + marks.length) % marks.length
-  const cur = marks[i]
-  cur.classList.add(FIND_CURRENT_CLASS)
-  cur.scrollIntoView({block: 'center', inline: 'nearest', behavior: 'smooth'})
-  return marks.length
+  marks.forEach((m, idx) => {
+    m.classList.toggle(FIND_CURRENT_CLASS, idx === i)
+  })
+  marks[i].scrollIntoView({block: 'center', inline: 'nearest', behavior: 'smooth'})
 }
