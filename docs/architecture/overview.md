@@ -17,7 +17,7 @@ internal/
   agent/                   tool loop + autoroute + retry + компакция + plan mode
   netx/                    SSRF-safe HTTP + web_search
   redact/                  маскирование секретов в tool output / events
-  shell/                   PowerShell / oneshot (скрытое окно)
+  shell/                   oneshot (PowerShell/-lc, пайпы) + интерактивный PTY (go-pty)
   gitx/                    OS git (status/diff/commit/push)
   sshx/                    SSH exec + keygen (known_hosts/TOFU)
   rules/                   загрузчик Cursor rules (global + project, рекурсивно)
@@ -34,6 +34,20 @@ internal/
 5. Tools исполняются локально (sandbox FS, PowerShell, git, ssh), результат — обратно в LLM.
 6. UI получает события `delta/reasoning/tool_start/tool_end/done/error/reconnect/persist`.
 7. Итоговый транскрипт (items) пишет фронт, LLM-history — бэк в `chatstore`.
+
+## Терминал: две модели исполнения
+
+| Режим | Frontend | Backend | Процесс |
+|---|---|---|---|
+| Интерактивная сессия | xterm.js: `term.onData → TerminalWrite`, `TerminalResize`, подписка на событие `terminal:data` | `App.StartTerminal` / `StopTerminal` / `ensureTerminal` → `shell.Session` (go-pty) | PTY/ConPTY: shell в корне проекта, стрим вывода событием `terminal:data`, стоп = kill процесса |
+| One-shot (поле + **Run**) | `RunShell(cmd)` → печать `> cmd`, `stdout`, `stderr`, `[exit N]` в тот же xterm | `shell.Run` | один процесс без PTY: PowerShell `-NoLogo -NoProfile -NonInteractive -Command`, POSIX `-lc`, cmd `/C`; stdin закрыт, пайпы, timeout 60 с |
+
+Общее для обоих режимов:
+
+- `cwd` = корень активного workspace (`ws.ActiveRoot()`);
+- shell резолвится из настроек (`shell.ResolveShell`), тот же путь отдаётся tool'у `run_terminal`;
+- PowerShell-ветка one-shot добавляет UTF-8 prelude (`chcp 65001`, `OutputEncoding`);
+- агент использует one-shot-путь (`run_terminal`), интерактивный PTY — только для пользователя в UI.
 
 ## Ключевые решения
 
