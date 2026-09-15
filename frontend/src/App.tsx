@@ -1722,7 +1722,7 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Global in-app hotkeys: Ctrl-F chat find, Esc close find, Ctrl-Alt-T terminal, Ctrl-Shift-S settings.
+  // Global in-app hotkeys: Ctrl-F chat find, Esc close find, Ctrl-Shift-T terminal, Ctrl-Shift-S settings.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const mod = e.ctrlKey || e.metaKey
@@ -1750,7 +1750,7 @@ export default function App() {
         setChatFindIndex((i) => (e.shiftKey ? i - 1 : i + 1))
         return
       }
-      if (e.ctrlKey && e.altKey && e.code === 'KeyT') {
+      if (e.ctrlKey && e.shiftKey && e.code === 'KeyT') {
         e.preventDefault()
         void toggleTerminal(!showTerm)
         return
@@ -3459,7 +3459,7 @@ export default function App() {
                 checked={showTerm}
                 onChange={(e) => void toggleTerminal(e.target.checked)}
               />
-              Показывать терминал (Ctrl-Alt-T)
+              Показывать терминал (Ctrl-Shift-T)
             </label>
             <p className="nc-help">По умолчанию скрыт — как в Cursor: задачи делает агент через tools.</p>
             <div className="nc-section-label">Shell</div>
