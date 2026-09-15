@@ -59,7 +59,7 @@ Auth обычно не требуется на localhost. На remote — опц
 | Тема | Поведение |
 |---|---|
 | Модели | Теги сервера; ручной id всегда допустим |
-| Tools | Зависит от модели; не все поддерживают function calling |
+| Tools | Зависит от модели. Если модель пишет JSON tool-call в `content` вместо `tool_calls`, агент поднимает его в structured calls (`PromoteTextToolCalls`) |
 | Auto-models | Выключен — всегда выбранная модель |
 | Latency | Холодный старт может быть долгим (timeout клиента 300s) |
 | Cost | $0 (локально) |
