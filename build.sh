@@ -1,4 +1,4 @@
-!/usr/bin/env bash
+#!/usr/bin/env bash
 # Build NotCursor.app for macOS (counterpart of build.ps1).
 # Output: build/bin/NotCursor.app (canonical). /tmp is only a staging area for codesign.
 # Usage:
