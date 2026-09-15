@@ -73,7 +73,7 @@ When you have a concrete plan (files to touch, approach, risks), present it clea
 
 // Event is pushed to the UI during an agent run.
 type Event struct {
-	Type      string `json:"type"` // delta|reasoning|tool_start|tool_end|tool_ask|reconnect|done|error|persist|usage|model|notice
+	Type      string `json:"type"` // delta|delta_clear|reasoning|tool_start|tool_end|tool_ask|reconnect|done|error|persist|usage|model|notice
 	Content   string `json:"content,omitempty"`
 	Name      string `json:"name,omitempty"`
 	OK        bool   `json:"ok,omitempty"`
@@ -316,10 +316,11 @@ func (r *Runner) retryBackoff() time.Duration {
 	return r.RetryBackoff
 }
 
-// chat calls the provider and automatically retries transient network errors,
+// chat calls the provider (streaming when available) and retries transient network errors,
 // emitting a "reconnect" event before each attempt so the UI can show progress.
-func (r *Runner) chat(ctx context.Context, req *llm.ChatRequest, emit EmitFunc) (*llm.ChatResponse, error) {
-	resp, err := r.Provider.ChatCompletion(ctx, req)
+// streamed is true when content/reasoning deltas were already pushed via emit.
+func (r *Runner) chat(ctx context.Context, req *llm.ChatRequest, emit EmitFunc) (resp *llm.ChatResponse, streamed bool, err error) {
+	resp, streamed, err = r.chatOnce(ctx, req, emit)
 	for attempt := 0; err != nil && isTransientError(err) && attempt < r.retryCount(); attempt++ {
 		wait := r.retryBackoff() * time.Duration(attempt+1)
 		emit(Event{Type: "reconnect", Content: fmt.Sprintf(
@@ -329,11 +330,30 @@ func (r *Runner) chat(ctx context.Context, req *llm.ChatRequest, emit EmitFunc) 
 		select {
 		case <-time.After(wait):
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return nil, false, ctx.Err()
 		}
-		resp, err = r.Provider.ChatCompletion(ctx, req)
+		resp, streamed, err = r.chatOnce(ctx, req, emit)
 	}
-	return resp, err
+	return resp, streamed, err
+}
+
+func (r *Runner) chatOnce(ctx context.Context, req *llm.ChatRequest, emit EmitFunc) (*llm.ChatResponse, bool, error) {
+	if sp, ok := r.Provider.(llm.StreamingProvider); ok {
+		streamed := false
+		resp, err := sp.ChatCompletionStream(ctx, req, func(d llm.StreamDelta) {
+			if strings.TrimSpace(d.ReasoningContent) != "" {
+				streamed = true
+				emit(Event{Type: "reasoning", Content: d.ReasoningContent})
+			}
+			if d.Content != "" {
+				streamed = true
+				emit(Event{Type: "delta", Content: d.Content})
+			}
+		})
+		return resp, streamed, err
+	}
+	resp, err := r.Provider.ChatCompletion(ctx, req)
+	return resp, false, err
 }
 
 func isTransientError(err error) bool {
@@ -469,10 +489,10 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 			ToolChoice:      "auto",
 			Thinking:        map[string]any{"type": "enabled"},
 			ReasoningEffort: "high",
-			Stream:          false,
+			Stream:          true,
 			Model:           model,
 		}
-		resp, err := r.chat(ctx, req, emit)
+		resp, streamed, err := r.chat(ctx, req, emit)
 		if err != nil {
 			emit(Event{Type: "error", Content: err.Error()})
 			return messages, err
@@ -490,17 +510,23 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 
 		// Local models (Ollama etc.) often dump tool calls as JSON in content
 		// instead of structured tool_calls — promote before the protocol decision.
-		if llm.PromoteTextToolCalls(&msg, llm.KnownToolNames(toolSpecs)) && finish == "" {
+		promoted := llm.PromoteTextToolCalls(&msg, llm.KnownToolNames(toolSpecs))
+		if promoted && finish == "" {
 			finish = "tool_calls"
+		}
+		if promoted && streamed {
+			emit(Event{Type: "delta_clear"})
 		}
 
 		messages = append(messages, msg)
 
-		if strings.TrimSpace(msg.ReasoningContent) != "" {
-			emit(Event{Type: "reasoning", Content: msg.ReasoningContent})
-		}
-		if strings.TrimSpace(msg.Content) != "" {
-			emit(Event{Type: "delta", Content: msg.Content})
+		if !streamed {
+			if strings.TrimSpace(msg.ReasoningContent) != "" {
+				emit(Event{Type: "reasoning", Content: msg.ReasoningContent})
+			}
+			if strings.TrimSpace(msg.Content) != "" {
+				emit(Event{Type: "delta", Content: msg.Content})
+			}
 		}
 
 		action, detail := DecideNext(msg, finish)
@@ -537,10 +563,10 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 		Messages:        messages,
 		Thinking:        map[string]any{"type": "enabled"},
 		ReasoningEffort: "high",
-		Stream:          false,
+		Stream:          true,
 		Model:           wrapModel,
 	}
-	resp, err := r.chat(ctx, req, emit)
+	resp, streamed, err := r.chat(ctx, req, emit)
 	if err != nil {
 		emit(Event{Type: "error", Content: fmt.Sprintf("лимит шагов (%d); финальный ответ не получен: %v", max, err)})
 		return messages, err
@@ -553,11 +579,16 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 	msg := resp.Choices[0].Message
 	msg.Role = "assistant"
 	messages = append(messages, msg)
-	if strings.TrimSpace(msg.ReasoningContent) != "" {
-		emit(Event{Type: "reasoning", Content: msg.ReasoningContent})
-	}
-	if strings.TrimSpace(msg.Content) != "" {
-		emit(Event{Type: "delta", Content: msg.Content})
+	if !streamed {
+		if strings.TrimSpace(msg.ReasoningContent) != "" {
+			emit(Event{Type: "reasoning", Content: msg.ReasoningContent})
+		}
+		if strings.TrimSpace(msg.Content) != "" {
+			emit(Event{Type: "delta", Content: msg.Content})
+			emit(Event{Type: "done", Content: "max_steps_wrapup"})
+			return messages, nil
+		}
+	} else if strings.TrimSpace(msg.Content) != "" {
 		emit(Event{Type: "done", Content: "max_steps_wrapup"})
 		return messages, nil
 	}

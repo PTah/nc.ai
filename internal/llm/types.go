@@ -89,9 +89,22 @@ type StreamEvent struct {
 	Raw     any    `json:"raw,omitempty"`
 }
 
+// StreamDelta is one incremental chunk from a streaming Chat Completions response.
+type StreamDelta struct {
+	Content          string
+	ReasoningContent string
+}
+
 type Provider interface {
 	Name() string
 	ChatCompletion(ctx context.Context, req *ChatRequest) (*ChatResponse, error)
+}
+
+// StreamingProvider optionally streams tokens; onDelta may be nil.
+// The returned ChatResponse is the fully aggregated message (incl. tool_calls).
+type StreamingProvider interface {
+	Provider
+	ChatCompletionStream(ctx context.Context, req *ChatRequest, onDelta func(StreamDelta)) (*ChatResponse, error)
 }
 
 func ToolResultMessage(callID, content string) Message {

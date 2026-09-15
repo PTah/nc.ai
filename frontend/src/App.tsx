@@ -1241,6 +1241,19 @@ export default function App() {
             })
             return
           }
+          if (ev.type === 'delta_clear') {
+            assistantBuf.current[sid] = ''
+            setSessionItems(sid, (prev) => {
+              const copy = [...prev]
+              const last = copy[copy.length - 1]
+              if (last && last.kind === 'assistant') {
+                copy.pop()
+                return copy
+              }
+              return prev
+            })
+            return
+          }
           if (ev.type === 'delta') {
             assistantBuf.current[sid] = (assistantBuf.current[sid] || '') + (ev.content || '')
             const text = assistantBuf.current[sid]

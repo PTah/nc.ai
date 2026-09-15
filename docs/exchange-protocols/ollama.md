@@ -36,7 +36,7 @@ Auth обычно не требуется на localhost. На remote — опц
     { "role": "system", "content": "You are NotCursor local agent." },
     { "role": "user", "content": "List TODOs in the project" }
   ],
-  "stream": false,
+  "stream": true,
   "tools": []
 }
 ```
@@ -60,10 +60,45 @@ Auth обычно не требуется на localhost. На remote — опц
 |---|---|
 | Модели | Теги сервера; ручной id всегда допустим |
 | Tools | Зависит от модели. Если модель пишет JSON tool-call в `content` вместо `tool_calls`, агент поднимает его в structured calls (`PromoteTextToolCalls`) |
+| Stream | Local-провайдер использует SSE (`stream: true`); токены сразу идут в UI. При promote text→tool_calls UI снимает черновик (`delta_clear`) |
 | Auto-models | Выключен — всегда выбранная модель |
-| Latency | Холодный старт может быть долгим (timeout клиента 300s) |
+| Latency | Холодный старт может быть долгим (см. ниже); HTTP timeout у non-stream — 300s, stream — без Timeout (отмена через ctx) |
 | Cost | $0 (локально) |
 | Privacy | Данные не уходят в облако |
+
+---
+
+## Холодный старт и `OLLAMA_KEEP_ALIVE`
+
+По умолчанию Ollama **выгружает** модель из VRAM через ~5 минут простоя (`OLLAMA_KEEP_ALIVE=5m`). Следующий запрос снова грузит веса (секунды–десятки секунд) — это и есть «холодный старт».
+
+На Windows-сервере с Ollama:
+
+```powershell
+[Environment]::SetEnvironmentVariable("OLLAMA_KEEP_ALIVE", "30m", "Machine")
+# или "-1" — не выгружать
+```
+
+Потом полностью выйти из Ollama (трей) и запустить снова.
+
+---
+
+## Диагностика GPU / `size_vram`
+
+```bash
+# Что сейчас в VRAM
+curl http://127.0.0.1:11434/api/ps
+```
+
+Смотри `size_vram`: **> 0** — модель на GPU; **0** — по сути CPU (очень медленно). Параллельно на сервере: `nvidia-smi -l 1` — во время генерации GPU-Util должен вырасти.
+
+Замер скорости (без агента):
+
+```bash
+curl http://127.0.0.1:11434/api/generate -d "{\"model\":\"qwen2.5-coder:7b\",\"prompt\":\"Привет\",\"stream\":false}"
+```
+
+`tok/s ≈ eval_count / eval_duration * 1e9`. Для 7B Q4 на нормальной видеокарте ожидай десятки tok/s; <10 — почти наверняка CPU или холодный load.
 
 ---
 
