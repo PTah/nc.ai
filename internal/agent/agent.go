@@ -37,6 +37,7 @@ Tools:
 - Call get_env_info when OS/toolchain matters.
 - Use todo_write for multi-step work; keep the list current; do not narrate todo updates.
 - Use ask_user only when a real user decision is required — not for facts you can look up.
+- Prefer the API tool_calls channel. Do not paste tool JSON into message text when the API supports tools.
 
 Shell:
 - cwd is the workspace root unless you pass cwd (relative). Do not cd inside the command.
@@ -461,9 +462,10 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 		}
 
 		model := r.resolveModel(step, emit)
+		toolSpecs := tools.SpecsFor(r.PlanMode)
 		req := &llm.ChatRequest{
 			Messages:        messages,
-			Tools:           tools.SpecsFor(r.PlanMode),
+			Tools:           toolSpecs,
 			ToolChoice:      "auto",
 			Thinking:        map[string]any{"type": "enabled"},
 			ReasoningEffort: "high",
@@ -485,6 +487,12 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 		msg := resp.Choices[0].Message
 		msg.Role = "assistant"
 		finish := strings.TrimSpace(resp.Choices[0].FinishReason)
+
+		// Local models (Ollama etc.) often dump tool calls as JSON in content
+		// instead of structured tool_calls — promote before the protocol decision.
+		if llm.PromoteTextToolCalls(&msg, llm.KnownToolNames(toolSpecs)) && finish == "" {
+			finish = "tool_calls"
+		}
 
 		messages = append(messages, msg)
 
