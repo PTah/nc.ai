@@ -154,19 +154,64 @@ if [[ -n "${COPY_TO}" ]]; then
   echo "Copied to: ${DEST}"
 fi
 
+# PIDs of the running bundle. `pkill -x NotCursor` is not enough: a process started with a
+# relative path gets its name truncated to 16 chars ("build/bin/NotCur"), so match the
+# bundle path inside `ps` output instead.
+app_pids() {
+  ps -Ao pid=,command= | awk '/NotCursor\.app\/Contents\/MacOS\/NotCursor/ {print $1}'
+}
+
+inside_app() {
+  local pid="$$" live
+  live="$(app_pids)"
+  [[ -z "${live}" ]] && return 1
+  while [[ -n "${pid}" && "${pid}" != "1" ]]; do
+    if printf '%s\n' "${live}" | grep -qx "${pid}"; then
+      return 0
+    fi
+    pid="$(ps -o ppid= -p "${pid}" 2>/dev/null | tr -d ' ')"
+  done
+  return 1
+}
+
 if [[ "${NO_RESTART}" -eq 1 ]]; then
   echo "Done (no restart)."
   exit 0
 fi
 
-echo "Restarting NotCursor from ${APP_PATH}..."
-pkill -x NotCursor 2>/dev/null || true
+RUNNING_PIDS="$(app_pids)"
+if [[ -z "${RUNNING_PIDS}" ]]; then
+  open "${APP_PATH}"
+  echo "Launched: ${APP_PATH}"
+  exit 0
+fi
+
+echo "Restarting NotCursor from ${APP_PATH} (pid: $(printf '%s ' ${RUNNING_PIDS}))..."
+INSIDE=0
+if inside_app; then
+  # Build started from the terminal panel inside NotCursor: quitting the app kills this
+  # shell together with the PTY, so the relaunch goes to a detached process first.
+  INSIDE=1
+  nohup /bin/sh -c "sleep 2; open '${APP_PATH}'" >/dev/null 2>&1 &
+  disown 2>/dev/null || true
+  echo "Detached relaunch scheduled (this shell dies with the app)."
+fi
+
+osascript -e 'tell application "NotCursor" to quit' >/dev/null 2>&1 || true
 for _ in $(seq 1 40); do
-  if ! pgrep -x NotCursor >/dev/null 2>&1; then
+  if [[ -z "$(app_pids)" ]]; then
     break
   fi
   sleep 0.25
 done
-open "${APP_PATH}"
+if [[ -n "$(app_pids)" ]]; then
+  echo "NotCursor did not quit - sending TERM" >&2
+  kill $(app_pids) 2>/dev/null || true
+  sleep 1
+fi
+
+if [[ "${INSIDE}" -eq 0 ]]; then
+  open "${APP_PATH}"
+fi
 echo "Launched: ${APP_PATH}"
 exit 0
