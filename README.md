@@ -1,175 +1,204 @@
 # NotCursor.ai
 
-Лёгкий нативный AI-IDE агент (аналог Cursor) на **Wails v2 + Go + React/TypeScript**.
+AI-агент для работы с кодом в отдельном окне: чат, дерево проекта, редактор и настоящий терминал.
+Написан на **Wails v2 (Go) + React/TypeScript** — то есть поверх системного WebView, без Electron и
+без рантайма на 200 МБ рядом с exe.
 
-**Версия UI/бинаря:** `0.6.8`
+Агент читает и правит файлы в вашем проекте, запускает команды, коммитит и пушит через системный
+`git`, ходит по SSH по ключам из `~/.ssh`. Ключи провайдеров лежат в системном хранилище (macOS
+Keychain / Windows Credential Manager), история чатов — локально. Наружу уходит только запрос к
+тому провайдеру LLM, которого вы выбрали сами.
 
-**Сборка Windows:** `build/bin/NotCursor.exe`
+**Версия:** `0.6.8` · **Артефакты:** `build/bin/NotCursor.exe` (Windows) и `build/bin/NotCursor.app` (macOS)
 
----
+## Быстрый старт
 
-## Что умеет
+Что нужно поставить заранее:
 
-### Провайдеры LLM
+- **Go** 1.26 (`go.mod` требует `go 1.26.0`) и **Node.js** с npm;
+- **Wails CLI** версии 2.15.0 — `go install github.com/wailsapp/wails/v2/cmd/wails@v2.15.0`
+  (чтобы `wails` нашёлся в `PATH`: `%USERPROFILE%\go\bin` на Windows, `~/go/bin` на macOS);
+- Windows: WebView2 Runtime (в актуальных сборках Windows уже стоит). macOS: Xcode Command Line
+  Tools — нужны и для сборки, и для ad-hoc подписи `.app`.
 
-Переключение в **Settings → Provider**:
-
-| Провайдер | Модели | Особенности |
-|---|---|---|
-| **DeepSeek** | `deepseek-flash` (V4.1 Flash, нативно мультимодальная; legacy `deepseek-v4-flash`, `…-vision-exp` и `deepseek-v4-pro` роутятся на неё) | OpenAI-compatible API |
-| **Z.ai** | `glm-4.5…5.3` (flash / pro / vision) | свободные flash-модели, живой список `/models`, проверка баланса |
-| **OpenRouter** | произвольный `openrouter/…` | свой ключ/endpoint |
-| **Local** | любая из `/models` (Ollama, LM Studio, vLLM, llama.cpp) | OpenAI-compatible, по умолчанию `http://127.0.0.1:11434/v1`, ключ не обязателен |
-
-- Автоматический выбор модели: flash (V4.1) → legacy `deepseek-v4-pro` (до retire) → multimodal (V4.1 Flash). После 14.09.2026 12:00 Beijing `v4-pro` выводится из списка, авто-выбор и расчёты идут по `deepseek-flash`.
-- HTTP-ошибки провайдеров переводятся в человекочитаемые сообщения (402 → «Пополните баланс…», 429 → «лимит запросов…»).
-- Для Z.ai: **баланс** и список моделей показываются в Settings.
-- Кнопка **«↻ Models»** — перечитать список моделей у активного провайдера (DeepSeek тянет его через `GET /models`, как остальные).
-- API-ключи хранятся в **macOS Keychain** / **Windows Credential Manager** (Linux: файл `0600`), не в `settings.json`. Clear key / Clear all keys в Settings. Для провайдера **Local** ключ не нужен.
-
-### Agent loop
-
-- Tool Calls + Thinking Mode по протоколам в `docs/exchange-protocols/`.
-- Лимит шагов агента настраивается (**Settings → Agent**, по умолчанию 40); при упоре — soft wrap-up без tools.
-- **Reconnect**: сетевые сбои, rate-limit (429/1302/1305), «провайдер недоступен» — автоматические повторы с backoff; после исчерпания — кнопка **Reconnect**.
-- **Компакция истории**: старые tool-результаты сворачиваются (`[compacted] …`), последние 3 остаются полными — контекст не растёт бесконечно. Compact выполняется между ходами агента.
-- **Prefix-cache LLM**: стабильные system/turn-rules для попадания в кэш; hit/miss % показывается в шапке чата (chat · total).
-- **Очередь сообщений**: отправка в чат во время активного прогона ставит сообщение в очередь и отправляет после завершения текущего.
-
-### Tools
-
-| Tool | Назначение |
-|---|---|
-| `read_file` / `write_file` / `apply_patch` / `delete_file` / `move_file` | чтение (с номерами строк) / запись / патч / удаление / rename в sandbox |
-| `list_dir` / `find_files` / `glob` / `grep` | обход, нечёткое имя, glob (`**/*.go`), содержимое (regex как ripgrep) |
-| `run_terminal` / `command_status` | shell; `cwd`, фон (`is_background`) |
-| `todo_write` / `ask_user` / `read_lints` | список задач, вопрос пользователю, `go vet` |
-| `web_search` / `fetch_url` | веб (SSRF-guard: без LAN/loopback/metadata) |
-| `git_*` | status / diff / log / commit (`paths`) / push через **системный `git`** |
-| `ssh_*` | exec + keygen по ключам из **`~/.ssh`** |
-
-- `read_file` при not-found подсказывает соседние файлы (siblings).
-- Пути песочницы относительно корня проекта.
-
-### Чат UX
-
-- **Plan / Act** в шапке чата: Plan — только исследование и план, без правок и shell.
-- Клик по файлу в дереве открывает **редактор** (не дамп в чат); курсор уходит в IDE-контекст агента.
-- **Todo-список** агента над тредом, когда вызван `todo_write`.
-- Thinking-блоки и завершённые tools после финального ответа группируются в один блок **Thinking & Explored**.
-- **Вкладки чатов**: `+` создаёт новую сессию, старые сохраняются; переименование по двойному клику.
-- **Archive**: кнопка в шапке чата переносит чат в `%APPDATA%/NotCursor/chat_archive/<имя>.json`.
-- **Архивы чатов**: список сохранённых сессий открывается из UI; архивный чат читается в режиме просмотра (read-only) и не попадает в активные.
-- **Поиск по чату**: **Ctrl+F** — панель со счётчиком, `↑` / `↓` (и `F3`), выход — `Esc` или повторный **Ctrl+F**. Ищет только видимый текст: свёрнутые Thinking / tool-блоки в счётчик не попадают; подсветка через CSS Highlight API, ввод с debounce.
-- Персистентность на проект в `%APPDATA%/NotCursor/chats/`.
-- Счётчики $: чат · всего + cache hit/miss (peak/off-peak учитывается корректно; прайс DeepSeek обновляется автоматически).
-- Проверка прайсов: DeepSeek и OpenRouter — ежедневно после 13:05 Beijing, z.ai — еженедельно; результат появляется в чате как системное сообщение (`Система: проверка цен … выполнена — …`).
-
-### Cursor Rules
-
-Подгружаются и добавляются в системный промпт:
-
-- глобально: `~/.cursor/rules/*.mdc|md` (рекурсивно), `~/.cursorrules`, `AGENTS.md`;
-- на проект: `<project>/.cursor/rules/*` (рекурсивно), `<project>/.cursorrules`.
-
-В **Settings → Cursor Rules** виден список загруженных правил и кнопка **Reload**.
-
-### Окно / layout / тема
-
-- Геометрия окна, ширины панелей, высота терминала и **высота окна ввода** — сохраняются.
-- Ресайз: projects / files / settings / терминал / поле ввода.
-- Темы **Dark** / **Light**.
-- Горячие клавиши: **Ctrl+Alt+T** — показать/скрыть терминал, **Ctrl+Shift+S** — открыть/закрыть Settings, **Ctrl+F** — поиск по чату.
-
-### Терминал
-
-Панель снизу (**Ctrl+Alt+T**) — это **два разных режима**, а не одно поле.
-
-**1. Интерактивная сессия (область xterm)**
-
-- Реальный PTY (macOS/Linux) / ConPTY (Windows); shell — из **Settings → Interface** (пусто = системный по умолчанию), старт в корне активного проекта.
-- Печатаешь прямо в область вывода: работает history, `cd`, `Ctrl+C`, интерактивные программы (vim, top, ssh с паролем), прогресс-бары.
-- `TERM=xterm-256color`, `COLORTERM=truecolor`; при ресайзе панели размеры окна синхронизируются с PTY.
-- Сообщение `[shell exited]` — процесс завершился; смена shell в Settings перезапускает сессию.
-
-**2. One-shot: поле ввода + Run (`oneshot: date`)**
-
-- Одна команда за раз: ввод → **Enter** или кнопка **Run**. Вывод дописывается в тот же xterm как `> команда` … `[exit N]`, поле очищается.
-- Это **не** ввод в интерактивную сессию: команда идёт в `RunShell` → отдельный процесс (`-Command` для PowerShell, `-lc` для POSIX-shell, `/C` для cmd), `cwd` = корень проекта, stdin закрыт, вывод через пайпы, таймаут **60 с**.
-- Состояние между запусками не сохраняется: `cd`, переменные, активированный venv не переживают следующий запуск.
-- Не работает интерактив (vim, top, пароли, `git rebase -i`) — для него нужен режим 1.
-
-| Хочу | Режим |
-|---|---|
-| `date`, `go build ./...`, `npm test`, `git status`, `docker ps` | One-shot + **Run** |
-| `cd`, vim, интерактивный ssh, длинный прогресс | Интерактивная сессия (клик в область вывода) |
-| Долгий сервер (dev-сервер, watcher) | Агентский `run_terminal` с `is_background`, затем `command_status` |
-
-| Симптом | Причина | Что сделать |
-|---|---|---|
-| `shell not started` / пустая панель | PTY не стартовал | закрыть/открыть панель (**Ctrl+Alt+T**) или сменить shell в Settings |
-| One-shot: `[exit 1]`, вывод пуст, в интерактивной сессии команда работает | non-interactive без профиля: `PATH`/алиасы/`venv` из профиля не подхватились | полный путь к бинарю или выполнить команду в интерактивной сессии |
-| Долгая команда обрывается ~через минуту | таймаут one-shot 60 с | интерактивная сессия или агентский `run_terminal` |
-
-### Безопасность
-
-- **Секреты не уходят в LLM**: `.env*`, `id_rsa`, `*.pem`, `*.key`, `*secret*` и т.п. при `read_file` заменяются заглушкой; значения `KEY=…`/`TOKEN=…` маскируются в `***`.
-- SSH: проверка по `~/.ssh/known_hosts` + TOFU (изменение ключа = отказ).
-- `git commit` стейджит только tracked-изменения (`git add -u`).
-- JSON-файлы чатов/настроек пишутся атомарно (temp + rename) с ротационным `.bak`.
-
----
-
-## Скриншоты → агент
-
-1. UI читает файл/clipboard → `data:image/png;base64,…`.
-2. Backend собирает user message с `image_url`.
-3. Запрос уходит в vision-модель.
-4. Дальше обычный tool loop.
-
----
-
-## Документация
-
-- [ТЗ](docs/TZ.md)
-- [Архитектура](docs/architecture/overview.md)
-- [Протоколы AI](docs/exchange-protocols/README.md)
-
----
-
-## Dev
+Дальше из корня репозитория:
 
 ```bash
 cd frontend && npm install && cd ..
 wails dev
 ```
 
-## Build
+Откроется окно NotCursor. Идёте в **Settings → Provider**, вставляете ключ DeepSeek — или выбираете
+провайдер Local, если Ollama/LM Studio уже крутятся рядом. Без ключа окно откроется, но чат отвечать
+не будет.
 
-```powershell
-# Windows (перезапускает NotCursor.exe после сборки):
-.\build.ps1
-# только сборка:
-.\build.ps1 -NoRestart
-# сборка + копия exe в папку раздачи:
-.\build.ps1 -CopyTo D:\Share
-```
+Проверить, что код собирается и тесты зелёные:
 
 ```bash
-# macOS — только на macOS-хосте (перезапускает .app после сборки):
-./build.sh
-# только сборка:
-./build.sh --no-restart
-# fat binary:
-./build.sh --universal
-# сборка + копия .app в папку раздачи:
-./build.sh --copy-to ~/Share
+go test ./...
 ```
 
-Артефакты: `build/bin/`.
-Windows: `build/bin/NotCursor.exe`. macOS: `build/bin/NotCursor.app`.
+### Сборка бинаря
 
-## Commit + push
+Windows:
+
+```powershell
+.\build.ps1                    # собрать и перезапустить NotCursor.exe
+.\build.ps1 -NoRestart         # только собрать
+.\build.ps1 -CopyTo D:\Share   # собрать и скопировать exe в папку раздачи
+```
+
+macOS (собирается только на macOS-хосте; скрипт сам делает ad-hoc codesign):
+
+```bash
+./build.sh                     # собрать и перезапустить .app
+./build.sh --no-restart        # только собрать
+./build.sh --universal         # fat binary arm64 + amd64
+./build.sh --copy-to ~/Share   # собрать и скопировать .app в папку раздачи
+```
+
+Установщика нет: приложение запускается прямо из `build/bin/`.
+
+## Провайдеры
+
+Переключение — **Settings → Provider**.
+
+| Провайдер | Модели | Что стоит знать |
+|---|---|---|
+| DeepSeek | `deepseek-flash`; legacy `deepseek-v4-flash`, `…-vision-exp` и `deepseek-v4-pro` роутятся на неё | OpenAI-compatible API, авто-выбор модели |
+| Z.ai | `glm-4.5…5.3` (flash / pro / vision) | список моделей и баланс показываются прямо в Settings |
+| OpenRouter | любой `openrouter/…` | свой ключ и endpoint |
+| Local | всё, что вернёт `/models` — Ollama, LM Studio, vLLM, llama.cpp | по умолчанию `http://127.0.0.1:11434/v1`, ключ не обязателен |
+
+- Авто-выбор модели идёт по цепочке flash → legacy `deepseek-v4-pro` (пока он жив) → мультимодальная
+  flash. После 14.09.2026 12:00 Beijing `v4-pro` уезжает из списка, и расчёт идёт по `deepseek-flash`.
+- Ошибки провайдеров переводятся в понятный текст: `402` → «Пополните баланс…», `429` → «лимит
+  запросов…» — вместо голого JSON.
+- Кнопка **↻ Models** перечитывает список моделей у активного провайдера. DeepSeek тоже ходит в
+  `GET /models`, а не берёт список из кода.
+- Ключи не пишутся в `settings.json`: macOS Keychain, Windows Credential Manager, на Linux — файл с
+  правами `0600`. Стираются кнопками Clear key / Clear all keys.
+
+## Агентский цикл
+
+Запрос → thinking / tool calls по протоколам из `docs/exchange-protocols/` → результаты инструментов
+→ следующий шаг, пока агент не закончит.
+
+- Лимит шагов за один запрос — **Settings → Agent**, по умолчанию 40. Когда шаги кончаются, агент
+  делает soft wrap-up без инструментов: отвечает тем, что успел выяснить.
+- Reconnect: сетевые сбои и ответы `429` / `1302` / `1305` повторяются с backoff. Если и это не
+  помогло, в шапке появляется кнопка **Reconnect**.
+- Компакция: результаты старых инструментов сворачиваются в `[compacted] …`, полными остаются
+  последние три — иначе длинный чат упирается в лимит контекста. Компакция идёт между ходами агента.
+- Prefix-cache: стабильные system и turn-rules держатся в начале промпта, чтобы попадать в кэш
+  провайдера. Рядом с расходами в шапке есть чип `cache N%` — это попадания по **текущему** чату;
+  полная разбивка (строки `chat cache … hit / … miss (N%)` и `total cache … hit / … miss (N%)`)
+  появляется во всплывающей подсказке при наведении на чип. Пока провайдер не вернул ни одного
+  cache-токена, чип показывает `cache —`, а в подсказке процентов нет — только нули.
+- Сообщение, отправленное во время прогона, встаёт в очередь и уходит после текущего ответа.
+
+## Инструменты
+
+| Tool | Что делает |
+|---|---|
+| `read_file` / `write_file` / `apply_patch` / `delete_file` / `move_file` | чтение (с номерами строк), запись, патч, удаление, rename внутри песочницы |
+| `list_dir` / `find_files` / `glob` / `grep` | обход каталогов, поиск по нечёткому имени, по glob (`**/*.go`), по содержимому (regex как в ripgrep) |
+| `run_terminal` / `command_status` | shell-команды: свой `cwd`, фоновый режим (`is_background`) |
+| `todo_write` / `ask_user` / `read_lints` | список задач, вопрос пользователю, `go vet` по изменённым файлам |
+| `web_search` / `fetch_url` | веб — с SSRF-guard: LAN, loopback и metadata-адреса закрыты |
+| `git_*` | status / diff / log / commit / push через **системный `git`** |
+| `ssh_*` | exec и генерация ключей, ключи берутся из **`~/.ssh`** |
+
+Пути считаются от корня проекта и выше него не выходят. Если `read_file` получил несуществующий
+путь, он подсказывает похожие файлы из той же папки.
+
+## Интерфейс чата
+
+- **Plan / Act** в шапке. Plan — агент только читает и планирует, без правок и shell-команд.
+- Клик по файлу в дереве открывает редактор, а не вываливает содержимое в чат; заодно файл попадает
+  в IDE-контекст агента.
+- После вызова `todo_write` над тредом висит список задач.
+- Thinking-блоки и завершённые tool-вызовы после финального ответа схлопываются в один блок
+  **Thinking & Explored**.
+- **Вкладки чатов**: `+` создаёт новую сессию, двойной клик по вкладке — переименование, старые
+  сессии никуда не пропадают.
+- **Архив**: кнопка в шапке чата переносит сессию в `%APPDATA%/NotCursor/chat_archive/<имя>.json`.
+  Список архивов открывается из UI, архивный чат смотрится read-only и в активные вкладки не
+  подмешивается.
+- **Поиск по чату** — **Ctrl+F**: панель со счётчиком, `↑` / `↓` (и `F3`), выход по `Esc` или
+  повторному **Ctrl+F**. Считается только видимый текст: содержимое свёрнутых Thinking / tool-блоков
+  в счётчик не попадает.
+- Деньги: в шапке видно `chat $0.0043 · total $0.1231 · cache 42%` (у Z.ai и OpenRouter рядом ещё и
+  баланс). Наведение курсора на этот блок раскрывает расшифровку: токены in/out по чату и всего, а
+  также chat и total cache в виде `… hit / … miss (N%)`. Peak / off-peak DeepSeek учитывается, прайс
+  подтягивается сам.
+- Прайсы проверяются автоматически: DeepSeek и OpenRouter — раз в сутки после 13:05 Beijing, z.ai —
+  раз в неделю. Результат приходит в чат системным сообщением.
+- История чатов хранится по проектам в `%APPDATA%/NotCursor/chats/` (на macOS — в
+  `~/Library/Application Support/NotCursor/`).
+
+## Правила Cursor
+
+Правила собираются и подмешиваются к системному промпту:
+
+- глобально: `~/.cursor/rules/*.mdc|md` (рекурсивно), `~/.cursorrules`, `AGENTS.md`;
+- в проекте: `<project>/.cursor/rules/*` (рекурсивно), `<project>/.cursorrules`.
+
+В **Settings → Cursor Rules** видно, что загрузилось, и есть кнопка **Reload**.
+
+## Терминал
+
+Панель снизу (горячая клавиша **Ctrl+Alt+T**) — это два разных режима, и путать их не стоит.
+
+**Интерактивная сессия.** Настоящий PTY: ConPTY на Windows, pty на macOS и Linux. Shell берётся из
+**Settings → Shell** (пусто — авто: PowerShell 7 или 5 на Windows, `$SHELL` на macOS/Linux), стартовая
+папка — корень активного проекта. Печатать можно прямо в область вывода: работают history, `cd`,
+Ctrl+C, vim и top, ssh с вводом пароля, прогресс-бары. `TERM=xterm-256color`, `COLORTERM=truecolor`,
+размер окна подтягивается за панелью. Когда процесс завершился, в выводе появляется `[shell exited]`.
+
+**One-shot.** Поле ввода рядом с кнопкой **Run** (плейсхолдер `oneshot: date`) запускает одну
+команду отдельным процессом: PowerShell `-Command`, POSIX-shell `-lc`, cmd `/C`. Рабочая папка —
+корень проекта, stdin закрыт, вывод идёт через пайпы, таймаут 60 секунд. Результат дописывается в тот
+же xterm строками `> команда` … `[exit N]`, поле очищается.
+
+Что из этого следует:
+
+- состояние между запусками не переносится — `cd`, переменные и активированный venv не переживут
+  следующую команду, каждое нажатие Run = новый процесс;
+- интерактив не работает: vim, пароли ssh, `git rebase -i` — только в интерактивной сессии;
+- если команда в xterm работает, а через Run падает с `[exit 1]` и пустым выводом — ей не хватило
+  `PATH` / алиасов / venv из вашего профиля (one-shot запускается без профиля). Указывайте полный
+  путь к бинарю или запускайте в интерактивной сессии;
+- долгому процессу (dev-сервер, watcher) место не здесь, а в агентском `run_terminal` с
+  `is_background`, потом `command_status`.
+
+## Безопасность
+
+- Секреты не уезжают в модель: `read_file` по `.env*`, `id_rsa`, `*.pem`, `*.key`, `*secret*`
+  возвращает заглушку, значения `KEY=…` / `TOKEN=…` маскируются в `***`.
+- SSH: сверка с `~/.ssh/known_hosts`, TOFU при первой встрече. Изменился ключ хоста — соединение
+  отклоняется.
+- `git_commit` стейджит только изменения уже отслеживаемых файлов (`git add -u`), новые файлы
+  случайно не улетят.
+- JSON чатов и настроек пишется атомарно (temp + rename) с ротационной копией `.bak`.
+
+## Скриншоты
+
+UI читает картинку из файла или буфера обмена и отдаёт её как `data:image/png;base64,…`, backend
+собирает user-сообщение с `image_url`, дальше запрос идёт в vision-модель и обычный tool loop.
+
+## Settings
+
+- **Provider** — DeepSeek / Z.ai / OpenRouter / Local: ключ, модель, vision-модель, base URL для Local.
+- **Agent** — лимит шагов, Plan mode, подтверждение опасных инструментов.
+- **Interface** — тема (Dark / Light), показ терминала, дерева и панели настроек.
+- **Shell** — путь к shell для интерактивного терминала и кнопка «Авто (обнаружить)».
+- **Cursor Rules** — список загруженных правил и reload.
+- **Git & SSH** — логинов в UI нет, используется системный `git` и `~/.ssh`.
+
+Данные приложения: `%APPDATA%\NotCursor` (Windows), `~/Library/Application Support/NotCursor` (macOS).
+
+## Коммит и push
 
 ```powershell
 .\commit.ps1 "feat: описание изменений"
@@ -179,48 +208,44 @@ Windows: `build/bin/NotCursor.exe`. macOS: `build/bin/NotCursor.app`.
 ./commit.sh "feat: описание изменений"
 ```
 
----
-
-## Settings (UI)
-
-- **Provider**: DeepSeek / Z.ai / OpenRouter / **Local** (+ ключ, модель, vision-модель, base URL для Local).
-- **Agent**: лимит шагов, Plan mode, confirm dangerous tools.
-- **Interface**: тема, показ терминала / дерева / настроек.
-- **Cursor Rules**: список + reload.
-- **Git & SSH**: без логинов в UI — системный `git` + `~/.ssh`.
-
-Данные: `%APPDATA%/NotCursor/`.
-
----
+Оба скрипта делают `git add -A` и `git push` в тот remote, который прописан у ветки. Это удобно,
+когда дерево чистое, и неприятно, когда рядом лежит что-то лишнее — тогда надёжнее застейджить файлы
+явными путями и запушить вручную.
 
 ## Структура
 
 ```
 app.go                 # Wails façade / bindings
-main.go                # окно: размер/позиция/maximised
-frontend/src/          # React UI (чат, вкладки, вложения, темы)
-internal/agent/        # agent loop + retry + компакция + plan
-internal/llm/          # типы, общий OpenAI-compat слой, providers/deepseek, providers/zai, providers/openrouter, providers/local
+main.go                # окно: размер, позиция, maximised
+frontend/src/          # React UI: чат, вкладки, вложения, темы
+internal/agent/        # agent loop, retry, компакция, plan
+internal/llm/          # типы, общий OpenAI-compat слой, providers/{deepseek,zai,openrouter,local}
 internal/tools/        # registry + executor
 internal/netx/         # SSRF-safe HTTP
-internal/redact/       # маскирование секретов в выводе tools
+internal/redact/       # маскирование секретов в выводе инструментов
 internal/workspace/    # проекты, FS sandbox, guard секретов
-internal/chatstore/    # multi-session persistence + archive
+internal/chatstore/    # сохранение сессий и архивов на диск
 internal/rules/        # загрузчик Cursor rules
-internal/shell/        # PowerShell / oneshot
-internal/gitx/         # OS git (status/diff/commit/push)
-internal/sshx/         # SSH (~/.ssh, known_hosts)
-internal/config/       # settings store (окно, layout, тема, провайдеры)
-internal/costing/      # token → USD (peak/off-peak)
+internal/shell/        # oneshot-запуск и интерактивный PTY
+internal/gitx/         # системный git: status / diff / commit / push
+internal/sshx/         # SSH по ~/.ssh и known_hosts
+internal/secrets/      # Keychain / Credential Manager / файл 0600
+internal/config/       # настройки: окно, layout, тема, провайдеры
+internal/costing/      # токены → USD, peak / off-peak
 internal/fsx/          # атомарная запись файлов
-docs/                  # ТЗ + архитектура + протоколы
+cmd/                   # утилиты: checkconnect, migratechat
+docs/                  # ТЗ, архитектура, протоколы
 ```
 
----
+## Документация
 
-## TODO / дальше
+- [ТЗ](docs/TZ.md)
+- [Архитектура](docs/architecture/overview.md)
+- [Протоколы AI](docs/exchange-protocols/README.md)
 
-- [ ] Streaming SSE ответов
-- [ ] Полноценный diff viewer / LSP (сейчас простой редактор + `go vet`)
-- [ ] macOS `.app` на mac-хосте
-- [ ] Разбиение `frontend/src/App.tsx` на хуки
+## Что дальше
+
+- стриминг ответа по SSE — сейчас ответ приходит целиком;
+- diff viewer и LSP: пока простой редактор и `go vet` как инструмент;
+- `.app` для macOS собирается только на macOS-хосте;
+- разнести `frontend/src/App.tsx` на хуки.
