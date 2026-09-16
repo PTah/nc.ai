@@ -79,6 +79,11 @@ type Settings struct {
 	// PlanMode: explore-only (no writes/shell/git push/ssh).
 	PlanMode bool `json:"planMode,omitempty"`
 
+	// LocalLite: short system prompt + reduced tools for weak local LLMs.
+	// Default false — full prompt/tools work better on capable coder models (7B+).
+	// Nil = unset → off (see LocalLiteEnabled).
+	LocalLite *bool `json:"localLite,omitempty"`
+
 	// Main window geometry (logical pixels). Zero width/height → defaults.
 	WindowWidth     int  `json:"windowWidth,omitempty"`
 	WindowHeight    int  `json:"windowHeight,omitempty"`
@@ -710,6 +715,25 @@ func (s *Store) PlanModeEnabled() bool {
 func (s *Store) SetPlanMode(on bool) error {
 	s.mu.Lock()
 	s.settings.PlanMode = on
+	s.mu.Unlock()
+	return s.Save()
+}
+
+// LocalLiteEnabled reports whether Local uses the short prompt + reduced tools.
+// Default false when unset (full agent works better on qwen-coder 7B/14B).
+func (s *Store) LocalLiteEnabled() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.settings.LocalLite == nil {
+		return false
+	}
+	return *s.settings.LocalLite
+}
+
+func (s *Store) SetLocalLite(on bool) error {
+	s.mu.Lock()
+	v := on
+	s.settings.LocalLite = &v
 	s.mu.Unlock()
 	return s.Save()
 }

@@ -61,6 +61,7 @@ import {
   ProjectHasChats,
   SaveActiveProvider,
   SaveAutoModels,
+  SaveLocalLite,
   SaveToolConfirm,
   SavePlanMode,
   SetIDEContext,
@@ -815,6 +816,8 @@ export default function App() {
   const [editingTitle, setEditingTitle] = useState('')
   const [input, setInput] = useState('')
   const [activeProvider, setActiveProvider] = useState<ProviderId>('deepseek')
+  const activeProviderRef = useRef<ProviderId>('deepseek')
+  activeProviderRef.current = activeProvider
   const [deepseekKey, setDeepseekKey] = useState('')
   const [zaiKey, setZaiKey] = useState('')
   const [openrouterKey, setOpenrouterKey] = useState('')
@@ -840,6 +843,7 @@ export default function App() {
   const [zaiBalance, setZaiBalance] = useState<{ok: boolean; availableUsd: number; detail: string; source: string} | null>(null)
   const [orBalance, setOrBalance] = useState<{ok: boolean; availableUsd: number; detail: string; source: string} | null>(null)
   const [autoModels, setAutoModels] = useState(true)
+  const [localLite, setLocalLite] = useState(false)
   const [toolConfirm, setToolConfirm] = useState(true)
   const [planMode, setPlanMode] = useState(false)
   const [todos, setTodos] = useState<TodoItem[]>([])
@@ -1175,6 +1179,7 @@ export default function App() {
         if (provider === 'openrouter' && s.openrouterKeySet) void refreshOpenRouterBalance()
         if (isLocalProvider(provider)) void refreshLocalModels({applyPreferred: true})
         setAutoModels(Boolean(s.autoModels))
+        setLocalLite(Boolean(s.localLite))
         setToolConfirm(s.toolConfirm !== false)
         setPlanMode(Boolean(s.planMode))
         if (typeof s.appDataDir === 'string' && s.appDataDir) setAppDataDir(s.appDataDir)
@@ -1254,7 +1259,10 @@ export default function App() {
             const nextModel = String(ev.content || '').trim()
             const reason = String(ev.name || '').trim()
             if (nextModel) {
-              if (nextModel.startsWith('glm')) setZaiModel(nextModel)
+              const prov = activeProviderRef.current
+              if (isLocalProvider(prov)) setLocalModel(nextModel)
+              else if (prov === 'zai' || nextModel.startsWith('glm')) setZaiModel(nextModel)
+              else if (prov === 'openrouter' || nextModel.includes('/')) setOpenrouterModel(nextModel)
               else setDeepseekModel(nextModel)
               const prev = lastModelRef.current[sid]
               lastModelRef.current[sid] = nextModel
@@ -2591,6 +2599,23 @@ export default function App() {
             />
             <span>Auto-models</span>
           </label>
+          {isLocalProvider(activeProvider) ? (
+            <label
+              className="nc-top-check"
+              title="Lite: короткий промпт и ~12 tools (быстрее, но слабее на tool-calling). Выкл = полный агент как у облака — лучше для qwen-coder 7B/14B."
+            >
+              <input
+                type="checkbox"
+                checked={localLite}
+                onChange={(e) => {
+                  const on = e.target.checked
+                  setLocalLite(on)
+                  void SaveLocalLite(on)
+                }}
+              />
+              <span>Local lite</span>
+            </label>
+          ) : null}
           {activeProvider === 'deepseek' && deepseekPeak.peak && (
             <span
               className="nc-peak-warn"
@@ -3369,10 +3394,10 @@ export default function App() {
                 <div className="nc-section-label">Local servers</div>
                 <p className="nc-help">
                   Несколько Ollama / LM Studio / vLLM. Список — в <code>settings.json</code>
-                  (<code>localEndpoints</code>). Для Local всегда <b>lite</b>: короткий system + ~12 tools
-                  (без shell/ssh/web). Auto-models: модели с capability <code>tools</code>, мелкая на
-                  простые задачи / крупнее на сложные — на твоём сервере 16B deepseek часто <b>без tools</b>,
-                  тогда останется qwen2.5-coder:7b.
+                  (<code>localEndpoints</code>). По умолчанию полный агент (как облако). Галочка
+                  <b> Local lite</b> — короткий system + меньше tools (быстрее, но модель чаще гадает).
+                  Auto-models: модели с capability <code>tools</code>. Если ответы одинаковые —
+                  <b>новый чат</b> (старые «Вероятно…» в истории заражают следующие ответы).
                 </p>
                 <div style={{display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8}}>
                   <button
@@ -3520,9 +3545,7 @@ export default function App() {
                   <select
                     value={localModel}
                     onChange={(e) => {
-                      const next = e.target.value
-                      setLocalModel(next)
-                      void SaveLocalModel(next)
+                      void applyModel(e.target.value)
                     }}
                   >
                     {localModels.length === 0 && !localModel ? (
@@ -3541,8 +3564,7 @@ export default function App() {
                     onChange={(e) => setLocalModel(e.target.value)}
                     onBlur={(e) => {
                       const next = e.target.value.trim()
-                      setLocalModel(next)
-                      void SaveLocalModel(next)
+                      void applyModel(next)
                       const id = activeProvider.startsWith('local:') ? activeProvider.slice(6) : 'default'
                       setLocalEndpoints((prev) => prev.map((x) => x.id === id ? {...x, model: next} : x))
                     }}

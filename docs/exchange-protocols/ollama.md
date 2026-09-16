@@ -136,10 +136,14 @@ curl http://127.0.0.1:11434/api/generate -d "{\"model\":\"qwen2.5-coder:7b\",\"p
 
 ### Local lite + Auto-models
 
-Для любого `local:<id>` агент всегда в **lite**:
+**Local lite** — опциональная галочка (по умолчанию **выкл**). Если включена:
 - короткий system prompt;
 - ~12 tools (файлы/поиск/git read/ask_user) — без shell/ssh/web/commit;
 - урезанная project map.
+
+Без lite — полный system + полный набор tools (как у облачных провайдеров). На qwen2.5-coder 7B/14B лучше держать lite **выкл**.
+
+На Local первый шаг агента идёт с `tool_choice=required`, чтобы модель не отвечала «вероятно» без tools.
 
 **Auto-models** (если включён): из каталога Ollama берёт модели с capability `tools`, coder-имена; на простые задачи — меньший размер (7b), на сложные/длинный прогон — больший (14b+). Модели без `tools` (часто `deepseek-coder-v2`) не выбираются.
 

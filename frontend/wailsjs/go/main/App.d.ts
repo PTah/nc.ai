@@ -143,6 +143,8 @@ export function SaveLocalBaseURL(arg1:string):Promise<void>;
 
 export function SaveLocalKey(arg1:string):Promise<void>;
 
+export function SaveLocalLite(arg1:boolean):Promise<void>;
+
 export function SaveLocalModel(arg1:string):Promise<void>;
 
 export function SaveOpenRouterKey(arg1:string):Promise<void>;

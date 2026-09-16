@@ -69,8 +69,10 @@ After tool results, always give a final textual answer to the user.`
 // SystemPromptLite is a short agent prompt for weak local models (less prefill).
 const SystemPromptLite = `You are NotCursor.ai, a local coding agent.
 Match the user's language. Be brief. Lead with the result.
-Use tools for files/git — do not invent paths or file contents.
-Prefer glob/grep/list_dir before read_file. Prefer apply_patch over write_file for edits.
+CRITICAL: For any question about this project, code, files, versions, or "what does X do" —
+you MUST call tools first (glob, grep, list_dir, read_file, git_status). Never guess.
+Forbidden: answers built from "вероятно", "скорее всего", "возможно" without tool results.
+Do not invent paths or file contents. Prefer apply_patch over write_file for edits.
 Do not commit/push unless the user asked. After tools, always give a short final answer.`
 
 const PlanModePrompt = `You are in PLAN MODE.
@@ -193,7 +195,10 @@ func (r *Runner) resolveModel(step int, emit EmitFunc) string {
 	switch {
 	case r.isLocal() && r.AutoModels:
 		sticky := strings.TrimSpace(r.StickyModel)
-		if sticky != "" && !r.HasImages {
+		preferred := strings.TrimSpace(r.PreferredModel)
+		// Sticky only while it still matches the saved preferred model.
+		// Otherwise a Settings change would be ignored until ClearChat.
+		if sticky != "" && !r.HasImages && (preferred == "" || strings.EqualFold(sticky, preferred)) {
 			model, reason = sticky, "session-sticky"
 		} else {
 			d := PickLocalModel(r.LocalModels, RouteInput{
@@ -205,7 +210,7 @@ func (r *Runner) resolveModel(step int, emit EmitFunc) string {
 			model, reason = d.Model, d.Reason
 		}
 		if model == "" {
-			model = strings.TrimSpace(r.PreferredModel)
+			model = preferred
 			if model == "" {
 				model = strings.TrimSpace(r.ModelOverride)
 			}
@@ -488,6 +493,9 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 	// Compact once between user turns. Mutating tool results mid-run would
 	// invalidate the provider prefix cache on every agent step.
 	prior = CompactHistory(prior)
+	if r.isLocal() {
+		prior = NeutralizeToollessAssistants(prior)
+	}
 
 	messages := make([]llm.Message, 0, len(prior)+8)
 	messages = append(messages, llm.Message{Role: "system", Content: r.systemPrompt()})
@@ -522,6 +530,8 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 		r.Tools.PlanMode = r.PlanMode
 	}
 
+	localLiteNudgeDone := false
+	forceToolChoice := false
 	for step := 0; step < max; step++ {
 		if ctx.Err() != nil {
 			emit(Event{Type: "error", Content: ctx.Err().Error()})
@@ -535,10 +545,17 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 		} else {
 			toolSpecs = tools.SpecsFor(r.PlanMode)
 		}
+		toolChoice := "auto"
+		// Local models often ignore tools and dump prose. Force the first step
+		// (and one post-nudge retry) to call a tool before answering.
+		if r.isLocal() && len(toolSpecs) > 0 && (step == 0 || forceToolChoice) {
+			toolChoice = "required"
+			forceToolChoice = false
+		}
 		req := &llm.ChatRequest{
 			Messages:        messages,
 			Tools:           toolSpecs,
-			ToolChoice:      "auto",
+			ToolChoice:      toolChoice,
 			Thinking:        map[string]any{"type": "enabled"},
 			ReasoningEffort: "high",
 			Stream:          true,
@@ -595,6 +612,21 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 			messages = append(messages, outs...)
 			continue
 		default:
+			// Weak local models often guess in prose instead of calling tools.
+			// One hard nudge + clear the streamed guess before retrying.
+			if r.isLocal() && !localLiteNudgeDone && len(msg.ToolCalls) == 0 && strings.TrimSpace(msg.Content) != "" {
+				localLiteNudgeDone = true
+				forceToolChoice = true
+				if streamed {
+					emit(Event{Type: "delta_clear"})
+				}
+				emit(Event{Type: "notice", Content: "Local: модель ответила без tools — прошу вызвать инструменты и ответить по фактам."})
+				messages = append(messages, llm.UserText(
+					"STOP. You answered without calling tools. Re-do this turn: call glob/grep/list_dir/read_file (or git_*) first. "+
+						"Do not guess. Do not write «вероятно» / «скорее всего» without tool results. Then give a short factual answer.",
+				))
+				continue
+			}
 			if strings.TrimSpace(msg.Content) == "" {
 				emit(Event{Type: "error", Content: fmt.Sprintf("пустой финальный ответ (finish=%s)", finish)})
 			} else if finish == "length" {

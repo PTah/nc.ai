@@ -270,6 +270,10 @@ export function SaveLocalKey(arg1) {
   return window['go']['main']['App']['SaveLocalKey'](arg1);
 }
 
+export function SaveLocalLite(arg1) {
+  return window['go']['main']['App']['SaveLocalLite'](arg1);
+}
+
 export function SaveLocalModel(arg1) {
   return window['go']['main']['App']['SaveLocalModel'](arg1);
 }
