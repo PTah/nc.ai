@@ -475,7 +475,44 @@ func Specs() []llm.ToolSpec {
 }
 
 func SpecsFor(plan bool) []llm.ToolSpec {
-	all := []llm.ToolSpec{
+	return filterToolSpecs(allToolSpecs(), plan, false)
+}
+
+// SpecsForLite is a reduced tool set for weak local models (less prefill).
+func SpecsForLite(plan bool) []llm.ToolSpec {
+	return filterToolSpecs(allToolSpecs(), plan, true)
+}
+
+func filterToolSpecs(all []llm.ToolSpec, plan, lite bool) []llm.ToolSpec {
+	out := make([]llm.ToolSpec, 0, len(all))
+	for _, s := range all {
+		name := s.Function.Name
+		if plan && PlanBlocked(name) {
+			continue
+		}
+		if lite && !LiteTool(name) {
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
+// LiteTool is the allowlist for Local lite mode.
+func LiteTool(name string) bool {
+	switch name {
+	case "read_file", "write_file", "apply_patch",
+		"list_dir", "glob", "grep", "find_files",
+		"git_status", "git_diff", "git_log",
+		"ask_user", "get_env_info":
+		return true
+	default:
+		return false
+	}
+}
+
+func allToolSpecs() []llm.ToolSpec {
+	return []llm.ToolSpec{
 		fn("read_file", "Read a workspace file. Lines are numbered (N|text) — do not copy those numbers into patches. Optional start_line/end_line (1-based).", map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -687,17 +724,6 @@ func SpecsFor(plan bool) []llm.ToolSpec {
 			"required": []string{"name"},
 		}),
 	}
-	if !plan {
-		return all
-	}
-	out := make([]llm.ToolSpec, 0, len(all))
-	for _, s := range all {
-		if PlanBlocked(s.Function.Name) {
-			continue
-		}
-		out = append(out, s)
-	}
-	return out
 }
 
 func fn(name, desc string, params map[string]any) llm.ToolSpec {

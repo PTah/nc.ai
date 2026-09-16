@@ -66,6 +66,13 @@ Debugging:
 Never invent file contents — read with tools first.
 After tool results, always give a final textual answer to the user.`
 
+// SystemPromptLite is a short agent prompt for weak local models (less prefill).
+const SystemPromptLite = `You are NotCursor.ai, a local coding agent.
+Match the user's language. Be brief. Lead with the result.
+Use tools for files/git — do not invent paths or file contents.
+Prefer glob/grep/list_dir before read_file. Prefer apply_patch over write_file for edits.
+Do not commit/push unless the user asked. After tools, always give a short final answer.`
+
 const PlanModePrompt = `You are in PLAN MODE.
 Explore the codebase with read-only tools and ask_user if a real decision is blocked.
 Do not write, patch, delete, move files, run shell, commit, push, or SSH.
@@ -100,9 +107,13 @@ type Runner struct {
 	ModelOverride string
 	// PreferredModel is used when AutoModels is off and ModelOverride is empty.
 	PreferredModel string
-	// AutoModels enables PickModel / PickZaiModel / PickOpenRouterModel routing.
+	// AutoModels enables PickModel / PickZaiModel / PickOpenRouterModel / PickLocalModel routing.
 	AutoModels bool
-	// ProviderID is "deepseek", "zai", "openrouter", or "local" (Auto routing + image defaults).
+	// LocalLite uses a short system prompt + reduced tool set (weak local LLMs).
+	LocalLite bool
+	// LocalModels feeds PickLocalModel when AutoModels is on.
+	LocalModels []LocalModelInfo
+	// ProviderID is "deepseek", "zai", "openrouter", "local", or "local:<id>".
 	ProviderID string
 	// Route context for AutoModels (filled by the app before Run*).
 	UserText      string
@@ -150,7 +161,8 @@ func (r *Runner) isOpenRouter() bool {
 }
 
 func (r *Runner) isLocal() bool {
-	return strings.EqualFold(strings.TrimSpace(r.ProviderID), "local")
+	p := strings.ToLower(strings.TrimSpace(r.ProviderID))
+	return p == "local" || strings.HasPrefix(p, "local:")
 }
 
 func (r *Runner) reportUsage(model string, u *llm.Usage) {
@@ -179,8 +191,27 @@ func (r *Runner) resolveModel(step int, emit EmitFunc) string {
 
 	var model, reason string
 	switch {
+	case r.isLocal() && r.AutoModels:
+		sticky := strings.TrimSpace(r.StickyModel)
+		if sticky != "" && !r.HasImages {
+			model, reason = sticky, "session-sticky"
+		} else {
+			d := PickLocalModel(r.LocalModels, RouteInput{
+				UserText:      r.UserText,
+				HasImages:     r.HasImages,
+				HintPathCount: r.HintPathCount,
+				Step:          step,
+			}, r.PreferredModel)
+			model, reason = d.Model, d.Reason
+		}
+		if model == "" {
+			model = strings.TrimSpace(r.PreferredModel)
+			if model == "" {
+				model = strings.TrimSpace(r.ModelOverride)
+			}
+			reason = "local"
+		}
 	case r.isLocal():
-		// No Auto flash/pro catalog — always the configured local model.
 		model = strings.TrimSpace(r.ModelOverride)
 		if model == "" {
 			model = strings.TrimSpace(r.PreferredModel)
@@ -282,12 +313,22 @@ func IsVisionModel(model string) bool {
 
 func (r *Runner) systemPrompt() string {
 	base := SystemPrompt
+	if r.LocalLite {
+		base = SystemPromptLite
+	}
 	if r.PlanMode {
 		base += "\n\n" + PlanModePrompt
 	}
 	rules := strings.TrimSpace(r.RulesText)
 	if rules == "" {
 		return base
+	}
+	if r.LocalLite {
+		// Keep rules short on weak local models.
+		const maxRules = 2500
+		if len(rules) > maxRules {
+			rules = rules[:maxRules] + "\n…"
+		}
 	}
 	return base + "\n\n" +
 		"## Cursor / project rules (stable)\n" +
@@ -451,6 +492,12 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 	messages := make([]llm.Message, 0, len(prior)+8)
 	messages = append(messages, llm.Message{Role: "system", Content: r.systemPrompt()})
 	if tree := strings.TrimSpace(r.ProjectMap); tree != "" {
+		if r.LocalLite {
+			const maxTree = 1800
+			if len(tree) > maxTree {
+				tree = tree[:maxTree] + "\n…"
+			}
+		}
 		messages = append(messages, llm.UserText(
 			"<project_map>\n"+tree+"\n</project_map>\n"+
 				"Compressed workspace tree (names only). Use glob/find_files/grep/list_dir/read_file for details.",
@@ -482,7 +529,12 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 		}
 
 		model := r.resolveModel(step, emit)
-		toolSpecs := tools.SpecsFor(r.PlanMode)
+		var toolSpecs []llm.ToolSpec
+		if r.LocalLite {
+			toolSpecs = tools.SpecsForLite(r.PlanMode)
+		} else {
+			toolSpecs = tools.SpecsFor(r.PlanMode)
+		}
 		req := &llm.ChatRequest{
 			Messages:        messages,
 			Tools:           toolSpecs,

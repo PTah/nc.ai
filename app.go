@@ -826,11 +826,35 @@ func (a *App) DuplicateLocalEndpoint(id string) (map[string]any, error) {
 
 // ListLocalModels fetches model ids from the active local endpoint.
 func (a *App) ListLocalModels() ([]string, error) {
-	return a.ListLocalModelsFor(config.LocalEndpointID(a.cfg.Provider()))
+	infos, err := a.listLocalModelInfos()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(infos))
+	for _, m := range infos {
+		out = append(out, m.ID)
+	}
+	return out, nil
 }
 
 // ListLocalModelsFor fetches models for a specific local endpoint id.
 func (a *App) ListLocalModelsFor(endpointID string) ([]string, error) {
+	infos, err := a.listLocalModelInfosFor(endpointID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(infos))
+	for _, m := range infos {
+		out = append(out, m.ID)
+	}
+	return out, nil
+}
+
+func (a *App) listLocalModelInfos() ([]local.ModelInfo, error) {
+	return a.listLocalModelInfosFor(config.LocalEndpointID(a.cfg.Provider()))
+}
+
+func (a *App) listLocalModelInfosFor(endpointID string) ([]local.ModelInfo, error) {
 	ep, ok := a.cfg.LocalEndpointByID(endpointID)
 	if !ok {
 		ep = config.LocalEndpoint{
@@ -846,7 +870,7 @@ func (a *App) ListLocalModelsFor(endpointID string) ([]string, error) {
 	}
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	return client.ListModels(ctx)
+	return client.ListModelInfos(ctx)
 }
 
 // PreferLocalModel keeps the saved model when listed; otherwise first available or saved.
@@ -1651,9 +1675,15 @@ func (a *App) RunAgentWithAttachments(userMessage string, attachments []agent.At
 	cfg := a.cfg.Get()
 	provider := a.cfg.Provider()
 	autoModels := cfg.AutoModels
+	localLite := false
+	var localModels []agent.LocalModelInfo
 	if config.IsLocalProvider(provider) {
-		// Local has no flash/pro catalog — always use the saved model id.
-		autoModels = false
+		localLite = true
+		if infos, err := a.listLocalModelInfos(); err == nil {
+			for _, m := range infos {
+				localModels = append(localModels, agent.NewLocalModelInfo(m.ID, m.Capabilities))
+			}
+		}
 	}
 
 	a.mu.Lock()
@@ -1661,7 +1691,11 @@ func (a *App) RunAgentWithAttachments(userMessage string, attachments []agent.At
 	a.mu.Unlock()
 
 	projectMap := ""
-	if tree, err := a.ws.ProjectTree(350); err == nil {
+	treeLimit := 350
+	if localLite {
+		treeLimit = 120
+	}
+	if tree, err := a.ws.ProjectTree(treeLimit); err == nil {
 		projectMap = tree
 	}
 
@@ -1676,6 +1710,8 @@ func (a *App) RunAgentWithAttachments(userMessage string, attachments []agent.At
 		IDEContext:     a.ideContextText(),
 		PlanMode:       a.cfg.PlanModeEnabled(),
 		AutoModels:     autoModels,
+		LocalLite:      localLite,
+		LocalModels:    localModels,
 		ProviderID:     provider,
 		PreferredModel: a.cfg.ActiveModel(),
 		UserText:       userMessage,

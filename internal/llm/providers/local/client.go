@@ -84,8 +84,18 @@ type modelsListResponse struct {
 
 type ollamaTagsResponse struct {
 	Models []struct {
-		Name string `json:"name"`
+		Name         string   `json:"name"`
+		Capabilities []string `json:"capabilities"`
+		Details      struct {
+			ParameterSize string `json:"parameter_size"`
+		} `json:"details"`
 	} `json:"models"`
+}
+
+// ModelInfo is a local server model id plus optional Ollama capabilities.
+type ModelInfo struct {
+	ID           string
+	Capabilities []string
 }
 
 func (c *Client) setHeaders(req *http.Request) {
@@ -98,16 +108,45 @@ func (c *Client) setHeaders(req *http.Request) {
 
 // ListModels tries GET /models, then Ollama GET /api/tags as fallback.
 func (c *Client) ListModels(ctx context.Context) ([]string, error) {
+	infos, err := c.ListModelInfos(ctx)
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(infos))
+	for _, m := range infos {
+		ids = append(ids, m.ID)
+	}
+	return ids, nil
+}
+
+// ListModelInfos returns ids; when served by Ollama /api/tags, includes capabilities.
+func (c *Client) ListModelInfos(ctx context.Context) ([]ModelInfo, error) {
 	if c.baseURL == "" {
 		return nil, fmt.Errorf("local: base URL is empty")
 	}
 	ids, err := c.listOpenAIModels(ctx)
 	if err == nil && len(ids) > 0 {
-		return uniqueSorted(ids), nil
+		out := make([]ModelInfo, 0, len(ids))
+		for _, id := range uniqueSorted(ids) {
+			out = append(out, ModelInfo{ID: id})
+		}
+		// Enrich with Ollama capabilities when possible (same origin).
+		if tags, tagErr := c.listOllamaTagInfos(ctx); tagErr == nil && len(tags) > 0 {
+			byName := map[string]ModelInfo{}
+			for _, t := range tags {
+				byName[t.ID] = t
+			}
+			for i := range out {
+				if t, ok := byName[out[i].ID]; ok {
+					out[i].Capabilities = t.Capabilities
+				}
+			}
+		}
+		return out, nil
 	}
-	tags, tagErr := c.listOllamaTags(ctx)
+	tags, tagErr := c.listOllamaTagInfos(ctx)
 	if tagErr == nil && len(tags) > 0 {
-		return uniqueSorted(tags), nil
+		return tags, nil
 	}
 	if err != nil {
 		if tagErr != nil {
@@ -155,6 +194,18 @@ func (c *Client) listOpenAIModels(ctx context.Context) ([]string, error) {
 }
 
 func (c *Client) listOllamaTags(ctx context.Context) ([]string, error) {
+	infos, err := c.listOllamaTagInfos(ctx)
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(infos))
+	for _, m := range infos {
+		ids = append(ids, m.ID)
+	}
+	return ids, nil
+}
+
+func (c *Client) listOllamaTagInfos(ctx context.Context) ([]ModelInfo, error) {
 	origin, err := ollamaOrigin(c.baseURL)
 	if err != nil {
 		return nil, err
@@ -182,13 +233,18 @@ func (c *Client) listOllamaTags(ctx context.Context) ([]string, error) {
 	if err := json.Unmarshal(data, &out); err != nil {
 		return nil, fmt.Errorf("local: decode ollama tags: %w", err)
 	}
-	ids := make([]string, 0, len(out.Models))
+	infos := make([]ModelInfo, 0, len(out.Models))
+	seen := map[string]bool{}
 	for _, m := range out.Models {
-		if name := strings.TrimSpace(m.Name); name != "" {
-			ids = append(ids, name)
+		name := strings.TrimSpace(m.Name)
+		if name == "" || seen[name] {
+			continue
 		}
+		seen[name] = true
+		infos = append(infos, ModelInfo{ID: name, Capabilities: append([]string{}, m.Capabilities...)})
 	}
-	return ids, nil
+	sort.Slice(infos, func(i, j int) bool { return infos[i].ID < infos[j].ID })
+	return infos, nil
 }
 
 // ollamaOrigin strips a trailing /v1 path segment for Ollama native API.
