@@ -51,6 +51,9 @@ import {
   GetZaiBalance,
   ListLocalModels,
   PreferLocalModel,
+  UpsertLocalEndpoint,
+  RemoveLocalEndpoint,
+  DuplicateLocalEndpoint,
   ListOpenRouterModels,
   PreferOpenRouterModel,
   GetOpenRouterBalance,
@@ -223,7 +226,15 @@ const emptyUsage: UsageSnapshot = {
   balanceDetail: '',
 }
 
-type ProviderId = 'deepseek' | 'zai' | 'openrouter' | 'local'
+type ProviderId = string
+
+type LocalEndpointRow = {
+  id: string
+  name: string
+  baseUrl: string
+  model: string
+  keySet: boolean
+}
 
 const LOCAL_BASE_DEFAULT = 'http://127.0.0.1:11434/v1'
 
@@ -263,15 +274,21 @@ const OPENROUTER_MODELS_FALLBACK = [
 
 type ZaiEndpointId = 'coding' | 'paas'
 
+function isLocalProvider(id: string): boolean {
+  return id === 'local' || id.startsWith('local:')
+}
+
 function providerLabelOf(id: ProviderId): string {
   if (id === 'zai') return 'Z.ai'
   if (id === 'openrouter') return 'OpenRouter'
-  if (id === 'local') return 'Local'
+  if (isLocalProvider(id)) return 'Local'
   return 'DeepSeek'
 }
 
 function parseProvider(v: unknown): ProviderId {
-  if (v === 'zai' || v === 'openrouter' || v === 'local') return v
+  const s = String(v ?? '').trim()
+  if (s === 'zai' || s === 'openrouter') return s
+  if (isLocalProvider(s)) return s === 'local' ? 'local:default' : s
   return 'deepseek'
 }
 
@@ -808,6 +825,8 @@ export default function App() {
   const [localModel, setLocalModel] = useState('')
   const [localBaseUrl, setLocalBaseUrl] = useState(LOCAL_BASE_DEFAULT)
   const [localModels, setLocalModels] = useState<string[]>([])
+  const [localEndpoints, setLocalEndpoints] = useState<LocalEndpointRow[]>([])
+  const [localEpName, setLocalEpName] = useState('Local')
   const [zaiEndpoint, setZaiEndpoint] = useState<ZaiEndpointId>('paas')
   const [zaiModels, setZaiModels] = useState<string[]>([...ZAI_MODELS_FALLBACK])
   const [openrouterModels, setOpenrouterModels] = useState<string[]>([...OPENROUTER_MODELS_FALLBACK])
@@ -856,7 +875,7 @@ export default function App() {
       ? zaiModel
       : activeProvider === 'openrouter'
         ? openrouterModel
-        : activeProvider === 'local'
+        : isLocalProvider(activeProvider)
           ? localModel
           : deepseekModel
   const keySet =
@@ -864,13 +883,13 @@ export default function App() {
       ? zaiKeySet
       : activeProvider === 'openrouter'
         ? openrouterKeySet
-        : activeProvider === 'local'
+        : isLocalProvider(activeProvider)
           ? Boolean(localBaseUrl.trim() && localModel.trim())
           : deepseekKeySet
   const providerLabel = providerLabelOf(activeProvider)
   const showBalance = activeProvider === 'zai' || activeProvider === 'openrouter'
   const providerReadyLabel =
-    activeProvider === 'local'
+    isLocalProvider(activeProvider)
       ? keySet
         ? 'Local ready'
         : localModel.trim()
@@ -1125,14 +1144,30 @@ export default function App() {
         if (typeof s.openrouterModel === 'string' && s.openrouterModel) setOpenrouterModel(s.openrouterModel)
         if (typeof s.localModel === 'string') setLocalModel(s.localModel)
         if (typeof s.localBaseUrl === 'string' && s.localBaseUrl) setLocalBaseUrl(s.localBaseUrl)
+        {
+          const eps = Array.isArray(s.localEndpoints) ? s.localEndpoints : []
+          const rows: LocalEndpointRow[] = eps.map((raw: any) => ({
+            id: String(raw?.id || 'default'),
+            name: String(raw?.name || raw?.id || 'Local'),
+            baseUrl: String(raw?.baseUrl || LOCAL_BASE_DEFAULT),
+            model: String(raw?.model || ''),
+            keySet: Boolean(raw?.keySet),
+          }))
+          setLocalEndpoints(rows.length ? rows : [{
+            id: 'default', name: 'Local', baseUrl: LOCAL_BASE_DEFAULT, model: '', keySet: Boolean(s.localKeySet),
+          }])
+          const activeId = isLocalProvider(provider) ? provider.slice('local:'.length) : 'default'
+          const cur = rows.find((r) => r.id === activeId) || rows[0]
+          if (cur) setLocalEpName(cur.name)
+        }
         setZaiEndpoint(s.zaiEndpoint === 'coding' ? 'coding' : 'paas')
         if (s.deepseekKeySet || provider === 'deepseek') void refreshDeepSeekModels()
         if (s.zaiKeySet || provider === 'zai') void refreshZaiModels()
         if (provider === 'zai' && s.zaiKeySet) void refreshZaiBalance()
         if (s.openrouterKeySet || provider === 'openrouter') void refreshOpenRouterModels()
         if (provider === 'openrouter' && s.openrouterKeySet) void refreshOpenRouterBalance()
-        if (provider === 'local') void refreshLocalModels({applyPreferred: true})
-        if (provider === 'local') {
+        if (isLocalProvider(provider)) void refreshLocalModels({applyPreferred: true})
+        if (isLocalProvider(provider)) {
           setAutoModels(false)
         } else {
           setAutoModels(Boolean(s.autoModels))
@@ -2154,9 +2189,17 @@ export default function App() {
     setActiveProvider(next)
     try {
       await SaveActiveProvider(next)
-      if (next === 'local') {
+      if (isLocalProvider(next)) {
         setAutoModels(false)
         void SaveAutoModels(false)
+        const id = next.startsWith('local:') ? next.slice(6) : 'default'
+        const ep = localEndpoints.find((x) => x.id === id)
+        if (ep) {
+          setLocalEpName(ep.name)
+          setLocalBaseUrl(ep.baseUrl || LOCAL_BASE_DEFAULT)
+          setLocalModel(ep.model || '')
+          setLocalKeySet(ep.keySet)
+        }
         void refreshLocalModels({applyPreferred: true})
         void applyUsageStats()
       } else if (next === 'zai') {
@@ -2193,7 +2236,7 @@ export default function App() {
       void SaveOpenRouterModel(next)
       return
     }
-    if (activeProvider === 'local') {
+    if (isLocalProvider(activeProvider)) {
       setLocalModel(next)
       if (autoModels) {
         setAutoModels(false)
@@ -2246,13 +2289,13 @@ export default function App() {
       await refreshOpenRouterModels()
       await refreshOpenRouterBalance()
     }
-    if (activeProvider === 'local') {
+    if (isLocalProvider(activeProvider)) {
       await refreshLocalModels()
     }
     if (activeProvider === 'deepseek' || deepseekKeySet) {
       await refreshDeepSeekModels()
     }
-    await SaveAutoModels(activeProvider === 'local' ? false : autoModels)
+    await SaveAutoModels(isLocalProvider(activeProvider) ? false : autoModels)
     await SaveAgentMaxSteps(Number(maxSteps) || 40)
     await SaveShowTerminal(showTerm)
     await SaveTheme(theme)
@@ -2269,7 +2312,7 @@ export default function App() {
         await ClearOpenRouterKey()
         setOpenrouterKey('')
         setOpenrouterKeySet(false)
-      } else if (which === 'local') {
+      } else if (isLocalProvider(which)) {
         await ClearLocalKey()
         setLocalKey('')
         setLocalKeySet(false)
@@ -2327,7 +2370,7 @@ export default function App() {
         await refreshOpenRouterModels({applyPreferred: true})
         await refreshOpenRouterBalance()
       }
-      if (activeProvider === 'local') {
+      if (isLocalProvider(activeProvider)) {
         await refreshLocalModels({applyPreferred: true})
       }
       if (activeSessionId) setSessionItems(activeSessionId, (m) => [...m, {kind: 'system', content: `${providerLabel} connect OK: ${r || '(empty content)'}`}])
@@ -2449,7 +2492,7 @@ export default function App() {
                   ? modelOptions(openrouterModels, openrouterModel).map((m) => (
                       <option key={m} value={m}>{m}</option>
                     ))
-                : activeProvider === 'local'
+                : isLocalProvider(activeProvider)
                   ? modelOptions(localModels, localModel).map((m) => (
                       <option key={m} value={m}>{m}</option>
                     ))
@@ -2473,7 +2516,7 @@ export default function App() {
           <label
             className="nc-top-check"
             title={
-              activeProvider === 'local'
+              isLocalProvider(activeProvider)
                 ? 'Для Local Auto-models недоступен — используется выбранная модель'
                 : activeProvider === 'zai'
                 ? 'Автовыбор: glm-4.7-flash (free) → glm-5.3 на сложных задачах; картинки → glm-5.3-flash'
@@ -2484,8 +2527,8 @@ export default function App() {
           >
             <input
               type="checkbox"
-              checked={autoModels && activeProvider !== 'local'}
-              disabled={activeProvider === 'local'}
+              checked={autoModels && !isLocalProvider(activeProvider)}
+              disabled={isLocalProvider(activeProvider)}
               onChange={(e) => {
                 const on = e.target.checked
                 setAutoModels(on)
@@ -2525,7 +2568,7 @@ export default function App() {
                     cacheLine +
                     (usage.balanceDetail ? ` · ${usage.balanceDetail}` : '')
                 }
-                if (activeProvider === 'local') {
+                if (isLocalProvider(activeProvider)) {
                   return `Провайдер Local · чат: ${usage.chatInputTokens} in / ${usage.chatOutputTokens} out · total Local: ${usage.inputTokens} in / ${usage.outputTokens} out` +
                     cacheLine +
                     ' · стоимость $0 (локально)'
@@ -3079,14 +3122,18 @@ export default function App() {
                 <option value="deepseek">DeepSeek</option>
                 <option value="zai">Z.ai (GLM)</option>
                 <option value="openrouter">OpenRouter</option>
-                <option value="local">Local (LAN / Ollama)</option>
+                {localEndpoints.map((ep) => (
+                  <option key={ep.id} value={`local:${ep.id}`}>
+                    Local: {ep.name}
+                  </option>
+                ))}
               </select>
             </label>
             <p className="nc-help">Ключи хранятся отдельно; ниже — настройки только активного провайдера.</p>
             <label
               className="nc-top-check"
               title={
-                activeProvider === 'local'
+                isLocalProvider(activeProvider)
                   ? 'Local: Auto-models выключен — одна выбранная модель'
                   : activeProvider === 'zai'
                   ? 'Z.ai: free flash → glm-5.3 на сложных задачах'
@@ -3097,8 +3144,8 @@ export default function App() {
             >
               <input
                 type="checkbox"
-                checked={autoModels && activeProvider !== 'local'}
-                disabled={activeProvider === 'local'}
+                checked={autoModels && !isLocalProvider(activeProvider)}
+                disabled={isLocalProvider(activeProvider)}
                 onChange={(e) => {
                   const on = e.target.checked
                   setAutoModels(on)
@@ -3106,7 +3153,7 @@ export default function App() {
                 }}
               />
               Auto-models (
-              {activeProvider === 'local'
+              {isLocalProvider(activeProvider)
                 ? 'off'
                 : activeProvider === 'zai'
                 ? 'free → 5.3'
@@ -3254,20 +3301,128 @@ export default function App() {
                   {openrouterKeySet ? <button type="button" className="nc-ghost" onClick={() => void clearProviderKey('openrouter')}>Clear key</button> : null}
                 </p>
               </>
-            ) : activeProvider === 'local' ? (
+            ) : isLocalProvider(activeProvider) ? (
               <>
-                <div className="nc-section-label">Local (OpenAI-compatible)</div>
+                <div className="nc-section-label">Local servers</div>
                 <p className="nc-help">
-                  Ollama, LM Studio, vLLM и др. с <code>/v1/chat/completions</code>.
-                  Пример LAN: <code>http://192.168.x.x:11434/v1</code>. Для агента нужны модели с tool calling.
+                  Несколько Ollama / LM Studio / vLLM. Список — в <code>settings.json</code>
+                  (<code>localEndpoints</code>); ниже редактор активного.
                 </p>
+                <div style={{display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8}}>
+                  <button
+                    type="button"
+                    className="nc-ghost"
+                    onClick={() => {
+                      void (async () => {
+                        try {
+                          const row = await UpsertLocalEndpoint('', 'New local', LOCAL_BASE_DEFAULT, '')
+                          const ep: LocalEndpointRow = {
+                            id: String(row.id),
+                            name: String(row.name || 'New local'),
+                            baseUrl: String(row.baseUrl || LOCAL_BASE_DEFAULT),
+                            model: String(row.model || ''),
+                            keySet: Boolean(row.keySet),
+                          }
+                          setLocalEndpoints((prev) => [...prev.filter((x) => x.id !== ep.id), ep])
+                          await applyProvider(`local:${ep.id}`)
+                          setLocalEpName(ep.name)
+                          setLocalBaseUrl(ep.baseUrl)
+                          setLocalModel(ep.model)
+                          setLocalKeySet(false)
+                        } catch (e) {
+                          console.error(e)
+                        }
+                      })()
+                    }}
+                  >
+                    + Add server
+                  </button>
+                  <button
+                    type="button"
+                    className="nc-ghost"
+                    onClick={() => {
+                      const id = activeProvider.startsWith('local:') ? activeProvider.slice(6) : 'default'
+                      void (async () => {
+                        try {
+                          const row = await DuplicateLocalEndpoint(id)
+                          const ep: LocalEndpointRow = {
+                            id: String(row.id),
+                            name: String(row.name || 'copy'),
+                            baseUrl: String(row.baseUrl || LOCAL_BASE_DEFAULT),
+                            model: String(row.model || ''),
+                            keySet: false,
+                          }
+                          setLocalEndpoints((prev) => [...prev, ep])
+                          await applyProvider(`local:${ep.id}`)
+                          setLocalEpName(ep.name)
+                          setLocalBaseUrl(ep.baseUrl)
+                          setLocalModel(ep.model)
+                          setLocalKeySet(false)
+                        } catch (e) {
+                          console.error(e)
+                        }
+                      })()
+                    }}
+                  >
+                    Duplicate
+                  </button>
+                  <button
+                    type="button"
+                    className="nc-ghost"
+                    disabled={localEndpoints.length <= 1}
+                    onClick={() => {
+                      const id = activeProvider.startsWith('local:') ? activeProvider.slice(6) : 'default'
+                      if (!window.confirm(`Удалить локальный сервер «${localEpName}»?`)) return
+                      void (async () => {
+                        try {
+                          await RemoveLocalEndpoint(id)
+                          const next = localEndpoints.filter((x) => x.id !== id)
+                          setLocalEndpoints(next)
+                          const fallback = next[0]
+                          if (fallback) {
+                            await applyProvider(`local:${fallback.id}`)
+                            setLocalEpName(fallback.name)
+                            setLocalBaseUrl(fallback.baseUrl)
+                            setLocalModel(fallback.model)
+                            setLocalKeySet(fallback.keySet)
+                          }
+                        } catch (e) {
+                          console.error(e)
+                        }
+                      })()
+                    }}
+                  >
+                    Delete
+                  </button>
+                </div>
+                <label>
+                  Display name
+                  <input
+                    type="text"
+                    value={localEpName}
+                    onChange={(e) => setLocalEpName(e.target.value)}
+                    onBlur={(e) => {
+                      const name = e.target.value.trim() || 'Local'
+                      setLocalEpName(name)
+                      const id = activeProvider.startsWith('local:') ? activeProvider.slice(6) : 'default'
+                      void UpsertLocalEndpoint(id, name, localBaseUrl, localModel).then((row) => {
+                        setLocalEndpoints((prev) => prev.map((x) => x.id === id ? {
+                          ...x,
+                          name: String(row.name || name),
+                          baseUrl: String(row.baseUrl || localBaseUrl),
+                          model: String(row.model || localModel),
+                        } : x))
+                      })
+                    }}
+                  />
+                </label>
                 <label>
                   Preset
                   <select
                     value={localPresetId(localBaseUrl)}
                     onChange={(e) => {
-                      const id = e.target.value
-                      const preset = LOCAL_PRESETS.find((p) => p.id === id)
+                      const pid = e.target.value
+                      const preset = LOCAL_PRESETS.find((p) => p.id === pid)
                       if (!preset || preset.id === 'custom') return
                       setLocalBaseUrl(preset.url)
                       void SaveLocalBaseURL(preset.url).then(() => refreshLocalModels({applyPreferred: true}))
@@ -3288,6 +3443,8 @@ export default function App() {
                       const next = e.target.value.trim() || LOCAL_BASE_DEFAULT
                       setLocalBaseUrl(next)
                       void SaveLocalBaseURL(next)
+                      const id = activeProvider.startsWith('local:') ? activeProvider.slice(6) : 'default'
+                      setLocalEndpoints((prev) => prev.map((x) => x.id === id ? {...x, baseUrl: next} : x))
                     }}
                     placeholder={LOCAL_BASE_DEFAULT}
                   />
@@ -3320,6 +3477,8 @@ export default function App() {
                       const next = e.target.value.trim()
                       setLocalModel(next)
                       void SaveLocalModel(next)
+                      const id = activeProvider.startsWith('local:') ? activeProvider.slice(6) : 'default'
+                      setLocalEndpoints((prev) => prev.map((x) => x.id === id ? {...x, model: next} : x))
                     }}
                     placeholder="qwen2.5-coder:14b"
                   />
@@ -3337,9 +3496,9 @@ export default function App() {
                   />
                 </label>
                 <p className="nc-help">
-                  Токен нужен только если сервер требует Bearer. Хранится в {secretsBackend || 'системном хранилище'}.
+                  Токен — отдельно на каждый сервер ({secretsBackend || 'системное хранилище'}).
                   {localKeySet ? (
-                    <button type="button" className="nc-ghost" onClick={() => void clearProviderKey('local')}>Clear token</button>
+                    <button type="button" className="nc-ghost" onClick={() => void clearProviderKey(activeProvider)}>Clear token</button>
                   ) : null}
                 </p>
               </>

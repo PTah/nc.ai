@@ -37,6 +37,8 @@ export function DeleteChatSession(arg1:string):Promise<string>;
 
 export function DetectDefaultShell():Promise<string>;
 
+export function DuplicateLocalEndpoint(arg1:string):Promise<Record<string, any>>;
+
 export function GetCursorRules():Promise<rules.Bundle>;
 
 export function GetDeepSeekPeakInfo(arg1:string):Promise<costing.PeakInfo>;
@@ -60,6 +62,8 @@ export function ListDeepSeekModels():Promise<Array<string>>;
 export function ListDir(arg1:string):Promise<Array<workspace.Entry>>;
 
 export function ListLocalModels():Promise<Array<string>>;
+
+export function ListLocalModelsFor(arg1:string):Promise<Array<string>>;
 
 export function ListModelPrices():Promise<Array<costing.ModelPrice>>;
 
@@ -94,6 +98,8 @@ export function ReadFile(arg1:string):Promise<string>;
 export function RefreshProviderPrices():Promise<Record<string, any>>;
 
 export function ReloadCursorRules():Promise<rules.Bundle>;
+
+export function RemoveLocalEndpoint(arg1:string):Promise<void>;
 
 export function RenameChatSession(arg1:string,arg2:string):Promise<void>;
 
@@ -178,6 +184,8 @@ export function SwitchChatSession(arg1:string):Promise<string>;
 export function TerminalResize(arg1:number,arg2:number):Promise<void>;
 
 export function TerminalWrite(arg1:string):Promise<void>;
+
+export function UpsertLocalEndpoint(arg1:string,arg2:string,arg3:string,arg4:string):Promise<Record<string, any>>;
 
 export function WriteCursorRule(arg1:string,arg2:string):Promise<void>;
 

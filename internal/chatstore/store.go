@@ -711,14 +711,15 @@ func (sess *Session) ProviderUsage(provider string) (cost float64, in, out, cach
 	if sess == nil {
 		return 0, 0, 0, 0, 0
 	}
-	switch strings.ToLower(strings.TrimSpace(provider)) {
-	case "zai":
+	p := strings.ToLower(strings.TrimSpace(provider))
+	switch {
+	case p == "zai":
 		return sess.ZaiCostUSD, sess.ZaiInputTokens, sess.ZaiOutputTokens,
 			sess.ZaiCacheHitTokens, sess.ZaiCacheMissTokens
-	case "openrouter":
+	case p == "openrouter":
 		return sess.OpenRouterCostUSD, sess.OpenRouterInputTokens, sess.OpenRouterOutputTokens,
 			sess.OpenRouterCacheHitTokens, sess.OpenRouterCacheMissTokens
-	case "local":
+	case p == "local" || strings.HasPrefix(p, "local:"):
 		return sess.LocalCostUSD, sess.LocalInputTokens, sess.LocalOutputTokens,
 			sess.LocalCacheHitTokens, sess.LocalCacheMissTokens
 	default:
@@ -750,20 +751,21 @@ func (s *Store) AddUsage(project, sessionID, provider string, costUSD float64, i
 			b.Sessions[i].CostUSD += costUSD
 			b.Sessions[i].InputTokens += inputTokens
 			b.Sessions[i].OutputTokens += outputTokens
-			switch strings.ToLower(strings.TrimSpace(provider)) {
-			case "zai":
+			p := strings.ToLower(strings.TrimSpace(provider))
+			switch {
+			case p == "zai":
 				b.Sessions[i].ZaiCostUSD += costUSD
 				b.Sessions[i].ZaiInputTokens += inputTokens
 				b.Sessions[i].ZaiOutputTokens += outputTokens
 				b.Sessions[i].ZaiCacheHitTokens += cacheHit
 				b.Sessions[i].ZaiCacheMissTokens += cacheMiss
-			case "openrouter":
+			case p == "openrouter":
 				b.Sessions[i].OpenRouterCostUSD += costUSD
 				b.Sessions[i].OpenRouterInputTokens += inputTokens
 				b.Sessions[i].OpenRouterOutputTokens += outputTokens
 				b.Sessions[i].OpenRouterCacheHitTokens += cacheHit
 				b.Sessions[i].OpenRouterCacheMissTokens += cacheMiss
-			case "local":
+			case p == "local" || strings.HasPrefix(p, "local:"):
 				b.Sessions[i].LocalCostUSD += costUSD
 				b.Sessions[i].LocalInputTokens += inputTokens
 				b.Sessions[i].LocalOutputTokens += outputTokens

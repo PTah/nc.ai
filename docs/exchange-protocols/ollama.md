@@ -102,6 +102,38 @@ curl http://127.0.0.1:11434/api/generate -d "{\"model\":\"qwen2.5-coder:7b\",\"p
 
 ---
 
+## Несколько локальных серверов
+
+В Settings → Provider выбирается каждый профиль как `Local: <имя>`.
+
+В `settings.json`:
+
+```json
+{
+  "activeProvider": "local:home-gpu",
+  "localEndpoints": [
+    {
+      "id": "default",
+      "name": "Local",
+      "baseUrl": "http://127.0.0.1:11434/v1",
+      "model": "qwen2.5-coder:7b"
+    },
+    {
+      "id": "home-gpu",
+      "name": "Ollama @ home",
+      "baseUrl": "http://192.168.128.5:11434/v1",
+      "model": "qwen2.5-coder:14b"
+    }
+  ]
+}
+```
+
+Токены — в секрет-сторе под `local` (default) и `local:<id>`. GUI: Add / Duplicate / Delete.
+
+Старые плоские `localBaseUrl` / `localModel` мигрируют в endpoint `default` при загрузке.
+
+---
+
 ## Healthcheck
 
 ```

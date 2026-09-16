@@ -58,6 +58,10 @@ export function DetectDefaultShell() {
   return window['go']['main']['App']['DetectDefaultShell']();
 }
 
+export function DuplicateLocalEndpoint(arg1) {
+  return window['go']['main']['App']['DuplicateLocalEndpoint'](arg1);
+}
+
 export function GetCursorRules() {
   return window['go']['main']['App']['GetCursorRules']();
 }
@@ -104,6 +108,10 @@ export function ListDir(arg1) {
 
 export function ListLocalModels() {
   return window['go']['main']['App']['ListLocalModels']();
+}
+
+export function ListLocalModelsFor(arg1) {
+  return window['go']['main']['App']['ListLocalModelsFor'](arg1);
 }
 
 export function ListModelPrices() {
@@ -172,6 +180,10 @@ export function RefreshProviderPrices() {
 
 export function ReloadCursorRules() {
   return window['go']['main']['App']['ReloadCursorRules']();
+}
+
+export function RemoveLocalEndpoint(arg1) {
+  return window['go']['main']['App']['RemoveLocalEndpoint'](arg1);
 }
 
 export function RenameChatSession(arg1, arg2) {
@@ -340,6 +352,10 @@ export function TerminalResize(arg1, arg2) {
 
 export function TerminalWrite(arg1) {
   return window['go']['main']['App']['TerminalWrite'](arg1);
+}
+
+export function UpsertLocalEndpoint(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['UpsertLocalEndpoint'](arg1, arg2, arg3, arg4);
 }
 
 export function WriteCursorRule(arg1, arg2) {
