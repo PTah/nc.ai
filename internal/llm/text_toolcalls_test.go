@@ -129,3 +129,17 @@ func TestPromoteEmptyArguments(t *testing.T) {
 		t.Fatalf("args=%q", msg.ToolCalls[0].Function.Arguments)
 	}
 }
+
+func TestLooksLikeBrokenToolJSON(t *testing.T) {
+	broken := `{"name": "write_file", "arguments": {"path": ".gitignore", "content": "# x`
+	if !LooksLikeBrokenToolJSON(broken) {
+		t.Fatal("truncated tool JSON should look broken")
+	}
+	ok := `{"name":"git_status","arguments":{}}`
+	if LooksLikeBrokenToolJSON(ok) {
+		t.Fatal("valid tool JSON is not broken")
+	}
+	if LooksLikeBrokenToolJSON("просто текст") {
+		t.Fatal("prose is not broken tool JSON")
+	}
+}

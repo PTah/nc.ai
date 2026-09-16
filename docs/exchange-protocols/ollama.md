@@ -143,7 +143,7 @@ curl http://127.0.0.1:11434/api/generate -d "{\"model\":\"qwen2.5-coder:7b\",\"p
 
 Без lite — полный system + полный набор tools (как у облачных провайдеров). На qwen2.5-coder 7B/14B лучше держать lite **выкл**.
 
-На Local первый шаг агента идёт с `tool_choice=required`, чтобы модель не отвечала «вероятно» без tools.
+На Local при сбое (угадывание / битый tool JSON) агент один раз повторяет ход с **read-only** tools (`read_file`/`grep`/…), без `write_file`. `tool_choice=required` не используется — слабые модели из‑за него сыплют JSON в чат.
 
 **Auto-models** (если включён): из каталога Ollama берёт модели с capability `tools`, coder-имена; на простые задачи — меньший размер (7b), на сложные/длинный прогон — больший (14b+). Модели без `tools` (часто `deepseek-coder-v2`) не выбираются.
 

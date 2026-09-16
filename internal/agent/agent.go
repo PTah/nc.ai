@@ -530,8 +530,8 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 		r.Tools.PlanMode = r.PlanMode
 	}
 
-	localLiteNudgeDone := false
-	forceToolChoice := false
+	localNudgeDone := false
+	exploreToolsOnly := false
 	for step := 0; step < max; step++ {
 		if ctx.Err() != nil {
 			emit(Event{Type: "error", Content: ctx.Err().Error()})
@@ -540,22 +540,21 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 
 		model := r.resolveModel(step, emit)
 		var toolSpecs []llm.ToolSpec
-		if r.LocalLite {
+		switch {
+		case exploreToolsOnly:
+			toolSpecs = tools.SpecsForLocalExplore(r.PlanMode)
+			exploreToolsOnly = false
+		case r.LocalLite:
 			toolSpecs = tools.SpecsForLite(r.PlanMode)
-		} else {
+		default:
 			toolSpecs = tools.SpecsFor(r.PlanMode)
 		}
-		toolChoice := "auto"
-		// Local models often ignore tools and dump prose. Force the first step
-		// (and one post-nudge retry) to call a tool before answering.
-		if r.isLocal() && len(toolSpecs) > 0 && (step == 0 || forceToolChoice) {
-			toolChoice = "required"
-			forceToolChoice = false
-		}
+		// Never use tool_choice=required on Local: weak models dump broken JSON
+		// (e.g. write_file loops) into the chat instead of structured tool_calls.
 		req := &llm.ChatRequest{
 			Messages:        messages,
 			Tools:           toolSpecs,
-			ToolChoice:      toolChoice,
+			ToolChoice:      "auto",
 			Thinking:        map[string]any{"type": "enabled"},
 			ReasoningEffort: "high",
 			Stream:          true,
@@ -583,7 +582,13 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 		if promoted && finish == "" {
 			finish = "tool_calls"
 		}
-		if promoted && streamed {
+		brokenToolJSON := false
+		if r.isLocal() && !promoted && len(msg.ToolCalls) == 0 && llm.LooksLikeBrokenToolJSON(msg.Content) {
+			brokenToolJSON = true
+			msg.Content = "[invalid tool JSON omitted]"
+			msg.ReasoningContent = ""
+		}
+		if (promoted || brokenToolJSON) && streamed {
 			emit(Event{Type: "delta_clear"})
 		}
 
@@ -593,7 +598,7 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 			if strings.TrimSpace(msg.ReasoningContent) != "" {
 				emit(Event{Type: "reasoning", Content: msg.ReasoningContent})
 			}
-			if strings.TrimSpace(msg.Content) != "" {
+			if strings.TrimSpace(msg.Content) != "" && !brokenToolJSON {
 				emit(Event{Type: "delta", Content: msg.Content})
 			}
 		}
@@ -612,22 +617,29 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 			messages = append(messages, outs...)
 			continue
 		default:
-			// Weak local models often guess in prose instead of calling tools.
-			// One hard nudge + clear the streamed guess before retrying.
-			if r.isLocal() && !localLiteNudgeDone && len(msg.ToolCalls) == 0 && strings.TrimSpace(msg.Content) != "" {
-				localLiteNudgeDone = true
-				forceToolChoice = true
-				if streamed {
+			// Weak local models: prose guess OR broken tool JSON in content.
+			content := strings.TrimSpace(msg.Content)
+			guessy := len(content) > 80 || strings.Contains(strings.ToLower(content), "вероятн") ||
+				strings.Contains(strings.ToLower(content), "скорее всего")
+			if r.isLocal() && !localNudgeDone && len(msg.ToolCalls) == 0 && (brokenToolJSON || guessy) {
+				localNudgeDone = true
+				exploreToolsOnly = true
+				if streamed && !brokenToolJSON {
 					emit(Event{Type: "delta_clear"})
 				}
-				emit(Event{Type: "notice", Content: "Local: модель ответила без tools — прошу вызвать инструменты и ответить по фактам."})
+				notice := "Local: модель ответила без tools — прошу прочитать файлы и ответить по фактам."
+				if brokenToolJSON {
+					notice = "Local: модель выдала битый JSON вместо tool call — повторяю только с чтением файлов."
+				}
+				emit(Event{Type: "notice", Content: notice})
 				messages = append(messages, llm.UserText(
-					"STOP. You answered without calling tools. Re-do this turn: call glob/grep/list_dir/read_file (or git_*) first. "+
-						"Do not guess. Do not write «вероятно» / «скорее всего» without tool results. Then give a short factual answer.",
+					"STOP. Do not paste tool JSON into the chat. Do not call write_file/apply_patch/shell. "+
+						"Call only read_file, grep, glob, list_dir, or git_status/git_diff/git_log via the tools API. "+
+						"Then give a short factual answer. Never guess («вероятно»).",
 				))
 				continue
 			}
-			if strings.TrimSpace(msg.Content) == "" {
+			if content == "" {
 				emit(Event{Type: "error", Content: fmt.Sprintf("пустой финальный ответ (finish=%s)", finish)})
 			} else if finish == "length" {
 				emit(Event{Type: "error", Content: "ответ обрезан (finish=length)"})

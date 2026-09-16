@@ -475,19 +475,28 @@ func Specs() []llm.ToolSpec {
 }
 
 func SpecsFor(plan bool) []llm.ToolSpec {
-	return filterToolSpecs(allToolSpecs(), plan, false)
+	return filterToolSpecs(allToolSpecs(), plan, false, false)
 }
 
 // SpecsForLite is a reduced tool set for weak local models (less prefill).
 func SpecsForLite(plan bool) []llm.ToolSpec {
-	return filterToolSpecs(allToolSpecs(), plan, true)
+	return filterToolSpecs(allToolSpecs(), plan, true, false)
 }
 
-func filterToolSpecs(all []llm.ToolSpec, plan, lite bool) []llm.ToolSpec {
+// SpecsForLocalExplore is a read-only tool set used after a failed Local turn
+// (guessing or broken tool JSON). Keeps write/shell/ssh out of reach.
+func SpecsForLocalExplore(plan bool) []llm.ToolSpec {
+	return filterToolSpecs(allToolSpecs(), plan, false, true)
+}
+
+func filterToolSpecs(all []llm.ToolSpec, plan, lite, explore bool) []llm.ToolSpec {
 	out := make([]llm.ToolSpec, 0, len(all))
 	for _, s := range all {
 		name := s.Function.Name
 		if plan && PlanBlocked(name) {
+			continue
+		}
+		if explore && !ExploreTool(name) {
 			continue
 		}
 		if lite && !LiteTool(name) {
@@ -496,6 +505,18 @@ func filterToolSpecs(all []llm.ToolSpec, plan, lite bool) []llm.ToolSpec {
 		out = append(out, s)
 	}
 	return out
+}
+
+// ExploreTool is the read-only allowlist for Local recovery turns.
+func ExploreTool(name string) bool {
+	switch name {
+	case "read_file", "list_dir", "glob", "grep", "find_files",
+		"git_status", "git_diff", "git_log",
+		"ask_user", "get_env_info":
+		return true
+	default:
+		return false
+	}
 }
 
 // LiteTool is the allowlist for Local lite mode.
