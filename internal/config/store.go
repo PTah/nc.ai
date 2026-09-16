@@ -41,11 +41,14 @@ type Settings struct {
 	OpenRouterAPIKey string `json:"openrouterApiKey,omitempty"`
 	OpenRouterModel  string `json:"openrouterModel,omitempty"`
 
-	// LocalBaseURL is an OpenAI-compatible root (e.g. http://127.0.0.1:11434/v1).
+	// LocalBaseURL / LocalModel are legacy flat fields kept in sync with the
+	// active (or first) entry in LocalEndpoints for older settings.json readers.
 	LocalBaseURL string `json:"localBaseUrl,omitempty"`
 	LocalModel   string `json:"localModel,omitempty"`
-	// LocalAPIKey is legacy; live tokens live in the OS secret store under "local".
+	// LocalAPIKey is legacy; live tokens live in the OS secret store under "local" / "local:<id>".
 	LocalAPIKey string `json:"localApiKey,omitempty"`
+	// LocalEndpoints is the list of OpenAI-compatible LAN/local servers.
+	LocalEndpoints []LocalEndpoint `json:"localEndpoints,omitempty"`
 
 	Shell          string   `json:"shell"`
 	RecentProjects []string `json:"recentProjects"`
@@ -169,10 +172,10 @@ func NewStore() *Store {
 			ZaiModel:        "glm-4.7-flash",
 			ZaiEndpoint:     "paas",
 			OpenRouterModel: "qwen/qwen3-coder-flash:floor",
-			LocalBaseURL:    DefaultLocalBaseURL,
-			Shell:           "",
-			AgentMaxSteps:   40,
-			AutoModels:      true,
+			LocalBaseURL:  DefaultLocalBaseURL,
+			Shell:         "",
+			AgentMaxSteps: 40,
+			AutoModels:    true,
 		},
 		keys: map[string]string{},
 	}
@@ -265,9 +268,7 @@ func (s *Store) Load() error {
 	if s.settings.OpenRouterModel == "" {
 		s.settings.OpenRouterModel = "qwen/qwen3-coder-flash:floor"
 	}
-	if strings.TrimSpace(s.settings.LocalBaseURL) == "" {
-		s.settings.LocalBaseURL = DefaultLocalBaseURL
-	}
+	endpointsChanged := s.ensureLocalEndpointsLocked()
 	// Legacy default was the bare name "powershell"; empty now means auto-detect (pwsh → PS5).
 	if strings.EqualFold(strings.TrimSpace(s.settings.Shell), "powershell") {
 		s.settings.Shell = ""
@@ -284,7 +285,7 @@ func (s *Store) Load() error {
 		s.mu.Unlock()
 		return err
 	}
-	migrated := s.migrateLegacyKeysLocked()
+	migrated := s.migrateLegacyKeysLocked() || endpointsChanged
 	s.mu.Unlock()
 	if migrated {
 		return s.Save()
@@ -353,19 +354,37 @@ func (s *Store) SetOpenRouterModel(model string) error {
 }
 
 func (s *Store) SetLocalAPIKey(key string) error {
-	return s.setAPIKey(ProviderLocal, key)
+	p := s.Provider()
+	if !IsLocalProvider(p) {
+		p = MakeLocalProvider(DefaultLocalEndpointID)
+	}
+	return s.setAPIKey(p, key)
 }
 
 func (s *Store) SetLocalModel(model string) error {
 	s.mu.Lock()
-	s.settings.LocalModel = strings.TrimSpace(model)
+	s.ensureLocalEndpointsLocked()
+	model = strings.TrimSpace(model)
+	if ep := s.activeLocalEndpointLocked(); ep != nil {
+		ep.Model = model
+	} else if len(s.settings.LocalEndpoints) > 0 {
+		s.settings.LocalEndpoints[0].Model = model
+	}
+	s.syncLegacyLocalFieldsLocked()
 	s.mu.Unlock()
 	return s.Save()
 }
 
 func (s *Store) SetLocalBaseURL(baseURL string) error {
 	s.mu.Lock()
-	s.settings.LocalBaseURL = normalizeLocalBaseURL(baseURL)
+	s.ensureLocalEndpointsLocked()
+	url := normalizeLocalBaseURL(baseURL)
+	if ep := s.activeLocalEndpointLocked(); ep != nil {
+		ep.BaseURL = url
+	} else if len(s.settings.LocalEndpoints) > 0 {
+		s.settings.LocalEndpoints[0].BaseURL = url
+	}
+	s.syncLegacyLocalFieldsLocked()
 	s.mu.Unlock()
 	return s.Save()
 }
@@ -373,12 +392,24 @@ func (s *Store) SetLocalBaseURL(baseURL string) error {
 func (s *Store) LocalBaseURL() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	if ep := s.activeLocalEndpointLocked(); ep != nil {
+		return normalizeLocalBaseURL(ep.BaseURL)
+	}
+	if len(s.settings.LocalEndpoints) > 0 {
+		return normalizeLocalBaseURL(s.settings.LocalEndpoints[0].BaseURL)
+	}
 	return normalizeLocalBaseURL(s.settings.LocalBaseURL)
 }
 
 func (s *Store) LocalModel() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	if ep := s.activeLocalEndpointLocked(); ep != nil {
+		return strings.TrimSpace(ep.Model)
+	}
+	if len(s.settings.LocalEndpoints) > 0 {
+		return strings.TrimSpace(s.settings.LocalEndpoints[0].Model)
+	}
 	return strings.TrimSpace(s.settings.LocalModel)
 }
 
@@ -417,7 +448,16 @@ func (s *Store) Provider() string {
 
 func (s *Store) SetActiveProvider(provider string) error {
 	s.mu.Lock()
-	s.settings.ActiveProvider = normalizeProvider(provider)
+	p := normalizeProvider(provider)
+	if IsLocalProvider(p) {
+		s.ensureLocalEndpointsLocked()
+		id := LocalEndpointID(p)
+		if s.indexLocalEndpointLocked(id) < 0 && len(s.settings.LocalEndpoints) > 0 {
+			p = MakeLocalProvider(s.settings.LocalEndpoints[0].ID)
+		}
+		s.syncLegacyLocalFieldsLocked()
+	}
+	s.settings.ActiveProvider = p
 	s.mu.Unlock()
 	return s.Save()
 }
@@ -458,8 +498,13 @@ func (s *Store) ClearAPIKey(provider string) error {
 
 func (s *Store) ClearAllAPIKeys() error {
 	var first error
-	for _, id := range []string{ProviderDeepSeek, ProviderZAI, ProviderOpenRouter, ProviderLocal} {
+	for _, id := range []string{ProviderDeepSeek, ProviderZAI, ProviderOpenRouter} {
 		if err := s.setAPIKey(id, ""); err != nil && first == nil {
+			first = err
+		}
+	}
+	for _, ep := range s.LocalEndpoints() {
+		if err := s.setAPIKey(MakeLocalProvider(ep.ID), ""); err != nil && first == nil {
 			first = err
 		}
 	}
@@ -471,13 +516,14 @@ func (s *Store) SecretsBackendLabel() string {
 }
 
 func secretID(provider string) string {
-	switch normalizeProvider(provider) {
-	case ProviderZAI:
+	p := normalizeProvider(provider)
+	switch {
+	case p == ProviderZAI:
 		return secrets.IDZai
-	case ProviderOpenRouter:
+	case p == ProviderOpenRouter:
 		return secrets.IDOpenRouter
-	case ProviderLocal:
-		return secrets.IDLocal
+	case IsLocalProvider(p):
+		return LocalSecretID(LocalEndpointID(p))
 	default:
 		return secrets.IDDeepSeek
 	}
@@ -571,13 +617,17 @@ func (s *Store) setAPIKey(provider, key string) error {
 func (s *Store) ActiveModel() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	switch normalizeProvider(s.settings.ActiveProvider) {
-	case ProviderZAI:
+	p := normalizeProvider(s.settings.ActiveProvider)
+	switch {
+	case p == ProviderZAI:
 		return s.settings.ZaiModel
-	case ProviderOpenRouter:
+	case p == ProviderOpenRouter:
 		return s.settings.OpenRouterModel
-	case ProviderLocal:
-		return s.settings.LocalModel
+	case IsLocalProvider(p):
+		if ep := s.activeLocalEndpointLocked(); ep != nil {
+			return strings.TrimSpace(ep.Model)
+		}
+		return strings.TrimSpace(s.settings.LocalModel)
 	default:
 		return s.settings.DeepSeekModel
 	}
@@ -586,13 +636,18 @@ func (s *Store) ActiveModel() string {
 // SetActiveModel persists the model for the currently active provider.
 func (s *Store) SetActiveModel(model string) error {
 	s.mu.Lock()
-	switch normalizeProvider(s.settings.ActiveProvider) {
-	case ProviderZAI:
+	p := normalizeProvider(s.settings.ActiveProvider)
+	switch {
+	case p == ProviderZAI:
 		s.settings.ZaiModel = model
-	case ProviderOpenRouter:
+	case p == ProviderOpenRouter:
 		s.settings.OpenRouterModel = model
-	case ProviderLocal:
-		s.settings.LocalModel = strings.TrimSpace(model)
+	case IsLocalProvider(p):
+		model = strings.TrimSpace(model)
+		if ep := s.activeLocalEndpointLocked(); ep != nil {
+			ep.Model = model
+		}
+		s.syncLegacyLocalFieldsLocked()
 	default:
 		s.settings.DeepSeekModel = model
 	}
@@ -601,13 +656,14 @@ func (s *Store) SetActiveModel(model string) error {
 }
 
 func normalizeProvider(p string) string {
-	switch p {
-	case ProviderZAI:
+	p = strings.TrimSpace(strings.ToLower(p))
+	switch {
+	case p == ProviderZAI:
 		return ProviderZAI
-	case ProviderOpenRouter:
+	case p == ProviderOpenRouter:
 		return ProviderOpenRouter
-	case ProviderLocal:
-		return ProviderLocal
+	case IsLocalProvider(p):
+		return MakeLocalProvider(LocalEndpointID(p))
 	default:
 		return ProviderDeepSeek
 	}
@@ -998,20 +1054,20 @@ func (s *Store) AddUsage(provider string, costUSD float64, inputTokens, outputTo
 	s.settings.TotalOutputTokens += outputTokens
 	s.settings.TotalCacheHitTokens += cacheHit
 	s.settings.TotalCacheMissTokens += cacheMiss
-	switch normalizeProvider(provider) {
-	case ProviderZAI:
+	switch {
+	case normalizeProvider(provider) == ProviderZAI:
 		s.settings.ZaiCostUSD += costUSD
 		s.settings.ZaiInputTokens += inputTokens
 		s.settings.ZaiOutputTokens += outputTokens
 		s.settings.ZaiCacheHitTokens += cacheHit
 		s.settings.ZaiCacheMissTokens += cacheMiss
-	case ProviderOpenRouter:
+	case normalizeProvider(provider) == ProviderOpenRouter:
 		s.settings.OpenRouterCostUSD += costUSD
 		s.settings.OpenRouterInputTokens += inputTokens
 		s.settings.OpenRouterOutputTokens += outputTokens
 		s.settings.OpenRouterCacheHitTokens += cacheHit
 		s.settings.OpenRouterCacheMissTokens += cacheMiss
-	case ProviderLocal:
+	case IsLocalProvider(provider):
 		s.settings.LocalCostUSD += costUSD
 		s.settings.LocalInputTokens += inputTokens
 		s.settings.LocalOutputTokens += outputTokens
@@ -1032,14 +1088,14 @@ func (s *Store) AddUsage(provider string, costUSD float64, inputTokens, outputTo
 func (s *Store) ProviderUsage(provider string) (cost float64, in, out, cacheHit, cacheMiss int) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	switch normalizeProvider(provider) {
-	case ProviderZAI:
+	switch {
+	case normalizeProvider(provider) == ProviderZAI:
 		return s.settings.ZaiCostUSD, s.settings.ZaiInputTokens, s.settings.ZaiOutputTokens,
 			s.settings.ZaiCacheHitTokens, s.settings.ZaiCacheMissTokens
-	case ProviderOpenRouter:
+	case normalizeProvider(provider) == ProviderOpenRouter:
 		return s.settings.OpenRouterCostUSD, s.settings.OpenRouterInputTokens, s.settings.OpenRouterOutputTokens,
 			s.settings.OpenRouterCacheHitTokens, s.settings.OpenRouterCacheMissTokens
-	case ProviderLocal:
+	case IsLocalProvider(provider):
 		return s.settings.LocalCostUSD, s.settings.LocalInputTokens, s.settings.LocalOutputTokens,
 			s.settings.LocalCacheHitTokens, s.settings.LocalCacheMissTokens
 	default:

@@ -251,18 +251,18 @@ func (a *App) refreshProvider() {
 	provider := a.cfg.Provider()
 	key := a.cfg.ActiveAPIKey()
 	model := a.cfg.ActiveModel()
-	switch provider {
-	case config.ProviderZAI:
+	switch {
+	case provider == config.ProviderZAI:
 		if model == "" {
 			model = zai.DefaultModel
 		}
 		a.llm = zai.NewWithBaseURL(key, model, zai.BaseURLFor(a.cfg.ZaiEndpoint()))
-	case config.ProviderOpenRouter:
+	case provider == config.ProviderOpenRouter:
 		if model == "" {
 			model = openrouter.DefaultModel
 		}
 		a.llm = openrouter.New(key, model)
-	case config.ProviderLocal:
+	case config.IsLocalProvider(provider):
 		a.llm = local.New(a.cfg.LocalBaseURL(), key, model)
 	default:
 		if model == "" {
@@ -368,6 +368,20 @@ func (a *App) GetSettings() map[string]any {
 	s := a.cfg.Get()
 	provider := a.cfg.Provider()
 	appData, _ := a.cfg.AppDataDir()
+	localEps := make([]map[string]any, 0, len(s.LocalEndpoints))
+	for _, ep := range a.cfg.LocalEndpoints() {
+		localEps = append(localEps, map[string]any{
+			"id":      ep.ID,
+			"name":    ep.Name,
+			"baseUrl": ep.BaseURL,
+			"model":   ep.Model,
+			"keySet":  a.cfg.HasAPIKey(config.MakeLocalProvider(ep.ID)),
+		})
+	}
+	localKeyProvider := provider
+	if !config.IsLocalProvider(localKeyProvider) {
+		localKeyProvider = config.MakeLocalProvider(config.DefaultLocalEndpointID)
+	}
 	return map[string]any{
 		"activeProvider":     provider,
 		"deepseekModel":      s.DeepSeekModel,
@@ -379,8 +393,9 @@ func (a *App) GetSettings() map[string]any {
 		"openrouterModel":    orDefault(s.OpenRouterModel, openrouter.DefaultModel),
 		"openrouterKeySet":   a.cfg.HasAPIKey(config.ProviderOpenRouter),
 		"localBaseUrl":       a.cfg.LocalBaseURL(),
-		"localModel":         s.LocalModel,
-		"localKeySet":        a.cfg.HasAPIKey(config.ProviderLocal),
+		"localModel":         a.cfg.LocalModel(),
+		"localKeySet":        a.cfg.HasAPIKey(localKeyProvider),
+		"localEndpoints":     localEps,
 		"secretsBackend":     a.cfg.SecretsBackendLabel(),
 		"shell":              s.Shell,
 		"shellResolved":      shell.ResolveShell(s.Shell),
@@ -744,7 +759,11 @@ func (a *App) SaveLocalKey(apiKey string) error {
 }
 
 func (a *App) ClearLocalKey() error {
-	if err := a.cfg.ClearAPIKey(config.ProviderLocal); err != nil {
+	p := a.cfg.Provider()
+	if !config.IsLocalProvider(p) {
+		p = config.MakeLocalProvider(config.DefaultLocalEndpointID)
+	}
+	if err := a.cfg.ClearAPIKey(p); err != nil {
 		return err
 	}
 	a.refreshProvider()
@@ -765,6 +784,83 @@ func (a *App) SaveLocalBaseURL(baseURL string) error {
 	}
 	a.refreshProvider()
 	return nil
+}
+
+// UpsertLocalEndpoint creates or updates a LAN/local server profile.
+func (a *App) UpsertLocalEndpoint(id, name, baseURL, model string) (map[string]any, error) {
+	ep, err := a.cfg.UpsertLocalEndpoint(config.LocalEndpoint{
+		ID: id, Name: name, BaseURL: baseURL, Model: model,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if config.IsLocalProvider(a.cfg.Provider()) && config.LocalEndpointID(a.cfg.Provider()) == ep.ID {
+		a.refreshProvider()
+	}
+	return map[string]any{
+		"id": ep.ID, "name": ep.Name, "baseUrl": ep.BaseURL, "model": ep.Model,
+		"keySet": a.cfg.HasAPIKey(config.MakeLocalProvider(ep.ID)),
+	}, nil
+}
+
+// RemoveLocalEndpoint deletes a local server profile (keeps at least one).
+func (a *App) RemoveLocalEndpoint(id string) error {
+	if err := a.cfg.RemoveLocalEndpoint(id); err != nil {
+		return err
+	}
+	a.refreshProvider()
+	return nil
+}
+
+// DuplicateLocalEndpoint clones a profile under a new id.
+func (a *App) DuplicateLocalEndpoint(id string) (map[string]any, error) {
+	ep, err := a.cfg.DuplicateLocalEndpoint(id)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"id": ep.ID, "name": ep.Name, "baseUrl": ep.BaseURL, "model": ep.Model,
+		"keySet": false,
+	}, nil
+}
+
+// ListLocalModels fetches model ids from the active local endpoint.
+func (a *App) ListLocalModels() ([]string, error) {
+	return a.ListLocalModelsFor(config.LocalEndpointID(a.cfg.Provider()))
+}
+
+// ListLocalModelsFor fetches models for a specific local endpoint id.
+func (a *App) ListLocalModelsFor(endpointID string) ([]string, error) {
+	ep, ok := a.cfg.LocalEndpointByID(endpointID)
+	if !ok {
+		ep = config.LocalEndpoint{
+			ID:      config.DefaultLocalEndpointID,
+			BaseURL: a.cfg.LocalBaseURL(),
+			Model:   a.cfg.LocalModel(),
+		}
+	}
+	client := local.New(ep.BaseURL, a.cfg.APIKey(config.MakeLocalProvider(ep.ID)), ep.Model)
+	ctx := a.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	return client.ListModels(ctx)
+}
+
+// PreferLocalModel keeps the saved model when listed; otherwise first available or saved.
+func (a *App) PreferLocalModel(available []string) string {
+	cur := strings.TrimSpace(a.cfg.LocalModel())
+	for _, m := range available {
+		if strings.TrimSpace(m) == cur && cur != "" {
+			return cur
+		}
+	}
+	if len(available) > 0 {
+		return strings.TrimSpace(available[0])
+	}
+	return cur
 }
 
 // ListDeepSeekModels returns model ids from GET /models for the saved DeepSeek key.
@@ -831,32 +927,6 @@ func (a *App) ListDeepSeekModels() []string {
 // PreferDeepSeekModel keeps the saved model when still listed; otherwise flash / first.
 func (a *App) PreferDeepSeekModel(available []string) string {
 	return deepseek.PreferModel(available, a.cfg.Get().DeepSeekModel)
-}
-
-// ListLocalModels fetches model ids from the configured OpenAI-compatible / Ollama server.
-func (a *App) ListLocalModels() ([]string, error) {
-	client := local.New(a.cfg.LocalBaseURL(), a.cfg.APIKey(config.ProviderLocal), a.cfg.LocalModel())
-	ctx := a.ctx
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
-	defer cancel()
-	return client.ListModels(ctx)
-}
-
-// PreferLocalModel keeps the saved model when listed; otherwise first available or saved.
-func (a *App) PreferLocalModel(available []string) string {
-	cur := strings.TrimSpace(a.cfg.LocalModel())
-	if len(available) == 0 {
-		return cur
-	}
-	for _, id := range available {
-		if id == cur {
-			return cur
-		}
-	}
-	return available[0]
 }
 
 // ListZaiModels returns model ids from GET {base}/models for the saved Z.ai key.
@@ -1581,7 +1651,7 @@ func (a *App) RunAgentWithAttachments(userMessage string, attachments []agent.At
 	cfg := a.cfg.Get()
 	provider := a.cfg.Provider()
 	autoModels := cfg.AutoModels
-	if provider == config.ProviderLocal {
+	if config.IsLocalProvider(provider) {
 		// Local has no flash/pro catalog — always use the saved model id.
 		autoModels = false
 	}
@@ -1775,8 +1845,8 @@ func (a *App) usageBalanceSnapshot(provider string) (ok bool, usd float64, detai
 
 // requireProviderReady checks credentials / base URL for the active provider.
 func (a *App) requireProviderReady() error {
-	switch a.cfg.Provider() {
-	case config.ProviderLocal:
+	switch {
+	case config.IsLocalProvider(a.cfg.Provider()):
 		if strings.TrimSpace(a.cfg.LocalBaseURL()) == "" {
 			return fmt.Errorf("Local Base URL is not set")
 		}
@@ -1784,11 +1854,11 @@ func (a *App) requireProviderReady() error {
 			return fmt.Errorf("Local model is not set — выберите модель или введите id вручную")
 		}
 		return nil
-	case config.ProviderZAI:
+	case a.cfg.Provider() == config.ProviderZAI:
 		if a.cfg.ActiveAPIKey() == "" {
 			return fmt.Errorf("Z.ai API key is not set")
 		}
-	case config.ProviderOpenRouter:
+	case a.cfg.Provider() == config.ProviderOpenRouter:
 		if a.cfg.ActiveAPIKey() == "" {
 			return fmt.Errorf("OpenRouter API key is not set")
 		}
