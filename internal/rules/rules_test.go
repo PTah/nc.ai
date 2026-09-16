@@ -72,6 +72,32 @@ func TestSelectForPrompt_AlwaysApplyAndCatalog(t *testing.T) {
 	}
 }
 
+func TestSkipForNotCursorAgent_ProposeOps(t *testing.T) {
+	b := Bundle{
+		Project: []Rule{
+			{
+				Name:        "propose-project-ops.mdc",
+				Path:        "/p/propose-project-ops.mdc",
+				AlwaysApply: true,
+				Content:     "Для этого репозитория ещё нет локального ops-правила.",
+			},
+			{
+				Name:        "nc.ai-ops.mdc",
+				Path:        "/p/nc.ai-ops.mdc",
+				AlwaysApply: true,
+				Content:     "Deploy: none. Remotes: kalinamall/home/github.",
+			},
+		},
+	}
+	out := b.SelectStableForPrompt()
+	if strings.Contains(out, "ещё нет локального ops-правила") {
+		t.Fatalf("propose-project-ops must not reach the LLM prompt:\n%s", out)
+	}
+	if !strings.Contains(out, "Deploy: none") {
+		t.Fatalf("real project ops rule must remain:\n%s", out)
+	}
+}
+
 func TestLoad_AgentsMDAndCursorrules(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("# Agents\nPrefer small diffs.\n"), 0o600); err != nil {
