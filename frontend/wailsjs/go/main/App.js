@@ -162,6 +162,10 @@ export function PreferZaiModel(arg1) {
   return window['go']['main']['App']['PreferZaiModel'](arg1);
 }
 
+export function ProbeLocalHealth() {
+  return window['go']['main']['App']['ProbeLocalHealth']();
+}
+
 export function ProjectHasChats(arg1) {
   return window['go']['main']['App']['ProjectHasChats'](arg1);
 }

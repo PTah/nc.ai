@@ -51,6 +51,7 @@ import {
   GetZaiBalance,
   ListLocalModels,
   PreferLocalModel,
+  ProbeLocalHealth,
   UpsertLocalEndpoint,
   RemoveLocalEndpoint,
   DuplicateLocalEndpoint,
@@ -826,8 +827,12 @@ export default function App() {
   const [localBaseUrl, setLocalBaseUrl] = useState(LOCAL_BASE_DEFAULT)
   const [localModels, setLocalModels] = useState<string[]>([])
   const [localEndpoints, setLocalEndpoints] = useState<LocalEndpointRow[]>([])
-  const [localEpName, setLocalEpName] = useState('Local')
-  const [zaiEndpoint, setZaiEndpoint] = useState<ZaiEndpointId>('paas')
+  const [localHealth, setLocalHealth] = useState<{
+    level: string
+    label: string
+    detail: string
+  } | null>(null)
+  const localHealthTimer = useRef<number | null>(null)
   const [zaiModels, setZaiModels] = useState<string[]>([...ZAI_MODELS_FALLBACK])
   const [openrouterModels, setOpenrouterModels] = useState<string[]>([...OPENROUTER_MODELS_FALLBACK])
   const [zaiBalance, setZaiBalance] = useState<{ok: boolean; availableUsd: number; detail: string; source: string} | null>(null)
@@ -2143,6 +2148,7 @@ export default function App() {
           await SaveLocalModel(next)
         }
       }
+      void refreshLocalHealth()
       return list
     } catch (e) {
       if (activeSessionId) {
@@ -2151,9 +2157,57 @@ export default function App() {
           {kind: 'system', content: `Local models: ${formatConnectError(e)}`},
         ])
       }
+      void refreshLocalHealth()
       return [] as string[]
     }
   }
+
+  async function refreshLocalHealth() {
+    if (!isLocalProvider(activeProvider)) {
+      setLocalHealth(null)
+      return
+    }
+    try {
+      const h = await ProbeLocalHealth()
+      if (!h) return
+      setLocalHealth({
+        level: String(h.level || 'critical'),
+        label: String(h.label || 'Local ?'),
+        detail: String(h.detail || ''),
+      })
+    } catch (e) {
+      setLocalHealth({
+        level: 'critical',
+        label: 'Local down',
+        detail: formatConnectError(e),
+      })
+    }
+  }
+
+  useEffect(() => {
+    if (!isLocalProvider(activeProvider)) {
+      setLocalHealth(null)
+      if (localHealthTimer.current != null) {
+        window.clearInterval(localHealthTimer.current)
+        localHealthTimer.current = null
+      }
+      return
+    }
+    void refreshLocalHealth()
+    if (localHealthTimer.current != null) {
+      window.clearInterval(localHealthTimer.current)
+    }
+    localHealthTimer.current = window.setInterval(() => {
+      void refreshLocalHealth()
+    }, 120000)
+    return () => {
+      if (localHealthTimer.current != null) {
+        window.clearInterval(localHealthTimer.current)
+        localHealthTimer.current = null
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeProvider, localBaseUrl, localModel])
 
   async function refreshActiveProviderModels() {
     if (modelsRefreshing) return
@@ -2198,12 +2252,15 @@ export default function App() {
         void refreshLocalModels({applyPreferred: true})
         void applyUsageStats()
       } else if (next === 'zai') {
+        setLocalHealth(null)
         void refreshZaiModels({applyPreferred: true})
         void refreshZaiBalance().then(() => applyUsageStats())
       } else if (next === 'openrouter') {
+        setLocalHealth(null)
         void refreshOpenRouterModels({applyPreferred: true})
         void refreshOpenRouterBalance().then(() => applyUsageStats())
       } else {
+        setLocalHealth(null)
         void refreshDeepSeekModels({applyPreferred: true})
         void applyUsageStats()
       }
@@ -2367,6 +2424,7 @@ export default function App() {
       }
       if (isLocalProvider(activeProvider)) {
         await refreshLocalModels({applyPreferred: true})
+        await refreshLocalHealth()
       }
       if (activeSessionId) setSessionItems(activeSessionId, (m) => [...m, {kind: 'system', content: `${providerLabel} connect OK: ${r || '(empty content)'}`}])
     } catch (e) {
@@ -2743,6 +2801,16 @@ export default function App() {
                 <button type="button" className="nc-tab add" onClick={() => void createSession()} title="Новый чат">+</button>
               </div>
               <div className="nc-actions">
+                {isLocalProvider(activeProvider) && localHealth ? (
+                  <span
+                    className={`nc-pill ${localHealth.level === 'ok' ? 'ok' : localHealth.level}`}
+                    title={localHealth.detail || 'Состояние локального сервера (клик — обновить)'}
+                    onClick={() => void refreshLocalHealth()}
+                    style={{cursor: 'pointer'}}
+                  >
+                    {localHealth.label}
+                  </span>
+                ) : null}
                 <span
                   className="nc-pill"
                   title="Всего найденных Cursor/AGENTS правил · сколько всегда применяются к проекту (alwaysApply / AGENTS.md / без globs)"

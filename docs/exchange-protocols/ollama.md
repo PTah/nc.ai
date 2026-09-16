@@ -130,6 +130,8 @@ curl http://127.0.0.1:11434/api/generate -d "{\"model\":\"qwen2.5-coder:7b\",\"p
 
 Токены — в секрет-сторе под `local` (default) и `local:<id>`. GUI: Add / Duplicate / Delete.
 
+Простыми словами (Lite, Auto-models, индикатор Local): [../local-models-ru.md](../local-models-ru.md).
+
 Старые плоские `localBaseUrl` / `localModel` мигрируют в endpoint `default` при загрузке.
 
 ### Local lite + Auto-models
