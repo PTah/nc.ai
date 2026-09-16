@@ -7,6 +7,34 @@ import (
 	"unicode"
 )
 
+// LooksLikeBrokenToolJSON reports content that looks like a tool-call dump
+// (local models often paste JSON into the chat) but is not valid/complete enough
+// to promote — typically truncated or looped garbage.
+func LooksLikeBrokenToolJSON(content string) bool {
+	text := strings.TrimSpace(stripCodeFences(content))
+	if text == "" {
+		return false
+	}
+	start := strings.IndexByte(text, '{')
+	if start < 0 {
+		return false
+	}
+	lead := strings.TrimSpace(text[:start])
+	if lead != "" && !isToolCallPreamble(lead) {
+		return false
+	}
+	body := text[start:]
+	lower := strings.ToLower(body)
+	if !strings.Contains(lower, `"name"`) || !strings.Contains(lower, `"arguments"`) {
+		return false
+	}
+	// Valid promoteable JSON → not "broken".
+	if _, ok := parseTextToolCalls(text, nil); ok {
+		return false
+	}
+	return true
+}
+
 // PromoteTextToolCalls recovers tool calls that local models (Ollama etc.)
 // often emit as plain JSON in message.content instead of structured tool_calls.
 // Returns true if ToolCalls were filled from content.
