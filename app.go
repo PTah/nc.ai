@@ -887,6 +887,49 @@ func (a *App) PreferLocalModel(available []string) string {
 	return cur
 }
 
+// ProbeLocalHealth runs a quick VRAM + ping check for the active Local endpoint.
+// Safe to call when another provider is active — returns critical with a hint.
+func (a *App) ProbeLocalHealth() map[string]any {
+	out := func(rep local.HealthReport) map[string]any {
+		return map[string]any{
+			"level":      string(rep.Level),
+			"label":      rep.Label,
+			"detail":     rep.Detail,
+			"model":      rep.Model,
+			"pingMs":     rep.PingMs,
+			"tokPerSec":  rep.TokPerSec,
+			"vramLoaded": rep.VRAMLoaded,
+			"sizeVram":   rep.SizeVRAM,
+			"loadMs":     rep.LoadMs,
+			"error":      rep.Error,
+		}
+	}
+	if !config.IsLocalProvider(a.cfg.Provider()) {
+		return out(local.HealthReport{
+			Level:  local.HealthCritical,
+			Label:  "Local off",
+			Detail: "Сейчас выбран не Local-провайдер. Переключитесь на Local, чтобы проверить сервер.",
+		})
+	}
+	epID := config.LocalEndpointID(a.cfg.Provider())
+	ep, ok := a.cfg.LocalEndpointByID(epID)
+	if !ok {
+		ep = config.LocalEndpoint{
+			ID:      config.DefaultLocalEndpointID,
+			BaseURL: a.cfg.LocalBaseURL(),
+			Model:   a.cfg.LocalModel(),
+		}
+	}
+	client := local.New(ep.BaseURL, a.cfg.APIKey(config.MakeLocalProvider(ep.ID)), ep.Model)
+	ctx := a.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(ctx, 45*time.Second)
+	defer cancel()
+	return out(client.ProbeHealth(ctx))
+}
+
 // ListDeepSeekModels returns model ids from GET /models for the saved DeepSeek key.
 // Known fallback ids are always merged (API may omit experimental vision).
 // After V4 Pro retirement the pro id is dropped from the selectable list.

@@ -89,6 +89,8 @@ export function PreferOpenRouterModel(arg1:Array<string>):Promise<string>;
 
 export function PreferZaiModel(arg1:Array<string>):Promise<string>;
 
+export function ProbeLocalHealth():Promise<Record<string, any>>;
+
 export function ProjectHasChats(arg1:string):Promise<boolean>;
 
 export function ReadCursorRule(arg1:string):Promise<string>;

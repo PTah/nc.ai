@@ -241,6 +241,28 @@ textarea { resize: none; }
   background: var(--panel);
 }
 .nc-pill.ok { color: var(--pill-ok); border-color: var(--pill-ok-border); }
+.nc-pill.warn {
+  color: #e6b422;
+  border-color: rgba(230, 180, 34, 0.55);
+  background: rgba(230, 180, 34, 0.1);
+}
+.nc-pill.bad {
+  color: #e57373;
+  border-color: rgba(229, 115, 115, 0.55);
+  background: rgba(229, 115, 115, 0.1);
+}
+.nc-pill.critical {
+  color: #ff8a80;
+  border-color: rgba(136, 14, 79, 0.75);
+  background: rgba(136, 14, 79, 0.35);
+  font-weight: 700;
+}
+[data-theme="light"] .nc-pill.warn { color: #9a6b00; }
+[data-theme="light"] .nc-pill.bad { color: #c62828; }
+[data-theme="light"] .nc-pill.critical {
+  color: #880e4f;
+  background: rgba(136, 14, 79, 0.12);
+}
 .nc-cost {
   font-size: 0.78rem;
   color: var(--cost);
