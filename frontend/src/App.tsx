@@ -1167,11 +1167,7 @@ export default function App() {
         if (s.openrouterKeySet || provider === 'openrouter') void refreshOpenRouterModels()
         if (provider === 'openrouter' && s.openrouterKeySet) void refreshOpenRouterBalance()
         if (isLocalProvider(provider)) void refreshLocalModels({applyPreferred: true})
-        if (isLocalProvider(provider)) {
-          setAutoModels(false)
-        } else {
-          setAutoModels(Boolean(s.autoModels))
-        }
+        setAutoModels(Boolean(s.autoModels))
         setToolConfirm(s.toolConfirm !== false)
         setPlanMode(Boolean(s.planMode))
         if (typeof s.appDataDir === 'string' && s.appDataDir) setAppDataDir(s.appDataDir)
@@ -2190,8 +2186,7 @@ export default function App() {
     try {
       await SaveActiveProvider(next)
       if (isLocalProvider(next)) {
-        setAutoModels(false)
-        void SaveAutoModels(false)
+        // keep AutoModels setting — local uses weak↔strong catalog when on
         const id = next.startsWith('local:') ? next.slice(6) : 'default'
         const ep = localEndpoints.find((x) => x.id === id)
         if (ep) {
@@ -2295,7 +2290,7 @@ export default function App() {
     if (activeProvider === 'deepseek' || deepseekKeySet) {
       await refreshDeepSeekModels()
     }
-    await SaveAutoModels(isLocalProvider(activeProvider) ? false : autoModels)
+    await SaveAutoModels(autoModels)
     await SaveAgentMaxSteps(Number(maxSteps) || 40)
     await SaveShowTerminal(showTerm)
     await SaveTheme(theme)
@@ -2517,7 +2512,7 @@ export default function App() {
             className="nc-top-check"
             title={
               isLocalProvider(activeProvider)
-                ? 'Для Local Auto-models недоступен — используется выбранная модель'
+                ? 'Local: меньшая coder-модель с tools для простых задач; крупнее — для сложных (модели без tools пропускаются)'
                 : activeProvider === 'zai'
                 ? 'Автовыбор: glm-4.7-flash (free) → glm-5.3 на сложных задачах; картинки → glm-5.3-flash'
                 : activeProvider === 'openrouter'
@@ -2527,8 +2522,7 @@ export default function App() {
           >
             <input
               type="checkbox"
-              checked={autoModels && !isLocalProvider(activeProvider)}
-              disabled={isLocalProvider(activeProvider)}
+              checked={autoModels}
               onChange={(e) => {
                 const on = e.target.checked
                 setAutoModels(on)
@@ -3134,7 +3128,7 @@ export default function App() {
               className="nc-top-check"
               title={
                 isLocalProvider(activeProvider)
-                  ? 'Local: Auto-models выключен — одна выбранная модель'
+                  ? 'Local: быстрая маленькая coder (tools) ↔ крупнее на сложных задачах; без tools (часто deepseek-coder-v2) не берём'
                   : activeProvider === 'zai'
                   ? 'Z.ai: free flash → glm-5.3 на сложных задачах'
                   : activeProvider === 'openrouter'
@@ -3144,8 +3138,7 @@ export default function App() {
             >
               <input
                 type="checkbox"
-                checked={autoModels && !isLocalProvider(activeProvider)}
-                disabled={isLocalProvider(activeProvider)}
+                checked={autoModels}
                 onChange={(e) => {
                   const on = e.target.checked
                   setAutoModels(on)
@@ -3154,7 +3147,7 @@ export default function App() {
               />
               Auto-models (
               {isLocalProvider(activeProvider)
-                ? 'off'
+                ? '7b ↔ larger'
                 : activeProvider === 'zai'
                 ? 'free → 5.3'
                 : activeProvider === 'openrouter'
@@ -3306,7 +3299,10 @@ export default function App() {
                 <div className="nc-section-label">Local servers</div>
                 <p className="nc-help">
                   Несколько Ollama / LM Studio / vLLM. Список — в <code>settings.json</code>
-                  (<code>localEndpoints</code>); ниже редактор активного.
+                  (<code>localEndpoints</code>). Для Local всегда <b>lite</b>: короткий system + ~12 tools
+                  (без shell/ssh/web). Auto-models: модели с capability <code>tools</code>, мелкая на
+                  простые задачи / крупнее на сложные — на твоём сервере 16B deepseek часто <b>без tools</b>,
+                  тогда останется qwen2.5-coder:7b.
                 </p>
                 <div style={{display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8}}>
                   <button

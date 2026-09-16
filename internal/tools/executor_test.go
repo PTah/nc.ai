@@ -31,6 +31,22 @@ func TestPlanBlocked(t *testing.T) {
 	}
 }
 
+func TestSpecsForLite(t *testing.T) {
+	lite := SpecsForLite(false)
+	all := SpecsFor(false)
+	if len(lite) >= len(all) || len(lite) < 8 {
+		t.Fatalf("lite=%d all=%d", len(lite), len(all))
+	}
+	for _, s := range lite {
+		if !LiteTool(s.Function.Name) {
+			t.Fatalf("lite has non-lite tool %s", s.Function.Name)
+		}
+	}
+	if LiteTool("run_terminal") || LiteTool("ssh_exec") || LiteTool("web_search") {
+		t.Fatal("heavy tools must stay out of lite")
+	}
+}
+
 func TestTodoStoreMerge(t *testing.T) {
 	s := NewTodoStore()
 	items, err := s.Apply(false, []Todo{

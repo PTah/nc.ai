@@ -132,6 +132,15 @@ curl http://127.0.0.1:11434/api/generate -d "{\"model\":\"qwen2.5-coder:7b\",\"p
 
 Старые плоские `localBaseUrl` / `localModel` мигрируют в endpoint `default` при загрузке.
 
+### Local lite + Auto-models
+
+Для любого `local:<id>` агент всегда в **lite**:
+- короткий system prompt;
+- ~12 tools (файлы/поиск/git read/ask_user) — без shell/ssh/web/commit;
+- урезанная project map.
+
+**Auto-models** (если включён): из каталога Ollama берёт модели с capability `tools`, coder-имена; на простые задачи — меньший размер (7b), на сложные/длинный прогон — больший (14b+). Модели без `tools` (часто `deepseek-coder-v2`) не выбираются.
+
 ---
 
 ## Healthcheck
