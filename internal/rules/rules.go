@@ -110,6 +110,9 @@ func (b Bundle) SelectTurnRules(hintPaths []string) string {
 			continue
 		}
 		seen[key] = true
+		if skipForNotCursorAgent(r) {
+			continue
+		}
 		if isStableFullRule(r) {
 			continue
 		}
@@ -143,6 +146,9 @@ func (b Bundle) SelectForPrompt(hintPaths []string) string {
 			continue
 		}
 		seen[key] = true
+		if skipForNotCursorAgent(r) {
+			continue
+		}
 		switch {
 		case shouldApplyFull(r, hintPaths):
 			applied = append(applied, r)
@@ -206,6 +212,31 @@ var (
 	pathHintRe = regexp.MustCompile(`(?i)(?:[A-Za-z]:)?(?:[\w.-]+[/\\])+[\w.-]+\.[A-Za-z0-9]{1,12}|[\w.-]+\.[A-Za-z0-9]{1,12}`)
 	backtickPathRe = regexp.MustCompile("`([^`\\n]{1,260})`")
 )
+
+// skipForNotCursorAgent excludes Cursor-IDE meta rules from the LLM prompt.
+// Those instructions (propose ops files, bootstrap SSH, rename the assistant…)
+// belong in Cursor itself; local models otherwise spam ask_user in a loop
+// instead of reading the code.
+func skipForNotCursorAgent(r Rule) bool {
+	name := strings.ToLower(strings.TrimSpace(r.Name))
+	name = strings.TrimSuffix(name, ".mdc")
+	name = strings.TrimSuffix(name, ".md")
+	switch name {
+	case "propose-project-ops",
+		"00-always-read-rules",
+		"assistant-name-umnik",
+		"deepseek-provider",
+		"machine-connectivity-bootstrap",
+		"gitea-home-api",
+		"remotes-mirror-and-sanitize",
+		"agent-monitors-version-bump":
+		return true
+	}
+	if strings.HasPrefix(name, "propose-") && strings.Contains(name, "ops") {
+		return true
+	}
+	return false
+}
 
 // isStableFullRule is true for rules that belong in the stable system prefix
 // (independent of per-turn hint paths).
