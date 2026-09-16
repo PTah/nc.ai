@@ -827,12 +827,14 @@ export default function App() {
   const [localBaseUrl, setLocalBaseUrl] = useState(LOCAL_BASE_DEFAULT)
   const [localModels, setLocalModels] = useState<string[]>([])
   const [localEndpoints, setLocalEndpoints] = useState<LocalEndpointRow[]>([])
+  const [localEpName, setLocalEpName] = useState('Local')
   const [localHealth, setLocalHealth] = useState<{
     level: string
     label: string
     detail: string
   } | null>(null)
   const localHealthTimer = useRef<number | null>(null)
+  const [zaiEndpoint, setZaiEndpoint] = useState<ZaiEndpointId>('paas')
   const [zaiModels, setZaiModels] = useState<string[]>([...ZAI_MODELS_FALLBACK])
   const [openrouterModels, setOpenrouterModels] = useState<string[]>([...OPENROUTER_MODELS_FALLBACK])
   const [zaiBalance, setZaiBalance] = useState<{ok: boolean; availableUsd: number; detail: string; source: string} | null>(null)
