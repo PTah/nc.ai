@@ -84,6 +84,14 @@ func NewApp() *App {
 	}
 }
 
+// clearSessionStickyModels drops Auto-models session sticky so a manual model
+// change (or new chat) is not overridden by the previous pick.
+func (a *App) clearSessionStickyModels() {
+	a.mu.Lock()
+	a.sessionStickyModel = map[string]string{}
+	a.mu.Unlock()
+}
+
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 	_ = a.cfg.Load()
@@ -407,6 +415,7 @@ func (a *App) GetSettings() map[string]any {
 		"theme":              a.cfg.Theme(),
 		"agentMaxSteps":      a.cfg.MaxAgentSteps(),
 		"autoModels":         a.cfg.AutoModels(),
+		"localLite":          a.cfg.LocalLiteEnabled(),
 		"toolConfirm":        a.cfg.ToolConfirmEnabled(),
 		"planMode":           a.cfg.PlanModeEnabled(),
 		"visionModel":        deepseek.VisionModel,
@@ -682,6 +691,7 @@ func (a *App) SaveDeepSeekModel(model string) error {
 	if err := a.cfg.SetDeepSeekModel(model); err != nil {
 		return err
 	}
+	a.clearSessionStickyModels()
 	a.refreshProvider()
 	return nil
 }
@@ -706,6 +716,7 @@ func (a *App) SaveZaiModel(model string) error {
 	if err := a.cfg.SetZaiModel(model); err != nil {
 		return err
 	}
+	a.clearSessionStickyModels()
 	a.refreshProvider()
 	return nil
 }
@@ -746,6 +757,7 @@ func (a *App) SaveOpenRouterModel(model string) error {
 	if err := a.cfg.SetOpenRouterModel(model); err != nil {
 		return err
 	}
+	a.clearSessionStickyModels()
 	a.refreshProvider()
 	return nil
 }
@@ -774,6 +786,7 @@ func (a *App) SaveLocalModel(model string) error {
 	if err := a.cfg.SetLocalModel(model); err != nil {
 		return err
 	}
+	a.clearSessionStickyModels()
 	a.refreshProvider()
 	return nil
 }
@@ -1100,7 +1113,13 @@ func (a *App) SaveActiveProvider(provider string) error {
 }
 
 func (a *App) SaveAutoModels(on bool) error {
-	return a.cfg.SetAutoModels(on)
+	if err := a.cfg.SetAutoModels(on); err != nil {
+		return err
+	}
+	if !on {
+		a.clearSessionStickyModels()
+	}
+	return nil
 }
 
 func (a *App) SaveToolConfirm(on bool) error {
@@ -1109,6 +1128,10 @@ func (a *App) SaveToolConfirm(on bool) error {
 
 func (a *App) SavePlanMode(on bool) error {
 	return a.cfg.SetPlanMode(on)
+}
+
+func (a *App) SaveLocalLite(on bool) error {
+	return a.cfg.SetLocalLite(on)
 }
 
 // SetIDEContext records the file open in the in-app editor for the next agent turn.
@@ -1493,6 +1516,7 @@ func (a *App) ClearChat() {
 	sid := a.sessionID
 	a.history = nil
 	a.mu.Unlock()
+	a.clearSessionStickyModels()
 	a.StopAgentSession(sid)
 	if a.chats != nil {
 		_ = a.chats.Clear(a.projectKey())
@@ -1721,7 +1745,7 @@ func (a *App) RunAgentWithAttachments(userMessage string, attachments []agent.At
 	localLite := false
 	var localModels []agent.LocalModelInfo
 	if config.IsLocalProvider(provider) {
-		localLite = true
+		localLite = a.cfg.LocalLiteEnabled()
 		if infos, err := a.listLocalModelInfos(); err == nil {
 			for _, m := range infos {
 				localModels = append(localModels, agent.NewLocalModelInfo(m.ID, m.Capabilities))
@@ -1821,8 +1845,12 @@ func (a *App) RunAgentWithAttachments(userMessage string, attachments []agent.At
 				return
 			}
 			if evt.Type == "model" && evt.Content != "" {
-				_ = a.cfg.SetActiveModel(evt.Content)
-				a.refreshProvider()
+				// session-sticky must not overwrite the user's PreferredModel in settings
+				// (that made "I changed the model" appear to do nothing).
+				if evt.Name != "session-sticky" {
+					_ = a.cfg.SetActiveModel(evt.Content)
+					a.refreshProvider()
+				}
 				a.logAgentLine(fmt.Sprintf("model=%s session=%s reason=%q", evt.Content, sid, evt.Name))
 			}
 			a.emitFor(sid, evt)

@@ -58,6 +58,31 @@ func CompactHistory(messages []llm.Message) []llm.Message {
 	return out
 }
 
+// NeutralizeToollessAssistants replaces long assistant turns that never called
+// tools with a short stub. Local models otherwise copy-paste prior "вероятно…"
+// essays when the user asks again (even after switching model).
+func NeutralizeToollessAssistants(messages []llm.Message) []llm.Message {
+	out := make([]llm.Message, len(messages))
+	copy(out, messages)
+	const minLen = 200
+	for i := range out {
+		m := &out[i]
+		if m.Role != "assistant" {
+			continue
+		}
+		if len(m.ToolCalls) > 0 {
+			continue
+		}
+		c := strings.TrimSpace(m.Content)
+		if len(c) < minLen {
+			continue
+		}
+		m.Content = "[previous answer omitted — it guessed without tools; do not repeat it]"
+		m.ReasoningContent = ""
+	}
+	return out
+}
+
 // summarizeToolContent squeezes a tool result to a few informative lines.
 func summarizeToolContent(toolName, content string) string {
 	if content == "" {
