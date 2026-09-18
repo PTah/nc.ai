@@ -299,7 +299,7 @@ function isLocalProvider(id: string): boolean {
 function providerLabelOf(id: ProviderId): string {
   if (id === 'zai') return 'Z.ai'
   if (id === 'openrouter') return 'OpenRouter'
-  if (isLocalProvider(id)) return 'Local'
+  if (isLocalProvider(id)) return 'Custom'
   return 'DeepSeek'
 }
 
@@ -906,7 +906,7 @@ export default function App() {
   const [localBaseUrl, setLocalBaseUrl] = useState(LOCAL_BASE_DEFAULT)
   const [localModels, setLocalModels] = useState<string[]>([])
   const [localEndpoints, setLocalEndpoints] = useState<LocalEndpointRow[]>([])
-  const [localEpName, setLocalEpName] = useState('Local')
+  const [localEpName, setLocalEpName] = useState('Custom')
   const [localHealth, setLocalHealth] = useState<{
     level: string
     label: string
@@ -995,10 +995,10 @@ export default function App() {
   const providerReadyLabel =
     isLocalProvider(activeProvider)
       ? keySet
-        ? 'Local ready'
+        ? 'Custom ready'
         : localModel.trim()
-          ? 'Local: set Base URL'
-          : 'Local: set model'
+          ? 'Custom: set Base URL'
+          : 'Custom: set model'
       : keySet
         ? `${providerLabel} key OK`
         : `no ${providerLabel} key`
@@ -1384,13 +1384,13 @@ export default function App() {
           const eps = Array.isArray(s.localEndpoints) ? s.localEndpoints : []
           const rows: LocalEndpointRow[] = eps.map((raw: any) => ({
             id: String(raw?.id || 'default'),
-            name: String(raw?.name || raw?.id || 'Local'),
+            name: String(raw?.name || raw?.id || 'Custom'),
             baseUrl: String(raw?.baseUrl || LOCAL_BASE_DEFAULT),
             model: String(raw?.model || ''),
             keySet: Boolean(raw?.keySet),
           }))
           setLocalEndpoints(rows.length ? rows : [{
-            id: 'default', name: 'Local', baseUrl: LOCAL_BASE_DEFAULT, model: '', keySet: Boolean(s.localKeySet),
+            id: 'default', name: 'Custom', baseUrl: LOCAL_BASE_DEFAULT, model: '', keySet: Boolean(s.localKeySet),
           }])
           const activeId = isLocalProvider(provider) ? provider.slice('local:'.length) : 'default'
           const cur = rows.find((r) => r.id === activeId) || rows[0]
@@ -2892,7 +2892,7 @@ export default function App() {
           {isLocalProvider(activeProvider) ? (
             <label
               className="nc-top-check"
-              title="Lite: короткий промпт и ~12 tools (быстрее, но слабее на tool-calling). Выкл = полный агент как у облака — лучше для qwen-coder 7B/14B."
+              title="Custom lite: короткий промпт и ~12 tools (быстрее, но слабее на tool-calling). Выкл = полный агент как у облака — лучше для qwen-coder 7B/14B."
             >
               <input
                 type="checkbox"
@@ -2903,7 +2903,7 @@ export default function App() {
                   void SaveLocalLite(on)
                 }}
               />
-              <span>Local lite</span>
+              <span>Custom lite</span>
             </label>
           ) : null}
           {activeProvider === 'deepseek' && deepseekPeak.peak && (
@@ -2940,7 +2940,7 @@ export default function App() {
                 if (isLocalProvider(activeProvider)) {
                   return `Провайдер Local · чат: ${usage.chatInputTokens} in / ${usage.chatOutputTokens} out · total Local: ${usage.inputTokens} in / ${usage.outputTokens} out` +
                     cacheLine +
-                    ' · стоимость $0 (локально)'
+                    ' · стоимость $0 (свой сервер)'
                 }
                 return `Провайдер DeepSeek · чат: ${usage.chatInputTokens} in / ${usage.chatOutputTokens} out (${fmtUsd(usage.chatCostUsd)}) · total DeepSeek: ${usage.inputTokens} in / ${usage.outputTokens} out (${fmtUsd(usage.costUsd)})` +
                   cacheLine
@@ -3126,7 +3126,7 @@ export default function App() {
                 {isLocalProvider(activeProvider) && localHealth ? (
                   <span
                     className={`nc-pill ${localHealth.level === 'ok' ? 'ok' : localHealth.level}`}
-                    title={localHealth.detail || 'Состояние локального сервера (клик — обновить)'}
+                    title={localHealth.detail || 'Состояние своего сервера (клик — обновить)'}
                     onClick={() => void refreshLocalHealth()}
                     style={{cursor: 'pointer'}}
                   >
@@ -3716,9 +3716,9 @@ export default function App() {
               <>
                 <div className="nc-section-label">Local servers</div>
                 <p className="nc-help">
-                  Несколько Ollama / LM Studio / vLLM. Список — в <code>settings.json</code>
+                  Свои серверы (Custom): Ollama / LM Studio / vLLM. Список — в <code>settings.json</code>
                   (<code>localEndpoints</code>). По умолчанию полный агент (как облако). Галочка
-                  <b> Local lite</b> — короткий system + меньше tools (быстрее, но модель чаще гадает).
+                  <b> Custom lite</b> — короткий system + меньше tools (быстрее, но модель чаще гадает).
                   Auto-models: модели с capability <code>tools</code>. Если ответы одинаковые —
                   <b>новый чат</b> (старые «Вероятно…» в истории заражают следующие ответы).
                 </p>
@@ -3786,7 +3786,7 @@ export default function App() {
                     disabled={localEndpoints.length <= 1}
                     onClick={() => {
                       const id = activeProvider.startsWith('local:') ? activeProvider.slice(6) : 'default'
-                      if (!window.confirm(`Удалить локальный сервер «${localEpName}»?`)) return
+                      if (!window.confirm(`Удалить свой сервер «${localEpName}»?`)) return
                       void (async () => {
                         try {
                           await RemoveLocalEndpoint(id)
@@ -3816,7 +3816,7 @@ export default function App() {
                     value={localEpName}
                     onChange={(e) => setLocalEpName(e.target.value)}
                     onBlur={(e) => {
-                      const name = e.target.value.trim() || 'Local'
+                      const name = e.target.value.trim() || 'Custom'
                       setLocalEpName(name)
                       const id = activeProvider.startsWith('local:') ? activeProvider.slice(6) : 'default'
                       void UpsertLocalEndpoint(id, name, localBaseUrl, localModel).then((row) => {

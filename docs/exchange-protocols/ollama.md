@@ -130,20 +130,20 @@ curl http://127.0.0.1:11434/api/generate -d "{\"model\":\"qwen2.5-coder:7b\",\"p
 
 Токены — в секрет-сторе под `local` (default) и `local:<id>`. GUI: Add / Duplicate / Delete.
 
-Простыми словами (Lite, Auto-models, индикатор Local): [../local-models-ru.md](../local-models-ru.md).
+Простыми словами (Lite, Auto-models, индикатор Custom): [../local-models-ru.md](../local-models-ru.md).
 
 Старые плоские `localBaseUrl` / `localModel` мигрируют в endpoint `default` при загрузке.
 
-### Local lite + Auto-models
+### Custom lite + Auto-models
 
-**Local lite** — опциональная галочка (по умолчанию **выкл**). Если включена:
+**Custom lite** — опциональная галочка (по умолчанию **выкл**). Если включена:
 - короткий system prompt;
 - ~12 tools (файлы/поиск/git read/ask_user) — без shell/ssh/web/commit;
 - урезанная project map.
 
 Без lite — полный system + полный набор tools (как у облачных провайдеров). На qwen2.5-coder 7B/14B лучше держать lite **выкл**.
 
-На Local при сбое (угадывание / битый tool JSON) агент один раз повторяет ход с **read-only** tools (`read_file`/`grep`/…), без `write_file`. `tool_choice=required` не используется — слабые модели из‑за него сыплют JSON в чат.
+На Custom при сбое (угадывание / битый tool JSON) агент один раз повторяет ход с **read-only** tools (`read_file`/`grep`/…), без `write_file`. `tool_choice=required` не используется — слабые модели из‑за него сыплют JSON в чат.
 
 **Auto-models** (если включён): из каталога Ollama берёт модели с capability `tools`, coder-имена; на простые задачи — меньший размер (7b), на сложные/длинный прогон — больший (14b+). Модели без `tools` (часто `deepseek-coder-v2`) не выбираются.
 
