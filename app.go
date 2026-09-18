@@ -1776,13 +1776,21 @@ func (a *App) RunAgentWithAttachments(userMessage string, attachments []agent.At
 	if localLite {
 		treeLimit = 120
 	}
-	if tree, err := a.ws.ProjectTree(treeLimit); err == nil {
+	if tree, err := a.ws.Scoped(projKey).ProjectTree(treeLimit); err == nil {
 		projectMap = tree
+	}
+
+	// Every run gets its own tool registry copy pinned to the run's project:
+	// switching to another project mid-run must not redirect file writes,
+	// commands or git to the newly opened workspace.
+	runTools := a.tools
+	if a.tools != nil {
+		runTools = a.tools.ForRun(projKey)
 	}
 
 	runner := &agent.Runner{
 		Provider:       a.llm,
-		Tools:          a.tools,
+		Tools:          runTools,
 		MaxSteps:       a.cfg.MaxAgentSteps(),
 		RulesText:      bundle.SelectStableForPrompt(),
 		TurnRulesText:  bundle.SelectTurnRules(hints),
@@ -1808,8 +1816,8 @@ func (a *App) RunAgentWithAttachments(userMessage string, attachments []agent.At
 		a.emit(agent.Event{Type: "tool_ask", Name: name, Content: argsJSON, CallID: callID})
 		return a.waitToolApproval(ctx, sid, callID, name, argsJSON)
 	}
-	if a.tools != nil {
-		a.tools.AskUser = func(ctx context.Context, callID, question string, options []string) (string, error) {
+	if runTools != nil {
+		runTools.AskUser = func(ctx context.Context, callID, question string, options []string) (string, error) {
 			payload, _ := json.Marshal(map[string]any{"question": question, "options": options})
 			a.emitFor(sid, agent.Event{Type: "tool_ask", Name: "ask_user", Content: string(payload), CallID: callID})
 			return a.waitUserAsk(ctx, sid, callID, question, options)

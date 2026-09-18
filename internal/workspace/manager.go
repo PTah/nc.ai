@@ -84,6 +84,18 @@ func (m *Manager) ActiveRoot() (string, error) {
 	return m.active, nil
 }
 
+// Scoped returns an independent manager pinned to one project root. The agent
+// uses it so a run that started in project A keeps reading and writing A even
+// after the user switches to project B while the agent is still working.
+// The view owns its own lock and never touches the open-project list.
+func (m *Manager) Scoped(root string) *Manager {
+	root = strings.TrimSpace(root)
+	if root == "" && m != nil {
+		root, _ = m.ActiveRoot()
+	}
+	return &Manager{active: root, projects: []Project{}}
+}
+
 func (m *Manager) SetActive(path string) error {
 	abs, err := filepath.Abs(path)
 	if err != nil {

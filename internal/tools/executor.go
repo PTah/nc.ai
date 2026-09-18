@@ -30,8 +30,40 @@ type Registry struct {
 	PlanMode bool
 	Jobs     *JobStore
 	Todos    *TodoStore
+	// WSRoot pins this registry to one project root. A run gets its own copy so
+	// switching projects mid-run cannot redirect file/command operations.
+	WSRoot string
 	// AskUser, when set, blocks until the user answers ask_user.
 	AskUser func(ctx context.Context, callID, question string, options []string) (string, error)
+}
+
+// ForRun returns a per-run copy of the registry bound to root. PlanMode, the
+// todo list and the root pin live in the copy, so two projects can be worked on
+// at the same time without leaking into each other.
+func (r *Registry) ForRun(root string) *Registry {
+	if r == nil {
+		return nil
+	}
+	cp := *r
+	cp.WSRoot = strings.TrimSpace(root)
+	if cp.WSRoot != "" {
+		cp.WS = r.WS.Scoped(cp.WSRoot)
+	}
+	cp.Git = r.Git.WithRoot(cp.WSRoot)
+	cp.Todos = NewTodoStore()
+	return &cp
+}
+
+// ws returns the workspace view for this registry: pinned to the run's project
+// when set, otherwise the project the user has open.
+func (r *Registry) ws() *workspace.Manager {
+	if r == nil {
+		return nil
+	}
+	if strings.TrimSpace(r.WSRoot) != "" {
+		return r.WS.Scoped(r.WSRoot)
+	}
+	return r.WS
 }
 
 func NewRegistry(ws *workspace.Manager, sshDir string) *Registry {
@@ -96,14 +128,14 @@ func (r *Registry) Execute(ctx context.Context, call llm.ToolCall) (string, erro
 		path, _ := args["path"].(string)
 		start := intArg(args, "start_line")
 		end := intArg(args, "end_line")
-		return r.WS.ReadFileRange(path, start, end)
+		return r.ws().ReadFileRange(path, start, end)
 	case "write_file":
 		if r.PlanMode {
 			return "", fmt.Errorf("plan mode: write_file is disabled")
 		}
 		path, _ := args["path"].(string)
 		content, _ := args["content"].(string)
-		if err := r.WS.WriteFile(path, content); err != nil {
+		if err := r.ws().WriteFile(path, content); err != nil {
 			return "", err
 		}
 		return fmt.Sprintf("wrote %s (%d bytes)", path, len(content)), nil
@@ -115,7 +147,7 @@ func (r *Registry) Execute(ctx context.Context, call llm.ToolCall) (string, erro
 		if strings.TrimSpace(path) == "" {
 			return "", fmt.Errorf("path is empty")
 		}
-		if err := r.WS.DeletePath(path); err != nil {
+		if err := r.ws().DeletePath(path); err != nil {
 			if os.IsNotExist(err) {
 				return fmt.Sprintf("already absent: %s", path), nil
 			}
@@ -134,7 +166,7 @@ func (r *Registry) Execute(ctx context.Context, call llm.ToolCall) (string, erro
 		if _, err := r.Git.Mv(from, to); err == nil {
 			return fmt.Sprintf("moved %s → %s (git)", from, to), nil
 		}
-		if err := r.WS.MovePath(from, to); err != nil {
+		if err := r.ws().MovePath(from, to); err != nil {
 			return "", err
 		}
 		return fmt.Sprintf("moved %s → %s", from, to), nil
@@ -153,7 +185,7 @@ func (r *Registry) Execute(ctx context.Context, call llm.ToolCall) (string, erro
 				return "", err
 			}
 		}
-		raw, err := r.WS.ReadFileRaw(path)
+		raw, err := r.ws().ReadFileRaw(path)
 		if err != nil {
 			return "", err
 		}
@@ -161,7 +193,7 @@ func (r *Registry) Execute(ctx context.Context, call llm.ToolCall) (string, erro
 		if err != nil {
 			return "", err
 		}
-		if err := r.WS.WriteFile(path, next); err != nil {
+		if err := r.ws().WriteFile(path, next); err != nil {
 			return "", err
 		}
 		return fmt.Sprintf("patched %s (%d replacement(s), %d → %d bytes)", path, n, len(raw), len(next)), nil
@@ -170,7 +202,7 @@ func (r *Registry) Execute(ctx context.Context, call llm.ToolCall) (string, erro
 		if path == "" {
 			path = "."
 		}
-		entries, err := r.WS.ListDir(path)
+		entries, err := r.ws().ListDir(path)
 		if err != nil {
 			return "", err
 		}
@@ -178,7 +210,7 @@ func (r *Registry) Execute(ctx context.Context, call llm.ToolCall) (string, erro
 		return string(b), nil
 	case "find_files":
 		query, _ := args["query"].(string)
-		hits, err := r.WS.FindFiles(query, 40)
+		hits, err := r.ws().FindFiles(query, 40)
 		if err != nil {
 			return "", err
 		}
@@ -190,7 +222,7 @@ func (r *Registry) Execute(ctx context.Context, call llm.ToolCall) (string, erro
 		pattern, _ := args["pattern"].(string)
 		searchDir, _ := args["path"].(string)
 		limit := intArg(args, "head_limit")
-		hits, err := r.WS.Glob(pattern, searchDir, limit)
+		hits, err := r.ws().Glob(pattern, searchDir, limit)
 		if err != nil {
 			return "", err
 		}
@@ -212,7 +244,7 @@ func (r *Registry) Execute(ctx context.Context, call llm.ToolCall) (string, erro
 		if limit > 200 {
 			limit = 200
 		}
-		hits, err := r.WS.Grep(workspace.GrepOptions{
+		hits, err := r.ws().Grep(workspace.GrepOptions{
 			Query:         query,
 			Path:          searchPath,
 			PathGlob:      glob,
@@ -243,12 +275,12 @@ func (r *Registry) Execute(ctx context.Context, call llm.ToolCall) (string, erro
 			return "", fmt.Errorf("command must be a single line (no newlines)")
 		}
 		relCwd, _ := args["cwd"].(string)
-		cwd, err := r.WS.ActiveRoot()
+		cwd, err := r.ws().ActiveRoot()
 		if err != nil {
 			return "", err
 		}
 		if strings.TrimSpace(relCwd) != "" && relCwd != "." {
-			full, err := r.WS.Resolve(relCwd)
+			full, err := r.ws().Resolve(relCwd)
 			if err != nil {
 				return "", fmt.Errorf("cwd: %w", err)
 			}
@@ -429,7 +461,7 @@ func stringSlice(v any) []string {
 }
 
 func (r *Registry) envInfo() string {
-	root, _ := r.WS.ActiveRoot()
+	root, _ := r.ws().ActiveRoot()
 	sh := shell.ResolveShell(r.Shell)
 	var b strings.Builder
 	fmt.Fprintf(&b, "os=%s\n", runtime.GOOS)
