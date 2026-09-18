@@ -3721,7 +3721,24 @@ export default function App() {
                   <b> Custom lite</b> — короткий system + меньше tools (быстрее, но модель чаще гадает).
                   Auto-models: модели с capability <code>tools</code>. Если ответы одинаковые —
                   <b>новый чат</b> (старые «Вероятно…» в истории заражают следующие ответы).
+                  Подробно, простыми словами — <code>docs/local-models-ru.md</code>.
                 </p>
+                <label
+                  className="nc-top-check"
+                  style={{marginBottom: 8}}
+                  title="Custom lite: короткий промпт и ~12 tools (быстрее, но слабее на tool-calling). Выкл = полный агент как у облака — лучше для qwen-coder 7B/14B."
+                >
+                  <input
+                    type="checkbox"
+                    checked={localLite}
+                    onChange={(e) => {
+                      const on = e.target.checked
+                      setLocalLite(on)
+                      void SaveLocalLite(on)
+                    }}
+                  />
+                  Custom lite <span className="nc-help" style={{display: 'inline'}}>(та же галочка, что в топбаре)</span>
+                </label>
                 <div style={{display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8}}>
                   <button
                     type="button"
