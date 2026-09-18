@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -115,6 +116,48 @@ func openRouterCheckDue(last, now time.Time) bool {
 	return lb.Year() != nb.Year() || lb.Month() != nb.Month() || lb.Day() != nb.Day()
 }
 
+// Price check providers, used as throttle keys.
+const (
+	providerDeepSeek   = "deepseek"
+	providerZai        = "z.ai"
+	providerOpenRouter = "openrouter"
+)
+
+// priceRetryAfter is how long a failed check is left alone. The refresh loop
+// ticks every 15 minutes, and without this pause an unreachable endpoint
+// produced the same error notice again and again.
+const priceRetryAfter = time.Hour
+
+var priceThrottle struct {
+	mu   sync.Mutex
+	next map[string]time.Time
+}
+
+// priceCheckAllowed reports whether the provider may be contacted now.
+func priceCheckAllowed(provider string, now time.Time) bool {
+	priceThrottle.mu.Lock()
+	defer priceThrottle.mu.Unlock()
+	next, ok := priceThrottle.next[provider]
+	return !ok || !now.Before(next)
+}
+
+// priceCheckFailed parks the provider until now+priceRetryAfter.
+func priceCheckFailed(provider string, now time.Time) {
+	priceThrottle.mu.Lock()
+	defer priceThrottle.mu.Unlock()
+	if priceThrottle.next == nil {
+		priceThrottle.next = map[string]time.Time{}
+	}
+	priceThrottle.next[provider] = now.Add(priceRetryAfter)
+}
+
+// priceCheckSucceeded clears the pause after a good fetch.
+func priceCheckSucceeded(provider string) {
+	priceThrottle.mu.Lock()
+	defer priceThrottle.mu.Unlock()
+	delete(priceThrottle.next, provider)
+}
+
 // RefreshIfDue fetches official docs when due.
 // DeepSeek: at most once per Beijing calendar day, only after 13:05 Beijing.
 // Z.ai: weekly interval.
@@ -128,13 +171,15 @@ func RefreshIfDue(ctx context.Context, store PriceStore, force bool) RefreshResu
 	now := time.Now().UTC()
 
 	dsDue := force || deepSeekCheckDue(store.DeepSeekPricesCheckedAt(), now)
-	if dsDue {
+	if dsDue && (force || priceCheckAllowed(providerDeepSeek, now)) {
 		out.DeepSeekChecked = true
 		snap, err := FetchDeepSeekPricing(ctx)
 		if err != nil {
 			out.DeepSeekErr = err.Error()
+			priceCheckFailed(providerDeepSeek, now)
 			log.Printf("costing: deepseek price check failed: %v", err)
 		} else {
+			priceCheckSucceeded(providerDeepSeek)
 			sanitizeFlashPeak(snap.Peak, now)
 			cur := currentDeepSeekPeak()
 			curW := currentPeakWindows()
@@ -155,13 +200,15 @@ func RefreshIfDue(ctx context.Context, store PriceStore, force bool) RefreshResu
 
 	zaiDue := force || store.ZaiPricesCheckedAt().IsZero() ||
 		now.Sub(store.ZaiPricesCheckedAt()) >= ZaiPriceCheckInterval
-	if zaiDue {
+	if zaiDue && (force || priceCheckAllowed(providerZai, now)) {
 		out.ZaiChecked = true
 		snap, err := FetchZaiPricing(ctx)
 		if err != nil {
 			out.ZaiErr = err.Error()
+			priceCheckFailed(providerZai, now)
 			log.Printf("costing: z.ai price check failed: %v", err)
 		} else {
+			priceCheckSucceeded(providerZai)
 			// Compare only overlapping keys that we care about + newly discovered glm-*.
 			builtin := BuiltinZaiSheet()
 			interesting := map[string]Prices{}
@@ -189,14 +236,16 @@ func RefreshIfDue(ctx context.Context, store PriceStore, force bool) RefreshResu
 	}
 
 	orDue := force || openRouterCheckDue(store.OpenRouterPricesCheckedAt(), now)
-	if orDue {
+	if orDue && (force || priceCheckAllowed(providerOpenRouter, now)) {
 		out.OpenRouterChecked = true
 		wanted := openRouterWantedModels(store.OpenRouterModel())
 		sheet, err := FetchOpenRouterPricing(ctx, wanted)
 		if err != nil {
 			out.OpenRouterErr = err.Error()
+			priceCheckFailed(providerOpenRouter, now)
 			log.Printf("costing: openrouter price check failed: %v", err)
 		} else {
+			priceCheckSucceeded(providerOpenRouter)
 			cur := liveOpenRouterPrices()
 			changed := false
 			for k, v := range sheet {
