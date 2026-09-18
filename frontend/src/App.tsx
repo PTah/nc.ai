@@ -679,7 +679,9 @@ function ThinkingBlock({content, collapsed}: {content: string; collapsed?: boole
       open={open}
       onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}
     >
-      <summary className="nc-think-sum">Thinking</summary>
+      <summary className="nc-think-sum" title="Показать рассуждения модели">
+        Thinking…
+      </summary>
       <pre className="nc-think-body">{content}</pre>
     </details>
   )
@@ -896,7 +898,7 @@ export default function App() {
   const [editor, setEditor] = useState<EditorState | null>(null)
   const [askAnswer, setAskAnswer] = useState('')
   const [deepseekPeak, setDeepseekPeak] = useState<{peak: boolean; tooltip: string}>({peak: false, tooltip: ''})
-  const [maxSteps, setMaxSteps] = useState(40)
+  const [maxSteps, setMaxSteps] = useState(120)
   const [deepseekKeySet, setDeepseekKeySet] = useState(false)
   const [zaiKeySet, setZaiKeySet] = useState(false)
   const [openrouterKeySet, setOpenrouterKeySet] = useState(false)
@@ -2542,7 +2544,7 @@ export default function App() {
       await refreshDeepSeekModels()
     }
     await SaveAutoModels(autoModels)
-    await SaveAgentMaxSteps(Number(maxSteps) || 40)
+    await SaveAgentMaxSteps(Number(maxSteps) || 120)
     await SaveShowTerminal(showTerm)
     await SaveTheme(theme)
     if (activeSessionId) setSessionItems(activeSessionId, (m) => [...m, {kind: 'system', content: 'Settings saved'}])
@@ -3951,7 +3953,7 @@ export default function App() {
                 onChange={(e) => setMaxSteps(Number(e.target.value))}
               />
             </label>
-            <p className="nc-help">Лимит шагов агента (tool calls) за один запрос. По умолчанию 40.</p>
+            <p className="nc-help">Лимит шагов агента (tool calls) за один запрос. По умолчанию 120.</p>
 
             <div className="nc-section-label">Interface</div>
             <label>
