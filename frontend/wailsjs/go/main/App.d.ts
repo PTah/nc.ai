@@ -123,6 +123,8 @@ export function SaveActiveProvider(arg1:string):Promise<void>;
 
 export function SaveAgentMaxSteps(arg1:number):Promise<void>;
 
+export function SaveAgentWarnSteps(arg1:number):Promise<void>;
+
 export function SaveAutoModels(arg1:boolean):Promise<void>;
 
 export function SaveChat(arg1:string):Promise<void>;

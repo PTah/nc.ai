@@ -31,6 +31,10 @@ const DefaultLocalBaseURL = "http://127.0.0.1:11434/v1"
 // far more than the earlier 40/80 steps.
 const DefaultAgentMaxSteps = 120
 
+// DefaultAgentWarnSteps is when a long run starts telling the user that it is
+// still working and what it is doing.
+const DefaultAgentWarnSteps = 120
+
 type Settings struct {
 	// ActiveProvider selects which LLM backend is used ("deepseek" | "zai" | "openrouter" | "local").
 	ActiveProvider string `json:"activeProvider,omitempty"`
@@ -71,8 +75,13 @@ type Settings struct {
 	Theme string `json:"theme,omitempty"`
 
 	// AgentMaxSteps caps the tool-using agent loop. 0 means the default
-	// (config.DefaultAgentMaxSteps).
+	// (config.DefaultAgentMaxSteps), negative means "no cap" — the run then
+	// only warns after AgentWarnSteps.
 	AgentMaxSteps int `json:"agentMaxSteps,omitempty"`
+
+	// AgentWarnSteps is the step count after which a long run emits a warning
+	// notice (0 = default, negative = never warn).
+	AgentWarnSteps int `json:"agentWarnSteps,omitempty"`
 
 	// AutoModels enables per-turn model routing (DeepSeek flash/pro/vision;
 	// Z.ai free flash → glm-5.3; OpenRouter flash → coder on complex tasks).
@@ -183,10 +192,11 @@ func NewStore() *Store {
 			ZaiModel:        "glm-4.7-flash",
 			ZaiEndpoint:     "paas",
 			OpenRouterModel: "qwen/qwen3-coder-flash:floor",
-			LocalBaseURL:  DefaultLocalBaseURL,
-			Shell:         "",
-			AgentMaxSteps: DefaultAgentMaxSteps,
-			AutoModels:    true,
+			LocalBaseURL:    DefaultLocalBaseURL,
+			Shell:           "",
+			AgentMaxSteps:   DefaultAgentMaxSteps,
+			AgentWarnSteps:  DefaultAgentWarnSteps,
+			AutoModels:      true,
 		},
 		keys: map[string]string{},
 	}
@@ -955,21 +965,51 @@ func (s *Store) Theme() string {
 	return "dark"
 }
 
+// MaxAgentSteps returns the stored hard cap: 0 = default, negative = no cap
+// (the run only warns after AgentWarnSteps).
 func (s *Store) MaxAgentSteps() int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if s.settings.AgentMaxSteps <= 0 {
+	if s.settings.AgentMaxSteps == 0 {
 		return DefaultAgentMaxSteps
 	}
 	return s.settings.AgentMaxSteps
 }
 
-func (s *Store) SetAgentMaxSteps(steps int) error {
-	if steps <= 0 {
-		steps = 40
+// AgentWarnSteps returns the step count after which a long run reports a
+// warning. 0 = default, negative = warnings off.
+func (s *Store) AgentWarnSteps() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.settings.AgentWarnSteps == 0 {
+		return DefaultAgentWarnSteps
 	}
-	if steps > 500 {
-		steps = 500
+	return s.settings.AgentWarnSteps
+}
+
+func (s *Store) SetAgentWarnSteps(steps int) error {
+	if steps < 0 {
+		steps = -1
+	}
+	if steps > 5000 {
+		steps = 5000
+	}
+	s.mu.Lock()
+	s.settings.AgentWarnSteps = steps
+	s.mu.Unlock()
+	return s.Save()
+}
+
+func (s *Store) SetAgentMaxSteps(steps int) error {
+	if steps == 0 {
+		steps = DefaultAgentMaxSteps
+	}
+	if steps < 0 {
+		// -1 = unlimited: keep the marker, the runner treats it as "no cap".
+		steps = -1
+	}
+	if steps > 5000 {
+		steps = 5000
 	}
 	s.mu.Lock()
 	s.settings.AgentMaxSteps = steps

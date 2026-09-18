@@ -68,6 +68,7 @@ import {
   ResolveUserAsk,
   ResolveToolApproval,
   SaveAgentMaxSteps,
+  SaveAgentWarnSteps,
   SaveComposerHeight,
   SaveShowTerminal,
   SaveShowFiles,
@@ -333,6 +334,32 @@ function formatConnectError(e: unknown): string {
     return 'Превышен лимит запросов, попробуйте позднее…'
   }
   return msg.startsWith('Connect failed') ? msg : `Connect failed: ${msg}`
+}
+
+/**
+ * Stage cards and the live status line are opt-in: they show up only when the
+ * request asks for interim results (see PROGRESS_ASK_RE) or after the agent has
+ * been silent for SILENT_PROGRESS_MS.
+ */
+const SILENT_PROGRESS_MS = 120000
+
+// Requests that explicitly want stage-by-stage reporting.
+const PROGRESS_ASK_RE = new RegExp([
+  'промежуточн',
+  'по\\s+этапам',
+  'этапами',
+  'показывай\\s+(?:мне\\s+)?(?:этап|прогресс|статус|что\\s+делаешь)',
+  'что\\s+(?:делаешь|делаете|продвигается)',
+  'о\\s+ходе\\s+работ',
+  'отчёт\\s+о\\s+работе',
+  'interim\\s+results?',
+  'progress\\s+updates?',
+  'status\\s+updates?',
+  'step\\s+by\\s+step',
+].join('|'), 'i')
+
+function wantsInterimProgress(text: string): boolean {
+  return PROGRESS_ASK_RE.test(text || '')
 }
 
 function asList<T>(v: T[] | null | undefined): T[] {
@@ -858,6 +885,7 @@ export default function App() {
   const [drafts, setDrafts] = useState<Record<string, {text: string; atts: PendingAtt[]}>>({})
   const [queues, setQueues] = useState<Record<string, QueuedMsg[]>>({})
   const [progressBySession, setProgressBySession] = useState<Record<string, RunProgressInfo>>({})
+  const [progressAskedBySession, setProgressAskedBySession] = useState<Record<string, boolean>>({})
   const [runStartedAt, setRunStartedAt] = useState<Record<string, number>>({})
   const [dragOver, setDragOver] = useState(false)
   const [retryVisible, setRetryVisible] = useState(false)
@@ -899,6 +927,8 @@ export default function App() {
   const [askAnswer, setAskAnswer] = useState('')
   const [deepseekPeak, setDeepseekPeak] = useState<{peak: boolean; tooltip: string}>({peak: false, tooltip: ''})
   const [maxSteps, setMaxSteps] = useState(120)
+  const [warnSteps, setWarnSteps] = useState(120)
+  const unlimitedSteps = maxSteps < 0
   const [deepseekKeySet, setDeepseekKeySet] = useState(false)
   const [zaiKeySet, setZaiKeySet] = useState(false)
   const [openrouterKeySet, setOpenrouterKeySet] = useState(false)
@@ -930,6 +960,11 @@ export default function App() {
   const busyBySessionRef = useRef<Record<string, boolean>>({})
   const queuesRef = useRef<Record<string, QueuedMsg[]>>({})
   const itemsBySessionRef = useRef<Record<string, ChatItem[]>>({})
+  const progressAskedRef = useRef<Record<string, boolean>>({})
+  // lastOutputAt: when this session last produced a visible answer (delta/done).
+  // silentNoticeRef: one "still working" card per silent stretch.
+  const lastOutputAtRef = useRef<Record<string, number>>({})
+  const silentNoticeRef = useRef<Record<string, boolean>>({})
   const runAgentRef = useRef<(
     sid: string,
     text: string,
@@ -1034,6 +1069,8 @@ export default function App() {
   const finishRunUI = useCallback((sid: string) => {
     if (!sid) return
     assistantBuf.current[sid] = ''
+    lastOutputAtRef.current[sid] = Date.now()
+    silentNoticeRef.current[sid] = false
     setBusyBySession((b) => ({...b, [sid]: false}))
     setProgressBySession((prev) => {
       if (!prev[sid]) return prev
@@ -1064,32 +1101,51 @@ export default function App() {
   useEffect(() => {
     itemsBySessionRef.current = itemsBySession
   }, [itemsBySession])
+  useEffect(() => {
+    progressAskedRef.current = progressAskedBySession
+  }, [progressAskedBySession])
 
-  // Live "what is the agent doing now" line: appears once a run is long enough
-  // to be worth reporting (and right away when the backend sends progress).
+  // Live "what is the agent doing now" line and the "Этап" cards are opt-in:
+  // they appear only when the request asked for interim results, or when the
+  // agent has produced no visible output for two minutes.
   const runInfo = activeSessionId ? progressBySession[activeSessionId] : undefined
   const runStarted = activeSessionId ? runStartedAt[activeSessionId] : 0
-  const runElapsedSec = (() => {
-    if (!runStarted) return runInfo?.seconds ?? 0
-    return Math.max(0, Math.floor(((statusTick || Date.now()) - runStarted) / 1000))
-  })()
-  const showRunStatus = busy && (runElapsedSec >= 60 || Boolean(runInfo))
+  const progressAsked = Boolean(activeSessionId && progressAskedBySession[activeSessionId])
+  const nowMs = statusTick || Date.now()
+  const lastOutputMs = activeSessionId ? (lastOutputAtRef.current[activeSessionId] || runStarted || nowMs) : nowMs
+  const silentForMs = busy ? Math.max(0, nowMs - lastOutputMs) : 0
+  const interimVisible = progressAsked || silentForMs >= SILENT_PROGRESS_MS
+  const runElapsedSec = runStarted
+    ? Math.max(0, Math.floor((nowMs - runStarted) / 1000))
+    : runInfo?.seconds ?? 0
+  const showRunStatus = busy && interimVisible
   const openTodos = todos.filter((t) => t.status !== 'completed' && t.status !== 'cancelled')
   const activeTodo = todos.find((t) => t.status === 'in_progress') || openTodos[0]
   const runStatusElapsed = runElapsedSec > 0 ? formatDuration(runElapsedSec) : runInfo?.elapsed || '0:00'
-  const runStatusStep = runInfo ? `шаг ${runInfo.step}/${runInfo.total}` : ''
+  const runStatusStep = runInfo
+    ? (runInfo.total > 0 ? `шаг ${runInfo.step}/${runInfo.total}` : `шаг ${runInfo.step}`)
+    : ''
 
+  // Tick once a second while a run is in flight so the two-minute silence
+  // threshold (and the elapsed timer) trip without waiting for an event.
   useEffect(() => {
-    if (!busy || !runStarted) return
-    const since = Date.now() - runStarted
-    if (since < 60000) {
-      const t = window.setTimeout(() => setStatusTick(Date.now()), 60000 - since)
-      return () => window.clearTimeout(t)
-    }
+    if (!busy) return
     setStatusTick(Date.now())
     const id = window.setInterval(() => setStatusTick(Date.now()), 1000)
     return () => window.clearInterval(id)
-  }, [busy, runStarted])
+  }, [busy])
+
+  // When the agent goes quiet for two minutes, post a single "still working"
+  // stage card — even if the user did not ask for interim results.
+  useEffect(() => {
+    if (!busy || !activeSessionId) return
+    if (progressAsked || silentForMs < SILENT_PROGRESS_MS) return
+    if (silentNoticeRef.current[activeSessionId]) return
+    silentNoticeRef.current[activeSessionId] = true
+    const text = runInfo?.text
+      || `Работа идёт: ${formatDuration(Math.floor(silentForMs / 1000))} без вывода результата`
+    setSessionItems(activeSessionId, (m) => [...m, {kind: 'progress', content: text}])
+  }, [busy, activeSessionId, progressAsked, silentForMs, runInfo])
 
   const itemsRef = useRef(items)
   const prevBusyRef = useRef(busy)
@@ -1352,7 +1408,11 @@ export default function App() {
         setToolConfirm(s.toolConfirm !== false)
         setPlanMode(Boolean(s.planMode))
         if (typeof s.appDataDir === 'string' && s.appDataDir) setAppDataDir(s.appDataDir)
-        if (typeof s.agentMaxSteps === 'number' && s.agentMaxSteps > 0) setMaxSteps(s.agentMaxSteps)
+        if (typeof s.agentMaxSteps === 'number' && s.agentMaxSteps !== 0) setMaxSteps(s.agentMaxSteps)
+        if (typeof s.agentWarnSteps === 'number' && s.agentWarnSteps !== 0) {
+          // negative in settings = warnings off; the field shows 0 for that
+          setWarnSteps(s.agentWarnSteps < 0 ? 0 : s.agentWarnSteps)
+        }
         setShowTerm(Boolean(s.showTerminal))
         if (typeof s.showFiles === 'boolean') setShowTree(s.showFiles)
         if (typeof s.showSettings === 'boolean') setShowSettings(s.showSettings)
@@ -1470,6 +1530,8 @@ export default function App() {
             return
           }
           if (ev.type === 'delta') {
+            lastOutputAtRef.current[sid] = Date.now()
+            silentNoticeRef.current[sid] = false
             assistantBuf.current[sid] = (assistantBuf.current[sid] || '') + (ev.content || '')
             const text = assistantBuf.current[sid]
             setSessionItems(sid, (prev) => {
@@ -1515,9 +1577,12 @@ export default function App() {
             }
             if (!parsed) return
             setProgressBySession((prev) => ({...prev, [sid]: parsed as RunProgressInfo}))
-            // Heartbeats only refresh the live status line: milestones are the
-            // ones worth keeping in the transcript.
-            if (parsed.phase !== 'heartbeat' && parsed.phase !== 'start') {
+            // Heartbeats only refresh the live status line; milestones are the
+            // ones worth keeping in the transcript — and only when the request
+            // asked for stages, or the agent has been silent for two minutes.
+            const asked = Boolean(progressAskedRef.current[sid])
+            const silent = Date.now() - (lastOutputAtRef.current[sid] || Date.now()) >= SILENT_PROGRESS_MS
+            if (parsed.phase !== 'heartbeat' && parsed.phase !== 'start' && (asked || silent)) {
               setSessionItems(sid, (prev) => [...prev, {kind: 'progress', content: parsed.text}])
             }
           } else if (ev.type === 'tool_start') {
@@ -2544,7 +2609,8 @@ export default function App() {
       await refreshDeepSeekModels()
     }
     await SaveAutoModels(autoModels)
-    await SaveAgentMaxSteps(Number(maxSteps) || 120)
+    await SaveAgentMaxSteps(unlimitedSteps ? -1 : (Number(maxSteps) || 120))
+    await SaveAgentWarnSteps(warnSteps > 0 ? Number(warnSteps) : -1)
     await SaveShowTerminal(showTerm)
     await SaveTheme(theme)
     if (activeSessionId) setSessionItems(activeSessionId, (m) => [...m, {kind: 'system', content: 'Settings saved'}])
@@ -2643,6 +2709,10 @@ export default function App() {
     lastRequestRef.current = {text, atts}
     setRetryVisible(false)
     assistantBuf.current[sid] = ''
+    // Stage cards/status are opt-in per request; silence is measured from now.
+    lastOutputAtRef.current[sid] = Date.now()
+    silentNoticeRef.current[sid] = false
+    setProgressAskedBySession((prev) => ({...prev, [sid]: wantsInterimProgress(text)}))
     if (!skipUserMessage) {
       setSessionItems(sid, (m) => [...m, makeUserItem(text, atts)])
     }
@@ -3948,12 +4018,36 @@ export default function App() {
               <input
                 type="number"
                 min={1}
-                max={500}
-                value={maxSteps}
+                max={5000}
+                disabled={unlimitedSteps}
+                value={unlimitedSteps ? '' : maxSteps}
+                placeholder="120"
                 onChange={(e) => setMaxSteps(Number(e.target.value))}
               />
             </label>
-            <p className="nc-help">Лимит шагов агента (tool calls) за один запрос. По умолчанию 120.</p>
+            <label className="nc-inline-check">
+              <input
+                type="checkbox"
+                checked={unlimitedSteps}
+                onChange={(e) => setMaxSteps(e.target.checked ? -1 : 120)}
+              />
+              Без ограничения шагов (только предупреждение)
+            </label>
+            <label>
+              Предупреждать после
+              <input
+                type="number"
+                min={0}
+                max={5000}
+                value={warnSteps}
+                onChange={(e) => setWarnSteps(Number(e.target.value))}
+              />
+            </label>
+            <p className="nc-help">
+              Шагов за один запрос: по умолчанию 120. С галочкой «без ограничения» агент не
+              останавливается, а после указанного порога пишет, что работа продолжается. 0 в пороге —
+              предупреждений нет.
+            </p>
 
             <div className="nc-section-label">Interface</div>
             <label>

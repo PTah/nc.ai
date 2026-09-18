@@ -202,16 +202,20 @@ func (p *runProgress) textLocked(phase string, el time.Duration) string {
 		} else {
 			b.WriteString(p.task)
 		}
-		fmt.Fprintf(&b, " · шаг 0/%d", p.total)
+		if p.total > 0 {
+			fmt.Fprintf(&b, " · шаг 0/%d", p.total)
+		} else {
+			b.WriteString(" · без лимита шагов")
+		}
 	case "heartbeat":
 		fmt.Fprintf(
-			&b, "Работа идёт: %s · шаг %d/%d · вызовов инструментов %d",
-			fmtElapsed(el), p.step, p.total, p.tools,
+			&b, "Работа идёт: %s · %s · вызовов инструментов %d",
+			fmtElapsed(el), p.stepLabel(), p.tools,
 		)
 	default:
 		fmt.Fprintf(
-			&b, "Этап: шаг %d/%d · прошло %s · вызовов инструментов %d",
-			p.step, p.total, fmtElapsed(el), p.tools,
+			&b, "Этап: %s · прошло %s · вызовов инструментов %d",
+			p.stepLabel(), fmtElapsed(el), p.tools,
 		)
 	}
 	if s := p.doneLocked(); s != "" {
@@ -221,6 +225,14 @@ func (p *runProgress) textLocked(phase string, el time.Duration) string {
 		b.WriteString("\nСейчас: " + p.current)
 	}
 	return b.String()
+}
+
+// stepLabel is "шаг 7/120", or just "шаг 7" when the run has no step cap.
+func (p *runProgress) stepLabel() string {
+	if p.total > 0 {
+		return fmt.Sprintf("шаг %d/%d", p.step, p.total)
+	}
+	return fmt.Sprintf("шаг %d (без лимита)", p.step)
 }
 
 func (p *runProgress) doneLocked() string {
