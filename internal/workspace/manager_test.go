@@ -17,6 +17,56 @@ func newTestManager(t *testing.T) (*Manager, string) {
 	return m, root
 }
 
+// TestScopedKeepsRunRoot is the "two projects at once" guard: a run that
+// started in project A must keep writing to A after the user opens B.
+func TestScopedKeepsRunRoot(t *testing.T) {
+	m, rootA := newTestManager(t)
+	rootB := t.TempDir()
+
+	run := m.Scoped(rootA)
+	// The user switches to another project while the agent is still working.
+	if err := m.SetActive(rootB); err != nil {
+		t.Fatalf("set active: %v", err)
+	}
+	if got, err := run.ActiveRoot(); err != nil || got != rootA {
+		t.Fatalf("scoped root = %q, %v; want %q", got, err, rootA)
+	}
+	if err := run.WriteFile("pinned.txt", "run A"); err != nil {
+		t.Fatalf("scoped write: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(rootA, "pinned.txt")); err != nil {
+		t.Fatalf("file not written into project A: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(rootB, "pinned.txt")); err == nil {
+		t.Fatal("scoped write leaked into project B")
+	}
+	// Without a pin, operations follow the active project again.
+	if got, err := m.ActiveRoot(); err != nil || got != rootB {
+		t.Fatalf("active root = %q, %v; want %q", got, err, rootB)
+	}
+	// The scoped view owns its own lock and project list: switching must not
+	// change it, and it must survive concurrent use.
+	done := make(chan error, 4)
+	for i := 0; i < 4; i++ {
+		go func() {
+			done <- run.WriteFile("pinned.txt", "again")
+		}()
+	}
+	for i := 0; i < 4; i++ {
+		if err := <-done; err != nil {
+			t.Fatalf("concurrent scoped write: %v", err)
+		}
+	}
+}
+
+func TestScopedEmptyRootFallsBackToActive(t *testing.T) {
+	m, root := newTestManager(t)
+	view := m.Scoped("  ")
+	if got, err := view.ActiveRoot(); err != nil || got != root {
+		t.Fatalf("Scoped('') root = %q, %v; want %q", got, err, root)
+	}
+}
+
 func TestResolveWithinRoot(t *testing.T) {
 	m, root := newTestManager(t)
 
