@@ -194,3 +194,60 @@ func TestSetActiveUnknownSession(t *testing.T) {
 		t.Fatal("SetActive(unknown) = nil error")
 	}
 }
+
+// TestFindProjectKeepsCrossProjectSaveHonest reproduces the multi-project case:
+// a run started in /a finishes while the user is looking at /b, and the UI then
+// saves that transcript. The session must stay in its own project file.
+func TestFindProjectKeepsCrossProjectSaveHonest(t *testing.T) {
+	s, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	const projA, projB = "/project-a", "/project-b"
+
+	a, err := s.List(projA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := s.List(projB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner, err := s.FindProject(a.ActiveID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if owner != projA {
+		t.Fatalf("FindProject(%s) = %q, want %q", a.ActiveID, owner, projA)
+	}
+	// The other project must not claim this session.
+	if _, err := s.Get(projB, a.ActiveID); err == nil {
+		t.Fatal("session of /project-a is visible from /project-b")
+	}
+	// Saving still works through the owning project.
+	sess, err := s.Get(projA, a.ActiveID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess.ItemsJSON = `[{"kind":"user","content":"late answer"}]`
+	if err := s.SaveSession(projA, sess); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.Get(projA, a.ActiveID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ItemsJSON != sess.ItemsJSON {
+		t.Fatalf("ItemsJSON = %q, want %q", got.ItemsJSON, sess.ItemsJSON)
+	}
+	// Unknown ids resolve to an empty owner instead of an error.
+	if owner, err := s.FindProject("does-not-exist"); err != nil || owner != "" {
+		t.Fatalf("FindProject(unknown) = %q, %v", owner, err)
+	}
+	if owner, err := s.FindProject(""); err != nil || owner != "" {
+		t.Fatalf("FindProject(empty) = %q, %v", owner, err)
+	}
+	if b.ActiveID == a.ActiveID {
+		t.Fatal("projects share the same active session id")
+	}
+}

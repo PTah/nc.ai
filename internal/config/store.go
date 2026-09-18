@@ -26,6 +26,11 @@ const (
 // DefaultLocalBaseURL is the Ollama OpenAI-compatible root on localhost.
 const DefaultLocalBaseURL = "http://127.0.0.1:11434/v1"
 
+// DefaultAgentMaxSteps caps the tool-using agent loop when the user has not set
+// a value. Real diagnostics jobs (scan several switches, grep a big tree) need
+// far more than the earlier 40/80 steps.
+const DefaultAgentMaxSteps = 120
+
 type Settings struct {
 	// ActiveProvider selects which LLM backend is used ("deepseek" | "zai" | "openrouter" | "local").
 	ActiveProvider string `json:"activeProvider,omitempty"`
@@ -65,7 +70,8 @@ type Settings struct {
 	// Theme: "dark" (default) or "light".
 	Theme string `json:"theme,omitempty"`
 
-	// AgentMaxSteps caps the tool-using agent loop. 0 means the default (40).
+	// AgentMaxSteps caps the tool-using agent loop. 0 means the default
+	// (config.DefaultAgentMaxSteps).
 	AgentMaxSteps int `json:"agentMaxSteps,omitempty"`
 
 	// AutoModels enables per-turn model routing (DeepSeek flash/pro/vision;
@@ -179,7 +185,7 @@ func NewStore() *Store {
 			OpenRouterModel: "qwen/qwen3-coder-flash:floor",
 			LocalBaseURL:  DefaultLocalBaseURL,
 			Shell:         "",
-			AgentMaxSteps: 40,
+			AgentMaxSteps: DefaultAgentMaxSteps,
 			AutoModels:    true,
 		},
 		keys: map[string]string{},
@@ -953,7 +959,7 @@ func (s *Store) MaxAgentSteps() int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if s.settings.AgentMaxSteps <= 0 {
-		return 40
+		return DefaultAgentMaxSteps
 	}
 	return s.settings.AgentMaxSteps
 }

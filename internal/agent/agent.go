@@ -13,7 +13,7 @@ import (
 	"notcursor.ai/app/internal/tools"
 )
 
-const DefaultMaxSteps = 40
+const DefaultMaxSteps = 120
 
 const maxToolResultBytes = 12288
 

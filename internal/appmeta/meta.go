@@ -5,7 +5,7 @@ import "time"
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "0.6.20"
+	Version = "0.6.21"
 )
 
 // DeepSeekProRetireRFC3339 is when the provider retires V4 Pro
@@ -29,19 +29,19 @@ func DeepSeekProRetired(now time.Time) bool {
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
-	"Терминал переключается по Ctrl+Shift+T — как настройки по Ctrl+Shift+S",
-	"DeepSeek: модель `deepseek-flash` — V4.1 Flash с нативным мультимодальным вводом",
-	"DeepSeek: legacy-ID (`v4-flash`, `…-vision-exp`, `v4-pro`) роутятся на `deepseek-flash`",
-	"Поиск по чату: Ctrl+F, подсветка совпадений, Esc / повторный Ctrl+F — выход",
-	"Кнопка «↻ Models» — перечитать модели у активного провайдера",
+	"Ввод, очередь и todo — свои у каждого проекта: вопрос не уйдёт в чужой чат",
+	"Очередь вопросов приклеена над полем ввода — видно, что и сколько ждёт",
+	"Рассуждения агента свёрнуты под «Thinking…» — раскрыть можно кликом",
+	"Агент показывает этап: шаг, время, что сделано и что осталось",
+	"Живой статус при работе дольше минуты; лимит шагов по умолчанию — 120",
 }
 
 var HighlightsEN = []string{
-	"Terminal toggle is Ctrl+Shift+T, settings is Ctrl+Shift+S",
-	"DeepSeek: `deepseek-flash` (V4.1 Flash) with native multimodal input",
-	"DeepSeek: legacy ids (`v4-flash`, `…-vision-exp`, `v4-pro`) route to `deepseek-flash`",
-	"Chat find: Ctrl+F, highlight matches, Esc / Ctrl+F again to exit",
-	"↻ Models button — refresh model list for the active provider",
+	"Input, queue and todos are per project: a question never lands in another chat",
+	"Pending questions are pinned above the composer — you always see what waits",
+	"Agent reasoning collapses under “Thinking…”, expandable on click",
+	"Agent reports its stage: step, elapsed time, done and left",
+	"Live status for runs longer than a minute; default step limit is 120",
 }
 
 // UICopy is localized chrome for the Welcome splash.
