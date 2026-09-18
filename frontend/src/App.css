@@ -515,6 +515,61 @@ mark.nc-find-mark.nc-find-current {
 }
 .nc-tab-x:hover { opacity: 1; background: var(--tab-x-hover); }
 .nc-composer.drag { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+/* Live stage line for long runs (see agent "progress" events). */
+.nc-run-status {
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  width: min(var(--layout-chat-max, 100%), 100%);
+  max-width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.28rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--msg-system);
+  color: var(--muted);
+  font-size: 0.75rem;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.nc-run-dot {
+  flex: 0 0 auto;
+  width: 8px; height: 8px; border-radius: 999px;
+  background: var(--accent);
+  animation: nc-run-pulse 1.6s ease-in-out infinite;
+}
+@keyframes nc-run-pulse {
+  0%, 100% { opacity: 0.35; transform: scale(0.85); }
+  50% { opacity: 1; transform: scale(1); }
+}
+.nc-run-elapsed { flex: 0 0 auto; color: var(--text); font-variant-numeric: tabular-nums; }
+.nc-run-step { flex: 0 0 auto; }
+.nc-run-current,
+.nc-run-todo {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.nc-tab-queue {
+  flex: 0 0 auto;
+  min-width: 15px;
+  padding: 0 0.28rem;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.66rem;
+  line-height: 1.25;
+  text-align: center;
+}
+.nc-msg.progress {
+  background: var(--msg-system);
+  border-style: dashed;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+.nc-msg.progress pre { font: inherit; }
 .nc-att-pending, .nc-att-row {
   display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.35rem;
 }
@@ -554,6 +609,7 @@ mark.nc-find-mark.nc-find-current {
   display: flex; flex-direction: column; gap: 0.7rem;
 }
 .nc-composer-wrap {
+  position: relative;
   flex: 0 0 var(--layout-composer, 150px);
   min-height: 110px;
   max-height: 60vh;
@@ -565,17 +621,46 @@ mark.nc-find-mark.nc-find-current {
   padding: 0.55rem 1rem 0.9rem;
   border-top: 1px solid var(--border);
   background: var(--panel);
-  overflow: hidden;
+  /* The pending-questions panel is pinned above the composer and must stay
+     visible even when the chat pane is small. */
+  overflow: visible;
 }
+/* Pending questions: glued to the input box, always fully visible. */
 .nc-queue-pending {
-  width: min(var(--layout-chat-max, 100%), 100%);
-  max-width: 100%;
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% - 0.15rem);
+  transform: translateX(-50%);
+  z-index: 30;
+  box-sizing: border-box;
+  width: min(var(--layout-chat-max, 100%), calc(100% - 2rem));
+  max-width: calc(100% - 2rem);
+  max-height: min(52vh, 420px);
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.45rem 0.5rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.35);
+}
+.nc-queue-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: 0.72rem;
+  color: var(--muted);
+  padding: 0 0.15rem;
+}
+.nc-queue-title { font-weight: 600; color: var(--text); }
+.nc-queue-list {
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
-  flex: 0 0 auto;
-  max-height: 40%;
   overflow: auto;
+  min-height: 0;
 }
 .nc-queue-card {
   display: flex;
@@ -616,7 +701,8 @@ mark.nc-find-mark.nc-find-current {
   box-sizing: border-box;
   width: min(var(--layout-chat-max, 100%), 100%);
   max-width: 100%;
-  height: 100%;
+  flex: 1 1 auto;
+  min-height: 88px;
   display: flex; flex-direction: column; gap: 0.35rem;
   background: var(--composer-bg);
   border: 1px solid var(--border);

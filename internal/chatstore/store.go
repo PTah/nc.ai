@@ -426,6 +426,45 @@ func (s *Store) Get(project, sessionID string) (*Session, error) {
 	return nil, fmt.Errorf("session not found")
 }
 
+// FindProject returns the workspace that owns sessionID ("" when unknown).
+// Needed because the user can switch projects while a run is still streaming:
+// the UI then saves that chat from another project context.
+func (s *Store) FindProject(sessionID string) (string, error) {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return "", nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	entries, err := os.ReadDir(s.dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", err
+	}
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".json") || strings.HasSuffix(name, ".legacy.bak") {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(s.dir, name))
+		if err != nil {
+			continue
+		}
+		var b ProjectBundle
+		if err := json.Unmarshal(data, &b); err != nil {
+			continue
+		}
+		for _, sess := range b.Sessions {
+			if sess.ID == sessionID {
+				return b.Project, nil
+			}
+		}
+	}
+	return "", nil
+}
+
 func (s *Store) SaveSession(project string, sess *Session) error {
 	if sess == nil {
 		return nil

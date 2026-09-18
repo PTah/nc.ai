@@ -1589,9 +1589,20 @@ func (a *App) SaveChatSession(sessionID, itemsJSON string) error {
 	if a.chats == nil || sessionID == "" {
 		return nil
 	}
-	sess, err := a.chats.Get(a.projectKey(), sessionID)
+	// The chat may belong to another project: a run started in project A keeps
+	// streaming while the user watches project B, and the UI then saves A's
+	// transcript from that other context. Never write it into the open project.
+	proj := a.projectKey()
+	sess, err := a.chats.Get(proj, sessionID)
 	if err != nil {
-		return err
+		owner, ferr := a.chats.FindProject(sessionID)
+		if ferr != nil || owner == "" {
+			return err
+		}
+		proj = owner
+		if sess, err = a.chats.Get(proj, sessionID); err != nil {
+			return err
+		}
 	}
 	// The session must be the one requested: chatstore no longer falls back
 	// silently, but double-check here as a hard barrier.
@@ -1612,7 +1623,7 @@ func (a *App) SaveChatSession(sessionID, itemsJSON string) error {
 	if t := titleFromItemsJSON(itemsJSON); t != "" && (sess.Title == "" || sess.Title == "Chat" || sess.Title == "Chat 1") {
 		sess.Title = t
 	}
-	return a.chats.SaveSession(a.projectKey(), sess)
+	return a.chats.SaveSession(proj, sess)
 }
 
 func isMeaningfulItemsJSON(s string) bool {
@@ -1706,6 +1717,9 @@ func (a *App) RunAgentWithAttachments(userMessage string, attachments []agent.At
 		return fmt.Errorf("LLM provider is not configured")
 	}
 	_, _ = a.ws.ActiveRoot()
+	// Pin the project for the whole run: the user may switch projects while the
+	// agent works, and a late save must never land in the other project's file.
+	projKey := a.projectKey()
 
 	a.mu.Lock()
 	sid := a.sessionID
@@ -1817,7 +1831,7 @@ func (a *App) RunAgentWithAttachments(userMessage string, attachments []agent.At
 		baseCost, baseIn, baseOut, baseHit, baseMiss := a.cfg.ProviderUsage(provider)
 		chatCost, chatIn, chatOut, chatHit, chatMiss := 0.0, 0, 0, 0, 0
 		if a.chats != nil {
-			if sess, err := a.chats.Get(a.projectKey(), sid); err == nil && sess != nil {
+			if sess, err := a.chats.Get(projKey, sid); err == nil && sess != nil {
 				chatCost, chatIn, chatOut, chatHit, chatMiss = sess.ProviderUsage(provider)
 			}
 		}
@@ -1878,15 +1892,15 @@ func (a *App) RunAgentWithAttachments(userMessage string, attachments []agent.At
 		// Persist LLM history only on success; on error keep the previous state
 		// so a retry does not duplicate the failed user message.
 		if a.chats != nil && err == nil {
-			if sess, gerr := a.chats.Get(a.projectKey(), sid); gerr == nil {
+			if sess, gerr := a.chats.Get(projKey, sid); gerr == nil {
 				sess.History = newHist
-				_ = a.chats.SaveSession(a.projectKey(), sess)
+				_ = a.chats.SaveSession(projKey, sess)
 			}
 		}
 		if inTokens+outTokens > 0 || cacheHit+cacheMiss > 0 {
 			_ = a.cfg.AddUsage(provider, costUSD, inTokens, outTokens, cacheHit, cacheMiss)
 			if a.chats != nil {
-				_, _ = a.chats.AddUsage(a.projectKey(), sid, provider, costUSD, inTokens, outTokens, cacheHit, cacheMiss)
+				_, _ = a.chats.AddUsage(projKey, sid, provider, costUSD, inTokens, outTokens, cacheHit, cacheMiss)
 			}
 		}
 		if locked := runner.LockedModel(); locked != "" && !agent.IsVisionModel(locked) {
@@ -1897,7 +1911,7 @@ func (a *App) RunAgentWithAttachments(userMessage string, attachments []agent.At
 		totCost, totIn, totOut, totHit, totMiss := a.cfg.ProviderUsage(provider)
 		chatCost, chatIn, chatOut, chatHit, chatMiss := 0.0, 0, 0, 0, 0
 		if a.chats != nil {
-			if sess, gerr := a.chats.Get(a.projectKey(), sid); gerr == nil && sess != nil {
+			if sess, gerr := a.chats.Get(projKey, sid); gerr == nil && sess != nil {
 				chatCost, chatIn, chatOut, chatHit, chatMiss = sess.ProviderUsage(provider)
 			}
 		}
