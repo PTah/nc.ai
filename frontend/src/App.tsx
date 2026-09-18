@@ -97,8 +97,23 @@ type Project = { name: string; path: string; opened?: string }
 type FileEntry = { name: string; path: string; isDir: boolean }
 type ChatItem =
   | { kind: 'user' | 'assistant' | 'system' | 'reasoning'; content: string; attachments?: ChatAttPreview[] }
+  | { kind: 'progress'; content: string }
   | { kind: 'tool'; name: string; args: string; result?: string; phase: 'running' | 'done'; ok?: boolean }
   | { kind: 'file'; path: string; content: string }
+
+/** Snapshot of a running agent turn (agent:event "progress"). */
+type RunProgressInfo = {
+  phase: string
+  text: string
+  elapsed: string
+  seconds: number
+  step: number
+  total: number
+  tools: number
+  done: string
+  current: string
+  task: string
+}
 
 type ChatAttPreview = {
   name: string
@@ -322,6 +337,34 @@ function formatConnectError(e: unknown): string {
 
 function asList<T>(v: T[] | null | undefined): T[] {
   return Array.isArray(v) ? v : []
+}
+
+function formatDuration(totalSec: number): string {
+  const s = Math.max(0, Math.floor(totalSec))
+  const h = Math.floor(s / 3600)
+  const m = Math.floor(s / 60) % 60
+  const sec = s % 60
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return h > 0 ? `${h}:${pad(m)}:${pad(sec)}` : `${m}:${pad(sec)}`
+}
+
+function parseRunProgress(raw: unknown): RunProgressInfo | null {
+  if (!raw || typeof raw !== 'object') return null
+  const o = raw as Record<string, unknown>
+  const text = String(o.text || '').trim()
+  if (!text) return null
+  return {
+    phase: String(o.phase || 'step'),
+    text,
+    elapsed: String(o.elapsed || ''),
+    seconds: Number(o.seconds) || 0,
+    step: Number(o.step) || 0,
+    total: Number(o.total) || 0,
+    tools: Number(o.tools) || 0,
+    done: String(o.done || ''),
+    current: String(o.current || ''),
+    task: String(o.task || ''),
+  }
 }
 
 function normalizeRules(b: Partial<RulesBundle> | null | undefined): RulesBundle {
@@ -808,13 +851,16 @@ export default function App() {
   const [activeSessionId, setActiveSessionId] = useState('')
   const [itemsBySession, setItemsBySession] = useState<Record<string, ChatItem[]>>({})
   const [busyBySession, setBusyBySession] = useState<Record<string, boolean>>({})
-  const [pendingAtts, setPendingAtts] = useState<PendingAtt[]>([])
-  const [queue, setQueue] = useState<QueuedMsg[]>([])
+  // Drafts, pending attachments and queued messages are per chat session, so a
+  // question typed in project A can never be sent from project B.
+  const [drafts, setDrafts] = useState<Record<string, {text: string; atts: PendingAtt[]}>>({})
+  const [queues, setQueues] = useState<Record<string, QueuedMsg[]>>({})
+  const [progressBySession, setProgressBySession] = useState<Record<string, RunProgressInfo>>({})
+  const [runStartedAt, setRunStartedAt] = useState<Record<string, number>>({})
   const [dragOver, setDragOver] = useState(false)
   const [retryVisible, setRetryVisible] = useState(false)
   const [editingTabId, setEditingTabId] = useState('')
   const [editingTitle, setEditingTitle] = useState('')
-  const [input, setInput] = useState('')
   const [activeProvider, setActiveProvider] = useState<ProviderId>('deepseek')
   const activeProviderRef = useRef<ProviderId>('deepseek')
   activeProviderRef.current = activeProvider
@@ -846,7 +892,7 @@ export default function App() {
   const [localLite, setLocalLite] = useState(false)
   const [toolConfirm, setToolConfirm] = useState(true)
   const [planMode, setPlanMode] = useState(false)
-  const [todos, setTodos] = useState<TodoItem[]>([])
+  const [todosBySession, setTodosBySession] = useState<Record<string, TodoItem[]>>({})
   const [editor, setEditor] = useState<EditorState | null>(null)
   const [askAnswer, setAskAnswer] = useState('')
   const [deepseekPeak, setDeepseekPeak] = useState<{peak: boolean; tooltip: string}>({peak: false, tooltip: ''})
@@ -879,7 +925,17 @@ export default function App() {
   const noticeQueueRef = useRef<string[]>([])
   const lastRequestRef = useRef<{text: string; atts: PendingAtt[]} | null>(null)
   const lastModelRef = useRef<Record<string, string>>({})
-  const busyRef = useRef(false)
+  const busyBySessionRef = useRef<Record<string, boolean>>({})
+  const queuesRef = useRef<Record<string, QueuedMsg[]>>({})
+  const itemsBySessionRef = useRef<Record<string, ChatItem[]>>({})
+  const runAgentRef = useRef<(
+    sid: string,
+    text: string,
+    atts: PendingAtt[],
+    skipUserMessage?: boolean,
+    force?: boolean,
+  ) => Promise<boolean>>(async () => false)
+  const [statusTick, setStatusTick] = useState(0)
 
   const model =
     activeProvider === 'zai'
@@ -912,15 +968,126 @@ export default function App() {
 
   const items = asList(activeSessionId ? itemsBySession[activeSessionId] : undefined)
   const busy = Boolean(activeSessionId && busyBySession[activeSessionId])
+  // Everything the composer shows is bound to the active chat session: question
+  // text, attachments, queue and todo list never leak into another project.
+  const draft = activeSessionId ? drafts[activeSessionId] : undefined
+  const input = draft?.text ?? ''
+  const pendingAtts = asList(draft?.atts)
+  const queue = asList(activeSessionId ? queues[activeSessionId] : undefined)
   const queueCount = queue.length
+  const todos = asList(activeSessionId ? todosBySession[activeSessionId] : undefined)
   const statusText = busy
     ? queueCount > 0 ? `думает… · очередь ${queueCount}` : 'думает…'
     : queueCount > 0 ? `в очереди: ${queueCount}` : ''
   const {total: rulesTotal, applied: rulesApplied} = rulesCounts(rulesInfo)
 
+  const setInput = useCallback((value: string, sid = activeSessionRef.current) => {
+    if (!sid) return
+    setDrafts((prev) => ({...prev, [sid]: {text: value, atts: prev[sid]?.atts ?? []}}))
+  }, [])
+  const setPendingAtts = useCallback((
+    updater: PendingAtt[] | ((prev: PendingAtt[]) => PendingAtt[]),
+    sid = activeSessionRef.current,
+  ) => {
+    if (!sid) return
+    setDrafts((prev) => {
+      const cur = prev[sid] || {text: '', atts: []}
+      const atts = typeof updater === 'function' ? updater(cur.atts) : updater
+      return {...prev, [sid]: {...cur, atts}}
+    })
+  }, [])
+  const setQueue = useCallback((
+    updater: QueuedMsg[] | ((prev: QueuedMsg[]) => QueuedMsg[]),
+    sid = activeSessionRef.current,
+  ) => {
+    if (!sid) return
+    setQueues((prev) => {
+      const cur = prev[sid] || []
+      const next = typeof updater === 'function' ? updater(cur) : updater
+      return {...prev, [sid]: next}
+    })
+  }, [])
+
+  // Only the *active* chat can run: the backend agent loop works on the active
+  // session, so a question queued in project A waits until A is opened again —
+  // it is never fired into whatever project happens to be in front.
+  const flushQueue = useCallback(async (sid: string) => {
+    if (!sid || sid !== activeSessionRef.current) return false
+    if (busyBySessionRef.current[sid]) return false
+    const first = asList(queuesRef.current[sid])[0]
+    if (!first) return false
+    const started = await runAgentRef.current(sid, first.text, first.atts)
+    if (started) {
+      setQueues((prev) => ({
+        ...prev,
+        [sid]: asList(prev[sid]).filter((q) => q.id !== first.id),
+      }))
+    }
+    return started
+  }, [])
+
+  // Shared "run is over" cleanup. A run may finish for a project that is not on
+  // screen any more — then the transcript is saved right away, from that chat's
+  // own project (backend resolves the owner), so the answer is never lost.
+  const finishRunUI = useCallback((sid: string) => {
+    if (!sid) return
+    assistantBuf.current[sid] = ''
+    setBusyBySession((b) => ({...b, [sid]: false}))
+    setProgressBySession((prev) => {
+      if (!prev[sid]) return prev
+      const next = {...prev}
+      delete next[sid]
+      return next
+    })
+    setRunStartedAt((prev) => {
+      if (!prev[sid]) return prev
+      const next = {...prev}
+      delete next[sid]
+      return next
+    })
+    if (sid !== activeSessionRef.current) {
+      window.setTimeout(() => {
+        const list = itemsBySessionRef.current[sid]
+        if (list && list.length > 0) SaveChatSession(sid, JSON.stringify(list)).catch(() => undefined)
+      }, 700)
+    }
+  }, [])
+
   useEffect(() => {
-    busyRef.current = busy
-  }, [busy])
+    busyBySessionRef.current = busyBySession
+  }, [busyBySession])
+  useEffect(() => {
+    queuesRef.current = queues
+  }, [queues])
+  useEffect(() => {
+    itemsBySessionRef.current = itemsBySession
+  }, [itemsBySession])
+
+  // Live "what is the agent doing now" line: appears once a run is long enough
+  // to be worth reporting (and right away when the backend sends progress).
+  const runInfo = activeSessionId ? progressBySession[activeSessionId] : undefined
+  const runStarted = activeSessionId ? runStartedAt[activeSessionId] : 0
+  const runElapsedSec = (() => {
+    if (!runStarted) return runInfo?.seconds ?? 0
+    return Math.max(0, Math.floor(((statusTick || Date.now()) - runStarted) / 1000))
+  })()
+  const showRunStatus = busy && (runElapsedSec >= 60 || Boolean(runInfo))
+  const openTodos = todos.filter((t) => t.status !== 'completed' && t.status !== 'cancelled')
+  const activeTodo = todos.find((t) => t.status === 'in_progress') || openTodos[0]
+  const runStatusElapsed = runElapsedSec > 0 ? formatDuration(runElapsedSec) : runInfo?.elapsed || '0:00'
+  const runStatusStep = runInfo ? `шаг ${runInfo.step}/${runInfo.total}` : ''
+
+  useEffect(() => {
+    if (!busy || !runStarted) return
+    const since = Date.now() - runStarted
+    if (since < 60000) {
+      const t = window.setTimeout(() => setStatusTick(Date.now()), 60000 - since)
+      return () => window.clearTimeout(t)
+    }
+    setStatusTick(Date.now())
+    const id = window.setInterval(() => setStatusTick(Date.now()), 1000)
+    return () => window.clearInterval(id)
+  }, [busy, runStarted])
 
   const itemsRef = useRef(items)
   const prevBusyRef = useRef(busy)
@@ -1326,13 +1493,31 @@ export default function App() {
             try {
               const parsed = JSON.parse(ev.content || '[]')
               if (Array.isArray(parsed)) {
-                setTodos(parsed.map((t: {id?: string; content?: string; status?: string}) => ({
+                const list = parsed.map((t: {id?: string; content?: string; status?: string}) => ({
                   id: String(t.id || ''),
                   content: String(t.content || ''),
                   status: String(t.status || 'pending'),
-                })))
+                }))
+                setTodosBySession((prev) => ({...prev, [sid]: list}))
               }
             } catch { /* ignore */ }
+          } else if (ev.type === 'progress') {
+            let parsed: RunProgressInfo | null = null
+            try {
+              parsed = parseRunProgress(JSON.parse(ev.content || '{}'))
+            } catch {
+              parsed = null
+            }
+            if (!parsed && ev.content) {
+              parsed = {phase: 'step', text: ev.content, elapsed: '', seconds: 0, step: 0, total: 0, tools: 0, done: '', current: '', task: ''}
+            }
+            if (!parsed) return
+            setProgressBySession((prev) => ({...prev, [sid]: parsed as RunProgressInfo}))
+            // Heartbeats only refresh the live status line: milestones are the
+            // ones worth keeping in the transcript.
+            if (parsed.phase !== 'heartbeat' && parsed.phase !== 'start') {
+              setSessionItems(sid, (prev) => [...prev, {kind: 'progress', content: parsed.text}])
+            }
           } else if (ev.type === 'tool_start') {
             assistantBuf.current[sid] = ''
             setSessionItems(sid, (prev) => [...prev, {
@@ -1375,13 +1560,11 @@ export default function App() {
           } else if (ev.type === 'reconnect') {
             setSessionItems(sid, (prev) => [...prev, {kind: 'system', content: ev.content || 'reconnecting…'}])
           } else if (ev.type === 'done' || ev.type === 'persist') {
-            assistantBuf.current[sid] = ''
-            setBusyBySession((b) => ({...b, [sid]: false}))
+            finishRunUI(sid)
             if (sid === activeSessionRef.current) setRetryVisible(false)
             void applyUsageStats()
           } else if (ev.type === 'error') {
-            assistantBuf.current[sid] = ''
-            setBusyBySession((b) => ({...b, [sid]: false}))
+            finishRunUI(sid)
             const errContent = ev.content || 'unknown'
             const canceled = /context canceled|context cancelled/i.test(errContent)
             if (canceled) {
@@ -1425,7 +1608,7 @@ export default function App() {
         /* ignore */
       }
     }
-  }, [setSessionItems, applyUsageStats])
+  }, [setSessionItems, applyUsageStats, finishRunUI])
 
   useEffect(() => {
     if (chatFindOpen) return
@@ -1488,14 +1671,15 @@ export default function App() {
     focusChatFindHit(chatFindHitsRef.current, chatFindIndex, {scroll: true, smooth: false})
   }, [chatFindOpen, chatFindIndex])
 
-  // Process queued messages once the agent is idle.
+  // Drain this session's queue when its own agent is idle. The message is only
+  // removed after the run actually started, so a race (project switch, session
+  // still finishing) can never swallow a question.
   useEffect(() => {
-    if (busy) return
+    if (!activeSessionId || busy) return
     if (queue.length === 0) return
-    const next = queue[0]
-    setQueue((q) => q.slice(1))
-    void runAgent(next.text, next.atts, false)
-  }, [busy, queue])
+    const t = window.setTimeout(() => { void flushQueue(activeSessionId) }, 150)
+    return () => window.clearTimeout(t)
+  }, [activeSessionId, busy, queue, flushQueue])
 
   async function refreshArchives() {
     try {
@@ -2442,16 +2626,32 @@ export default function App() {
     }
   }
 
-  async function runAgent(text: string, atts: PendingAtt[], skipUserMessage = false, force = false) {
-    if ((!text && atts.length === 0) || !activeSessionId) return
-    if (busyRef.current && !force) return
+  // Starts an agent run for one chat session. Returns true only when the run
+  // actually started, so callers can keep queued messages they could not send.
+  async function runAgent(
+    sid: string,
+    text: string,
+    atts: PendingAtt[],
+    skipUserMessage = false,
+    force = false,
+  ): Promise<boolean> {
+    if (!sid || sid !== activeSessionRef.current) return false
+    if (!text && atts.length === 0) return false
+    if (busyBySessionRef.current[sid] && !force) return false
     lastRequestRef.current = {text, atts}
     setRetryVisible(false)
-    assistantBuf.current[activeSessionId] = ''
+    assistantBuf.current[sid] = ''
     if (!skipUserMessage) {
-      setSessionItems(activeSessionId, (m) => [...m, makeUserItem(text, atts)])
+      setSessionItems(sid, (m) => [...m, makeUserItem(text, atts)])
     }
-    setBusyBySession((b) => ({...b, [activeSessionId]: true}))
+    setRunStartedAt((prev) => ({...prev, [sid]: Date.now()}))
+    setProgressBySession((prev) => {
+      if (!prev[sid]) return prev
+      const next = {...prev}
+      delete next[sid]
+      return next
+    })
+    setBusyBySession((b) => ({...b, [sid]: true}))
     try {
       await RunAgentWithAttachments(text, atts.map((a) => ({
         name: a.name,
@@ -2461,33 +2661,50 @@ export default function App() {
         isImage: a.isImage,
       })))
     } catch (err) {
-      setBusyBySession((b) => ({...b, [activeSessionId]: false}))
-      setSessionItems(activeSessionId, (m) => [...m, {kind: 'system', content: String(err)}])
+      setBusyBySession((b) => ({...b, [sid]: false}))
+      setSessionItems(sid, (m) => [...m, {kind: 'system', content: String(err)}])
       setRetryVisible(true)
+      return false
     }
+    return true
   }
+  runAgentRef.current = runAgent
 
   async function sendChat(e?: FormEvent) {
     e?.preventDefault()
+    const sid = activeSessionId
+    if (!sid) return
     const text = input.trim()
     const atts = pendingAtts
-    if ((!text && atts.length === 0) || !activeSessionId) return
-    setInput('')
-    setPendingAtts([])
-    if (busyRef.current) {
+    if (!text && atts.length === 0) return
+    setInput('', sid)
+    setPendingAtts([], sid)
+    if (busyBySessionRef.current[sid]) {
       const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-      setQueue((q) => [...q, {id, text, atts}])
+      setQueue((q) => [...q, {id, text, atts}], sid)
       return
     }
-    await runAgent(text, atts)
+    const started = await runAgent(sid, text, atts)
+    if (!started) {
+      // Never lose the question: keep it queued for this chat instead.
+      const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+      setQueue((q) => [...q, {id, text, atts}], sid)
+    }
   }
 
   async function sendQueuedNow(id: string) {
+    const sid = activeSessionId
+    if (!sid) return
     const msg = queue.find((q) => q.id === id)
-    if (!msg || !activeSessionId) return
-    setQueue((q) => q.filter((x) => x.id !== id))
-    if (busyRef.current) StopAgent()
-    await runAgent(msg.text, msg.atts, false, true)
+    if (!msg) return
+    setQueue((q) => q.filter((x) => x.id !== id), sid)
+    if (busyBySessionRef.current[sid]) {
+      StopAgent()
+      // Give the backend a moment to release the session before restarting it.
+      await new Promise((resolve) => window.setTimeout(resolve, 150))
+    }
+    const started = await runAgent(sid, msg.text, msg.atts, false, true)
+    if (!started) setQueue((q) => [...q, msg], sid)
   }
 
   function dismissQueued(id: string) {
@@ -2496,8 +2713,9 @@ export default function App() {
 
   async function retryLast() {
     const req = lastRequestRef.current
-    if (!req) return
-    await runAgent(req.text, req.atts, true)
+    const sid = activeSessionId
+    if (!req || !sid) return
+    await runAgent(sid, req.text, req.atts, true)
   }
 
   async function runOneShot() {
@@ -2813,6 +3031,11 @@ export default function App() {
                       title={`${s.title || 'Chat'} (двойной клик — переименовать)`}
                     >
                       <span className="nc-tab-title">{s.title || 'Chat'}</span>
+                      {(queues[s.id]?.length ?? 0) > 0 && (
+                        <span className="nc-tab-queue" title={`Отложенных вопросов: ${queues[s.id].length}`}>
+                          {queues[s.id].length}
+                        </span>
+                      )}
                       {sessions.length > 1 && (
                         <span
                           className="nc-tab-x"
@@ -3002,7 +3225,15 @@ export default function App() {
                     )
                   }
                   if (m.kind === 'reasoning') {
-                    return <ThinkingBlock key={row.key} content={m.content} collapsed={!busy} />
+                    return <ThinkingBlock key={row.key} content={m.content} collapsed />
+                  }
+                  if (m.kind === 'progress') {
+                    return (
+                      <div key={row.key} className="nc-msg progress">
+                        <div className="nc-role">этап</div>
+                        <pre>{m.content}</pre>
+                      </div>
+                    )
                   }
                   return (
                     <div key={row.key} className={`nc-msg ${m.kind}`}>
@@ -3037,31 +3268,51 @@ export default function App() {
             <div className="nc-composer-wrap">
               {queue.length > 0 && (
                 <div className="nc-queue-pending" aria-label="Отложенные запросы">
-                  {queue.map((q) => (
-                    <div key={q.id} className="nc-queue-card">
-                      <div className="nc-queue-card-text">
-                        {q.text || (q.atts.length ? `(вложения: ${q.atts.length})` : '(пусто)')}
+                  <div className="nc-queue-head">
+                    <span className="nc-queue-title">
+                      В очереди: {queue.length}
+                      {active ? ` · ${active.name}` : ''}
+                    </span>
+                    <span className="nc-queue-hint">
+                      {busy ? 'уйдут после текущего ответа' : 'отправляю…'}
+                    </span>
+                  </div>
+                  <div className="nc-queue-list">
+                    {queue.map((q) => (
+                      <div key={q.id} className="nc-queue-card">
+                        <div className="nc-queue-card-text">
+                          {q.text || (q.atts.length ? `(вложения: ${q.atts.length})` : '(пусто)')}
+                        </div>
+                        <div className="nc-queue-card-actions">
+                          <button
+                            type="button"
+                            className="nc-ghost"
+                            title="Остановить текущий ответ и отправить сейчас"
+                            onClick={() => void sendQueuedNow(q.id)}
+                          >
+                            Send now
+                          </button>
+                          <button
+                            type="button"
+                            className="nc-ghost"
+                            title="Убрать из очереди"
+                            onClick={() => dismissQueued(q.id)}
+                          >
+                            ×
+                          </button>
+                        </div>
                       </div>
-                      <div className="nc-queue-card-actions">
-                        <button
-                          type="button"
-                          className="nc-ghost"
-                          title="Остановить текущий ответ и отправить сейчас"
-                          onClick={() => void sendQueuedNow(q.id)}
-                        >
-                          Send now
-                        </button>
-                        <button
-                          type="button"
-                          className="nc-ghost"
-                          title="Убрать из очереди"
-                          onClick={() => dismissQueued(q.id)}
-                        >
-                          ×
-                        </button>
-                      </div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
+                </div>
+              )}
+              {showRunStatus && (
+                <div className="nc-run-status" title="Текущий этап работы агента">
+                  <span className="nc-run-dot" aria-hidden />
+                  <span className="nc-run-elapsed">⏱ {runStatusElapsed}</span>
+                  {runStatusStep && <span className="nc-run-step">{runStatusStep}</span>}
+                  {runInfo?.current && <span className="nc-run-current">сейчас: {runInfo.current}</span>}
+                  {activeTodo && <span className="nc-run-todo">осталось: {activeTodo.content}</span>}
                 </div>
               )}
               <form
