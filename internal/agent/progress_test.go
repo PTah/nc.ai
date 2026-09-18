@@ -98,6 +98,33 @@ func TestProgressStopsEmitting(t *testing.T) {
 	}
 }
 
+func TestProgressUnlimitedStepLabel(t *testing.T) {
+	p := newRunProgress(0, "долгая задача")
+	defer p.stopRun()
+	p.beginStep(42)
+	info := decodeProgress(t, p.payload("step"))
+	if info.Total != 0 {
+		t.Fatalf("unlimited run reports total = %d, want 0", info.Total)
+	}
+	if !strings.Contains(info.Text, "без лимита") {
+		t.Fatalf("unlimited step label = %q", info.Text)
+	}
+	if start := decodeProgress(t, p.payload("start")); !strings.Contains(start.Text, "без лимита шагов") {
+		t.Fatalf("unlimited start label = %q", start.Text)
+	}
+}
+
+func TestStepWarning(t *testing.T) {
+	unlimited := stepWarning(240, 100000, true, 120)
+	if !strings.Contains(unlimited, "лимит шагов не задан") || !strings.Contains(unlimited, "240") {
+		t.Fatalf("unlimited warning = %q", unlimited)
+	}
+	capped := stepWarning(120, 120, false, 120)
+	if !strings.Contains(capped, "из 120") {
+		t.Fatalf("capped warning = %q", capped)
+	}
+}
+
 func TestToolCategoryAndHint(t *testing.T) {
 	cases := map[string]string{
 		"read_file":    "чтение",

@@ -414,6 +414,7 @@ func (a *App) GetSettings() map[string]any {
 		"showSettings":       s.ShowSettings,
 		"theme":              a.cfg.Theme(),
 		"agentMaxSteps":      a.cfg.MaxAgentSteps(),
+		"agentWarnSteps":     a.cfg.AgentWarnSteps(),
 		"autoModels":         a.cfg.AutoModels(),
 		"localLite":          a.cfg.LocalLiteEnabled(),
 		"toolConfirm":        a.cfg.ToolConfirmEnabled(),
@@ -1258,6 +1259,11 @@ func (a *App) SaveAgentMaxSteps(steps int) error {
 	return a.cfg.SetAgentMaxSteps(steps)
 }
 
+// SaveAgentWarnSteps stores the step count that triggers a long-run notice.
+func (a *App) SaveAgentWarnSteps(steps int) error {
+	return a.cfg.SetAgentWarnSteps(steps)
+}
+
 // SaveGitAuth is deprecated: Git uses OS credential helpers / SSH keys.
 // Calling it clears any leftover in-app secrets.
 func (a *App) SaveGitAuth(_, _ string) error {
@@ -1792,6 +1798,7 @@ func (a *App) RunAgentWithAttachments(userMessage string, attachments []agent.At
 		Provider:       a.llm,
 		Tools:          runTools,
 		MaxSteps:       a.cfg.MaxAgentSteps(),
+		WarnSteps:      a.cfg.AgentWarnSteps(),
 		RulesText:      bundle.SelectStableForPrompt(),
 		TurnRulesText:  bundle.SelectTurnRules(hints),
 		StickyModel:    sticky,

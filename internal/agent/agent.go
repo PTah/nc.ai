@@ -15,6 +15,14 @@ import (
 
 const DefaultMaxSteps = 120
 
+// DefaultWarnSteps: after this many steps a long run reports a warning notice
+// while continuing to work.
+const DefaultWarnSteps = 120
+
+// unlimitedCeiling is the practical ceiling for "no cap" runs: a run that gets
+// this far is looping and would burn tokens forever.
+const unlimitedCeiling = 100000
+
 const maxToolResultBytes = 12288
 
 const SystemPrompt = `You are NotCursor.ai, a coding agent like Cursor.
@@ -36,10 +44,10 @@ Tools:
 - Use delete_file for removals and move_file for renames (do not rm/mv via shell).
 - Call get_env_info when OS/toolchain matters.
 - Use todo_write for multi-step work; keep the list current; do not narrate todo updates.
-- Long task (>2-3 tool batches), or the user asked to show interim results
-  ("показывай промежуточные результаты") — post a short status line every stage:
-  what is done, what comes next, plainly stated. No stream-of-consciousness, no
-  "надо бы попробовать", no reasoning — only facts about the current stage.
+- Post a short stage line (what is done, what comes next, plainly) only when the
+  user asked for interim results ("показывай промежуточные результаты") or when you
+  have been working for more than two minutes without giving any result. Otherwise
+  keep working silently: no status chatter, no "надо бы попробовать", no reasoning.
 - Use ask_user only when a real user decision is required — not for facts you can look up.
 - Prefer the API tool_calls channel. Do not paste tool JSON into message text when the API supports tools.
 
@@ -84,6 +92,20 @@ Explore the codebase with read-only tools and ask_user if a real decision is blo
 Do not write, patch, delete, move files, run shell, commit, push, or SSH.
 When you have a concrete plan (files to touch, approach, risks), present it clearly and wait for the user to switch to Act.`
 
+// stepWarning is the notice shown when a run passes its warning threshold.
+func stepWarning(step, max int, unlimited bool, warnAt int) string {
+	if unlimited {
+		return fmt.Sprintf(
+			"Шагов: %d (порог %d) — лимит шагов не задан, продолжаю работу. Что уже сделано — в карточках «Этап» выше; если задача ушла не туда, скажите «стоп».",
+			step, warnAt,
+		)
+	}
+	return fmt.Sprintf(
+		"Шагов: %d из %d — лимит близко. Дальше агент подведёт итог тем, что успел выяснить.",
+		step, max,
+	)
+}
+
 // Event is pushed to the UI during an agent run.
 type Event struct {
 	Type      string `json:"type"` // delta|delta_clear|reasoning|tool_start|tool_end|tool_ask|reconnect|done|error|persist|usage|model|notice|progress
@@ -108,7 +130,11 @@ type Attachment struct {
 type Runner struct {
 	Provider llm.Provider
 	Tools    *tools.Registry
+	// MaxSteps: 0 = default, negative = no hard cap (warn-only), positive = cap.
 	MaxSteps int
+	// WarnSteps is the step count that triggers a "still working" notice
+	// (0 = default, negative = silent).
+	WarnSteps int
 	// ModelOverride forces a model for this run (e.g. vision / Auto pick).
 	ModelOverride string
 	// PreferredModel is used when AutoModels is off and ModelOverride is empty.
@@ -480,8 +506,19 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 		return history, fmt.Errorf("tools registry is nil")
 	}
 	max := r.MaxSteps
-	if max <= 0 {
+	unlimited := max < 0
+	if max == 0 {
 		max = DefaultMaxSteps
+	}
+	if unlimited {
+		max = unlimitedCeiling
+	}
+	warnAt := r.WarnSteps
+	if warnAt == 0 {
+		warnAt = DefaultWarnSteps
+	}
+	if warnAt < 0 {
+		warnAt = 0
 	}
 	if emit == nil {
 		emit = func(Event) {}
@@ -534,7 +571,12 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 		r.Tools.PlanMode = r.PlanMode
 	}
 
-	prog := newRunProgress(max, r.UserText)
+	total := max
+	if unlimited {
+		// 0 tells the UI "no step cap": show the step number without a total.
+		total = 0
+	}
+	prog := newRunProgress(total, r.UserText)
 	defer prog.stopRun()
 	go prog.heartbeat(ctx, emit)
 	emit(Event{Type: "progress", Content: prog.payload("start")})
@@ -545,6 +587,10 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 		if ctx.Err() != nil {
 			emit(Event{Type: "error", Content: ctx.Err().Error()})
 			return messages, ctx.Err()
+		}
+		// Long run: keep the user posted instead of silently grinding on.
+		if warnAt > 0 && step > 0 && step%warnAt == 0 {
+			emit(Event{Type: "notice", Content: stepWarning(step, max, unlimited, warnAt)})
 		}
 
 		model := r.resolveModel(step, emit)

@@ -230,6 +230,10 @@ export function SaveAgentMaxSteps(arg1) {
   return window['go']['main']['App']['SaveAgentMaxSteps'](arg1);
 }
 
+export function SaveAgentWarnSteps(arg1) {
+  return window['go']['main']['App']['SaveAgentWarnSteps'](arg1);
+}
+
 export function SaveAutoModels(arg1) {
   return window['go']['main']['App']['SaveAutoModels'](arg1);
 }

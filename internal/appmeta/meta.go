@@ -5,7 +5,7 @@ import "time"
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "0.6.21"
+	Version = "0.6.22"
 )
 
 // DeepSeekProRetireRFC3339 is when the provider retires V4 Pro
@@ -30,18 +30,18 @@ func DeepSeekProRetired(now time.Time) bool {
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
 	"Ввод, очередь и todo — свои у каждого проекта: вопрос не уйдёт в чужой чат",
-	"Очередь вопросов приклеена над полем ввода — видно, что и сколько ждёт",
-	"Рассуждения агента свёрнуты под «Thinking…» — раскрыть можно кликом",
-	"Агент показывает этап: шаг, время, что сделано и что осталось",
-	"Живой статус при работе дольше минуты; лимит шагов по умолчанию — 120",
+	"Инструменты агента работают в проекте запуска, даже если открыт другой проект",
+	"Очередь вопросов приклеена над полем ввода; рассуждения — под «Thinking…»",
+	"Агент показывает этап (по запросу или после 2 минут без вывода): шаг, время, что сделано и осталось",
+	"Шаги без предела (галочка в Settings) с предупреждением после N; по умолчанию 120",
 }
 
 var HighlightsEN = []string{
 	"Input, queue and todos are per project: a question never lands in another chat",
-	"Pending questions are pinned above the composer — you always see what waits",
-	"Agent reasoning collapses under “Thinking…”, expandable on click",
-	"Agent reports its stage: step, elapsed time, done and left",
-	"Live status for runs longer than a minute; default step limit is 120",
+	"Agent tools stay in the project the run started in, even after you switch",
+	"Pending questions pinned above the composer; reasoning behind “Thinking…”",
+	"Agent reports its stage on request (or after 2 minutes without output): step, time, done, left",
+	"Unlimited steps (Settings checkbox) with a warning after N; default 120",
 }
 
 // UICopy is localized chrome for the Welcome splash.
