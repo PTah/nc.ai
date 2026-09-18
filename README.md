@@ -200,7 +200,7 @@ UI читает картинку из файла или буфера обмен�
 ## Settings
 
 - **Provider** — DeepSeek / Z.ai / OpenRouter / Local (несколько LAN-серверов): ключ, модель, base URL.
-  Для Local: режим Lite, Auto-models, индикатор скорости рядом с Rules — см. [docs/local-models-ru.md](docs/local-models-ru.md).
+  Для Custom: режим Lite, Auto-models, индикатор скорости рядом с Rules — см. [docs/local-models-ru.md](docs/local-models-ru.md).
 - **Agent** — лимит шагов, Plan mode, подтверждение опасных инструментов.
 - **Interface** — тема (Dark / Light), показ терминала, дерева и панели настроек.
 - **Shell** — путь к shell для интерактивного терминала и кнопка «Авто (обнаружить)».

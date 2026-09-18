@@ -551,7 +551,7 @@ func ExploreTool(name string) bool {
 	}
 }
 
-// LiteTool is the allowlist for Local lite mode.
+// LiteTool is the allowlist for Custom lite mode.
 func LiteTool(name string) bool {
 	switch name {
 	case "read_file", "write_file", "apply_patch",
