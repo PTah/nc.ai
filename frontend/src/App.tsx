@@ -2415,7 +2415,7 @@ export default function App() {
       if (activeSessionId) {
         setSessionItems(activeSessionId, (m) => [
           ...m,
-          {kind: 'system', content: `Local models: ${formatConnectError(e)}`},
+          {kind: 'system', content: `Custom models: ${formatConnectError(e)}`},
         ])
       }
       void refreshLocalHealth()
@@ -2870,7 +2870,7 @@ export default function App() {
             className="nc-top-check"
             title={
               isLocalProvider(activeProvider)
-                ? 'Local: меньшая coder-модель с tools для простых задач; крупнее — для сложных (модели без tools пропускаются)'
+                ? 'Custom: меньшая coder-модель с tools для простых задач; крупнее — для сложных (модели без tools пропускаются)'
                 : activeProvider === 'zai'
                 ? 'Автовыбор: glm-4.7-flash (free) → glm-5.3 на сложных задачах; картинки → glm-5.3-flash'
                 : activeProvider === 'openrouter'
@@ -2938,7 +2938,7 @@ export default function App() {
                     (usage.balanceDetail ? ` · ${usage.balanceDetail}` : '')
                 }
                 if (isLocalProvider(activeProvider)) {
-                  return `Провайдер Local · чат: ${usage.chatInputTokens} in / ${usage.chatOutputTokens} out · total Local: ${usage.inputTokens} in / ${usage.outputTokens} out` +
+                  return `Провайдер Custom · чат: ${usage.chatInputTokens} in / ${usage.chatOutputTokens} out · total Custom: ${usage.inputTokens} in / ${usage.outputTokens} out` +
                     cacheLine +
                     ' · стоимость $0 (свой сервер)'
                 }
@@ -3536,7 +3536,7 @@ export default function App() {
                 <option value="openrouter">OpenRouter</option>
                 {localEndpoints.map((ep) => (
                   <option key={ep.id} value={`local:${ep.id}`}>
-                    Local: {ep.name}
+                    Custom: {ep.name}
                   </option>
                 ))}
               </select>
@@ -3546,7 +3546,7 @@ export default function App() {
               className="nc-top-check"
               title={
                 isLocalProvider(activeProvider)
-                  ? 'Local: быстрая маленькая coder (tools) ↔ крупнее на сложных задачах; без tools (часто deepseek-coder-v2) не берём'
+                  ? 'Custom: быстрая маленькая coder (tools) ↔ крупнее на сложных задачах; без tools (часто deepseek-coder-v2) не берём'
                   : activeProvider === 'zai'
                   ? 'Z.ai: free flash → glm-5.3 на сложных задачах'
                   : activeProvider === 'openrouter'
@@ -3714,7 +3714,7 @@ export default function App() {
               </>
             ) : isLocalProvider(activeProvider) ? (
               <>
-                <div className="nc-section-label">Local servers</div>
+                <div className="nc-section-label">Custom servers</div>
                 <p className="nc-help">
                   Свои серверы (Custom): Ollama / LM Studio / vLLM. Список — в <code>settings.json</code>
                   (<code>localEndpoints</code>). По умолчанию полный агент (как облако). Галочка
