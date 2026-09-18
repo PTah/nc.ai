@@ -14,14 +14,41 @@ import (
 // the user's credential helper / ssh-agent / ~/.ssh — same model as Cursor.
 type Service struct {
 	WS *workspace.Manager
+	// Root, when set, pins git commands to one project for the whole agent run.
+	Root string
 }
 
 func New(ws *workspace.Manager) *Service {
 	return &Service{WS: ws}
 }
 
+// WithRoot returns a copy pinned to root (safe: Service holds no lock).
+func (s *Service) WithRoot(root string) *Service {
+	if s == nil {
+		return nil
+	}
+	cp := *s
+	cp.Root = root
+	if strings.TrimSpace(root) != "" {
+		cp.WS = s.WS.Scoped(root)
+	}
+	return &cp
+}
+
+// root returns the project this service is pinned to (the run's project), or
+// the project the user has open right now.
+func (s *Service) root() (string, error) {
+	if s == nil {
+		return "", fmt.Errorf("no git service")
+	}
+	if r := strings.TrimSpace(s.Root); r != "" {
+		return r, nil
+	}
+	return s.WS.ActiveRoot()
+}
+
 func (s *Service) run(args ...string) (string, error) {
-	root, err := s.WS.ActiveRoot()
+	root, err := s.root()
 	if err != nil {
 		return "", err
 	}

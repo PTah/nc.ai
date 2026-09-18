@@ -11,7 +11,7 @@ import (
 )
 
 func (r *Registry) readLints(paths []string) (string, error) {
-	root, err := r.WS.ActiveRoot()
+	root, err := r.ws().ActiveRoot()
 	if err != nil {
 		return "", err
 	}
@@ -25,7 +25,7 @@ func (r *Registry) readLints(paths []string) (string, error) {
 		if rel == "" {
 			continue
 		}
-		full, err := r.WS.Resolve(rel)
+		full, err := r.ws().Resolve(rel)
 		if err != nil {
 			parts = append(parts, fmt.Sprintf("%s: %v", rel, err))
 			continue
