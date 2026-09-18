@@ -318,6 +318,22 @@ function localPresetId(url: string): string {
   return 'custom'
 }
 
+// stripUrlContext removes the "context" query parameter from every http(s) link
+// in a chunk of text. Share links pasted into the chat often carry it; it is not
+// needed to open the page, so the input stays short before it reaches the agent.
+function stripUrlContext(text: string): string {
+  return text.replace(/https?:\/\/[^\s<>"'`]+/gi, (raw) => {
+    try {
+      const u = new URL(raw)
+      if (!u.searchParams.has('context')) return raw
+      u.searchParams.delete('context')
+      return u.toString()
+    } catch {
+      return raw
+    }
+  })
+}
+
 function modelOptions(list: readonly string[], current: string): string[] {
   if (!current || list.includes(current)) return [...list]
   return [current, ...list]
@@ -2746,7 +2762,7 @@ export default function App() {
     e?.preventDefault()
     const sid = activeSessionId
     if (!sid) return
-    const text = input.trim()
+    const text = stripUrlContext(input.trim())
     const atts = pendingAtts
     if (!text && atts.length === 0) return
     setInput('', sid)
@@ -3337,47 +3353,47 @@ export default function App() {
               </div>
             </div>
             <div className="nc-chat-hsplit" onMouseDown={(e) => beginResize('composer', e)} />
-            <div className="nc-composer-wrap">
-              {queue.length > 0 && (
-                <div className="nc-queue-pending" aria-label="Отложенные запросы">
-                  <div className="nc-queue-head">
-                    <span className="nc-queue-title">
-                      В очереди: {queue.length}
-                      {active ? ` · ${active.name}` : ''}
-                    </span>
-                    <span className="nc-queue-hint">
-                      {busy ? 'уйдут после текущего ответа' : 'отправляю…'}
-                    </span>
-                  </div>
-                  <div className="nc-queue-list">
-                    {queue.map((q) => (
-                      <div key={q.id} className="nc-queue-card">
-                        <div className="nc-queue-card-text">
-                          {q.text || (q.atts.length ? `(вложения: ${q.atts.length})` : '(пусто)')}
-                        </div>
-                        <div className="nc-queue-card-actions">
-                          <button
-                            type="button"
-                            className="nc-ghost"
-                            title="Остановить текущий ответ и отправить сейчас"
-                            onClick={() => void sendQueuedNow(q.id)}
-                          >
-                            Send now
-                          </button>
-                          <button
-                            type="button"
-                            className="nc-ghost"
-                            title="Убрать из очереди"
-                            onClick={() => dismissQueued(q.id)}
-                          >
-                            ×
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+            {queue.length > 0 && (
+              <div className="nc-queue-pending" aria-label="Отложенные запросы">
+                <div className="nc-queue-head">
+                  <span className="nc-queue-title">
+                    В очереди: {queue.length}
+                    {active ? ` · ${active.name}` : ''}
+                  </span>
+                  <span className="nc-queue-hint">
+                    {busy ? 'уйдут после текущего ответа' : 'отправляю…'}
+                  </span>
                 </div>
-              )}
+                <div className="nc-queue-list">
+                  {queue.map((q) => (
+                    <div key={q.id} className="nc-queue-card">
+                      <div className="nc-queue-card-text">
+                        {q.text || (q.atts.length ? `(вложения: ${q.atts.length})` : '(пусто)')}
+                      </div>
+                      <div className="nc-queue-card-actions">
+                        <button
+                          type="button"
+                          className="nc-ghost"
+                          title="Остановить текущий ответ и отправить сейчас"
+                          onClick={() => void sendQueuedNow(q.id)}
+                        >
+                          Send now
+                        </button>
+                        <button
+                          type="button"
+                          className="nc-ghost"
+                          title="Убрать из очереди"
+                          onClick={() => dismissQueued(q.id)}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div className="nc-composer-wrap">
               {showRunStatus && (
                 <div className="nc-run-status" title="Текущий этап работы агента">
                   <span className="nc-run-dot" aria-hidden />
@@ -3422,7 +3438,7 @@ export default function App() {
                 )}
                 <textarea
                   value={input}
-                  onChange={(e) => setInput(e.target.value)}
+                  onChange={(e) => setInput(stripUrlContext(e.target.value))}
                   placeholder="Спросите агента… Ctrl+V / drag-drop — скриншот или файл"
                   rows={3}
                   onPaste={(e) => {
