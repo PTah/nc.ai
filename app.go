@@ -45,6 +45,10 @@ type App struct {
 	rulesMu sync.RWMutex
 	cancels map[string]context.CancelFunc
 	runGens map[string]uint64
+	// priceNoticeSeen remembers the last failure notice per provider: a flaky
+	// price endpoint should not repeat the same line in the chat.
+	priceNoticeMu   sync.Mutex
+	priceNoticeSeen map[string]priceNoticeMemo
 	// deepSeekRetireNoticed guards the one-time chat notice about V4 Pro retirement.
 	deepSeekRetireNoticed bool
 	// sessionStickyModel keeps the last non-vision Auto model per chat session
@@ -191,11 +195,27 @@ func (a *App) priceRefreshLoop() {
 	}
 }
 
-// priceNotice builds a chat system notice for a price check result.
-func priceNotice(provider string, updated bool, errMsg string) string {
+// priceNoticeRepeat suppresses identical failure notices: one flaky endpoint
+// must not paint the same line in the chat every 15 minutes.
+const priceNoticeRepeat = 6 * time.Hour
+
+// priceNoticeMemo is the last failure notice emitted for a provider.
+type priceNoticeMemo struct {
+	text string
+	at   time.Time
+}
+
+// priceNotice builds a chat system notice for a price check result. The raw Go
+// error goes through costing.DescribeFetchError, and when the price sheet is
+// still there from an earlier day the notice says which day is in use.
+func priceNotice(provider string, updated bool, errMsg string, pricesFrom time.Time) string {
 	switch {
 	case errMsg != "":
-		return fmt.Sprintf("Система: проверка цен %s выполнена — ошибка: %s", provider, errMsg)
+		msg := fmt.Sprintf("Система: проверка цен %s не прошла — %s", provider, costing.DescribeFetchError(errMsg))
+		if !pricesFrom.IsZero() {
+			msg += fmt.Sprintf(". Расчёт идёт по прайсу от %s", pricesFrom.Local().Format("02.01.2006 15:04"))
+		}
+		return msg
 	case updated:
 		return fmt.Sprintf("Система: проверка цен %s выполнена — обновлено", provider)
 	default:
@@ -203,15 +223,45 @@ func priceNotice(provider string, updated bool, errMsg string) string {
 	}
 }
 
+// reportPriceCheck emits one notice per provider check.
+func (a *App) reportPriceCheck(provider string, updated bool, errMsg string, pricesFrom time.Time) {
+	text := priceNotice(provider, updated, errMsg, pricesFrom)
+	if errMsg == "" {
+		a.forgetPriceNotice(provider)
+	} else if !a.priceNoticeMayRepeat(provider, text) {
+		return
+	}
+	a.emit(agent.Event{Type: "notice", Content: text})
+}
+
+func (a *App) priceNoticeMayRepeat(provider, text string) bool {
+	a.priceNoticeMu.Lock()
+	defer a.priceNoticeMu.Unlock()
+	if a.priceNoticeSeen == nil {
+		a.priceNoticeSeen = map[string]priceNoticeMemo{}
+	}
+	if prev, ok := a.priceNoticeSeen[provider]; ok && prev.text == text && time.Since(prev.at) < priceNoticeRepeat {
+		return false
+	}
+	a.priceNoticeSeen[provider] = priceNoticeMemo{text: text, at: time.Now()}
+	return true
+}
+
+func (a *App) forgetPriceNotice(provider string) {
+	a.priceNoticeMu.Lock()
+	defer a.priceNoticeMu.Unlock()
+	delete(a.priceNoticeSeen, provider)
+}
+
 func (a *App) emitPriceNotices(r costing.RefreshResult) {
 	if r.DeepSeekChecked {
-		a.emit(agent.Event{Type: "notice", Content: priceNotice("DeepSeek", r.DeepSeekUpdated, r.DeepSeekErr)})
+		a.reportPriceCheck("DeepSeek", r.DeepSeekUpdated, r.DeepSeekErr, a.cfg.DeepSeekPricesCheckedAt())
 	}
 	if r.ZaiChecked {
-		a.emit(agent.Event{Type: "notice", Content: priceNotice("z.ai", r.ZaiUpdated, r.ZaiErr)})
+		a.reportPriceCheck("z.ai", r.ZaiUpdated, r.ZaiErr, a.cfg.ZaiPricesCheckedAt())
 	}
 	if r.OpenRouterChecked {
-		a.emit(agent.Event{Type: "notice", Content: priceNotice("OpenRouter", r.OpenRouterUpdated, r.OpenRouterErr)})
+		a.reportPriceCheck("OpenRouter", r.OpenRouterUpdated, r.OpenRouterErr, a.cfg.OpenRouterPricesCheckedAt())
 	}
 }
 

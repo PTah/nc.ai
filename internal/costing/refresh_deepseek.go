@@ -3,8 +3,6 @@ package costing
 import (
 	"context"
 	"fmt"
-	"io"
-	"net/http"
 	"regexp"
 	"strconv"
 	"strings"
@@ -107,31 +105,4 @@ func hm(h, m string) int {
 func parseFloat(s string) float64 {
 	f, _ := strconv.ParseFloat(strings.TrimSpace(s), 64)
 	return f
-}
-
-func httpGet(ctx context.Context, url string) ([]byte, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	ctx, cancel := context.WithTimeout(ctx, 25*time.Second)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("User-Agent", "NotCursor.ai price-check/1.0")
-	req.Header.Set("Accept", "text/html,text/markdown,*/*")
-	res, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer res.Body.Close()
-	data, err := io.ReadAll(io.LimitReader(res.Body, 2<<20))
-	if err != nil {
-		return nil, err
-	}
-	if res.StatusCode >= 300 {
-		return nil, fmt.Errorf("HTTP %d fetching %s", res.StatusCode, url)
-	}
-	return data, nil
 }
