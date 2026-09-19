@@ -10,7 +10,7 @@ func TestMigrateLegacyLocalToEndpoints(t *testing.T) {
 	dir := t.TempDir()
 	raw := `{
   "activeProvider": "local",
-  "localBaseUrl": "http://10.0.0.1:11434/v1",
+  "localBaseUrl": "http://192.168.128.5:11434/v1",
   "localModel": "qwen2.5-coder:7b"
 }`
 	if err := os.WriteFile(filepath.Join(dir, "settings.json"), []byte(raw), 0o600); err != nil {
@@ -24,10 +24,10 @@ func TestMigrateLegacyLocalToEndpoints(t *testing.T) {
 		t.Fatalf("provider=%q", got)
 	}
 	eps := s.LocalEndpoints()
-	if len(eps) != 1 || eps[0].BaseURL != "http://10.0.0.1:11434/v1" || eps[0].Model != "qwen2.5-coder:7b" {
+	if len(eps) != 1 || eps[0].BaseURL != "http://192.168.128.5:11434/v1" || eps[0].Model != "qwen2.5-coder:7b" {
 		t.Fatalf("endpoints=%+v", eps)
 	}
-	if s.LocalBaseURL() != "http://10.0.0.1:11434/v1" {
+	if s.LocalBaseURL() != "http://192.168.128.5:11434/v1" {
 		t.Fatalf("base=%q", s.LocalBaseURL())
 	}
 }
@@ -38,7 +38,7 @@ func TestUpsertAndSwitchLocalEndpoints(t *testing.T) {
 		t.Fatal(err)
 	}
 	ep, err := s.UpsertLocalEndpoint(LocalEndpoint{
-		Name: "Ollama LAN", BaseURL: "http://10.0.0.1:11434/v1", Model: "llama3",
+		Name: "Ollama LAN", BaseURL: "http://192.168.1.10:11434/v1", Model: "llama3",
 	})
 	if err != nil {
 		t.Fatal(err)
