@@ -5,7 +5,7 @@ import "time"
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "0.6.23"
+	Version = "0.6.24"
 )
 
 // DeepSeekProRetireRFC3339 is when the provider retires V4 Pro
@@ -29,19 +29,19 @@ func DeepSeekProRetired(now time.Time) bool {
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
+	"В списке Projects слева от имени — иконка из папки проекта (или стандартная)",
 	"Новый провайдер Qwen (Alibaba Cloud DashScope): qwen-max / qwen-plus / qwen-turbo, coder и vision",
 	"Ввод, очередь и todo — свои у каждого проекта: вопрос не уйдёт в чужой чат",
 	"Инструменты агента работают в проекте запуска, даже если открыт другой проект",
 	"Очередь вопросов приклеена над полем ввода; рассуждения — под «Thinking…»",
-	"Агент показывает этап (по запросу или после 2 минут без вывода): шаг, время, что сделано и осталось",
 }
 
 var HighlightsEN = []string{
+	"Project list shows a folder icon (or a default glyph) beside each project name",
 	"New provider Qwen (Alibaba Cloud DashScope): qwen-max / qwen-plus / qwen-turbo, coder and vision",
 	"Input, queue and todos are per project: a question never lands in another chat",
 	"Agent tools stay in the project the run started in, even after you switch",
 	"Pending questions pinned above the composer; reasoning behind “Thinking…”",
-	"Agent reports its stage on request (or after 2 minutes without output): step, time, done, left",
 }
 
 // UICopy is localized chrome for the Welcome splash.
