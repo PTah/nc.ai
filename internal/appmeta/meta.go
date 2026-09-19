@@ -29,19 +29,19 @@ func DeepSeekProRetired(now time.Time) bool {
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
+	"Новый провайдер Qwen (Alibaba Cloud DashScope): qwen-max / qwen-plus / qwen-turbo, coder и vision",
 	"Ввод, очередь и todo — свои у каждого проекта: вопрос не уйдёт в чужой чат",
 	"Инструменты агента работают в проекте запуска, даже если открыт другой проект",
 	"Очередь вопросов приклеена над полем ввода; рассуждения — под «Thinking…»",
 	"Агент показывает этап (по запросу или после 2 минут без вывода): шаг, время, что сделано и осталось",
-	"Шаги без предела (галочка в Settings) с предупреждением после N; по умолчанию 120",
 }
 
 var HighlightsEN = []string{
+	"New provider Qwen (Alibaba Cloud DashScope): qwen-max / qwen-plus / qwen-turbo, coder and vision",
 	"Input, queue and todos are per project: a question never lands in another chat",
 	"Agent tools stay in the project the run started in, even after you switch",
 	"Pending questions pinned above the composer; reasoning behind “Thinking…”",
 	"Agent reports its stage on request (or after 2 minutes without output): step, time, done, left",
-	"Unlimited steps (Settings checkbox) with a warning after N; default 120",
 }
 
 // UICopy is localized chrome for the Welcome splash.

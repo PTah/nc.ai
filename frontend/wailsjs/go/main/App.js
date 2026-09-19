@@ -42,6 +42,10 @@ export function ClearOpenRouterKey() {
   return window['go']['main']['App']['ClearOpenRouterKey']();
 }
 
+export function ClearQwenKey() {
+  return window['go']['main']['App']['ClearQwenKey']();
+}
+
 export function ClearZaiKey() {
   return window['go']['main']['App']['ClearZaiKey']();
 }
@@ -126,6 +130,10 @@ export function ListProjects() {
   return window['go']['main']['App']['ListProjects']();
 }
 
+export function ListQwenModels() {
+  return window['go']['main']['App']['ListQwenModels']();
+}
+
 export function ListZaiModels() {
   return window['go']['main']['App']['ListZaiModels']();
 }
@@ -156,6 +164,10 @@ export function PreferLocalModel(arg1) {
 
 export function PreferOpenRouterModel(arg1) {
   return window['go']['main']['App']['PreferOpenRouterModel'](arg1);
+}
+
+export function PreferQwenModel(arg1) {
+  return window['go']['main']['App']['PreferQwenModel'](arg1);
 }
 
 export function PreferZaiModel(arg1) {
@@ -292,6 +304,18 @@ export function SaveOpenRouterModel(arg1) {
 
 export function SavePlanMode(arg1) {
   return window['go']['main']['App']['SavePlanMode'](arg1);
+}
+
+export function SaveQwenEndpoint(arg1) {
+  return window['go']['main']['App']['SaveQwenEndpoint'](arg1);
+}
+
+export function SaveQwenKey(arg1) {
+  return window['go']['main']['App']['SaveQwenKey'](arg1);
+}
+
+export function SaveQwenModel(arg1) {
+  return window['go']['main']['App']['SaveQwenModel'](arg1);
 }
 
 export function SaveShell(arg1) {

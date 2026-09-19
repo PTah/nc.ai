@@ -6,6 +6,7 @@ import (
 
 	"notcursor.ai/app/internal/llm/providers/deepseek"
 	"notcursor.ai/app/internal/llm/providers/openrouter"
+	"notcursor.ai/app/internal/llm/providers/qwen"
 	"notcursor.ai/app/internal/llm/providers/zai"
 )
 
@@ -28,6 +29,14 @@ const (
 	ModelORFlash  = openrouter.DefaultModel // qwen3-coder-flash:floor
 	ModelORStrong = openrouter.StrongModel  // qwen3-coder:floor
 	ModelORVision = openrouter.VisionModel  // qwen3-vl-8b-instruct
+)
+
+// Auto model ids (Qwen / DashScope).
+const (
+	ModelQwenPlus   = qwen.DefaultModel // qwen-plus (balanced)
+	ModelQwenFast   = qwen.FastModel    // qwen-turbo (cheapest)
+	ModelQwenStrong = qwen.StrongModel  // qwen-max (flagship)
+	ModelQwenVision = qwen.VisionModel  // qwen-vl-max (multimodal)
 )
 
 // RouteInput feeds the Auto-models picker.
@@ -110,6 +119,25 @@ func PickOpenRouterModel(in RouteInput) RouteDecision {
 		return RouteDecision{Model: ModelORStrong, Reason: "complex"}
 	}
 	return RouteDecision{Model: ModelORFlash, Reason: "default"}
+}
+
+// PickQwenModel chooses turbo / plus / qwen-max for Qwen (DashScope) Auto-models.
+//
+// Priority:
+//  1. Any image → qwen-vl-max
+//  2. Long tool run / complex prompt / many paths → qwen-max
+//  3. Otherwise → qwen-plus (balanced default)
+func PickQwenModel(in RouteInput) RouteDecision {
+	if in.HasImages {
+		return RouteDecision{Model: ModelQwenVision, Reason: "image"}
+	}
+	if in.Step >= 8 {
+		return RouteDecision{Model: ModelQwenStrong, Reason: "long-run"}
+	}
+	if in.HintPathCount >= 4 || isComplexTask(in.UserText) {
+		return RouteDecision{Model: ModelQwenStrong, Reason: "complex"}
+	}
+	return RouteDecision{Model: ModelQwenPlus, Reason: "default"}
 }
 
 func isComplexTask(text string) bool {
