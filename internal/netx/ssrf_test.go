@@ -6,7 +6,7 @@ func TestCheckURLBlocksPrivate(t *testing.T) {
 	blocked := []string{
 		"http://127.0.0.1/secret",
 		"http://localhost/x",
-		"http://192.168.1.1/",
+		"http://10.0.0.1/",
 		"http://10.0.0.5/",
 		"http://169.254.169.254/latest/meta-data",
 		"file:///etc/passwd",

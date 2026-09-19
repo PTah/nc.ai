@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Push public mirror to github WITHOUT internal docs/TODO-*.md
-# Private remotes (home, kalinamall) keep ToDo files.
+# Private remotes (home, example) keep ToDo files.
 set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"

@@ -121,7 +121,7 @@ curl http://127.0.0.1:11434/api/generate -d "{\"model\":\"qwen2.5-coder:7b\",\"p
     {
       "id": "home-gpu",
       "name": "Ollama @ home",
-      "baseUrl": "http://192.168.128.5:11434/v1",
+      "baseUrl": "http://10.0.0.1:11434/v1",
       "model": "qwen2.5-coder:14b"
     }
   ]

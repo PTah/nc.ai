@@ -20,8 +20,32 @@ const (
 	ProviderDeepSeek   = "deepseek"
 	ProviderZAI        = "zai"
 	ProviderOpenRouter = "openrouter"
+	ProviderQwen       = "qwen"
 	ProviderLocal      = "local"
 )
+
+// Qwen (DashScope) endpoints persisted in Settings.QwenEndpoint.
+const (
+	QwenEndpointIntl = "intl"
+	QwenEndpointCn   = "cn"
+)
+
+// DashScope OpenAI-compatible roots (kept in sync with internal/llm/providers/qwen).
+const (
+	QwenIntlBaseURL = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+	QwenCnBaseURL   = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+)
+
+// DefaultQwenBaseURL is the international DashScope compatible-mode root.
+const DefaultQwenBaseURL = QwenIntlBaseURL
+
+// qwenBaseURLFor maps a stored region id to the compatible-mode root.
+func qwenBaseURLFor(endpoint string) string {
+	if normalizeQwenEndpoint(endpoint) == QwenEndpointCn {
+		return QwenCnBaseURL
+	}
+	return QwenIntlBaseURL
+}
 
 // DefaultLocalBaseURL is the Ollama OpenAI-compatible root on localhost.
 const DefaultLocalBaseURL = "http://127.0.0.1:11434/v1"
@@ -49,6 +73,11 @@ type Settings struct {
 
 	OpenRouterAPIKey string `json:"openrouterApiKey,omitempty"`
 	OpenRouterModel  string `json:"openrouterModel,omitempty"`
+
+	QwenAPIKey string `json:"qwenApiKey,omitempty"`
+	QwenModel  string `json:"qwenModel,omitempty"`
+	// QwenEndpoint: "intl" (international, default) or "cn" (mainland China).
+	QwenEndpoint string `json:"qwenEndpoint,omitempty"`
 
 	// LocalBaseURL / LocalModel are legacy flat fields kept in sync with the
 	// active (or first) entry in LocalEndpoints for older settings.json readers.
@@ -140,6 +169,12 @@ type Settings struct {
 	OpenRouterCacheHitTokens  int     `json:"openrouterCacheHitTokens,omitempty"`
 	OpenRouterCacheMissTokens int     `json:"openrouterCacheMissTokens,omitempty"`
 
+	QwenCostUSD         float64 `json:"qwenCostUsd,omitempty"`
+	QwenInputTokens     int     `json:"qwenInputTokens,omitempty"`
+	QwenOutputTokens    int     `json:"qwenOutputTokens,omitempty"`
+	QwenCacheHitTokens  int     `json:"qwenCacheHitTokens,omitempty"`
+	QwenCacheMissTokens int     `json:"qwenCacheMissTokens,omitempty"`
+
 	LocalCostUSD         float64 `json:"localCostUsd,omitempty"`
 	LocalInputTokens     int     `json:"localInputTokens,omitempty"`
 	LocalOutputTokens    int     `json:"localOutputTokens,omitempty"`
@@ -169,6 +204,7 @@ func (s Settings) MarshalJSON() ([]byte, error) {
 	p.DeepSeekAPIKey = ""
 	p.ZaiAPIKey = ""
 	p.OpenRouterAPIKey = ""
+	p.QwenAPIKey = ""
 	p.LocalAPIKey = ""
 	p.GitPassword = ""
 	return json.Marshal(p)
@@ -192,6 +228,8 @@ func NewStore() *Store {
 			ZaiModel:        "glm-4.7-flash",
 			ZaiEndpoint:     "paas",
 			OpenRouterModel: "qwen/qwen3-coder-flash:floor",
+			QwenModel:       "qwen-plus",
+			QwenEndpoint:    QwenEndpointIntl,
 			LocalBaseURL:    DefaultLocalBaseURL,
 			Shell:           "",
 			AgentMaxSteps:   DefaultAgentMaxSteps,
@@ -289,6 +327,10 @@ func (s *Store) Load() error {
 	if s.settings.OpenRouterModel == "" {
 		s.settings.OpenRouterModel = "qwen/qwen3-coder-flash:floor"
 	}
+	if s.settings.QwenModel == "" {
+		s.settings.QwenModel = "qwen-plus"
+	}
+	s.settings.QwenEndpoint = normalizeQwenEndpoint(s.settings.QwenEndpoint)
 	endpointsChanged := s.ensureLocalEndpointsLocked()
 	// Legacy default was the bare name "powershell"; empty now means auto-detect (pwsh → PS5).
 	if strings.EqualFold(strings.TrimSpace(s.settings.Shell), "powershell") {
@@ -372,6 +414,45 @@ func (s *Store) SetOpenRouterModel(model string) error {
 	s.settings.OpenRouterModel = model
 	s.mu.Unlock()
 	return s.Save()
+}
+
+func (s *Store) SetQwenAPIKey(key string) error {
+	return s.setAPIKey(ProviderQwen, key)
+}
+
+func (s *Store) SetQwenModel(model string) error {
+	s.mu.Lock()
+	s.settings.QwenModel = model
+	s.mu.Unlock()
+	return s.Save()
+}
+
+func (s *Store) SetQwenEndpoint(endpoint string) error {
+	s.mu.Lock()
+	s.settings.QwenEndpoint = normalizeQwenEndpoint(endpoint)
+	s.mu.Unlock()
+	return s.Save()
+}
+
+// QwenEndpoint returns the normalized stored DashScope region.
+func (s *Store) QwenEndpoint() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return normalizeQwenEndpoint(s.settings.QwenEndpoint)
+}
+
+// QwenBaseURL returns the compatible-mode root for the stored region.
+func (s *Store) QwenBaseURL() string {
+	return qwenBaseURLFor(s.QwenEndpoint())
+}
+
+func normalizeQwenEndpoint(endpoint string) string {
+	switch strings.TrimSpace(strings.ToLower(endpoint)) {
+	case QwenEndpointCn:
+		return QwenEndpointCn
+	default:
+		return QwenEndpointIntl
+	}
 }
 
 func (s *Store) SetLocalAPIKey(key string) error {
@@ -519,7 +600,7 @@ func (s *Store) ClearAPIKey(provider string) error {
 
 func (s *Store) ClearAllAPIKeys() error {
 	var first error
-	for _, id := range []string{ProviderDeepSeek, ProviderZAI, ProviderOpenRouter} {
+	for _, id := range []string{ProviderDeepSeek, ProviderZAI, ProviderOpenRouter, ProviderQwen} {
 		if err := s.setAPIKey(id, ""); err != nil && first == nil {
 			first = err
 		}
@@ -543,6 +624,8 @@ func secretID(provider string) string {
 		return secrets.IDZai
 	case p == ProviderOpenRouter:
 		return secrets.IDOpenRouter
+	case p == ProviderQwen:
+		return secrets.IDQwen
 	case IsLocalProvider(p):
 		return LocalSecretID(LocalEndpointID(p))
 	default:
@@ -589,12 +672,13 @@ func (s *Store) migrateLegacyKeysLocked() bool {
 	move(secrets.IDDeepSeek, s.settings.DeepSeekAPIKey, func() { s.settings.DeepSeekAPIKey = "" })
 	move(secrets.IDZai, s.settings.ZaiAPIKey, func() { s.settings.ZaiAPIKey = "" })
 	move(secrets.IDOpenRouter, s.settings.OpenRouterAPIKey, func() { s.settings.OpenRouterAPIKey = "" })
+	move(secrets.IDQwen, s.settings.QwenAPIKey, func() { s.settings.QwenAPIKey = "" })
 	move(secrets.IDLocal, s.settings.LocalAPIKey, func() { s.settings.LocalAPIKey = "" })
 	if strings.TrimSpace(s.settings.GitPassword) != "" {
 		s.settings.GitPassword = ""
 		changed = true
 	}
-	for _, id := range []string{secrets.IDDeepSeek, secrets.IDZai, secrets.IDOpenRouter, secrets.IDLocal} {
+	for _, id := range []string{secrets.IDDeepSeek, secrets.IDZai, secrets.IDOpenRouter, secrets.IDQwen, secrets.IDLocal} {
 		if s.keys[id] != "" {
 			continue
 		}
@@ -626,6 +710,7 @@ func (s *Store) setAPIKey(provider, key string) error {
 	s.settings.DeepSeekAPIKey = ""
 	s.settings.ZaiAPIKey = ""
 	s.settings.OpenRouterAPIKey = ""
+	s.settings.QwenAPIKey = ""
 	s.settings.LocalAPIKey = ""
 	s.mu.Unlock()
 	if err != nil {
@@ -644,6 +729,11 @@ func (s *Store) ActiveModel() string {
 		return s.settings.ZaiModel
 	case p == ProviderOpenRouter:
 		return s.settings.OpenRouterModel
+	case p == ProviderQwen:
+		if s.settings.QwenModel == "" {
+			return "qwen-plus"
+		}
+		return s.settings.QwenModel
 	case IsLocalProvider(p):
 		if ep := s.activeLocalEndpointLocked(); ep != nil {
 			return strings.TrimSpace(ep.Model)
@@ -663,6 +753,8 @@ func (s *Store) SetActiveModel(model string) error {
 		s.settings.ZaiModel = model
 	case p == ProviderOpenRouter:
 		s.settings.OpenRouterModel = model
+	case p == ProviderQwen:
+		s.settings.QwenModel = model
 	case IsLocalProvider(p):
 		model = strings.TrimSpace(model)
 		if ep := s.activeLocalEndpointLocked(); ep != nil {
@@ -683,6 +775,8 @@ func normalizeProvider(p string) string {
 		return ProviderZAI
 	case p == ProviderOpenRouter:
 		return ProviderOpenRouter
+	case p == ProviderQwen:
+		return ProviderQwen
 	case IsLocalProvider(p):
 		return MakeLocalProvider(LocalEndpointID(p))
 	default:
@@ -1137,6 +1231,12 @@ func (s *Store) AddUsage(provider string, costUSD float64, inputTokens, outputTo
 		s.settings.OpenRouterOutputTokens += outputTokens
 		s.settings.OpenRouterCacheHitTokens += cacheHit
 		s.settings.OpenRouterCacheMissTokens += cacheMiss
+	case normalizeProvider(provider) == ProviderQwen:
+		s.settings.QwenCostUSD += costUSD
+		s.settings.QwenInputTokens += inputTokens
+		s.settings.QwenOutputTokens += outputTokens
+		s.settings.QwenCacheHitTokens += cacheHit
+		s.settings.QwenCacheMissTokens += cacheMiss
 	case IsLocalProvider(provider):
 		s.settings.LocalCostUSD += costUSD
 		s.settings.LocalInputTokens += inputTokens
@@ -1165,6 +1265,9 @@ func (s *Store) ProviderUsage(provider string) (cost float64, in, out, cacheHit,
 	case normalizeProvider(provider) == ProviderOpenRouter:
 		return s.settings.OpenRouterCostUSD, s.settings.OpenRouterInputTokens, s.settings.OpenRouterOutputTokens,
 			s.settings.OpenRouterCacheHitTokens, s.settings.OpenRouterCacheMissTokens
+	case normalizeProvider(provider) == ProviderQwen:
+		return s.settings.QwenCostUSD, s.settings.QwenInputTokens, s.settings.QwenOutputTokens,
+			s.settings.QwenCacheHitTokens, s.settings.QwenCacheMissTokens
 	case IsLocalProvider(provider):
 		return s.settings.LocalCostUSD, s.settings.LocalInputTokens, s.settings.LocalOutputTokens,
 			s.settings.LocalCacheHitTokens, s.settings.LocalCacheMissTokens

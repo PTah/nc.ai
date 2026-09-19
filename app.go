@@ -22,6 +22,7 @@ import (
 	"notcursor.ai/app/internal/llm/providers/deepseek"
 	"notcursor.ai/app/internal/llm/providers/local"
 	"notcursor.ai/app/internal/llm/providers/openrouter"
+	"notcursor.ai/app/internal/llm/providers/qwen"
 	"notcursor.ai/app/internal/llm/providers/zai"
 	"notcursor.ai/app/internal/redact"
 	"notcursor.ai/app/internal/rules"
@@ -320,6 +321,11 @@ func (a *App) refreshProvider() {
 			model = openrouter.DefaultModel
 		}
 		a.llm = openrouter.New(key, model)
+	case provider == config.ProviderQwen:
+		if model == "" {
+			model = qwen.DefaultModel
+		}
+		a.llm = qwen.NewWithBaseURL(key, model, a.cfg.QwenBaseURL())
 	case config.IsLocalProvider(provider):
 		a.llm = local.New(a.cfg.LocalBaseURL(), key, model)
 	default:
@@ -450,6 +456,9 @@ func (a *App) GetSettings() map[string]any {
 		"zaiEndpoint":        a.cfg.ZaiEndpoint(),
 		"openrouterModel":    orDefault(s.OpenRouterModel, openrouter.DefaultModel),
 		"openrouterKeySet":   a.cfg.HasAPIKey(config.ProviderOpenRouter),
+		"qwenModel":          orDefault(s.QwenModel, qwen.DefaultModel),
+		"qwenKeySet":         a.cfg.HasAPIKey(config.ProviderQwen),
+		"qwenEndpoint":       a.cfg.QwenEndpoint(),
 		"localBaseUrl":       a.cfg.LocalBaseURL(),
 		"localModel":         a.cfg.LocalModel(),
 		"localKeySet":        a.cfg.HasAPIKey(localKeyProvider),
@@ -813,6 +822,39 @@ func (a *App) SaveOpenRouterModel(model string) error {
 	return nil
 }
 
+func (a *App) SaveQwenKey(apiKey string) error {
+	if err := a.cfg.SetQwenAPIKey(apiKey); err != nil {
+		return err
+	}
+	a.refreshProvider()
+	return nil
+}
+
+func (a *App) ClearQwenKey() error {
+	if err := a.cfg.ClearAPIKey(config.ProviderQwen); err != nil {
+		return err
+	}
+	a.refreshProvider()
+	return nil
+}
+
+func (a *App) SaveQwenModel(model string) error {
+	if err := a.cfg.SetQwenModel(model); err != nil {
+		return err
+	}
+	a.clearSessionStickyModels()
+	a.refreshProvider()
+	return nil
+}
+
+func (a *App) SaveQwenEndpoint(endpoint string) error {
+	if err := a.cfg.SetQwenEndpoint(endpoint); err != nil {
+		return err
+	}
+	a.refreshProvider()
+	return nil
+}
+
 func (a *App) SaveLocalKey(apiKey string) error {
 	if err := a.cfg.SetLocalAPIKey(apiKey); err != nil {
 		return err
@@ -1139,6 +1181,31 @@ func (a *App) ListOpenRouterModels() []string {
 // PreferOpenRouterModel keeps the saved model when still available; else default flash.
 func (a *App) PreferOpenRouterModel(available []string) string {
 	return openrouter.PreferModel(available, a.cfg.Get().OpenRouterModel)
+}
+
+// ListQwenModels fetches DashScope /models (curated fallback on error).
+func (a *App) ListQwenModels() []string {
+	key := a.cfg.APIKey(config.ProviderQwen)
+	if key == "" {
+		return qwen.OrderModels(qwen.FallbackModels())
+	}
+	client := qwen.NewWithBaseURL(key, a.cfg.Get().QwenModel, a.cfg.QwenBaseURL())
+	ctx := a.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(ctx, 25*time.Second)
+	defer cancel()
+	items, err := client.ListModels(ctx)
+	if err != nil || len(items) == 0 {
+		return qwen.OrderModels(qwen.FallbackModels())
+	}
+	return qwen.OrderModels(qwen.MergeCurated(qwen.FilterModels(items, 60)))
+}
+
+// PreferQwenModel keeps the saved model when still available; else qwen-plus.
+func (a *App) PreferQwenModel(available []string) string {
+	return qwen.PreferModel(available, a.cfg.Get().QwenModel)
 }
 
 // GetOpenRouterBalance best-effort remaining prepaid credits for the saved key.
@@ -2047,6 +2114,10 @@ func (a *App) requireProviderReady() error {
 	case a.cfg.Provider() == config.ProviderOpenRouter:
 		if a.cfg.ActiveAPIKey() == "" {
 			return fmt.Errorf("OpenRouter API key is not set")
+		}
+	case a.cfg.Provider() == config.ProviderQwen:
+		if a.cfg.ActiveAPIKey() == "" {
+			return fmt.Errorf("Qwen (DashScope) API key is not set")
 		}
 	default:
 		if a.cfg.ActiveAPIKey() == "" {

@@ -26,6 +26,7 @@ type Provider interface {
 | [openai.md](./openai.md) | OpenAI (эталон) | спецификация |
 | [deepseek.md](./deepseek.md) | DeepSeek | **этап 1 — первый endpoint** |
 | [openrouter.md](./openrouter.md) | OpenRouter | **реализовано** |
+| [qwen.md](./qwen.md) | Qwen (Alibaba Cloud / DashScope) | **реализовано** |
 | [anthropic.md](./anthropic.md) | Anthropic Claude | спецификация + маппинг |
 | [zai-glm.md](./zai-glm.md) | Z.ai / BigModel GLM | спецификация |
 | [ollama.md](./ollama.md) | Local / Ollama / LM Studio (OpenAI-compat) | **реализовано** |
@@ -38,6 +39,7 @@ type Provider interface {
 | DeepSeek | `https://api.deepseek.com` | `POST /chat/completions` | `Authorization: Bearer <key>` |
 | OpenAI | `https://api.openai.com/v1` | `POST /chat/completions` | `Authorization: Bearer <key>` |
 | OpenRouter | `https://openrouter.ai/api/v1` | `POST /chat/completions` | `Authorization: Bearer <key>` |
+| Qwen (DashScope) | `https://dashscope-intl.aliyuncs.com/compatible-mode/v1` | `POST /chat/completions` | `Authorization: Bearer <key>` |
 | Anthropic | `https://api.anthropic.com` | `POST /v1/messages` | `x-api-key` + `anthropic-version` |
 | Z.ai | `https://open.bigmodel.cn/api/paas/v4` | `POST /chat/completions` | `Authorization: Bearer <key>` |
 | Local | `http://127.0.0.1:11434/v1` (настраивается) | `POST /chat/completions` | опциональный Bearer |
@@ -47,6 +49,7 @@ type Provider interface {
 - DeepSeek: https://api-docs.deepseek.com/
 - OpenAI: https://platform.openai.com/docs/api-reference/chat
 - OpenRouter: https://openrouter.ai/docs/api-reference/overview
+- Qwen (DashScope): https://www.alibabacloud.com/help/en/model-studio/compatibility-of-openai-with-dashscope
 - Anthropic: https://docs.anthropic.com/en/api/messages
 - Z.ai / BigModel: https://docs.bigmodel.cn/
 - Ollama: https://github.com/ollama/ollama/blob/main/docs/openai.md

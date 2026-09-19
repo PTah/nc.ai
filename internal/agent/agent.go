@@ -192,6 +192,10 @@ func (r *Runner) isOpenRouter() bool {
 	return strings.EqualFold(strings.TrimSpace(r.ProviderID), "openrouter")
 }
 
+func (r *Runner) isQwen() bool {
+	return strings.EqualFold(strings.TrimSpace(r.ProviderID), "qwen")
+}
+
 func (r *Runner) isLocal() bool {
 	p := strings.ToLower(strings.TrimSpace(r.ProviderID))
 	return p == "local" || strings.HasPrefix(p, "local:")
@@ -273,6 +277,13 @@ func (r *Runner) resolveModel(step int, emit EmitFunc) string {
 					HintPathCount: r.HintPathCount,
 					Step:          step,
 				})
+			case r.isQwen():
+				d = PickQwenModel(RouteInput{
+					UserText:      r.UserText,
+					HasImages:     r.HasImages,
+					HintPathCount: r.HintPathCount,
+					Step:          step,
+				})
 			default:
 				d = PickModel(RouteInput{
 					UserText:      r.UserText,
@@ -299,6 +310,8 @@ func (r *Runner) resolveModel(step int, emit EmitFunc) string {
 			model = ModelZaiFree
 		case r.isOpenRouter():
 			model = ModelORFlash
+		case r.isQwen():
+			model = ModelQwenPlus
 		default:
 			model = ModelFlash
 		}
@@ -321,6 +334,8 @@ func (r *Runner) visionModel() (model, reason string) {
 		return ModelZaiVision, "image"
 	case r.isOpenRouter():
 		return ModelORVision, "image"
+	case r.isQwen():
+		return ModelQwenVision, "image"
 	default:
 		return ModelVision, "image"
 	}
@@ -339,7 +354,7 @@ func IsVisionModel(model string) bool {
 	switch strings.TrimSpace(model) {
 	// NOTE: DeepSeek's V4.1 Flash is multimodal, so ModelVision == ModelFlash and
 	// must not be treated as a vision-only model (that would break sticky routing).
-	case ModelZaiVision, ModelORVision:
+	case ModelZaiVision, ModelORVision, ModelQwenVision:
 		return true
 	default:
 		return false
