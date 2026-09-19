@@ -576,6 +576,7 @@ export namespace workspace {
 	    name: string;
 	    path: string;
 	    opened: string;
+	    iconUrl?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new Project(source);
@@ -586,6 +587,7 @@ export namespace workspace {
 	        this.name = source["name"];
 	        this.path = source["path"];
 	        this.opened = source["opened"];
+	        this.iconUrl = source["iconUrl"];
 	    }
 	}
 

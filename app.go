@@ -52,6 +52,8 @@ type App struct {
 	priceNoticeSeen map[string]priceNoticeMemo
 	// deepSeekRetireNoticed guards the one-time chat notice about V4 Pro retirement.
 	deepSeekRetireNoticed bool
+	// startupNotice explains why the app (re)started; empty for a clean start.
+	startupNotice map[string]any
 	// sessionStickyModel keeps the last non-vision Auto model per chat session
 	// so consecutive turns reuse one provider cache namespace.
 	sessionStickyModel map[string]string
@@ -100,6 +102,7 @@ func (a *App) clearSessionStickyModels() {
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 	_ = a.cfg.Load()
+	a.detectStartupNotice()
 	a.applyDeepSeekStartupDefaults()
 	sshDir, err := a.cfg.SSHDir()
 	if err == nil {
@@ -289,6 +292,7 @@ func (a *App) RefreshProviderPrices() map[string]any {
 
 func (a *App) beforeClose(ctx context.Context) (prevent bool) {
 	a.ctx = ctx
+	_ = a.cfg.SetRunState(appmeta.Version, true)
 	a.saveWindowGeometry()
 	a.saveLastProject()
 	return false
@@ -296,8 +300,65 @@ func (a *App) beforeClose(ctx context.Context) (prevent bool) {
 
 func (a *App) shutdown(ctx context.Context) {
 	a.ctx = ctx
+	_ = a.cfg.SetRunState(appmeta.Version, true)
 	a.saveWindowGeometry()
 	a.saveLastProject()
+}
+
+// deployMarkerName is dropped by build.ps1 before a deploy restart, so the next
+// launch can say "restart after deploy" instead of guessing "crash".
+const deployMarkerName = "deploy.marker"
+
+// detectStartupNotice figures out why we are starting and marks the run as
+// in-flight. A deploy marker wins, then a version change ("update"), then a
+// previous run that never reached shutdown/beforeClose (crash / killed).
+func (a *App) detectStartupNotice() {
+	s := a.cfg.Get()
+	prev := strings.TrimSpace(s.LastRunVersion)
+	isDeploy := a.takeDeployMarker()
+	switch {
+	case isDeploy:
+		notice := map[string]any{"reason": "deploy", "toVersion": appmeta.Version}
+		if prev != "" && prev != appmeta.Version {
+			notice["fromVersion"] = prev
+		}
+		a.startupNotice = notice
+	case prev != "" && prev != appmeta.Version:
+		a.startupNotice = map[string]any{
+			"reason":      "update",
+			"fromVersion": prev,
+			"toVersion":   appmeta.Version,
+		}
+	case prev != "" && !s.CleanExit:
+		a.startupNotice = map[string]any{
+			"reason":    "unclean",
+			"toVersion": appmeta.Version,
+		}
+	}
+	_ = a.cfg.SetRunState(appmeta.Version, false)
+}
+
+// takeDeployMarker consumes (and removes) the deploy marker left by build.ps1.
+func (a *App) takeDeployMarker() bool {
+	base, err := a.cfg.AppDataDir()
+	if err != nil {
+		return false
+	}
+	marker := filepath.Join(base, deployMarkerName)
+	if _, err := os.Stat(marker); err != nil {
+		return false
+	}
+	_ = os.Remove(marker)
+	return true
+}
+
+// StartupNotice reports why the app (re)started — empty map for a clean start.
+// The UI shows it once as a banner: "update 0.6.23 → 0.6.24" or "unclean exit".
+func (a *App) StartupNotice() map[string]any {
+	if a.startupNotice == nil {
+		return map[string]any{}
+	}
+	return a.startupNotice
 }
 
 func (a *App) saveLastProject() {

@@ -191,6 +191,8 @@ export function SetIDEContext(arg1:string,arg2:number):Promise<void>;
 
 export function StartTerminal():Promise<void>;
 
+export function StartupNotice():Promise<Record<string, any>>;
+
 export function StopAgent():Promise<void>;
 
 export function StopAgentSession(arg1:string):Promise<void>;

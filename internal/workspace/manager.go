@@ -12,9 +12,10 @@ import (
 )
 
 type Project struct {
-	Name   string `json:"name"`
-	Path   string `json:"path"`
-	Opened string `json:"opened"`
+	Name    string `json:"name"`
+	Path    string `json:"path"`
+	Opened  string `json:"opened"`
+	IconURL string `json:"iconUrl,omitempty"` // data URL from project folder icon, if any
 }
 
 type Entry struct {
@@ -38,6 +39,11 @@ func (m *Manager) List() []Project {
 	defer m.mu.RUnlock()
 	out := make([]Project, len(m.projects))
 	copy(out, m.projects)
+	// Resolve icons outside the lock copy: cheap reads, keeps List payload fresh
+	// if the user drops an icon into the project folder while the app is open.
+	for i := range out {
+		out[i].IconURL = FindIconDataURL(out[i].Path)
+	}
 	return out
 }
 
@@ -54,9 +60,10 @@ func (m *Manager) Open(path string) (*Project, error) {
 		return nil, fmt.Errorf("not a directory: %s", abs)
 	}
 	p := Project{
-		Name:   filepath.Base(abs),
-		Path:   abs,
-		Opened: time.Now().Format(time.RFC3339),
+		Name:    filepath.Base(abs),
+		Path:    abs,
+		Opened:  time.Now().Format(time.RFC3339),
+		IconURL: FindIconDataURL(abs),
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()

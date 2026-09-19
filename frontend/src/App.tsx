@@ -86,6 +86,7 @@ import {
   SaveChatSession,
   LoadChat,
   StartTerminal,
+  StartupNotice,
   StopAgent,
   StopTerminal,
   SwitchChatSession,
@@ -98,14 +99,15 @@ import {
 import {EventsOn, EventsOff} from '../wailsjs/runtime/runtime'
 import BrandMark from './BrandMark'
 import Markdown from './Markdown'
+import ProjectIcon from './ProjectIcon'
 import {applyChatFindMarks, clearChatFindMarks, focusChatFindHit, type ChatFindHit} from './chatFind'
 
-type Project = { name: string; path: string; opened?: string }
+type Project = { name: string; path: string; opened?: string; iconUrl?: string }
 type FileEntry = { name: string; path: string; isDir: boolean }
 type ChatItem =
   | { kind: 'user' | 'assistant' | 'system' | 'reasoning'; content: string; attachments?: ChatAttPreview[] }
   | { kind: 'progress'; content: string }
-  | { kind: 'tool'; name: string; args: string; result?: string; phase: 'running' | 'done'; ok?: boolean }
+  | { kind: 'tool'; name: string; args: string; result?: string; phase: 'running' | 'done'; ok?: boolean; interrupted?: boolean }
   | { kind: 'file'; path: string; content: string }
 
 /** Snapshot of a running agent turn (agent:event "progress"). */
@@ -325,6 +327,20 @@ function parseProvider(v: unknown): ProviderId {
   if (s === 'zai' || s === 'openrouter' || s === 'qwen') return s
   if (isLocalProvider(s)) return s === 'local' ? 'local:default' : s
   return 'deepseek'
+}
+
+/** Человеческий текст о причине (пере)запуска: и для баннера, и для строки в ленте. */
+function startupNoticeText(n: Record<string, any>): string {
+  if (!n || typeof n.reason !== 'string') return ''
+  if (n.reason === 'deploy') {
+    return n.fromVersion
+      ? `Приложение перезапущено деплоем (обновление ${String(n.fromVersion)} → ${String(n.toVersion || '')}).`
+      : `Приложение перезапущено деплоем (версия ${String(n.toVersion || '')}).`
+  }
+  if (n.reason === 'update') {
+    return `Приложение перезапущено после обновления ${String(n.fromVersion || '?')} → ${String(n.toVersion || '')}.`
+  }
+  return 'Приложение было перезапущено: предыдущий сеанс завершился аварийно (принудительная остановка или сбой).'
 }
 
 function localPresetId(url: string): string {
@@ -648,13 +664,30 @@ function AskUserDialog({
   )
 }
 
+/**
+ * Steps persisted with phase "running" can only be leftovers of a process that
+ * was killed (crash or a deploy restart) — nothing is running in a fresh app.
+ * Mark them so the chat does not look like it is still working.
+ */
+function markInterruptedSteps(items: ChatItem[]): {items: ChatItem[]; changed: boolean} {
+  let changed = false
+  const out = items.map((m) => {
+    if (m.kind === 'tool' && m.phase === 'running') {
+      changed = true
+      return {...m, phase: 'done' as const, ok: false, interrupted: true}
+    }
+    return m
+  })
+  return {items: changed ? out : items, changed}
+}
+
 function ToolCard({item}: {item: Extract<ChatItem, {kind: 'tool'}>}) {
-  const title = toolTitle(item.name, item.phase, item.ok)
+  const title = item.interrupted ? 'прервано: приложение было перезапущено' : toolTitle(item.name, item.phase, item.ok)
   const hasBody = Boolean(item.args || item.result)
   return (
-    <div className={`nc-msg tool ${item.phase}${item.ok === false ? ' fail' : ''}`}>
+    <div className={`nc-msg tool ${item.phase}${item.ok === false ? ' fail' : ''}${item.interrupted ? ' interrupted' : ''}`}>
       <div className="nc-tool-line">
-        <span className="nc-tool-icon">{item.phase === 'running' ? '◉' : item.ok === false ? '✗' : '✓'}</span>
+        <span className="nc-tool-icon">{item.phase === 'running' ? '◉' : item.interrupted ? '⚠' : item.ok === false ? '✗' : '✓'}</span>
         <span className="nc-tool-title">{title}</span>
         <span className="nc-tool-name">{item.name}</span>
       </div>
@@ -957,6 +990,10 @@ export default function App() {
   const [progressBySession, setProgressBySession] = useState<Record<string, RunProgressInfo>>({})
   const [progressAskedBySession, setProgressAskedBySession] = useState<Record<string, boolean>>({})
   const [runStartedAt, setRunStartedAt] = useState<Record<string, number>>({})
+  // Restart banner: why the app (re)started, and whether stale steps were marked.
+  const [startupNotice, setStartupNotice] = useState<Record<string, any>>({})
+  const [noticeDismissed, setNoticeDismissed] = useState(false)
+  const [interruptedSeen, setInterruptedSeen] = useState(false)
   const [dragOver, setDragOver] = useState(false)
   const [retryVisible, setRetryVisible] = useState(false)
   const [editingTabId, setEditingTabId] = useState('')
@@ -1445,6 +1482,21 @@ export default function App() {
           ).map(String).filter(Boolean).slice(0, 5),
         })
       }).catch(() => undefined)
+      StartupNotice().then((n) => {
+        if (n && typeof n === 'object' && typeof (n as Record<string, any>).reason === 'string') {
+          const note = n as Record<string, any>
+          setStartupNotice(note)
+          // Дублируем причину перезапуска в ленту чата: баннер сверху можно
+          // закрыть/пропустить, а системная строка остаётся в истории переписки.
+          const text = startupNoticeText(note)
+          if (text) {
+            const line = `⟳ ${text}`
+            const sid = activeSessionRef.current
+            if (sid) setSessionItems(sid, (m) => [...m, {kind: 'system' as const, content: line}])
+            else noticeQueueRef.current = [...noticeQueueRef.current, line]
+          }
+        }
+      }).catch(() => undefined)
       GetSettings().then((s) => {
         if (!s) return
         const provider = parseProvider(s.activeProvider)
@@ -1886,9 +1938,14 @@ export default function App() {
       const activeId = String((bundle as any)?.activeId || list[0]?.id || '')
       const raw = await LoadChat(projectPath)
       const parsed = JSON.parse(raw || '[]')
-      const chatItems: ChatItem[] = Array.isArray(parsed) && parsed.length > 0
+      const loaded: ChatItem[] = Array.isArray(parsed) && parsed.length > 0
         ? parsed as ChatItem[]
         : [{kind: 'system', content: 'Чат с агентом. История пуста — задайте задачу. Можно вставить скриншот (Ctrl+V) или перетащить файл.'}]
+      const staged = activeId && busyBySessionRef.current[activeId]
+        ? {items: loaded, changed: false}
+        : markInterruptedSteps(loaded)
+      if (staged.changed) setInterruptedSeen(true)
+      const chatItems = staged.items
       setSessions(list)
       if (activeId) {
         setItemsBySession((prev) => ({...prev, [activeId]: chatItems}))
@@ -1917,9 +1974,14 @@ export default function App() {
     try {
       const raw = await SwitchChatSession(id)
       const parsed = JSON.parse(raw || '[]')
-      const chatItems: ChatItem[] = Array.isArray(parsed) && parsed.length > 0
+      const loadedItems: ChatItem[] = Array.isArray(parsed) && parsed.length > 0
         ? parsed as ChatItem[]
         : [{kind: 'system', content: 'Новый чат. Задайте задачу или вставьте файл/скриншот.'}]
+      const staged = busyBySessionRef.current[id]
+        ? {items: loadedItems, changed: false}
+        : markInterruptedSteps(loadedItems)
+      if (staged.changed) setInterruptedSeen(true)
+      const chatItems = staged.items
       setActiveSessionId(id)
       setItemsBySession((prev) => ({...prev, [id]: chatItems}))
       applyRetryState(chatItems)
@@ -3131,6 +3193,7 @@ export default function App() {
               <li key={p.path} className={active?.path === p.path ? 'active' : ''}>
                 <button
                   type="button"
+                  className="nc-project-btn"
                   onClick={() => openProject(p.path)}
                   onContextMenu={(e) => {
                     e.preventDefault()
@@ -3139,7 +3202,8 @@ export default function App() {
                   }}
                   title={p.path}
                 >
-                  {p.name}
+                  <ProjectIcon src={p.iconUrl} name={p.name} />
+                  <span className="nc-project-name">{p.name}</span>
                 </button>
               </li>
             ))}
@@ -3329,6 +3393,23 @@ export default function App() {
                 </button>
               </div>
             </header>
+            {startupNotice.reason && !noticeDismissed && (
+              <div className="nc-restart-note" role="status">
+                <span className="nc-restart-icon" aria-hidden>⟳</span>
+                <span className="nc-restart-text">
+                  {startupNoticeText(startupNotice)}
+                  {interruptedSeen ? ' Незавершённые шаги агента помечены как «прервано» — их нужно повторить.' : ''}
+                </span>
+                <button
+                  type="button"
+                  className="nc-restart-x"
+                  title="Скрыть"
+                  onClick={() => setNoticeDismissed(true)}
+                >
+                  ✕
+                </button>
+              </div>
+            )}
             {chatFindOpen && (
               <div className="nc-find-bar" role="search">
                 <label className="nc-find-label">
