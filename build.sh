@@ -6,6 +6,11 @@
 #   ./build.sh --no-restart # build only
 #   ./build.sh --universal  # fat binary (arm64+amd64)
 #   ./build.sh --copy-to /path/to/share   # also copy .app into folder
+#   ./build.sh --no-install               # do not touch the installed copy
+#
+# By default a successful build REPLACES ${INSTALL_DIR}/NotCursor.app (/Applications) and
+# relaunches the app from there, so launching NotCursor from Finder/Spotlight always runs
+# the newest build. Change the target with --install-to DIR or $NC_INSTALL_DIR.
 set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")" && pwd)"
@@ -18,6 +23,8 @@ STAGE_DIR=""
 NO_RESTART=0
 UNIVERSAL=0
 COPY_TO=""
+INSTALL_DIR="${NC_INSTALL_DIR:-/Applications}"
+DO_INSTALL=1
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -35,16 +42,31 @@ while [[ $# -gt 0 ]]; do
       COPY_TO="${1#*=}"
       shift
       ;;
+    --install-to|-InstallTo)
+      if [[ $# -lt 2 || -z "${2:-}" ]]; then
+        echo "Missing path after $1" >&2
+        exit 2
+      fi
+      INSTALL_DIR="$2"
+      shift 2
+      ;;
+    --install-to=*|-InstallTo=*)
+      INSTALL_DIR="${1#*=}"
+      shift
+      ;;
+    --no-install|-NoInstall) DO_INSTALL=0; shift ;;
     -h|--help)
-      cat <<'EOF'
-Usage: ./build.sh [--no-restart] [--universal] [--copy-to DIR]
+      cat <<EOF
+Usage: ./build.sh [--no-restart] [--universal] [--install-to DIR] [--no-install] [--copy-to DIR]
 
-  --no-restart   Build and sign only; do not quit/relaunch NotCursor.
-  --universal    Build darwin/universal instead of host arch.
-  --copy-to DIR  After a successful build, copy NotCursor.app into DIR
-                 (e.g. network share). If omitted, artifact stays in build/bin.
+  --no-restart     Build and sign only; do not quit/relaunch NotCursor.
+  --universal      Build darwin/universal instead of host arch.
+  --install-to DIR Replace DIR/NotCursor.app with the fresh bundle and relaunch
+                   from there (default: /Applications, or \$NC_INSTALL_DIR).
+  --no-install     Leave DIR untouched; artifact stays in build/bin.
+  --copy-to DIR    Also copy NotCursor.app into DIR (e.g. network share).
 
-Artifact: build/bin/NotCursor.app
+Artifact: build/bin/NotCursor.app (plus ${INSTALL_DIR}/NotCursor.app by default)
 EOF
       exit 0
       ;;
@@ -96,6 +118,11 @@ PY
 
 cd "${REPO}"
 
+# Read the version straight from the bundle (used before and after the build).
+app_version() {
+  /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$1/Contents/Info.plist" 2>/dev/null || echo "?"
+}
+
 echo "Fetching Go modules (GOPROXY=${GOPROXY})..."
 if ! go mod download; then
   echo "go mod download failed - check network / GOPROXY" >&2
@@ -144,7 +171,7 @@ ditto --norsrc --noextattr --noacl "${STAGE_APP}" "${APP_PATH}"
 rm -rf "${STAGE_DIR}"
 STAGE_DIR=""
 codesign --verify --deep --strict "${APP_PATH}" 2>/dev/null || true
-echo "Build finished: ${APP_PATH}"
+echo "Build finished: ${APP_PATH} (v$(app_version "${APP_PATH}"))"
 
 if [[ -n "${COPY_TO}" ]]; then
   mkdir -p "${COPY_TO}"
@@ -174,44 +201,85 @@ inside_app() {
   return 1
 }
 
+quit_app() {
+  [[ -z "$(app_pids)" ]] && return 0
+  echo "Stopping running NotCursor (pid: $(printf '%s ' $(app_pids)))..."
+  # `osascript ... to quit` would launch the app if nothing is running, so it only runs here.
+  osascript -e 'tell application "NotCursor" to quit' >/dev/null 2>&1 || true
+  for _ in $(seq 1 40); do
+    [[ -z "$(app_pids)" ]] && return 0
+    sleep 0.25
+  done
+  echo "NotCursor did not quit - sending TERM" >&2
+  kill $(app_pids) 2>/dev/null || true
+  sleep 1
+  if [[ -n "$(app_pids)" ]]; then
+    kill -9 $(app_pids) 2>/dev/null || true
+    sleep 0.5
+  fi
+  return 0
+}
+
+# Replace the copy launched from Finder/Spotlight so it is always the newest build.
+INSTALLED_APP=""
+if [[ "${DO_INSTALL}" -eq 1 ]]; then
+  INSTALL_APP="${INSTALL_DIR%/}/${APP_NAME}"
+  INSTALL_PARENT="$(dirname "${INSTALL_APP}")"
+  if [[ ! -d "${INSTALL_PARENT}" ]]; then
+    echo "Install skipped: ${INSTALL_PARENT} not found" >&2
+  elif [[ ! -w "${INSTALL_PARENT}" ]]; then
+    echo "Install skipped: no write permission for ${INSTALL_PARENT}" >&2
+  else
+    [[ "${NO_RESTART}" -eq 1 ]] || quit_app
+    if [[ -n "$(app_pids)" ]]; then
+      echo "NotCursor is still running - replacing the bundle on disk anyway" >&2
+    fi
+    rm -rf "${INSTALL_APP}"
+    ditto --norsrc --noextattr --noacl "${APP_PATH}" "${INSTALL_APP}"
+    xattr -dr com.apple.quarantine "${INSTALL_APP}" 2>/dev/null || true
+    if codesign --verify --deep --strict "${INSTALL_APP}" 2>/dev/null; then
+      INSTALLED_APP="${INSTALL_APP}"
+      echo "Installed: ${INSTALL_APP} (v$(app_version "${INSTALL_APP}"))"
+    else
+      echo "Installed bundle failed codesign verify - removing ${INSTALL_APP}" >&2
+      rm -rf "${INSTALL_APP}"
+    fi
+  fi
+fi
+
+TARGET="${INSTALLED_APP:-${APP_PATH}}"
+APP_VERSION="$(app_version "${TARGET}")"
+
 if [[ "${NO_RESTART}" -eq 1 ]]; then
-  echo "Done (no restart)."
+  echo "Done (no restart). Artifact: ${APP_PATH} (v$(app_version "${APP_PATH}"))"
+  if [[ -n "${INSTALLED_APP}" && -n "$(app_pids)" ]]; then
+    echo "Running NotCursor still uses the previous binary - relaunch it manually." >&2
+  fi
   exit 0
 fi
 
 RUNNING_PIDS="$(app_pids)"
 if [[ -z "${RUNNING_PIDS}" ]]; then
-  open "${APP_PATH}"
-  echo "Launched: ${APP_PATH}"
+  open "${TARGET}"
+  echo "Launched: ${TARGET} (v${APP_VERSION})"
   exit 0
 fi
 
-echo "Restarting NotCursor from ${APP_PATH} (pid: $(printf '%s ' ${RUNNING_PIDS}))..."
+echo "Restarting NotCursor from ${TARGET} (pid: $(printf '%s ' ${RUNNING_PIDS}))..."
 INSIDE=0
 if inside_app; then
   # Build started from the terminal panel inside NotCursor: quitting the app kills this
   # shell together with the PTY, so the relaunch goes to a detached process first.
   INSIDE=1
-  nohup /bin/sh -c "sleep 2; open '${APP_PATH}'" >/dev/null 2>&1 &
+  nohup /bin/sh -c "sleep 2; open '${TARGET}'" >/dev/null 2>&1 &
   disown 2>/dev/null || true
   echo "Detached relaunch scheduled (this shell dies with the app)."
 fi
 
-osascript -e 'tell application "NotCursor" to quit' >/dev/null 2>&1 || true
-for _ in $(seq 1 40); do
-  if [[ -z "$(app_pids)" ]]; then
-    break
-  fi
-  sleep 0.25
-done
-if [[ -n "$(app_pids)" ]]; then
-  echo "NotCursor did not quit - sending TERM" >&2
-  kill $(app_pids) 2>/dev/null || true
-  sleep 1
-fi
+quit_app
 
 if [[ "${INSIDE}" -eq 0 ]]; then
-  open "${APP_PATH}"
+  open "${TARGET}"
 fi
-echo "Launched: ${APP_PATH}"
+echo "Launched: ${TARGET} (v${APP_VERSION})"
 exit 0

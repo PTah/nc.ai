@@ -56,13 +56,19 @@ Windows:
 macOS (собирается только на macOS-хосте; скрипт сам делает ad-hoc codesign):
 
 ```bash
-./build.sh                     # собрать и перезапустить .app
+./build.sh                     # собрать, заменить /Applications/NotCursor.app и перезапустить
 ./build.sh --no-restart        # только собрать
 ./build.sh --universal         # fat binary arm64 + amd64
-./build.sh --copy-to ~/Share   # собрать и скопировать .app в папку раздачи
+./build.sh --no-install        # не трогать установленную копию
+./build.sh --install-to ~/Apps # ставить не в /Applications, а в свою папку
+./build.sh --copy-to ~/Share   # вдобавок скопировать .app в папку раздачи
 ```
 
-Установщика нет: приложение запускается прямо из `build/bin/`.
+Скрипт собирает `build/bin/NotCursor.app`, делает ad-hoc подпись, **заменяет**
+`/Applications/NotCursor.app` свежим бандлом (старый процесс при этом закрывается) и запускает
+приложение уже из `/Applications`. Поэтому значок в Dock/Spotlight и «Программы» всегда указывают на
+последний билд — отдельного установщика нет, но и вручную копировать `.app` больше не нужно.
+Целевую папку можно изменить через `--install-to DIR` или переменную `NC_INSTALL_DIR`.
 
 ## Провайдеры
 
