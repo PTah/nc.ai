@@ -329,6 +329,20 @@ function parseProvider(v: unknown): ProviderId {
   return 'deepseek'
 }
 
+/** Человеческий текст о причине (пере)запуска: и для баннера, и для строки в ленте. */
+function startupNoticeText(n: Record<string, any>): string {
+  if (!n || typeof n.reason !== 'string') return ''
+  if (n.reason === 'deploy') {
+    return n.fromVersion
+      ? `Приложение перезапущено деплоем (обновление ${String(n.fromVersion)} → ${String(n.toVersion || '')}).`
+      : `Приложение перезапущено деплоем (версия ${String(n.toVersion || '')}).`
+  }
+  if (n.reason === 'update') {
+    return `Приложение перезапущено после обновления ${String(n.fromVersion || '?')} → ${String(n.toVersion || '')}.`
+  }
+  return 'Приложение было перезапущено: предыдущий сеанс завершился аварийно (принудительная остановка или сбой).'
+}
+
 function localPresetId(url: string): string {
   const u = url.trim().replace(/\/+$/, '')
   for (const p of LOCAL_PRESETS) {
@@ -1470,7 +1484,17 @@ export default function App() {
       }).catch(() => undefined)
       StartupNotice().then((n) => {
         if (n && typeof n === 'object' && typeof (n as Record<string, any>).reason === 'string') {
-          setStartupNotice(n as Record<string, any>)
+          const note = n as Record<string, any>
+          setStartupNotice(note)
+          // Дублируем причину перезапуска в ленту чата: баннер сверху можно
+          // закрыть/пропустить, а системная строка остаётся в истории переписки.
+          const text = startupNoticeText(note)
+          if (text) {
+            const line = `⟳ ${text}`
+            const sid = activeSessionRef.current
+            if (sid) setSessionItems(sid, (m) => [...m, {kind: 'system' as const, content: line}])
+            else noticeQueueRef.current = [...noticeQueueRef.current, line]
+          }
         }
       }).catch(() => undefined)
       GetSettings().then((s) => {
@@ -3373,13 +3397,7 @@ export default function App() {
               <div className="nc-restart-note" role="status">
                 <span className="nc-restart-icon" aria-hidden>⟳</span>
                 <span className="nc-restart-text">
-                  {startupNotice.reason === 'deploy'
-                    ? (startupNotice.fromVersion
-                        ? `Приложение перезапущено деплоем (обновление ${String(startupNotice.fromVersion)} → ${String(startupNotice.toVersion || '')}).`
-                        : `Приложение перезапущено деплоем (версия ${String(startupNotice.toVersion || '')}).`)
-                    : startupNotice.reason === 'update'
-                    ? `Приложение перезапущено после обновления ${String(startupNotice.fromVersion || '?')} → ${String(startupNotice.toVersion || '')}.`
-                    : 'Приложение было перезапущено: предыдущий сеанс завершился аварийно (принудительная остановка или сбой).'}
+                  {startupNoticeText(startupNotice)}
                   {interruptedSeen ? ' Незавершённые шаги агента помечены как «прервано» — их нужно повторить.' : ''}
                 </span>
                 <button
