@@ -1,7 +1,11 @@
 package workspace
 
 import (
+	"bytes"
 	"encoding/base64"
+	"image"
+	"image/png"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"strings"
@@ -84,5 +88,132 @@ func TestOpenAttachesIcon(t *testing.T) {
 	list := m.List()
 	if len(list) != 1 || list[0].IconURL == "" {
 		t.Fatalf("List icon missing: %+v", list)
+	}
+}
+
+func mustWrite(t *testing.T, path string, data []byte) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func decodeIconDataURL(t *testing.T, got string) []byte {
+	t.Helper()
+	i := strings.Index(got, ";base64,")
+	if !strings.HasPrefix(got, "data:image/") || i < 0 {
+		t.Fatalf("not an image data URL: %q", got)
+	}
+	raw, err := base64.StdEncoding.DecodeString(got[i+len(";base64,"):])
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
+}
+
+// Web app (Flask-like): icon lives in a package static/ folder — found by the
+// well-known-path pass, without needing the templates.
+func TestFindIconDataURL_WebStaticDir(t *testing.T) {
+	root := t.TempDir()
+	logo := []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 0, 0, 0, 0, 0, 0, 0, 0}
+	mustWrite(t, filepath.Join(root, "app", "static", "logo.png"), logo)
+
+	got := decodeIconDataURL(t, FindIconDataURL(root))
+	if len(got) != len(logo) {
+		t.Fatalf("decoded len %d want %d", len(got), len(logo))
+	}
+}
+
+// Brand logos in a static/ folder win over favicons (that is the mark users see
+// in the web header).
+func TestFindIconDataURL_PrefersLogoOverFavicon(t *testing.T) {
+	root := t.TempDir()
+	logo := []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 1, 2, 3, 4}
+	mustWrite(t, filepath.Join(root, "app", "static", "logo.png"), logo)
+	mustWrite(t, filepath.Join(root, "app", "static", "favicon.ico"), []byte{0, 0, 1, 0})
+	mustWrite(t, filepath.Join(root, "app", "templates", "base.html"),
+		[]byte(`<link rel="icon" href="/static/favicon.ico?v=1">`))
+
+	if got := decodeIconDataURL(t, FindIconDataURL(root)); len(got) != len(logo) {
+		t.Fatalf("decoded len %d want %d (logo)", len(got), len(logo))
+	}
+}
+
+// Custom layout: the icon is only reachable through a template reference, and
+// the reference carries a cache-busting query string.
+func TestFindIconDataURL_FromHTMLReference(t *testing.T) {
+	root := t.TempDir()
+	ico := []byte{0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x10, 0x10}
+	mustWrite(t, filepath.Join(root, "svc", "static", "favicon.ico"), ico)
+	html := `<!doctype html><html><head>` +
+		`<link rel="icon" type="image/png" href="/static/favicon.ico?v=0.9.42">` +
+		`</head><body></body></html>`
+	mustWrite(t, filepath.Join(root, "templates", "base.html"), []byte(html))
+
+	got := decodeIconDataURL(t, FindIconDataURL(root))
+	if len(got) != len(ico) {
+		t.Fatalf("decoded len %d want %d (ico)", len(got), len(ico))
+	}
+}
+
+// Desktop app icons still beat web logos.
+func TestFindIconDataURL_BuildAppiconBeatsWebLogo(t *testing.T) {
+	root := t.TempDir()
+	appicon := []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 0, 0}
+	webLogo := append(append([]byte{}, appicon...), 9, 9, 9, 9)
+	mustWrite(t, filepath.Join(root, "build", "appicon.png"), appicon)
+	mustWrite(t, filepath.Join(root, "app", "static", "logo.png"), webLogo)
+
+	if got := decodeIconDataURL(t, FindIconDataURL(root)); len(got) != len(appicon) {
+		t.Fatalf("decoded len %d want %d (appicon)", len(got), len(appicon))
+	}
+}
+
+// Remote and inline (data:) references must never be turned into a file read.
+func TestFindIconDataURL_IgnoresExternalRefs(t *testing.T) {
+	root := t.TempDir()
+	html := `<link rel="icon" href="https://cdn.example.com/favicon.ico">` +
+		`<img src="//cdn.example.com/logo.png">` +
+		`<img src="data:image/png;base64,AAAA">` +
+		`<img src="/static/../../../etc/passwd">`
+	mustWrite(t, filepath.Join(root, "templates", "base.html"), []byte(html))
+	if got := FindIconDataURL(root); got != "" {
+		t.Fatalf("external/traversal refs must be ignored, got %q", got)
+	}
+}
+
+// A real 600x600 PNG (too big to embed as-is) must be downscaled, not skipped.
+func TestFindIconDataURL_DownscalesLargeRaster(t *testing.T) {
+	root := t.TempDir()
+	src := image.NewRGBA(image.Rect(0, 0, 600, 600))
+	rnd := rand.New(rand.NewSource(1))
+	for i := range src.Pix {
+		src.Pix[i] = byte(rnd.Intn(256))
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, src); err != nil {
+		t.Fatal(err)
+	}
+	if buf.Len() <= maxIconBytes {
+		t.Skipf("source PNG too small to matter (%d bytes)", buf.Len())
+	}
+	mustWrite(t, filepath.Join(root, "build", "appicon.png"), buf.Bytes())
+
+	got := FindIconDataURL(root)
+	if got == "" {
+		t.Fatal("large app icon was skipped instead of downscaled")
+	}
+	if len(got) > 32*1024 {
+		t.Fatalf("downscaled icon data URL is still %d bytes", len(got))
+	}
+	img, _, err := image.Decode(bytes.NewReader(decodeIconDataURL(t, got)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b := img.Bounds(); b.Dx() > iconPixels || b.Dy() > iconPixels {
+		t.Fatalf("icon not downscaled: %dx%d", b.Dx(), b.Dy())
 	}
 }
