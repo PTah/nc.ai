@@ -98,9 +98,10 @@ import {
 import {EventsOn, EventsOff} from '../wailsjs/runtime/runtime'
 import BrandMark from './BrandMark'
 import Markdown from './Markdown'
+import ProjectIcon from './ProjectIcon'
 import {applyChatFindMarks, clearChatFindMarks, focusChatFindHit, type ChatFindHit} from './chatFind'
 
-type Project = { name: string; path: string; opened?: string }
+type Project = { name: string; path: string; opened?: string; iconUrl?: string }
 type FileEntry = { name: string; path: string; isDir: boolean }
 type ChatItem =
   | { kind: 'user' | 'assistant' | 'system' | 'reasoning'; content: string; attachments?: ChatAttPreview[] }
@@ -3131,6 +3132,7 @@ export default function App() {
               <li key={p.path} className={active?.path === p.path ? 'active' : ''}>
                 <button
                   type="button"
+                  className="nc-project-btn"
                   onClick={() => openProject(p.path)}
                   onContextMenu={(e) => {
                     e.preventDefault()
@@ -3139,7 +3141,8 @@ export default function App() {
                   }}
                   title={p.path}
                 >
-                  {p.name}
+                  <ProjectIcon src={p.iconUrl} name={p.name} />
+                  <span className="nc-project-name">{p.name}</span>
                 </button>
               </li>
             ))}
