@@ -1,4 +1,4 @@
-package agent
+﻿package agent
 
 import (
 	"context"
@@ -388,6 +388,45 @@ func (r *Runner) systemPrompt() string {
 		rules
 }
 
+// buildMessages assembles the request in prefix-cache-friendly order:
+//   1. stable system (+ optional project_map)
+//   2. prior chat history
+//   3. per-turn dynamic bits (path rules, IDE snapshot, user)
+//
+// Do not put timestamps / request IDs into the system prompt — they bust
+// provider prefix caches (DeepSeek / vLLM / SGLang).
+func (r *Runner) buildMessages(prior []llm.Message, userMsg llm.Message) []llm.Message {
+	messages := make([]llm.Message, 0, len(prior)+8)
+	messages = append(messages, llm.Message{Role: "system", Content: r.systemPrompt()})
+	if tree := strings.TrimSpace(r.ProjectMap); tree != "" {
+		if r.LocalLite {
+			const maxTree = 1800
+			if len(tree) > maxTree {
+				tree = tree[:maxTree] + "\n…"
+			}
+		}
+		messages = append(messages, llm.UserText(
+			"<project_map>\n"+tree+"\n</project_map>\n"+
+				"Compressed workspace tree (names only). Use glob/find_files/grep/list_dir/read_file for details.",
+		))
+	}
+	messages = append(messages, prior...)
+	if turn := strings.TrimSpace(r.TurnRulesText); turn != "" {
+		messages = append(messages, llm.UserText(
+			"<turn_rules>\n"+turn+"\n</turn_rules>\n"+
+				"Apply these path-scoped rules for this turn in addition to the stable system rules.",
+		))
+	}
+	if ide := strings.TrimSpace(r.IDEContext); ide != "" {
+		messages = append(messages, llm.UserText(
+			"<ide_context>\n"+ide+"\n</ide_context>\n"+
+				"Active editor snapshot for this turn. Prefer these files when they are relevant.",
+		))
+	}
+	messages = append(messages, userMsg)
+	return messages
+}
+
 // LockedModel returns the model locked for the current/last run (may be empty).
 func (r *Runner) LockedModel() string {
 	return strings.TrimSpace(r.runModel)
@@ -548,39 +587,16 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 	}
 	// Compact once between user turns. Mutating tool results mid-run would
 	// invalidate the provider prefix cache on every agent step.
-	prior = CompactHistory(prior)
+	keep := keepFullToolResults
+	if r.isLocal() {
+		keep = keepFullToolResultsLocal
+	}
+	prior = CompactHistoryN(prior, keep)
 	if r.isLocal() {
 		prior = NeutralizeToollessAssistants(prior)
 	}
 
-	messages := make([]llm.Message, 0, len(prior)+8)
-	messages = append(messages, llm.Message{Role: "system", Content: r.systemPrompt()})
-	if tree := strings.TrimSpace(r.ProjectMap); tree != "" {
-		if r.LocalLite {
-			const maxTree = 1800
-			if len(tree) > maxTree {
-				tree = tree[:maxTree] + "\n…"
-			}
-		}
-		messages = append(messages, llm.UserText(
-			"<project_map>\n"+tree+"\n</project_map>\n"+
-				"Compressed workspace tree (names only). Use glob/find_files/grep/list_dir/read_file for details.",
-		))
-	}
-	messages = append(messages, prior...)
-	if turn := strings.TrimSpace(r.TurnRulesText); turn != "" {
-		messages = append(messages, llm.UserText(
-			"<turn_rules>\n"+turn+"\n</turn_rules>\n"+
-				"Apply these path-scoped rules for this turn in addition to the stable system rules.",
-		))
-	}
-	if ide := strings.TrimSpace(r.IDEContext); ide != "" {
-		messages = append(messages, llm.UserText(
-			"<ide_context>\n"+ide+"\n</ide_context>\n"+
-				"Active editor snapshot for this turn. Prefer these files when they are relevant.",
-		))
-	}
-	messages = append(messages, userMsg)
+	messages := r.buildMessages(prior, userMsg)
 
 	if r.Tools != nil {
 		r.Tools.PlanMode = r.PlanMode

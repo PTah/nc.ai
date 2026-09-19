@@ -1,4 +1,4 @@
-package agent
+﻿package agent
 
 import (
 	"strings"
@@ -35,6 +35,26 @@ func TestCompactHistory_KeepsTrailingToolResults(t *testing.T) {
 		if strings.HasPrefix(out[i].Content, compactedToolMark) {
 			t.Fatalf("trailing tool %d must stay full: %q", i, out[i].Content)
 		}
+	}
+}
+
+func TestCompactHistoryN_LocalKeep2(t *testing.T) {
+	msgs := []llm.Message{
+		{Role: "assistant", ToolCalls: []llm.ToolCall{
+			{ID: "1", Function: llm.FunctionCall{Name: "git_status"}},
+			{ID: "2", Function: llm.FunctionCall{Name: "git_status"}},
+			{ID: "3", Function: llm.FunctionCall{Name: "git_status"}},
+		}},
+		{Role: "tool", ToolCallID: "1", Content: "old"},
+		{Role: "tool", ToolCallID: "2", Content: "keep-a"},
+		{Role: "tool", ToolCallID: "3", Content: "keep-b"},
+	}
+	out := CompactHistoryN(msgs, keepFullToolResultsLocal)
+	if !strings.HasPrefix(out[1].Content, compactedToolMark) {
+		t.Fatalf("first tool should compact with keep=2: %q", out[1].Content)
+	}
+	if strings.HasPrefix(out[2].Content, compactedToolMark) || strings.HasPrefix(out[3].Content, compactedToolMark) {
+		t.Fatalf("last two must stay: %q / %q", out[2].Content, out[3].Content)
 	}
 }
 
