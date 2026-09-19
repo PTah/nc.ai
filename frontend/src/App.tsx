@@ -96,7 +96,7 @@ import {
   WriteFile,
   ListProjects,
 } from '../wailsjs/go/main/App'
-import {EventsOn, EventsOff} from '../wailsjs/runtime/runtime'
+import {EventsOn, EventsOff, ClipboardSetText} from '../wailsjs/runtime/runtime'
 import BrandMark from './BrandMark'
 import Markdown from './Markdown'
 import ProjectIcon from './ProjectIcon'
@@ -105,7 +105,8 @@ import {applyChatFindMarks, clearChatFindMarks, focusChatFindHit, type ChatFindH
 type Project = { name: string; path: string; opened?: string; iconUrl?: string }
 type FileEntry = { name: string; path: string; isDir: boolean }
 type ChatItem =
-  | { kind: 'user' | 'assistant' | 'system' | 'reasoning'; content: string; attachments?: ChatAttPreview[] }
+  | { kind: 'user' | 'assistant' | 'system'; content: string; attachments?: ChatAttPreview[] }
+  | { kind: 'reasoning'; content: string; seconds?: number }
   | { kind: 'progress'; content: string }
   | { kind: 'tool'; name: string; args: string; result?: string; phase: 'running' | 'done'; ok?: boolean; interrupted?: boolean }
   | { kind: 'file'; path: string; content: string }
@@ -121,8 +122,12 @@ type RunProgressInfo = {
   tools: number
   done: string
   current: string
+  action: string
   task: string
 }
+
+/** One "expand/collapse every block" click. n makes repeated clicks visible. */
+type ExpandSignal = { open: boolean; n: number }
 
 type ChatAttPreview = {
   name: string
@@ -439,6 +444,7 @@ function parseRunProgress(raw: unknown): RunProgressInfo | null {
     tools: Number(o.tools) || 0,
     done: String(o.done || ''),
     current: String(o.current || ''),
+    action: String(o.action || ''),
     task: String(o.task || ''),
   }
 }
@@ -584,35 +590,157 @@ type ModelPriceRow = {
 
 function toolTitle(name: string, phase: 'running' | 'done', ok?: boolean): string {
   const labels: Record<string, string> = {
-    read_file: 'Reading file',
-    write_file: 'Writing file',
-    apply_patch: 'Patching file',
-    list_dir: 'Listing directory',
-    grep: 'Searching',
-    find_files: 'Finding files',
-    glob: 'Matching glob',
-    delete_file: 'Deleting',
-    move_file: 'Moving file',
-    todo_write: 'Updating todos',
-    ask_user: 'Asking you',
-    command_status: 'Checking job',
-    read_lints: 'Reading lints',
-    web_search: 'Searching the web',
-    fetch_url: 'Fetching URL',
-    get_env_info: 'Env info',
-    run_terminal: 'Running terminal',
-    git_status: 'Git status',
-    git_diff: 'Git diff',
-    git_log: 'Git log',
-    git_commit: 'Git commit',
-    git_push: 'Git push',
-    ssh_exec: 'SSH exec',
-    ssh_keygen: 'SSH keygen',
+    read_file: 'Читаю файл',
+    write_file: 'Пишу файл',
+    apply_patch: 'Правлю файл',
+    list_dir: 'Смотрю каталог',
+    grep: 'Ищу по содержимому',
+    find_files: 'Ищу файл',
+    glob: 'Ищу по маске',
+    delete_file: 'Удаляю',
+    move_file: 'Перемещаю файл',
+    todo_write: 'Обновляю план',
+    ask_user: 'Спрашиваю вас',
+    command_status: 'Проверяю фоновую задачу',
+    read_lints: 'Читаю диагностику',
+    web_search: 'Ищу в сети',
+    fetch_url: 'Открываю страницу',
+    get_env_info: 'Смотрю окружение',
+    run_terminal: 'Запускаю команду',
+    git_status: 'Смотрю git status',
+    git_diff: 'Смотрю git diff',
+    git_log: 'Смотрю историю коммитов',
+    git_commit: 'Коммичу',
+    git_push: 'Пушу',
+    ssh_exec: 'Выполняю по SSH',
+    ssh_keygen: 'Создаю SSH-ключ',
   }
   const base = labels[name] || name
   if (phase === 'running') return `${base}…`
-  if (ok === false) return `${base} failed`
+  if (ok === false) return `${base} — ошибка`
   return base
+}
+
+/** Copies text to the clipboard: webview API first, Wails runtime as fallback. */
+async function copyText(text: string): Promise<boolean> {
+  if (!text) return false
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text)
+      return true
+    }
+  } catch { /* fall through to the Wails clipboard */ }
+  try {
+    return await ClipboardSetText(text)
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Actions under an agent answer. Now only "copy the whole answer", like the
+ * double-sheet button in other chat apps.
+ */
+function MessageActions({text}: {text: string}) {
+  const [copied, setCopied] = useState(false)
+  const timer = useRef<number>(0)
+  useEffect(() => () => window.clearTimeout(timer.current), [])
+  const onCopy = async () => {
+    if (!(await copyText(text))) return
+    setCopied(true)
+    window.clearTimeout(timer.current)
+    timer.current = window.setTimeout(() => setCopied(false), 1500)
+  }
+  return (
+    <div className="nc-msg-actions">
+      <button
+        type="button"
+        className={`nc-msg-action${copied ? ' copied' : ''}`}
+        title={copied ? 'Скопировано' : 'Копировать ответ'}
+        aria-label={copied ? 'Скопировано' : 'Копировать ответ'}
+        onClick={onCopy}
+      >
+        {copied ? <span className="nc-msg-action-text">Скопировано</span> : (
+          <svg className="nc-msg-action-icon" viewBox="0 0 16 16" aria-hidden="true">
+            <rect x="5.5" y="1.5" width="9" height="10" rx="1.6" />
+            <path d="M10.5 14.5H3.1a1.6 1.6 0 0 1-1.6-1.6V5.4" />
+          </svg>
+        )}
+      </button>
+    </div>
+  )
+}
+
+/** Russian plural: plural(1, ['файл','файла','файлов']) → 'файл'. */
+function plural(n: number, forms: [string, string, string]): string {
+  const mod10 = n % 10
+  const mod100 = n % 100
+  if (mod10 === 1 && mod100 !== 11) return forms[0]
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return forms[1]
+  return forms[2]
+}
+
+/** Counted noun per tool, so summaries read like "5 файлов, 4 поиска". */
+const TOOL_NOUNS: Record<string, [string, string, string]> = {
+  read_file: ['файл', 'файла', 'файлов'],
+  write_file: ['файл записан', 'файла записано', 'файлов записано'],
+  apply_patch: ['правка', 'правки', 'правок'],
+  delete_file: ['удаление', 'удаления', 'удалений'],
+  move_file: ['перенос', 'переноса', 'переносов'],
+  list_dir: ['каталог', 'каталога', 'каталогов'],
+  grep: ['поиск', 'поиска', 'поисков'],
+  glob: ['маска', 'маски', 'масок'],
+  find_files: ['поиск файла', 'поиска файла', 'поисков файла'],
+  run_terminal: ['команда', 'команды', 'команд'],
+  command_status: ['проверка задачи', 'проверки задачи', 'проверок задачи'],
+  read_lints: ['проверка линтов', 'проверки линтов', 'проверок линтов'],
+  get_env_info: ['проверка окружения', 'проверки окружения', 'проверок окружения'],
+  web_search: ['веб-поиск', 'веб-поиска', 'веб-поисков'],
+  fetch_url: ['страница', 'страницы', 'страниц'],
+  todo_write: ['план', 'плана', 'планов'],
+  ask_user: ['вопрос к вам', 'вопроса к вам', 'вопросов к вам'],
+  git_status: ['git status', 'git status', 'git status'],
+  git_diff: ['git diff', 'git diff', 'git diff'],
+  git_log: ['просмотр истории', 'просмотра истории', 'просмотров истории'],
+  git_commit: ['коммит', 'коммита', 'коммитов'],
+  git_push: ['пуш', 'пуша', 'пушей'],
+  ssh_exec: ['SSH-команда', 'SSH-команды', 'SSH-команд'],
+  ssh_keygen: ['SSH-ключ', 'SSH-ключа', 'SSH-ключей'],
+}
+
+/** "3 инструмента" — counter on collapsed activity rows. */
+function summarizeSteps(n: number): string {
+  return `${n} ${plural(n, ['инструмент', 'инструмента', 'инструментов'])}`
+}
+
+/** Short label of what a tool worked on: file name, query or command. */
+function toolArgValue(argsJSON: string): string {
+  try {
+    const raw = JSON.parse(argsJSON || '{}') as Record<string, unknown>
+    for (const key of ['path', 'file', 'rel', 'abs', 'query', 'pattern', 'command', 'url', 'name', 'title']) {
+      const v = raw[key]
+      if (typeof v === 'string' && v.trim()) {
+        const s = v.trim()
+        if (['path', 'file', 'rel', 'abs'].includes(key)) {
+          return s.replace(/\\/g, '/').split('/').filter(Boolean).pop() || s
+        }
+        return s.split(/\r?\n/)[0].slice(0, 60)
+      }
+    }
+  } catch { /* raw args */ }
+  return ''
+}
+
+/** Verb for a finished activity group: "Исследовал", "Поправил", "Выполнил"… */
+function summaryVerb(names: string[]): string {
+  const hasEdit = names.some((n) => ['apply_patch', 'write_file', 'delete_file', 'move_file'].includes(n))
+  const hasRead = names.some((n) => ['read_file', 'grep', 'glob', 'list_dir', 'find_files', 'web_search', 'fetch_url'].includes(n))
+  const hasRun = names.some((n) => n.startsWith('git_') || n === 'run_terminal' || n.startsWith('ssh_'))
+  if (hasEdit && hasRead) return 'Разобрал и поправил'
+  if (hasEdit) return 'Поправил'
+  if (hasRead && !hasRun) return 'Исследовал'
+  if (hasRun) return 'Выполнил'
+  return 'Сделал'
 }
 
 function AskUserDialog({
@@ -709,31 +837,20 @@ function summarizeTools(tools: Extract<ChatItem, {kind: 'tool'}>[]): string {
     counts[t.name] = (counts[t.name] || 0) + 1
     if (t.ok === false) failed++
   }
-  const labels: Record<string, [string, string]> = {
-    read_file: ['file read', 'files read'],
-    list_dir: ['dir listed', 'dirs listed'],
-    write_file: ['file written', 'files written'],
-    apply_patch: ['file patched', 'files patched'],
-    glob: ['glob', 'globs'],
-    grep: ['search', 'searches'],
-    find_files: ['file found', 'files found'],
-    move_file: ['file moved', 'files moved'],
-    run_terminal: ['command', 'commands'],
-    git_status: ['git status', 'git status'],
-    git_diff: ['git diff', 'git diffs'],
-    git_log: ['git log', 'git logs'],
-    git_commit: ['commit', 'commits'],
-    git_push: ['push', 'pushes'],
-    ssh_exec: ['ssh', 'ssh'],
-    ssh_keygen: ['key', 'keys'],
-  }
   const parts: string[] = []
   for (const [name, n] of Object.entries(counts)) {
-    const [one, many] = labels[name] || [name, name]
-    parts.push(`${n} ${n === 1 ? one : many}`)
+    const forms = TOOL_NOUNS[name] || [name, name, name]
+    parts.push(`${n} ${plural(n, forms)}`)
   }
-  let s = `Explored · ${parts.join(', ')}`
-  if (failed) s += ` · ${failed} failed`
+  // Anchor the summary with the last object the agent touched: "… · progress.go".
+  let anchor = ''
+  for (let i = tools.length - 1; i >= 0; i--) {
+    const v = toolArgValue(tools[i].args)
+    if (v) { anchor = v; break }
+  }
+  let s = `${summaryVerb(Object.keys(counts))} · ${parts.join(', ')}`
+  if (anchor) s += ` · ${anchor}`
+  if (failed) s += ` · ${failed} ${plural(failed, ['ошибка', 'ошибки', 'ошибок'])}`
   return s
 }
 
@@ -742,13 +859,43 @@ type DisplayRow =
   | { key: string; kind: 'tool_group'; tools: Extract<ChatItem, {kind: 'tool'}>[]; summary: string }
   | { key: string; kind: 'process'; rows: DisplayRow[] }
 
-function ToolGroup({summary, tools}: {summary: string; tools: Extract<ChatItem, {kind: 'tool'}>[]}) {
+/**
+ * Global "expand/collapse every block" click. The signal is a counter, so two
+ * clicks in a row still reach blocks that are already mounted.
+ */
+function useExpandSignal(expand?: ExpandSignal) {
+  const [open, setOpen] = useState(false)
+  const seen = useRef(0)
+  useEffect(() => {
+    if (!expand || expand.n === 0 || expand.n === seen.current) return
+    seen.current = expand.n
+    setOpen(expand.open)
+  }, [expand])
+  return [open, setOpen] as const
+}
+
+function ToolGroup({
+  summary, tools, expand, autoOpen,
+}: {
+  summary: string
+  tools: Extract<ChatItem, {kind: 'tool'}>[]
+  expand?: ExpandSignal
+  autoOpen?: boolean
+}) {
+  const [open, setOpen] = useExpandSignal(expand)
+  useEffect(() => {
+    if (autoOpen) setOpen(true)
+  }, [autoOpen])
   return (
-    <details className="nc-msg tool-group">
+    <details
+      className="nc-msg tool-group"
+      open={open}
+      onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}
+    >
       <summary className="nc-tool-group-sum">
         <span className="nc-tool-icon">✓</span>
         <span className="nc-tool-title">{summary}</span>
-        <span className="nc-tool-name">{tools.length} steps</span>
+        <span className="nc-tool-name">{summarizeSteps(tools.length)}</span>
       </summary>
       <div className="nc-tool-group-body">
         {tools.map((t, idx) => <ToolCard key={idx} item={t} />)}
@@ -757,15 +904,43 @@ function ToolGroup({summary, tools}: {summary: string; tools: Extract<ChatItem, 
   )
 }
 
-function ThinkingBlock({content, collapsed}: {content: string; collapsed?: boolean}) {
+/**
+ * Model reasoning. The header doubles as the "how long did it think" line:
+ * "Думаю… 12 с" while the block is still streaming, "Думал 8 с" once it is done.
+ */
+function ThinkingBlock({
+  content, collapsed, seconds, startedAt, expand,
+}: {
+  content: string
+  collapsed?: boolean
+  seconds?: number
+  startedAt?: number
+  expand?: ExpandSignal
+}) {
   const [open, setOpen] = useState(!collapsed)
   const prevCollapsed = useRef(collapsed)
+  const [, setTick] = useState(0)
+  const running = startedAt != null
   useEffect(() => {
     if (collapsed !== prevCollapsed.current) {
       prevCollapsed.current = collapsed
       setOpen(!collapsed)
     }
   }, [collapsed])
+  useEffect(() => {
+    if (!running) return
+    const id = window.setInterval(() => setTick((n) => n + 1), 1000)
+    return () => window.clearInterval(id)
+  }, [running])
+  useEffect(() => {
+    if (expand && expand.n > 0) setOpen(expand.open)
+  }, [expand])
+  const elapsed = running ? Math.max(1, Math.round((Date.now() - (startedAt as number)) / 1000)) : 0
+  const label = running
+    ? `Думаю… ${elapsed} с`
+    : seconds != null
+      ? `Думал ${seconds} с`
+      : 'Размышления'
   return (
     <details
       className="nc-msg reasoning"
@@ -773,7 +948,7 @@ function ThinkingBlock({content, collapsed}: {content: string; collapsed?: boole
       onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}
     >
       <summary className="nc-think-sum" title="Показать рассуждения модели">
-        Thinking…
+        {label}
       </summary>
       <pre className="nc-think-body">{content}</pre>
     </details>
@@ -785,7 +960,7 @@ function ThinkingBlock({content, collapsed}: {content: string; collapsed?: boole
  * collapses behind a triangle once every item is done or cancelled — like
  * "Thinking…" and tool groups.
  */
-function TodoPanel({todos}: {todos: TodoItem[]}) {
+function TodoPanel({todos, expand}: {todos: TodoItem[]; expand?: ExpandSignal}) {
   const hasOpen = todos.some((t) => t.status !== 'completed' && t.status !== 'cancelled')
   const [open, setOpen] = useState(hasOpen)
   const prevOpen = useRef(hasOpen)
@@ -795,6 +970,9 @@ function TodoPanel({todos}: {todos: TodoItem[]}) {
       setOpen(hasOpen)
     }
   }, [hasOpen])
+  useEffect(() => {
+    if (expand && expand.n > 0) setOpen(expand.open)
+  }, [expand])
   const done = todos.filter((t) => t.status === 'completed').length
   return (
     <details
@@ -878,19 +1056,33 @@ function summarizeProcess(rows: DisplayRow[]): {title: string; steps: number} {
       reasoning++
     }
   }
-  let title = 'Thinking'
-  if (steps > 0) title = reasoning > 0 ? 'Thinking & Explored' : 'Explored'
+  let title = 'Размышления'
+  if (steps > 0) title = reasoning > 0 ? 'Думал и исследовал' : 'Исследовал'
   return {title, steps}
 }
 
-function ProcessGroup({rows}: {rows: DisplayRow[]}) {
+function ProcessGroup({
+  rows, expand, autoOpen,
+}: {
+  rows: DisplayRow[]
+  expand?: ExpandSignal
+  autoOpen?: boolean
+}) {
   const {title, steps} = summarizeProcess(rows)
+  const [open, setOpen] = useExpandSignal(expand)
+  useEffect(() => {
+    if (autoOpen) setOpen(true)
+  }, [autoOpen])
   return (
-    <details className="nc-msg process-group">
+    <details
+      className="nc-msg process-group"
+      open={open}
+      onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}
+    >
       <summary className="nc-tool-group-sum">
         <span className="nc-tool-icon">✓</span>
         <span className="nc-tool-title">{title}</span>
-        <span className="nc-tool-name">{steps > 0 ? `${steps} steps` : 'thought'}</span>
+        <span className="nc-tool-name">{steps > 0 ? summarizeSteps(steps) : 'размышления'}</span>
       </summary>
       <div className="nc-process-body">
         {rows.map((r, i) => {
@@ -898,7 +1090,7 @@ function ProcessGroup({rows}: {rows: DisplayRow[]}) {
             return <ToolGroup key={i} summary={r.summary} tools={r.tools} />
           }
           if (r.kind === 'item' && r.item.kind === 'reasoning') {
-            return <ThinkingBlock key={i} content={r.item.content} collapsed />
+            return <ThinkingBlock key={i} content={r.item.content} seconds={r.item.seconds} collapsed />
           }
           return null
         })}
@@ -1077,6 +1269,9 @@ export default function App() {
   // silentNoticeRef: one "still working" card per silent stretch.
   const lastOutputAtRef = useRef<Record<string, number>>({})
   const silentNoticeRef = useRef<Record<string, boolean>>({})
+  // reasoningStartAt: when the streaming reasoning block of a session began, so
+  // the transcript can say "Думал 8 с" instead of just "Размышления".
+  const reasoningStartRef = useRef<Record<string, number>>({})
   const runAgentRef = useRef<(
     sid: string,
     text: string,
@@ -1085,6 +1280,9 @@ export default function App() {
     force?: boolean,
   ) => Promise<boolean>>(async () => false)
   const [statusTick, setStatusTick] = useState(0)
+  // "Развернуть всё / Свернуть всё" applies to every activity block at once.
+  const [expandSignal, setExpandSignal] = useState<ExpandSignal>({open: false, n: 0})
+  const [allBlocksOpen, setAllBlocksOpen] = useState(false)
 
   const model =
     activeProvider === 'zai'
@@ -1230,11 +1428,11 @@ export default function App() {
   const nowMs = statusTick || Date.now()
   const lastOutputMs = activeSessionId ? (lastOutputAtRef.current[activeSessionId] || runStarted || nowMs) : nowMs
   const silentForMs = busy ? Math.max(0, nowMs - lastOutputMs) : 0
-  const interimVisible = progressAsked || silentForMs >= SILENT_PROGRESS_MS
   const runElapsedSec = runStarted
     ? Math.max(0, Math.floor((nowMs - runStarted) / 1000))
     : runInfo?.seconds ?? 0
-  const showRunStatus = busy && interimVisible
+  // The live line under the composer is always visible while the agent works.
+  const showRunStatus = busy
   const openTodos = todos.filter((t) => t.status !== 'completed' && t.status !== 'cancelled')
   const activeTodo = todos.find((t) => t.status === 'in_progress') || openTodos[0]
   const runStatusElapsed = runElapsedSec > 0 ? formatDuration(runElapsedSec) : runInfo?.elapsed || '0:00'
@@ -1295,6 +1493,23 @@ export default function App() {
       [sessionId]: updater(asList(prev[sessionId])),
     }))
   }, [])
+
+  // Closes the streaming reasoning block and stamps how long the model thought.
+  const closeReasoning = useCallback((sessionId: string) => {
+    const started = reasoningStartRef.current[sessionId]
+    if (!started) return
+    delete reasoningStartRef.current[sessionId]
+    const seconds = Math.max(1, Math.round((Date.now() - started) / 1000))
+    setSessionItems(sessionId, (prev) => {
+      const copy = [...prev]
+      const last = copy[copy.length - 1]
+      if (last && last.kind === 'reasoning' && last.seconds == null) {
+        copy[copy.length - 1] = {...last, seconds}
+        return copy
+      }
+      return prev
+    })
+  }, [setSessionItems])
 
   useEffect(() => {
     if (!activeSessionId || noticeQueueRef.current.length === 0) return
@@ -1666,6 +1881,7 @@ export default function App() {
             return
           }
           if (ev.type === 'delta') {
+            closeReasoning(sid)
             lastOutputAtRef.current[sid] = Date.now()
             silentNoticeRef.current[sid] = false
             assistantBuf.current[sid] = (assistantBuf.current[sid] || '') + (ev.content || '')
@@ -1680,6 +1896,7 @@ export default function App() {
               return [...copy, {kind: 'assistant', content: text}]
             })
           } else if (ev.type === 'reasoning') {
+            if (!reasoningStartRef.current[sid]) reasoningStartRef.current[sid] = Date.now()
             setSessionItems(sid, (prev) => {
               const copy = [...prev]
               const last = copy[copy.length - 1]
@@ -1709,7 +1926,7 @@ export default function App() {
               parsed = null
             }
             if (!parsed && ev.content) {
-              parsed = {phase: 'step', text: ev.content, elapsed: '', seconds: 0, step: 0, total: 0, tools: 0, done: '', current: '', task: ''}
+              parsed = {phase: 'step', text: ev.content, elapsed: '', seconds: 0, step: 0, total: 0, tools: 0, done: '', current: '', action: '', task: ''}
             }
             if (!parsed) return
             setProgressBySession((prev) => ({...prev, [sid]: parsed as RunProgressInfo}))
@@ -1722,6 +1939,7 @@ export default function App() {
               setSessionItems(sid, (prev) => [...prev, {kind: 'progress', content: parsed.text}])
             }
           } else if (ev.type === 'tool_start') {
+            closeReasoning(sid)
             assistantBuf.current[sid] = ''
             setSessionItems(sid, (prev) => [...prev, {
               kind: 'tool',
@@ -1763,6 +1981,7 @@ export default function App() {
           } else if (ev.type === 'reconnect') {
             setSessionItems(sid, (prev) => [...prev, {kind: 'system', content: ev.content || 'reconnecting…'}])
           } else if (ev.type === 'done' || ev.type === 'persist') {
+            closeReasoning(sid)
             finishRunUI(sid)
             if (sid === activeSessionRef.current) setRetryVisible(false)
             void applyUsageStats()
@@ -2910,6 +3129,7 @@ export default function App() {
     // Stage cards/status are opt-in per request; silence is measured from now.
     lastOutputAtRef.current[sid] = Date.now()
     silentNoticeRef.current[sid] = false
+    reasoningStartRef.current[sid] = 0
     setProgressAskedBySession((prev) => ({...prev, [sid]: wantsInterimProgress(text)}))
     if (!skipUserMessage) {
       setSessionItems(sid, (m) => [...m, makeUserItem(text, atts)])
@@ -3494,12 +3714,13 @@ export default function App() {
                   title="Изменить ширину чата"
                   onMouseDown={(e) => beginResize('chat', e, 'right')}
                 />
-                {buildDisplayRows(items, !busy).map((row) => {
+                {buildDisplayRows(items, !busy).map((row, idx, all) => {
+                  const isLastRow = idx === all.length - 1
                   if (row.kind === 'process') {
-                    return <ProcessGroup key={row.key} rows={row.rows} />
+                    return <ProcessGroup key={row.key} rows={row.rows} expand={expandSignal} autoOpen={busy && isLastRow} />
                   }
                   if (row.kind === 'tool_group') {
-                    return <ToolGroup key={row.key} summary={row.summary} tools={row.tools} />
+                    return <ToolGroup key={row.key} summary={row.summary} tools={row.tools} expand={expandSignal} autoOpen={busy && isLastRow} />
                   }
                   const m = row.item
                   if (m.kind === 'tool') {
@@ -3514,7 +3735,20 @@ export default function App() {
                     )
                   }
                   if (m.kind === 'reasoning') {
-                    return <ThinkingBlock key={row.key} content={m.content} collapsed />
+                    // Only the block that is still streaming gets a ticking timer.
+                    const startedAt = busy && isLastRow && activeSessionId
+                      ? reasoningStartRef.current[activeSessionId] || undefined
+                      : undefined
+                    return (
+                      <ThinkingBlock
+                        key={row.key}
+                        content={m.content}
+                        seconds={m.seconds}
+                        startedAt={startedAt}
+                        collapsed
+                        expand={expandSignal}
+                      />
+                    )
                   }
                   if (m.kind === 'progress') {
                     return (
@@ -3541,16 +3775,33 @@ export default function App() {
                       {m.kind === 'assistant'
                         ? <Markdown content={m.content} />
                         : <pre>{m.content}</pre>}
+                      {m.kind === 'assistant' && m.content.trim() !== '' && <MessageActions text={m.content} />}
                     </div>
                   )
                 })}
-                {busy && (
+                {busy && items[items.length - 1]?.kind !== 'reasoning' && (
                   <div className="nc-msg status">
                     <div className="nc-role">статус</div>
-                    <pre>думает…</pre>
+                    <pre>думаю… {runStatusElapsed}</pre>
                   </div>
                 )}
-                {todos.length > 0 && <TodoPanel todos={todos} />}
+                {todos.length > 0 && <TodoPanel todos={todos} expand={expandSignal} />}
+                {(items.some((i) => i.kind === 'reasoning' || i.kind === 'tool') || todos.length > 0) && (
+                  <div className="nc-thread-actions">
+                    <button
+                      type="button"
+                      className="nc-expand-all"
+                      title={allBlocksOpen ? 'Свернуть все блоки активности' : 'Развернуть все блоки активности'}
+                      onClick={() => {
+                        const next = !allBlocksOpen
+                        setAllBlocksOpen(next)
+                        setExpandSignal((s) => ({open: next, n: s.n + 1}))
+                      }}
+                    >
+                      {allBlocksOpen ? 'Свернуть всё' : 'Развернуть всё'}
+                    </button>
+                  </div>
+                )}
                 <div aria-hidden className="nc-thread-end" />
               </div>
             </div>
@@ -3601,7 +3852,9 @@ export default function App() {
                   <span className="nc-run-dot" aria-hidden />
                   <span className="nc-run-elapsed">⏱ {runStatusElapsed}</span>
                   {runStatusStep && <span className="nc-run-step">{runStatusStep}</span>}
-                  {runInfo?.current && <span className="nc-run-current">сейчас: {runInfo.current}</span>}
+                  {runInfo?.action || runInfo?.current
+                    ? <span className="nc-run-current">{runInfo.action || `сейчас: ${runInfo.current}`}</span>
+                    : null}
                   {activeTodo && <span className="nc-run-todo">осталось: {activeTodo.content}</span>}
                 </div>
               )}
