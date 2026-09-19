@@ -1020,6 +1020,37 @@ mark.nc-find-mark.nc-find-current {
   min-height: 0;
   overflow: auto;
 }
+.nc-project-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+}
+.nc-project-icon {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  flex: 0 0 auto;
+  object-fit: cover;
+  background: var(--input-bg);
+  box-shadow: 0 0 0 1px var(--border);
+}
+.nc-project-icon-default {
+  display: inline-grid;
+  place-items: center;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--panel-2));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 28%, var(--border));
+}
+.nc-project-icon-default svg {
+  display: block;
+}
+.nc-project-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .nc-projects-foot {
   display: flex;
   flex-direction: column;
