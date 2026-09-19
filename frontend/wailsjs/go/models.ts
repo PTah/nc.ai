@@ -576,7 +576,7 @@ export namespace workspace {
 	    name: string;
 	    path: string;
 	    opened: string;
-	    iconUrl: string;
+	    iconUrl?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new Project(source);
