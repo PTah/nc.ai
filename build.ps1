@@ -171,6 +171,14 @@ if ($pids.Count -gt 0) {
 $argLine = '-NoProfile -ExecutionPolicy Bypass -File "{0}" -ExePath "{1}" -OldPath "{2}" -TargetPids "{3}"' -f `
     $updater, $exe, $old, $pidArgs
 
+# Tell the next launch this restart came from a deploy (not a crash).
+# The app consumes and deletes this marker on startup.
+$markerDir = Join-Path $env:APPDATA 'NotCursor'
+if (-not (Test-Path -LiteralPath $markerDir)) {
+    New-Item -ItemType Directory -Path $markerDir -Force | Out-Null
+}
+[System.IO.File]::WriteAllText((Join-Path $markerDir 'deploy.marker'), (Get-Date -Format o), $utf8Bom)
+
 Write-Host "Self-update: starting helper (stop old process if any, then launch new exe)…"
 Start-Process -FilePath $psExe -ArgumentList $argLine -WindowStyle Hidden
 

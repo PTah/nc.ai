@@ -3373,7 +3373,11 @@ export default function App() {
               <div className="nc-restart-note" role="status">
                 <span className="nc-restart-icon" aria-hidden>⟳</span>
                 <span className="nc-restart-text">
-                  {startupNotice.reason === 'update'
+                  {startupNotice.reason === 'deploy'
+                    ? (startupNotice.fromVersion
+                        ? `Приложение перезапущено деплоем (обновление ${String(startupNotice.fromVersion)} → ${String(startupNotice.toVersion || '')}).`
+                        : `Приложение перезапущено деплоем (версия ${String(startupNotice.toVersion || '')}).`)
+                    : startupNotice.reason === 'update'
                     ? `Приложение перезапущено после обновления ${String(startupNotice.fromVersion || '?')} → ${String(startupNotice.toVersion || '')}.`
                     : 'Приложение было перезапущено: предыдущий сеанс завершился аварийно (принудительная остановка или сбой).'}
                   {interruptedSeen ? ' Незавершённые шаги агента помечены как «прервано» — их нужно повторить.' : ''}
