@@ -747,6 +747,43 @@ function ThinkingBlock({content, collapsed}: {content: string; collapsed?: boole
   )
 }
 
+/**
+ * Agent todo plan. Lives inside the answer stream (not pinned above it) and
+ * collapses behind a triangle once every item is done or cancelled — like
+ * "Thinking…" and tool groups.
+ */
+function TodoPanel({todos}: {todos: TodoItem[]}) {
+  const hasOpen = todos.some((t) => t.status !== 'completed' && t.status !== 'cancelled')
+  const [open, setOpen] = useState(hasOpen)
+  const prevOpen = useRef(hasOpen)
+  useEffect(() => {
+    if (hasOpen !== prevOpen.current) {
+      prevOpen.current = hasOpen
+      setOpen(hasOpen)
+    }
+  }, [hasOpen])
+  const done = todos.filter((t) => t.status === 'completed').length
+  return (
+    <details
+      className="nc-msg todos"
+      open={open}
+      onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}
+    >
+      <summary className="nc-think-sum" title="План задач агента (todo_write)">
+        Todo · {done}/{todos.length}
+      </summary>
+      <ul className="nc-todos">
+        {todos.map((t) => (
+          <li key={t.id} className={`nc-todo ${t.status}`}>
+            <span className="nc-todo-st">{t.status === 'completed' ? '✓' : t.status === 'in_progress' ? '▶' : t.status === 'cancelled' ? '×' : '○'}</span>
+            {t.content}
+          </li>
+        ))}
+      </ul>
+    </details>
+  )
+}
+
 /** Collapse consecutive completed tools; when compact, even a single tool becomes a summary group. */
 function buildDisplayRows(items: ChatItem[], compact = false): DisplayRow[] {
   const rows: DisplayRow[] = []
@@ -3364,16 +3401,6 @@ export default function App() {
                 </button>
               </div>
             )}
-            {todos.length > 0 && (
-              <ul className="nc-todos">
-                {todos.map((t) => (
-                  <li key={t.id} className={`nc-todo ${t.status}`}>
-                    <span className="nc-todo-st">{t.status === 'completed' ? '✓' : t.status === 'in_progress' ? '▶' : t.status === 'cancelled' ? '×' : '○'}</span>
-                    {t.content}
-                  </li>
-                ))}
-              </ul>
-            )}
             <div className="nc-thread" ref={chatRef}>
               <div className="nc-thread-inner">
                 <div
@@ -3442,6 +3469,7 @@ export default function App() {
                     <pre>думает…</pre>
                   </div>
                 )}
+                {todos.length > 0 && <TodoPanel todos={todos} />}
                 <div aria-hidden className="nc-thread-end" />
               </div>
             </div>

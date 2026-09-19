@@ -1458,15 +1458,22 @@ mark.nc-find-mark.nc-find-current {
 .nc-ghost.on { border-color: var(--accent); color: var(--text); }
 .tree-btn.file.active { background: var(--tab-active-bg); color: var(--text); }
 
+.nc-msg.todos { margin: 0.15rem 0 0.35rem; }
+.nc-msg.todos:not([open]) .nc-think-sum::before { content: "▸ "; }
+.nc-msg.todos .nc-todos {
+  margin: 0.45rem 0 0.15rem;
+  padding: 0.4rem 0.55rem;
+  background: var(--panel-2, var(--bg));
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  max-height: 9rem;
+  overflow: auto;
+}
 .nc-todos {
-  flex: 0 0 auto;
   margin: 0;
-  padding: 0.35rem 0.8rem;
-  border-bottom: 1px solid var(--border);
+  padding: 0;
   list-style: none;
   font-size: 0.78rem;
-  max-height: 7rem;
-  overflow: auto;
 }
 .nc-todo { display: flex; gap: 0.4rem; color: var(--muted); }
 .nc-todo.completed { color: var(--tool-icon-ok); text-decoration: line-through; }
