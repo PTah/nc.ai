@@ -366,6 +366,10 @@ export function StartTerminal() {
   return window['go']['main']['App']['StartTerminal']();
 }
 
+export function StartupNotice() {
+  return window['go']['main']['App']['StartupNotice']();
+}
+
 export function StopAgent() {
   return window['go']['main']['App']['StopAgent']();
 }
