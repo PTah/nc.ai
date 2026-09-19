@@ -91,6 +91,11 @@ type Settings struct {
 	Shell          string   `json:"shell"`
 	RecentProjects []string `json:"recentProjects"`
 	LastProject    string   `json:"lastProject,omitempty"`
+
+	// LastRunVersion + CleanExit let the next launch explain a (re)start:
+	// a version change means "update", an unclean exit means a crash/kill.
+	LastRunVersion string `json:"lastRunVersion,omitempty"`
+	CleanExit      bool   `json:"cleanExit,omitempty"`
 	GitUsername    string   `json:"gitUsername"`
 	GitPassword    string   `json:"gitPassword"`
 	SSHUser        string   `json:"sshUser"`
@@ -1169,6 +1174,16 @@ func (s *Store) LastProject() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.settings.LastProject
+}
+
+// SetRunState records the last seen version and whether this run is ending
+// gracefully, so the next launch can tell an update from a crash/kill.
+func (s *Store) SetRunState(version string, clean bool) error {
+	s.mu.Lock()
+	s.settings.LastRunVersion = version
+	s.settings.CleanExit = clean
+	s.mu.Unlock()
+	return s.Save()
 }
 
 func (s *Store) SetLastProject(path string) error {
