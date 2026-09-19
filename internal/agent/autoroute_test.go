@@ -77,3 +77,25 @@ func TestPickOpenRouterModel_ComplexAndVision(t *testing.T) {
 		t.Fatalf("vision: got %s want %s", d.Model, ModelORVision)
 	}
 }
+
+func TestPickQwenModel_DefaultPlus(t *testing.T) {
+	d := PickQwenModel(RouteInput{UserText: "поправь опечатку в README"})
+	if d.Model != ModelQwenPlus {
+		t.Fatalf("got %s want %s", d.Model, ModelQwenPlus)
+	}
+}
+
+func TestPickQwenModel_ComplexAndVision(t *testing.T) {
+	d := PickQwenModel(RouteInput{UserText: "сделай рефакторинг auth"})
+	if d.Model != ModelQwenStrong {
+		t.Fatalf("complex: got %s want %s", d.Model, ModelQwenStrong)
+	}
+	d = PickQwenModel(RouteInput{UserText: "hi", Step: 8})
+	if d.Model != ModelQwenStrong {
+		t.Fatalf("long-run: got %s want %s", d.Model, ModelQwenStrong)
+	}
+	d = PickQwenModel(RouteInput{UserText: "скрин", HasImages: true})
+	if d.Model != ModelQwenVision {
+		t.Fatalf("vision: got %s want %s", d.Model, ModelQwenVision)
+	}
+}

@@ -58,6 +58,12 @@ import {
   ListOpenRouterModels,
   PreferOpenRouterModel,
   GetOpenRouterBalance,
+  SaveQwenKey,
+  ClearQwenKey,
+  SaveQwenModel,
+  SaveQwenEndpoint,
+  ListQwenModels,
+  PreferQwenModel,
   ProjectHasChats,
   SaveActiveProvider,
   SaveAutoModels,
@@ -290,6 +296,16 @@ const OPENROUTER_MODELS_FALLBACK = [
   'qwen/qwen3-vl-8b-instruct',
 ] as const
 
+const QWEN_MODELS_FALLBACK = [
+  'qwen-plus',
+  'qwen-turbo',
+  'qwen-max',
+  'qwen3-coder-plus',
+  'qwen3-coder-flash',
+  'qwen-vl-max',
+  'qwen-vl-plus',
+] as const
+
 type ZaiEndpointId = 'coding' | 'paas'
 
 function isLocalProvider(id: string): boolean {
@@ -299,13 +315,14 @@ function isLocalProvider(id: string): boolean {
 function providerLabelOf(id: ProviderId): string {
   if (id === 'zai') return 'Z.ai'
   if (id === 'openrouter') return 'OpenRouter'
+  if (id === 'qwen') return 'Qwen'
   if (isLocalProvider(id)) return 'Custom'
   return 'DeepSeek'
 }
 
 function parseProvider(v: unknown): ProviderId {
   const s = String(v ?? '').trim()
-  if (s === 'zai' || s === 'openrouter') return s
+  if (s === 'zai' || s === 'openrouter' || s === 'qwen') return s
   if (isLocalProvider(s)) return s === 'local' ? 'local:default' : s
   return 'deepseek'
 }
@@ -316,6 +333,22 @@ function localPresetId(url: string): string {
     if (p.id !== 'custom' && p.url.replace(/\/+$/, '') === u) return p.id
   }
   return 'custom'
+}
+
+// stripUrlContext removes the "context" query parameter from every http(s) link
+// in a chunk of text. Share links pasted into the chat often carry it; it is not
+// needed to open the page, so the input stays short before it reaches the agent.
+function stripUrlContext(text: string): string {
+  return text.replace(/https?:\/\/[^\s<>"'`]+/gi, (raw) => {
+    try {
+      const u = new URL(raw)
+      if (!u.searchParams.has('context')) return raw
+      u.searchParams.delete('context')
+      return u.toString()
+    } catch {
+      return raw
+    }
+  })
 }
 
 function modelOptions(list: readonly string[], current: string): string[] {
@@ -897,11 +930,14 @@ export default function App() {
   const [deepseekKey, setDeepseekKey] = useState('')
   const [zaiKey, setZaiKey] = useState('')
   const [openrouterKey, setOpenrouterKey] = useState('')
+  const [qwenKey, setQwenKey] = useState('')
   const [localKey, setLocalKey] = useState('')
   const [deepseekModel, setDeepseekModel] = useState('deepseek-flash')
   const [deepseekModels, setDeepseekModels] = useState<string[]>([...DEEPSEEK_MODELS])
   const [zaiModel, setZaiModel] = useState('glm-4.7-flash')
   const [openrouterModel, setOpenrouterModel] = useState('qwen/qwen3-coder-flash:floor')
+  const [qwenModel, setQwenModel] = useState('qwen-plus')
+  const [qwenEndpoint, setQwenEndpoint] = useState<'intl' | 'cn'>('intl')
   const [localModel, setLocalModel] = useState('')
   const [localBaseUrl, setLocalBaseUrl] = useState(LOCAL_BASE_DEFAULT)
   const [localModels, setLocalModels] = useState<string[]>([])
@@ -916,6 +952,7 @@ export default function App() {
   const [zaiEndpoint, setZaiEndpoint] = useState<ZaiEndpointId>('paas')
   const [zaiModels, setZaiModels] = useState<string[]>([...ZAI_MODELS_FALLBACK])
   const [openrouterModels, setOpenrouterModels] = useState<string[]>([...OPENROUTER_MODELS_FALLBACK])
+  const [qwenModels, setQwenModels] = useState<string[]>([...QWEN_MODELS_FALLBACK])
   const [zaiBalance, setZaiBalance] = useState<{ok: boolean; availableUsd: number; detail: string; source: string} | null>(null)
   const [orBalance, setOrBalance] = useState<{ok: boolean; availableUsd: number; detail: string; source: string} | null>(null)
   const [autoModels, setAutoModels] = useState(true)
@@ -932,6 +969,7 @@ export default function App() {
   const [deepseekKeySet, setDeepseekKeySet] = useState(false)
   const [zaiKeySet, setZaiKeySet] = useState(false)
   const [openrouterKeySet, setOpenrouterKeySet] = useState(false)
+  const [qwenKeySet, setQwenKeySet] = useState(false)
   const [localKeySet, setLocalKeySet] = useState(false)
   const [theme, setTheme] = useState<'dark' | 'light'>('dark')
   const [termCmd, setTermCmd] = useState('')
@@ -979,17 +1017,21 @@ export default function App() {
       ? zaiModel
       : activeProvider === 'openrouter'
         ? openrouterModel
-        : isLocalProvider(activeProvider)
-          ? localModel
-          : deepseekModel
+        : activeProvider === 'qwen'
+          ? qwenModel
+          : isLocalProvider(activeProvider)
+            ? localModel
+            : deepseekModel
   const keySet =
     activeProvider === 'zai'
       ? zaiKeySet
       : activeProvider === 'openrouter'
         ? openrouterKeySet
-        : isLocalProvider(activeProvider)
-          ? Boolean(localBaseUrl.trim() && localModel.trim())
-          : deepseekKeySet
+        : activeProvider === 'qwen'
+          ? qwenKeySet
+          : isLocalProvider(activeProvider)
+            ? Boolean(localBaseUrl.trim() && localModel.trim())
+            : deepseekKeySet
   const providerLabel = providerLabelOf(activeProvider)
   const showBalance = activeProvider === 'zai' || activeProvider === 'openrouter'
   const providerReadyLabel =
@@ -1373,11 +1415,14 @@ export default function App() {
         setDeepseekKeySet(Boolean(s.deepseekKeySet))
         setZaiKeySet(Boolean(s.zaiKeySet))
         setOpenrouterKeySet(Boolean(s.openrouterKeySet))
+        setQwenKeySet(Boolean(s.qwenKeySet))
         setLocalKeySet(Boolean(s.localKeySet))
         if (typeof s.secretsBackend === 'string' && s.secretsBackend) setSecretsBackend(s.secretsBackend)
         if (typeof s.deepseekModel === 'string' && s.deepseekModel) setDeepseekModel(s.deepseekModel)
         if (typeof s.zaiModel === 'string' && s.zaiModel) setZaiModel(s.zaiModel)
         if (typeof s.openrouterModel === 'string' && s.openrouterModel) setOpenrouterModel(s.openrouterModel)
+        if (typeof s.qwenModel === 'string' && s.qwenModel) setQwenModel(s.qwenModel)
+        if (s.qwenEndpoint === 'cn' || s.qwenEndpoint === 'intl') setQwenEndpoint(s.qwenEndpoint)
         if (typeof s.localModel === 'string') setLocalModel(s.localModel)
         if (typeof s.localBaseUrl === 'string' && s.localBaseUrl) setLocalBaseUrl(s.localBaseUrl)
         {
@@ -1401,6 +1446,7 @@ export default function App() {
         if (s.zaiKeySet || provider === 'zai') void refreshZaiModels()
         if (provider === 'zai' && s.zaiKeySet) void refreshZaiBalance()
         if (s.openrouterKeySet || provider === 'openrouter') void refreshOpenRouterModels()
+        if (s.qwenKeySet || provider === 'qwen') void refreshQwenModels()
         if (provider === 'openrouter' && s.openrouterKeySet) void refreshOpenRouterBalance()
         if (isLocalProvider(provider)) void refreshLocalModels({applyPreferred: true})
         setAutoModels(Boolean(s.autoModels))
@@ -1491,6 +1537,7 @@ export default function App() {
               const prov = activeProviderRef.current
               if (isLocalProvider(prov)) setLocalModel(nextModel)
               else if (prov === 'zai' || nextModel.startsWith('glm')) setZaiModel(nextModel)
+              else if (prov === 'qwen' || nextModel.startsWith('qwen-')) setQwenModel(nextModel)
               else if (prov === 'openrouter' || nextModel.includes('/')) setOpenrouterModel(nextModel)
               else setDeepseekModel(nextModel)
               const prev = lastModelRef.current[sid]
@@ -2393,6 +2440,29 @@ export default function App() {
     }
   }
 
+  async function refreshQwenModels(opts?: {applyPreferred?: boolean}) {
+    try {
+      const list = asList(await ListQwenModels()).map(String).filter(Boolean)
+      if (list.length === 0) return list
+      setQwenModels(list)
+      if (opts?.applyPreferred) {
+        let next = ''
+        try {
+          next = String(await PreferQwenModel(list) || '').trim()
+        } catch {
+          next = list[0] || ''
+        }
+        if (next && next !== qwenModel) {
+          setQwenModel(next)
+          await SaveQwenModel(next)
+        }
+      }
+      return list
+    } catch {
+      return [] as string[]
+    }
+  }
+
   async function refreshLocalModels(opts?: {applyPreferred?: boolean}) {
     try {
       const list = asList(await ListLocalModels()).map(String).filter(Boolean)
@@ -2482,6 +2552,8 @@ export default function App() {
         list = await refreshZaiModels({applyPreferred: true})
       } else if (activeProvider === 'openrouter') {
         list = await refreshOpenRouterModels({applyPreferred: true})
+      } else if (activeProvider === 'qwen') {
+        list = await refreshQwenModels({applyPreferred: true})
       } else {
         list = await refreshLocalModels({applyPreferred: true})
       }
@@ -2520,6 +2592,10 @@ export default function App() {
         setLocalHealth(null)
         void refreshOpenRouterModels({applyPreferred: true})
         void refreshOpenRouterBalance().then(() => applyUsageStats())
+      } else if (next === 'qwen') {
+        setLocalHealth(null)
+        void refreshQwenModels({applyPreferred: true})
+        void applyUsageStats()
       } else {
         setLocalHealth(null)
         void refreshDeepSeekModels({applyPreferred: true})
@@ -2558,6 +2634,15 @@ export default function App() {
       void SaveLocalModel(next)
       return
     }
+    if (activeProvider === 'qwen') {
+      setQwenModel(next)
+      if (autoModels) {
+        setAutoModels(false)
+        void SaveAutoModels(false)
+      }
+      void SaveQwenModel(next)
+      return
+    }
     setDeepseekModel(next)
     if (autoModels) {
       setAutoModels(false)
@@ -2582,6 +2667,11 @@ export default function App() {
       setOpenrouterKey('')
       setOpenrouterKeySet(true)
     }
+    if (qwenKey.trim()) {
+      await SaveQwenKey(qwenKey.trim())
+      setQwenKey('')
+      setQwenKeySet(true)
+    }
     if (localKey.trim()) {
       await SaveLocalKey(localKey.trim())
       setLocalKey('')
@@ -2592,6 +2682,8 @@ export default function App() {
     await SaveZaiModel(zaiModel.trim() || 'glm-4.7-flash')
     await SaveZaiEndpoint(zaiEndpoint)
     await SaveOpenRouterModel(openrouterModel.trim() || 'qwen/qwen3-coder-flash:floor')
+    await SaveQwenModel(qwenModel.trim() || 'qwen-plus')
+    await SaveQwenEndpoint(qwenEndpoint)
     await SaveLocalBaseURL(localBaseUrl.trim() || LOCAL_BASE_DEFAULT)
     await SaveLocalModel(localModel.trim())
     if (activeProvider === 'zai' || zaiKeySet) {
@@ -2601,6 +2693,9 @@ export default function App() {
     if (activeProvider === 'openrouter' || openrouterKeySet) {
       await refreshOpenRouterModels()
       await refreshOpenRouterBalance()
+    }
+    if (activeProvider === 'qwen' || qwenKeySet) {
+      await refreshQwenModels()
     }
     if (isLocalProvider(activeProvider)) {
       await refreshLocalModels()
@@ -2626,6 +2721,10 @@ export default function App() {
         await ClearOpenRouterKey()
         setOpenrouterKey('')
         setOpenrouterKeySet(false)
+      } else if (which === 'qwen') {
+        await ClearQwenKey()
+        setQwenKey('')
+        setQwenKeySet(false)
       } else if (isLocalProvider(which)) {
         await ClearLocalKey()
         setLocalKey('')
@@ -2746,7 +2845,7 @@ export default function App() {
     e?.preventDefault()
     const sid = activeSessionId
     if (!sid) return
-    const text = input.trim()
+    const text = stripUrlContext(input.trim())
     const atts = pendingAtts
     if (!text && atts.length === 0) return
     setInput('', sid)
@@ -2845,6 +2944,10 @@ export default function App() {
                   ? modelOptions(openrouterModels, openrouterModel).map((m) => (
                       <option key={m} value={m}>{m}</option>
                     ))
+                : activeProvider === 'qwen'
+                  ? modelOptions(qwenModels, qwenModel).map((m) => (
+                      <option key={m} value={m}>{m}</option>
+                    ))
                 : isLocalProvider(activeProvider)
                   ? modelOptions(localModels, localModel).map((m) => (
                       <option key={m} value={m}>{m}</option>
@@ -2875,6 +2978,8 @@ export default function App() {
                 ? 'Автовыбор: glm-4.7-flash (free) → glm-5.3 на сложных задачах; картинки → glm-5.3-flash'
                 : activeProvider === 'openrouter'
                   ? 'Автовыбор: qwen3-coder-flash:floor → qwen3-coder:floor; картинки → qwen3-vl'
+                  : activeProvider === 'qwen'
+                  ? 'Автовыбор: qwen-plus → qwen-max на сложных задачах; картинки → qwen-vl-max'
                 : 'Автовыбор flash / pro / vision по задаче и длине прогона'
             }
           >
@@ -2936,6 +3041,10 @@ export default function App() {
                   return `Провайдер OpenRouter · чат: ${usage.chatInputTokens} in / ${usage.chatOutputTokens} out (${fmtUsd(usage.chatCostUsd)}) · total OR: ${usage.inputTokens} in / ${usage.outputTokens} out (${fmtUsd(usage.costUsd)})` +
                     cacheLine +
                     (usage.balanceDetail ? ` · ${usage.balanceDetail}` : '')
+                }
+                if (activeProvider === 'qwen') {
+                  return `Провайдер Qwen · чат: ${usage.chatInputTokens} in / ${usage.chatOutputTokens} out (${fmtUsd(usage.chatCostUsd)}) · total Qwen: ${usage.inputTokens} in / ${usage.outputTokens} out (${fmtUsd(usage.costUsd)})` +
+                    cacheLine
                 }
                 if (isLocalProvider(activeProvider)) {
                   return `Провайдер Custom · чат: ${usage.chatInputTokens} in / ${usage.chatOutputTokens} out · total Custom: ${usage.inputTokens} in / ${usage.outputTokens} out` +
@@ -3337,47 +3446,47 @@ export default function App() {
               </div>
             </div>
             <div className="nc-chat-hsplit" onMouseDown={(e) => beginResize('composer', e)} />
-            <div className="nc-composer-wrap">
-              {queue.length > 0 && (
-                <div className="nc-queue-pending" aria-label="Отложенные запросы">
-                  <div className="nc-queue-head">
-                    <span className="nc-queue-title">
-                      В очереди: {queue.length}
-                      {active ? ` · ${active.name}` : ''}
-                    </span>
-                    <span className="nc-queue-hint">
-                      {busy ? 'уйдут после текущего ответа' : 'отправляю…'}
-                    </span>
-                  </div>
-                  <div className="nc-queue-list">
-                    {queue.map((q) => (
-                      <div key={q.id} className="nc-queue-card">
-                        <div className="nc-queue-card-text">
-                          {q.text || (q.atts.length ? `(вложения: ${q.atts.length})` : '(пусто)')}
-                        </div>
-                        <div className="nc-queue-card-actions">
-                          <button
-                            type="button"
-                            className="nc-ghost"
-                            title="Остановить текущий ответ и отправить сейчас"
-                            onClick={() => void sendQueuedNow(q.id)}
-                          >
-                            Send now
-                          </button>
-                          <button
-                            type="button"
-                            className="nc-ghost"
-                            title="Убрать из очереди"
-                            onClick={() => dismissQueued(q.id)}
-                          >
-                            ×
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+            {queue.length > 0 && (
+              <div className="nc-queue-pending" aria-label="Отложенные запросы">
+                <div className="nc-queue-head">
+                  <span className="nc-queue-title">
+                    В очереди: {queue.length}
+                    {active ? ` · ${active.name}` : ''}
+                  </span>
+                  <span className="nc-queue-hint">
+                    {busy ? 'уйдут после текущего ответа' : 'отправляю…'}
+                  </span>
                 </div>
-              )}
+                <div className="nc-queue-list">
+                  {queue.map((q) => (
+                    <div key={q.id} className="nc-queue-card">
+                      <div className="nc-queue-card-text">
+                        {q.text || (q.atts.length ? `(вложения: ${q.atts.length})` : '(пусто)')}
+                      </div>
+                      <div className="nc-queue-card-actions">
+                        <button
+                          type="button"
+                          className="nc-ghost"
+                          title="Остановить текущий ответ и отправить сейчас"
+                          onClick={() => void sendQueuedNow(q.id)}
+                        >
+                          Send now
+                        </button>
+                        <button
+                          type="button"
+                          className="nc-ghost"
+                          title="Убрать из очереди"
+                          onClick={() => dismissQueued(q.id)}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div className="nc-composer-wrap">
               {showRunStatus && (
                 <div className="nc-run-status" title="Текущий этап работы агента">
                   <span className="nc-run-dot" aria-hidden />
@@ -3422,7 +3531,7 @@ export default function App() {
                 )}
                 <textarea
                   value={input}
-                  onChange={(e) => setInput(e.target.value)}
+                  onChange={(e) => setInput(stripUrlContext(e.target.value))}
                   placeholder="Спросите агента… Ctrl+V / drag-drop — скриншот или файл"
                   rows={3}
                   onPaste={(e) => {
@@ -3534,6 +3643,7 @@ export default function App() {
                 <option value="deepseek">DeepSeek</option>
                 <option value="zai">Z.ai (GLM)</option>
                 <option value="openrouter">OpenRouter</option>
+                <option value="qwen">Qwen (DashScope)</option>
                 {localEndpoints.map((ep) => (
                   <option key={ep.id} value={`local:${ep.id}`}>
                     Custom: {ep.name}
@@ -3551,6 +3661,8 @@ export default function App() {
                   ? 'Z.ai: free flash → glm-5.3 на сложных задачах'
                   : activeProvider === 'openrouter'
                     ? 'OpenRouter: flash:floor → coder:floor'
+                    : activeProvider === 'qwen'
+                    ? 'Qwen: qwen-plus → qwen-max на сложных задачах'
                   : 'DeepSeek: flash / pro / vision'
               }
             >
@@ -3570,6 +3682,8 @@ export default function App() {
                 ? 'free → 5.3'
                 : activeProvider === 'openrouter'
                   ? 'flash → coder'
+                  : activeProvider === 'qwen'
+                  ? 'plus → max'
                   : 'flash / pro / vision'}
               )
             </label>
@@ -3710,6 +3824,71 @@ export default function App() {
                 <p className="nc-help">
                   Ключ хранится в {secretsBackend || 'системном хранилище'}.
                   {openrouterKeySet ? <button type="button" className="nc-ghost" onClick={() => void clearProviderKey('openrouter')}>Clear key</button> : null}
+                </p>
+              </>
+            ) : activeProvider === 'qwen' ? (
+              <>
+                <div className="nc-section-label">Qwen (DashScope)</div>
+                <p className="nc-help">
+                  Alibaba Cloud Model Studio. Ключ — в Model Studio (DashScope) → API-KEY.
+                  OpenAI-совместимый режим <code>/compatible-mode/v1</code>, tool calling из коробки.
+                </p>
+                <label>
+                  Endpoint
+                  <select
+                    value={qwenEndpoint}
+                    onChange={(e) => {
+                      const next = e.target.value === 'cn' ? 'cn' : 'intl'
+                      setQwenEndpoint(next)
+                      void SaveQwenEndpoint(next)
+                    }}
+                  >
+                    <option value="intl">International (dashscope-intl)</option>
+                    <option value="cn">China (dashscope)</option>
+                  </select>
+                </label>
+                <label>
+                  Model
+                  <select
+                    value={qwenModels.includes(qwenModel) ? qwenModel : qwenModel}
+                    onChange={(e) => void applyModel(e.target.value)}
+                  >
+                    {modelOptions(qwenModels, qwenModel).map((m) => (
+                      <option key={m} value={m}>{m}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Custom model id
+                  <input
+                    type="text"
+                    value={qwenModel}
+                    onChange={(e) => setQwenModel(e.target.value)}
+                    onBlur={(e) => {
+                      const next = e.target.value.trim()
+                      if (next) void SaveQwenModel(next)
+                    }}
+                    placeholder="qwen-plus"
+                  />
+                </label>
+                <button type="button" className="nc-ghost" onClick={() => void refreshQwenModels()}>Refresh models</button>
+                <p className="nc-help">
+                  Для агента нужны модели с tool calling (<code>qwen-max</code>, <code>qwen-plus</code>,{' '}
+                  <code>qwen-turbo</code>, <code>qwen3-coder-*</code>). Баланса через API нет — смотрите
+                  консоль Model Studio. Стоимость считаем по нашему тарифу (usage.cost DashScope не отдаёт).
+                </p>
+                <label>
+                  API key
+                  <input
+                    type="password"
+                    value={qwenKey}
+                    onChange={(e) => setQwenKey(e.target.value)}
+                    placeholder={qwenKeySet ? '•••• set' : 'sk-...'}
+                  />
+                </label>
+                <p className="nc-help">
+                  Ключ хранится в {secretsBackend || 'системном хранилище'}.
+                  {qwenKeySet ? <button type="button" className="nc-ghost" onClick={() => void clearProviderKey('qwen')}>Clear key</button> : null}
                 </p>
               </>
             ) : isLocalProvider(activeProvider) ? (

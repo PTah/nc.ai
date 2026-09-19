@@ -30,6 +30,15 @@ func TestNormalizeModel(t *testing.T) {
 		"qwen/qwen3-coder-flash:floor": "qwen/qwen3-coder-flash",
 		"qwen/qwen3-coder:floor":       "qwen/qwen3-coder",
 		"qwen/qwen3-coder-plus":        "qwen/qwen3-coder-plus",
+		// DashScope (Alibaba Cloud Model Studio) bare ids.
+		"qwen-plus":           "qwen-plus",
+		"qwen-plus-latest":    "qwen-plus",
+		"qwen-max":            "qwen-max",
+		"qwen-turbo":          "qwen-turbo",
+		"qwen3-coder-plus":    "qwen3-coder-plus",
+		"qwen3-coder-flash":   "qwen3-coder-flash",
+		"qwen-vl-max":         "qwen-vl-max",
+		"qwen-vl-plus-latest": "qwen-vl-plus",
 	}
 	for in, want := range cases {
 		if got := NormalizeModel(in); got != want {
@@ -194,5 +203,25 @@ func TestCostOpenRouterSheetFallback(t *testing.T) {
 	want := 0.195 + 0.975
 	if !almost(got, want) {
 		t.Fatalf("sheet fallback = %v want %v", got, want)
+	}
+}
+
+func TestCostQwenSheet(t *testing.T) {
+	u := &llm.Usage{PromptTokens: 1_000_000, CompletionTokens: 1_000_000}
+	got := CostAt("qwen-plus", u, time.Now().UTC())
+	want := 0.40 + 1.20
+	if !almost(got, want) {
+		t.Fatalf("qwen-plus = %v want %v", got, want)
+	}
+	// Unknown Qwen id bills as the balanced tier, never $0.
+	got = CostAt("qwen-plus-9999", u, time.Now().UTC())
+	if !almost(got, want) {
+		t.Fatalf("qwen fallback = %v want %v", got, want)
+	}
+	// Cache hit uses the discounted input rate.
+	hit := &llm.Usage{PromptCacheHitTokens: 1_000_000}
+	got = CostAt("qwen-max", hit, time.Now().UTC())
+	if !almost(got, 0.64) {
+		t.Fatalf("qwen-max cache hit = %v want 0.64", got)
 	}
 }

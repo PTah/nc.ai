@@ -21,7 +21,7 @@ GET  /credits   # prepaid balance (иногда нужен management key)
 ```
 Authorization: Bearer <OPENROUTER_API_KEY>
 Content-Type: application/json
-HTTP-Referer: https://git.papatramp.ru/PapaTramp/nc.ai
+HTTP-Referer: https://github.com/PTah/nc.ai
 X-OpenRouter-Title: NotCursor.ai
 X-Title: NotCursor.ai   # legacy alias, still accepted
 ```

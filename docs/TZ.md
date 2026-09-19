@@ -2,7 +2,7 @@
 
 **Версия:** 0.1.0  
 **Дата:** 2026-09-06  
-**Репозиторий:** https://git.papatramp.ru/PapaTramp/nc.ai  
+**Репозиторий:** https://github.com/PTah/nc.ai  
 **Статус:** этап 1 — фундамент (DeepSeek + shell/git/ssh)
 
 ---
