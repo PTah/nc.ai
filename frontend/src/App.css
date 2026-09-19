@@ -1346,6 +1346,37 @@ mark.nc-find-mark.nc-find-current {
   font-size: 1.05rem;
 }
 
+/* Restart notice: why the app (re)started (update / unclean exit). */
+.nc-restart-note {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 0 0 auto;
+  margin: 0.4rem 0.8rem 0;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent, #3d8bfd);
+  border-radius: 8px;
+  background: var(--panel-2, var(--bg));
+  color: var(--text);
+  font-size: 0.8rem;
+}
+.nc-restart-icon { color: var(--accent, #3d8bfd); }
+.nc-restart-text { flex: 1 1 auto; min-width: 0; }
+.nc-restart-x {
+  flex: 0 0 auto;
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.85rem;
+  line-height: 1;
+  padding: 0 0.2rem;
+}
+.nc-restart-x:hover { color: var(--text); }
+.nc-msg.tool.interrupted .nc-tool-icon { color: var(--muted); }
+.nc-msg.tool.interrupted .nc-tool-title { font-style: italic; }
+
 /* Archived chats */
 .nc-archives {
   width: min(760px, 100%);
