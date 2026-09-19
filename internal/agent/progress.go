@@ -32,8 +32,11 @@ type ProgressInfo struct {
 	Tools   int    `json:"tools"`
 	Done    string `json:"done,omitempty"`
 	Current string `json:"current,omitempty"`
-	Task    string `json:"task,omitempty"`
-	Text    string `json:"text,omitempty"`
+	// Action is the same step written as a human phrase ("Читаю app.go"),
+	// so the UI can show what the agent is doing without tool jargon.
+	Action string `json:"action,omitempty"`
+	Task   string `json:"task,omitempty"`
+	Text   string `json:"text,omitempty"`
 }
 
 // runProgress accumulates what the agent already did during one RunMessage call.
@@ -48,6 +51,7 @@ type runProgress struct {
 	cats      map[string]int
 	order     []string
 	current   string
+	act       string
 	task      string
 	stop      chan struct{}
 	stopped   bool
@@ -96,12 +100,14 @@ func (p *runProgress) beginStep(step int) {
 // setCurrent remembers the tool the runner is about to execute.
 func (p *runProgress) setCurrent(name, argsJSON string) {
 	hint := toolArgHint(name, argsJSON)
+	act := toolAction(name, argsJSON)
 	p.mu.Lock()
 	if hint == "" {
 		p.current = name
 	} else {
 		p.current = name + " " + hint
 	}
+	p.act = act
 	p.mu.Unlock()
 }
 
@@ -182,6 +188,7 @@ func (p *runProgress) payloadLocked(phase string) string {
 		Tools:   p.tools,
 		Done:    p.doneLocked(),
 		Current: p.current,
+		Action:  p.act,
 		Task:    p.task,
 		Text:    p.textLocked(phase, el),
 	}
@@ -221,8 +228,12 @@ func (p *runProgress) textLocked(phase string, el time.Duration) string {
 	if s := p.doneLocked(); s != "" {
 		b.WriteString("\nСделано: " + s)
 	}
-	if p.current != "" {
-		b.WriteString("\nСейчас: " + p.current)
+	cur := p.act
+	if cur == "" {
+		cur = p.current
+	}
+	if cur != "" {
+		b.WriteString("\nСейчас: " + cur)
 	}
 	return b.String()
 }
@@ -296,4 +307,103 @@ func toolArgHint(name, argsJSON string) string {
 		}
 	}
 	return ""
+}
+
+// toolAction describes the current step as a short human phrase ("Читаю app.go",
+// "Ищу «EdgeSwitch»") so the live status line does not have to show tool names
+// and raw arguments.
+func toolAction(name, argsJSON string) string {
+	hint := toolArgHint(name, argsJSON)
+	switch {
+	case strings.HasPrefix(name, "git_"):
+		return gitAction(name)
+	case strings.HasPrefix(name, "ssh_"):
+		if name == "ssh_keygen" {
+			return withTarget("Создаю SSH-ключ ", hint, "Создаю SSH-ключ")
+		}
+		if hint != "" {
+			return "SSH: " + hint
+		}
+		return "Подключаюсь по SSH"
+	}
+	switch name {
+	case "read_file":
+		return withTarget("Читаю ", baseName(hint), "Читаю файл")
+	case "write_file":
+		return withTarget("Пишу ", baseName(hint), "Пишу файл")
+	case "apply_patch":
+		return withTarget("Правлю ", baseName(hint), "Правлю файлы")
+	case "delete_file":
+		return withTarget("Удаляю ", baseName(hint), "Удаляю файл")
+	case "move_file":
+		return withTarget("Перемещаю ", baseName(hint), "Перемещаю файл")
+	case "list_dir":
+		return withTarget("Смотрю каталог ", hint, "Смотрю каталог")
+	case "glob":
+		return withTarget("Ищу по маске ", hint, "Ищу по маске")
+	case "find_files":
+		return withTarget("Ищу файл ", hint, "Ищу файл")
+	case "grep":
+		return withTarget("Ищу ", quote(hint), "Ищу по содержимому")
+	case "read_lints":
+		return withTarget("Читаю диагностику ", baseName(hint), "Читаю диагностику")
+	case "run_terminal":
+		return withTarget("Запускаю: ", hint, "Запускаю команду")
+	case "command_status":
+		return withTarget("Проверяю фоновую задачу ", hint, "Проверяю фоновую задачу")
+	case "get_env_info":
+		return "Смотрю окружение"
+	case "web_search":
+		return withTarget("Ищу в сети: ", quote(hint), "Ищу в сети")
+	case "fetch_url":
+		return withTarget("Открываю ", hint, "Открываю страницу")
+	case "todo_write":
+		return "Обновляю план"
+	case "ask_user":
+		return "Спрашиваю вас"
+	}
+	return "Вызываю " + name
+}
+
+func gitAction(name string) string {
+	switch name {
+	case "git_status":
+		return "Смотрю git status"
+	case "git_diff":
+		return "Смотрю git diff"
+	case "git_log":
+		return "Смотрю историю коммитов"
+	case "git_commit":
+		return "Коммичу изменения"
+	case "git_push":
+		return "Пушу в удалённый репозиторий"
+	}
+	return "git: " + strings.TrimPrefix(name, "git_")
+}
+
+func withTarget(prefix, target, fallback string) string {
+	if strings.TrimSpace(target) == "" {
+		return fallback
+	}
+	return prefix + target
+}
+
+func quote(s string) string {
+	if s == "" {
+		return ""
+	}
+	return "«" + s + "»"
+}
+
+// baseName keeps the file name only: the status line has no room for a full path.
+func baseName(p string) string {
+	p = strings.TrimSpace(p)
+	if p == "" {
+		return ""
+	}
+	p = strings.ReplaceAll(p, "\\", "/")
+	if i := strings.LastIndex(p, "/"); i >= 0 {
+		p = p[i+1:]
+	}
+	return firstLine(p, 40)
 }
