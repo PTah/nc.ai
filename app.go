@@ -305,13 +305,24 @@ func (a *App) shutdown(ctx context.Context) {
 	a.saveLastProject()
 }
 
+// deployMarkerName is dropped by build.ps1 before a deploy restart, so the next
+// launch can say "restart after deploy" instead of guessing "crash".
+const deployMarkerName = "deploy.marker"
+
 // detectStartupNotice figures out why we are starting and marks the run as
-// in-flight. A version change means "update"; a previous run that never reached
-// shutdown/beforeClose was killed (crash, or a deploy restart).
+// in-flight. A deploy marker wins, then a version change ("update"), then a
+// previous run that never reached shutdown/beforeClose (crash / killed).
 func (a *App) detectStartupNotice() {
 	s := a.cfg.Get()
 	prev := strings.TrimSpace(s.LastRunVersion)
+	isDeploy := a.takeDeployMarker()
 	switch {
+	case isDeploy:
+		notice := map[string]any{"reason": "deploy", "toVersion": appmeta.Version}
+		if prev != "" && prev != appmeta.Version {
+			notice["fromVersion"] = prev
+		}
+		a.startupNotice = notice
 	case prev != "" && prev != appmeta.Version:
 		a.startupNotice = map[string]any{
 			"reason":      "update",
@@ -325,6 +336,20 @@ func (a *App) detectStartupNotice() {
 		}
 	}
 	_ = a.cfg.SetRunState(appmeta.Version, false)
+}
+
+// takeDeployMarker consumes (and removes) the deploy marker left by build.ps1.
+func (a *App) takeDeployMarker() bool {
+	base, err := a.cfg.AppDataDir()
+	if err != nil {
+		return false
+	}
+	marker := filepath.Join(base, deployMarkerName)
+	if _, err := os.Stat(marker); err != nil {
+		return false
+	}
+	_ = os.Remove(marker)
+	return true
 }
 
 // StartupNotice reports why the app (re)started — empty map for a clean start.
