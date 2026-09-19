@@ -69,6 +69,14 @@ func Catalog() []ModelPrice {
 		{Provider: "OpenRouter", Model: "qwen/qwen3-vl-8b-instruct", InputUSD: 0.117, OutputUSD: 0.455, Strength: 19, Note: "vision"},
 		{Provider: "OpenRouter", Model: "qwen/qwen3-coder", InputUSD: 0.30, OutputUSD: 1.00, Strength: 28, Note: "Auto complex"},
 		{Provider: "OpenRouter", Model: "qwen/qwen3-coder-plus", InputUSD: 0.65, OutputUSD: 3.25, Strength: 42, Note: "strongest curated coder"},
+
+		{Provider: "Qwen (DashScope)", Model: "qwen-turbo", InputUSD: 0.05, OutputUSD: 0.20, CacheHitUSD: 0.02, Strength: 12, Note: "fastest/cheapest"},
+		{Provider: "Qwen (DashScope)", Model: "qwen-plus", InputUSD: 0.40, OutputUSD: 1.20, CacheHitUSD: 0.16, Strength: 20, Note: "balanced · Auto default"},
+		{Provider: "Qwen (DashScope)", Model: "qwen3-coder-flash", InputUSD: 0.20, OutputUSD: 0.80, CacheHitUSD: 0.08, Strength: 22, Note: "coding, fast"},
+		{Provider: "Qwen (DashScope)", Model: "qwen3-coder-plus", InputUSD: 1.00, OutputUSD: 4.00, CacheHitUSD: 0.40, Strength: 30, Note: "coding, strong"},
+		{Provider: "Qwen (DashScope)", Model: "qwen-max", InputUSD: 1.60, OutputUSD: 6.40, CacheHitUSD: 0.64, Strength: 48, Note: "flagship reasoning"},
+		{Provider: "Qwen (DashScope)", Model: "qwen-vl-plus", InputUSD: 0.40, OutputUSD: 1.20, CacheHitUSD: 0.16, Strength: 24, Note: "vision"},
+		{Provider: "Qwen (DashScope)", Model: "qwen-vl-max", InputUSD: 1.60, OutputUSD: 6.40, CacheHitUSD: 0.64, Strength: 46, Note: "vision flagship"},
 	}
 	if appmeta.DeepSeekProRetired(time.Now()) {
 		kept := rows[:0]

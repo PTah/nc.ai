@@ -29,6 +29,8 @@ export function ClearLocalKey():Promise<void>;
 
 export function ClearOpenRouterKey():Promise<void>;
 
+export function ClearQwenKey():Promise<void>;
+
 export function ClearZaiKey():Promise<void>;
 
 export function CloseProject(arg1:string,arg2:string):Promise<workspace.Project>;
@@ -71,6 +73,8 @@ export function ListOpenRouterModels():Promise<Array<string>>;
 
 export function ListProjects():Promise<Array<workspace.Project>>;
 
+export function ListQwenModels():Promise<Array<string>>;
+
 export function ListZaiModels():Promise<Array<string>>;
 
 export function LoadChat(arg1:string):Promise<string>;
@@ -86,6 +90,8 @@ export function PreferDeepSeekModel(arg1:Array<string>):Promise<string>;
 export function PreferLocalModel(arg1:Array<string>):Promise<string>;
 
 export function PreferOpenRouterModel(arg1:Array<string>):Promise<string>;
+
+export function PreferQwenModel(arg1:Array<string>):Promise<string>;
 
 export function PreferZaiModel(arg1:Array<string>):Promise<string>;
 
@@ -154,6 +160,12 @@ export function SaveOpenRouterKey(arg1:string):Promise<void>;
 export function SaveOpenRouterModel(arg1:string):Promise<void>;
 
 export function SavePlanMode(arg1:boolean):Promise<void>;
+
+export function SaveQwenEndpoint(arg1:string):Promise<void>;
+
+export function SaveQwenKey(arg1:string):Promise<void>;
+
+export function SaveQwenModel(arg1:string):Promise<void>;
 
 export function SaveShell(arg1:string):Promise<void>;
 

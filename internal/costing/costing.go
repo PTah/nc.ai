@@ -21,6 +21,9 @@ import (
 //
 // OpenRouter: prefer usage.cost from the API response when present; else sheet.
 //
+// Qwen (DashScope): static sheet (no live refresh); usage has prompt/completion
+// tokens only, so cost = hit * input_hit + miss * input_miss + completion * output.
+//
 // Free models (glm-4.7-flash, glm-4.5-flash) bill $0.
 //
 // Live DeepSeek/Z.ai sheets can be overridden by doc refresh (DeepSeek daily, Z.ai weekly).
@@ -57,6 +60,23 @@ var builtinOpenRouterSheet = map[string]Prices{
 		InputMiss: 0.104, InputHit: 0.104, Completion: 0.416,
 	},
 }
+
+// builtinQwenSheet is the DashScope (Alibaba Cloud Model Studio, international)
+// rate card in USD / 1M tokens. Approximate — DashScope has no cost field in the
+// OpenAI-compatible response, so totals come from here.
+// Source snapshot: help.aliyun.com/.../model-studio/models (intl, list price).
+var builtinQwenSheet = map[string]Prices{
+	"qwen-turbo":        {InputMiss: 0.05, InputHit: 0.02, Completion: 0.20},
+	"qwen-plus":         {InputMiss: 0.40, InputHit: 0.16, Completion: 1.20},
+	"qwen-max":          {InputMiss: 1.60, InputHit: 0.64, Completion: 6.40},
+	"qwen3-coder-flash": {InputMiss: 0.20, InputHit: 0.08, Completion: 0.80},
+	"qwen3-coder-plus":  {InputMiss: 1.00, InputHit: 0.40, Completion: 4.00},
+	"qwen-vl-plus":      {InputMiss: 0.40, InputHit: 0.16, Completion: 1.20},
+	"qwen-vl-max":       {InputMiss: 1.60, InputHit: 0.64, Completion: 6.40},
+}
+
+// qwenFallbackKey is used for unknown Qwen models so new models are not billed $0.
+var qwenFallbackKey = "qwen-plus"
 
 // NormalizeModel maps response/request model ids onto rate-card keys.
 // Unknown models return "".
@@ -114,6 +134,21 @@ func NormalizeModel(model string) string {
 		return "qwen/qwen3-vl-32b-instruct"
 	case strings.HasPrefix(m, "qwen/qwen3-vl"):
 		return "qwen/qwen3-vl-8b-instruct"
+	// DashScope (Alibaba Cloud Model Studio) bare ids: qwen-max / qwen-plus / qwen-turbo / …
+	case m == "qwen-max" || strings.HasPrefix(m, "qwen-max-"):
+		return "qwen-max"
+	case m == "qwen-plus" || strings.HasPrefix(m, "qwen-plus-"):
+		return "qwen-plus"
+	case m == "qwen-turbo" || strings.HasPrefix(m, "qwen-turbo-"):
+		return "qwen-turbo"
+	case strings.HasPrefix(m, "qwen3-coder-plus"):
+		return "qwen3-coder-plus"
+	case strings.HasPrefix(m, "qwen3-coder-flash"):
+		return "qwen3-coder-flash"
+	case strings.HasPrefix(m, "qwen-vl-max"):
+		return "qwen-vl-max"
+	case strings.HasPrefix(m, "qwen-vl-plus"):
+		return "qwen-vl-plus"
 	default:
 		return ""
 	}
@@ -172,6 +207,9 @@ func Price(model string, at time.Time) Prices {
 			key = "deepseek-flash"
 		} else if strings.HasPrefix(m, "qwen/") {
 			return liveOpenRouterPrices()["qwen/qwen3-coder"]
+		} else if strings.HasPrefix(m, "qwen") {
+			// Unknown DashScope Qwen model: bill as the balanced tier, not $0.
+			return builtinQwenSheet[qwenFallbackKey]
 		} else {
 			return Prices{}
 		}
@@ -180,6 +218,9 @@ func Price(model string, at time.Time) Prices {
 		return p
 	}
 	if p, ok := zai[key]; ok {
+		return p
+	}
+	if p, ok := builtinQwenSheet[key]; ok {
 		return p
 	}
 	peak, ok := dsPeak[key]
