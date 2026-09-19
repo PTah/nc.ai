@@ -7,14 +7,14 @@
   "frontend:dev:watcher": "npm run dev",
   "frontend:dev:serverUrl": "auto",
   "author": {
-    "name": "PapaTramp",
-    "email": "papatramp@gmail.com"
+    "name": "jdoe",
+    "email": "jdoe@gmail.com"
   },
   "info": {
-    "companyName": "PapaTramp",
+    "companyName": "jdoe",
     "productName": "NotCursor.ai",
 		"productVersion": "0.6.23.0",
-    "copyright": "Copyright © 2026 PapaTramp",
+    "copyright": "Copyright © 2026 jdoe",
     "comments": "NotCursor.ai — lightweight native AI IDE agent"
   }
 }

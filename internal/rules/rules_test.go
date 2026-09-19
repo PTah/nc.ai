@@ -85,7 +85,7 @@ func TestSkipForNotCursorAgent_ProposeOps(t *testing.T) {
 				Name:        "nc.ai-ops.mdc",
 				Path:        "/p/nc.ai-ops.mdc",
 				AlwaysApply: true,
-				Content:     "Deploy: none. Remotes: example/home/github.",
+				Content:     "Deploy: none. Remotes: kalinamall/home/github.",
 			},
 		},
 	}
