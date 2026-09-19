@@ -9,7 +9,7 @@ AI-агент для работы с кодом в отдельном окне: 
 Keychain / Windows Credential Manager), история чатов — локально. Наружу уходит только запрос к
 тому провайдеру LLM, которого вы выбрали сами.
 
-**Версия:** `0.6.26` · **На выходе:** `build/bin/NotCursor.exe` (Windows) и `build/bin/NotCursor.app` (macOS)
+**Версия:** `0.6.27` · **На выходе:** `build/bin/NotCursor.exe` (Windows) и `build/bin/NotCursor.app` (macOS)
 
 ## Быстрый старт
 
