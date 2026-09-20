@@ -346,6 +346,28 @@ function fmtAnswerTime(ms?: number): string {
   return `${p(d.getDate())}.${p(d.getMonth() + 1)}.${d.getFullYear()}, ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
 }
 
+/**
+ * Раскрытие блока в ленте: авто-скролл реагирует только на новые сообщения, а
+ * раскрытый <details> раньше «уезжал» ниже видимой части ответа. После
+ * открытия подтягиваем блок в видимую область — целиком, если он помещается,
+ * иначе показываем его начало.
+ */
+function revealOpenBlock(e: {currentTarget: HTMLDetailsElement}) {
+  const el = e.currentTarget
+  if (!el.open) return
+  requestAnimationFrame(() => {
+    const scroller = el.closest('.nc-thread')
+    if (!(scroller instanceof HTMLElement)) return
+    const sRect = scroller.getBoundingClientRect()
+    const eRect = el.getBoundingClientRect()
+    const below = eRect.bottom - sRect.bottom
+    if (below <= 0) return // блок и так виден целиком
+    const fits = eRect.height + 16 <= sRect.height
+    const above = sRect.top - eRect.top
+    scroller.scrollTop += fits ? below : -above
+  })
+}
+
 /** Размер в человекочитаемом виде (для баннера обновления). */
 function fmtBytes(n?: number): string {
   if (!n || n <= 0) return ''
@@ -845,7 +867,7 @@ function ToolCard({item}: {item: Extract<ChatItem, {kind: 'tool'}>}) {
         <span className="nc-tool-name">{item.name}</span>
       </div>
       {hasBody && (
-        <details className="nc-tool-details">
+        <details className="nc-tool-details" onToggle={revealOpenBlock}>
           <summary>подробности</summary>
           {item.args ? <pre className="nc-tool-pre"><span className="nc-k">args</span>{'\n'}{item.args}</pre> : null}
           {item.result != null ? <pre className="nc-tool-pre"><span className="nc-k">result</span>{'\n'}{item.result}</pre> : null}
@@ -915,7 +937,7 @@ function ToolGroup({
     <details
       className="nc-msg tool-group"
       open={open}
-      onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}
+      onToggle={(e) => { setOpen(e.currentTarget.open); revealOpenBlock(e) }}
     >
       <summary className="nc-tool-group-sum">
         <span className="nc-tool-icon">✓</span>
@@ -970,7 +992,7 @@ function ThinkingBlock({
     <details
       className="nc-msg reasoning"
       open={open}
-      onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}
+      onToggle={(e) => { setOpen(e.currentTarget.open); revealOpenBlock(e) }}
     >
       <summary className="nc-think-sum" title="Показать рассуждения модели">
         {label}
@@ -1008,7 +1030,7 @@ function TodoPanel({todos, expand, busy}: {todos: TodoItem[]; expand?: ExpandSig
     <details
       className="nc-msg todos"
       open={open}
-      onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}
+      onToggle={(e) => { setOpen(e.currentTarget.open); revealOpenBlock(e) }}
     >
       <summary className="nc-think-sum" title="План задач агента (todo_write)">
         Todo · {done}/{todos.length}
@@ -1107,7 +1129,7 @@ function ProcessGroup({
     <details
       className="nc-msg process-group"
       open={open}
-      onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}
+      onToggle={(e) => { setOpen(e.currentTarget.open); revealOpenBlock(e) }}
     >
       <summary className="nc-tool-group-sum">
         <span className="nc-tool-icon">✓</span>
@@ -1292,6 +1314,9 @@ export default function App() {
   const [modelsRefreshing, setModelsRefreshing] = useState(false)
   const [modelsRefreshHint, setModelsRefreshHint] = useState('')
   const chatRef = useRef<HTMLDivElement>(null)
+  // Следуем за низом ленты только пока пользователь у низа: иначе чтение
+  // выше «дёргалось» вниз на каждом новом чанке ответа.
+  const stickToBottomRef = useRef(true)
   const chatFindInputRef = useRef<HTMLInputElement>(null)
   const chatFindOpenRef = useRef(false)
   const chatFindRunAt = useRef(0)
@@ -2136,6 +2161,7 @@ export default function App() {
     if (chatFindOpen) return
     const el = chatRef.current
     if (!el) return
+    if (!stickToBottomRef.current) return
     el.scrollTop = el.scrollHeight
   }, [items, busy, activeSessionId, chatFindOpen])
 
@@ -2285,6 +2311,7 @@ export default function App() {
 
   async function switchSession(id: string) {
     if (!id || id === activeSessionId) return
+    stickToBottomRef.current = true // в другом чате показываем актуальный низ
     if (activeSessionId) {
       try {
         await SaveChatSession(activeSessionId, JSON.stringify(items))
@@ -3299,6 +3326,7 @@ export default function App() {
     e?.preventDefault()
     const sid = activeSessionId
     if (!sid) return
+    stickToBottomRef.current = true // свой вопрос — снова следим за низом
     const text = stripUrlContext(input.trim())
     const atts = pendingAtts
     if (!text && atts.length === 0) return
@@ -3874,7 +3902,18 @@ export default function App() {
                 </button>
               </div>
             )}
-            <div className="nc-thread" ref={chatRef}>
+            <div
+              className="nc-thread"
+              ref={chatRef}
+              onWheel={(e) => {
+                // Прокрутка вверх = пользователь читает выше: перестаём дёргать вниз.
+                if (e.deltaY < 0) stickToBottomRef.current = false
+              }}
+              onScroll={(e) => {
+                const el = e.currentTarget
+                if (el.scrollHeight - el.scrollTop - el.clientHeight < 48) stickToBottomRef.current = true
+              }}
+            >
               <div className="nc-thread-inner">
                 <div
                   className="nc-chat-wsplit left"
