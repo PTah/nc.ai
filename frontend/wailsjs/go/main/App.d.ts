@@ -86,6 +86,8 @@ export function ListZaiModels():Promise<Array<string>>;
 
 export function LoadChat(arg1:string):Promise<string>;
 
+export function LocalBuildHash():Promise<string>;
+
 export function NewChatSession(arg1:string):Promise<chatstore.Session>;
 
 export function OpenProject(arg1:string):Promise<workspace.Project>;

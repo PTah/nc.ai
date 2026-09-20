@@ -1,6 +1,11 @@
 package update
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
 
 func TestCompareVersions(t *testing.T) {
 	cases := []struct {
@@ -47,6 +52,48 @@ func TestPickAsset(t *testing.T) {
 	}
 	if _, ok := PickAsset(assets, "linux", "amd64"); ok {
 		t.Fatal("linux must not match")
+	}
+}
+
+func TestParseSha256AndSidecar(t *testing.T) {
+	sum := strings.Repeat("aB", 32) // 64 hex-символа
+	if got := ParseSha256(sum + "  nc.ai-0.6.30-windows-amd64.zip\n"); got != strings.ToLower(sum) {
+		t.Fatalf("parse: %q", got)
+	}
+	if got := ParseSha256("мусор без хеша"); got != "" {
+		t.Fatalf("мусор: %q", got)
+	}
+	assets := []Asset{
+		{Name: "nc.ai-0.6.30-windows-amd64.zip", URL: "u1"},
+		{Name: "nc.ai-0.6.30-windows-amd64.zip.sha256", URL: "h1"},
+	}
+	if a, ok := PickSidecar(assets, "nc.ai-0.6.30-windows-amd64.zip"); !ok || a.URL != "h1" {
+		t.Fatalf("sidecar: %v %v", a.Name, ok)
+	}
+	if _, ok := PickSidecar(assets, "nc.ai-0.6.29-windows-amd64.zip"); ok {
+		t.Fatal("не должно быть sidecar для другого архива")
+	}
+}
+
+func TestExecutableHash(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sample.bin")
+	if err := os.WriteFile(path, []byte("notcursor"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ExecutableHash(path)
+	if err != nil {
+		t.Fatalf("hash: %v", err)
+	}
+	if len(got) != 64 {
+		t.Fatalf("длина хеша: %d", len(got))
+	}
+	again, err := ExecutableHash(path)
+	if err != nil || got != again {
+		t.Fatalf("хеш нестабилен: %v", err)
+	}
+	if _, err := ExecutableHash(filepath.Join(dir, "нет-файла")); err == nil {
+		t.Fatal("ожидали ошибку для отсутствующего файла")
 	}
 }
 

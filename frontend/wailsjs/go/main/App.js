@@ -154,6 +154,10 @@ export function LoadChat(arg1) {
   return window['go']['main']['App']['LoadChat'](arg1);
 }
 
+export function LocalBuildHash() {
+  return window['go']['main']['App']['LocalBuildHash']();
+}
+
 export function NewChatSession(arg1) {
   return window['go']['main']['App']['NewChatSession'](arg1);
 }
