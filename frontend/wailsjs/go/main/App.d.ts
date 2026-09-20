@@ -45,6 +45,8 @@ export function GetCursorRules():Promise<rules.Bundle>;
 
 export function GetDeepSeekPeakInfo(arg1:string):Promise<costing.PeakInfo>;
 
+export function GetEndSound():Promise<string>;
+
 export function GetOpenRouterBalance():Promise<openrouter.AccountBalance>;
 
 export function GetSettings():Promise<Record<string, any>>;
@@ -142,6 +144,8 @@ export function SaveComposerHeight(arg1:number):Promise<void>;
 export function SaveDeepSeekKey(arg1:string):Promise<void>;
 
 export function SaveDeepSeekModel(arg1:string):Promise<void>;
+
+export function SaveEndSound(arg1:boolean):Promise<void>;
 
 export function SaveGitAuth(arg1:string,arg2:string):Promise<void>;
 

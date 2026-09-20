@@ -77,6 +77,8 @@ import {
   SaveAgentWarnSteps,
   SaveComposerHeight,
   SaveShowTerminal,
+  GetEndSound,
+  SaveEndSound,
   SaveShowFiles,
   SaveShowSettings,
   SaveLayoutSizes,
@@ -1222,6 +1224,13 @@ export default function App() {
   const [zaiBalance, setZaiBalance] = useState<{ok: boolean; availableUsd: number; detail: string; source: string} | null>(null)
   const [orBalance, setOrBalance] = useState<{ok: boolean; availableUsd: number; detail: string; source: string} | null>(null)
   const [autoModels, setAutoModels] = useState(true)
+  // End-of-run chime: on by default, the clip is embedded in the binary.
+  const [endSound, setEndSound] = useState(true)
+  const endSoundRef = useRef(true)
+  const chimeRef = useRef<HTMLAudioElement | null>(null)
+  useEffect(() => {
+    endSoundRef.current = endSound
+  }, [endSound])
   const [localLite, setLocalLite] = useState(false)
   const [toolConfirm, setToolConfirm] = useState(true)
   const [planMode, setPlanMode] = useState(false)
@@ -1375,6 +1384,31 @@ export default function App() {
       }))
     }
     return started
+  }, [])
+
+  // Plays the embedded end-of-run chime (settings item "Звук в конце работы").
+  const playEndSound = useCallback(() => {
+    if (!endSoundRef.current) return
+    const audio = chimeRef.current
+    if (!audio) return
+    try {
+      audio.currentTime = 0
+      void audio.play()?.catch(() => undefined)
+    } catch { /* автовоспроизведение запрещено — работе агента не мешаем */ }
+  }, [])
+
+  // Load the clip once: it is embedded in the binary (works on macOS and Windows).
+  useEffect(() => {
+    let alive = true
+    GetEndSound()
+      .then((url) => {
+        if (!alive || !url) return
+        const audio = new Audio(url)
+        audio.preload = 'auto'
+        chimeRef.current = audio
+      })
+      .catch(() => undefined)
+    return () => { alive = false }
   }, [])
 
   // Shared "run is over" cleanup. A run may finish for a project that is not on
@@ -1754,6 +1788,7 @@ export default function App() {
         if (provider === 'openrouter' && s.openrouterKeySet) void refreshOpenRouterBalance()
         if (isLocalProvider(provider)) void refreshLocalModels({applyPreferred: true})
         setAutoModels(Boolean(s.autoModels))
+        setEndSound(s.endSound !== false)
         setLocalLite(Boolean(s.localLite))
         setToolConfirm(s.toolConfirm !== false)
         setPlanMode(Boolean(s.planMode))
@@ -1983,6 +2018,7 @@ export default function App() {
           } else if (ev.type === 'done' || ev.type === 'persist') {
             closeReasoning(sid)
             finishRunUI(sid)
+            if (ev.type === 'done') playEndSound()
             if (sid === activeSessionRef.current) setRetryVisible(false)
             void applyUsageStats()
           } else if (ev.type === 'error') {
@@ -4048,6 +4084,21 @@ export default function App() {
                   ? 'plus → max'
                   : 'flash / pro / vision'}
               )
+            </label>
+            <label
+              className="nc-top-check"
+              title="Играть звук, когда агент закончил работу и ответ выведен в чат"
+            >
+              <input
+                type="checkbox"
+                checked={endSound}
+                onChange={(e) => {
+                  const on = e.target.checked
+                  setEndSound(on)
+                  void SaveEndSound(on)
+                }}
+              />
+              Звук в конце работы
             </label>
             <label
               className="nc-top-check"

@@ -74,6 +74,10 @@ export function GetDeepSeekPeakInfo(arg1) {
   return window['go']['main']['App']['GetDeepSeekPeakInfo'](arg1);
 }
 
+export function GetEndSound() {
+  return window['go']['main']['App']['GetEndSound']();
+}
+
 export function GetOpenRouterBalance() {
   return window['go']['main']['App']['GetOpenRouterBalance']();
 }
@@ -268,6 +272,10 @@ export function SaveDeepSeekKey(arg1) {
 
 export function SaveDeepSeekModel(arg1) {
   return window['go']['main']['App']['SaveDeepSeekModel'](arg1);
+}
+
+export function SaveEndSound(arg1) {
+  return window['go']['main']['App']['SaveEndSound'](arg1);
 }
 
 export function SaveGitAuth(arg1, arg2) {
