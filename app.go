@@ -1,4 +1,4 @@
-﻿package main
+package main
 
 import (
 	"context"
@@ -15,6 +15,7 @@ import (
 	"notcursor.ai/app/internal/agent"
 	"notcursor.ai/app/internal/appmeta"
 	"notcursor.ai/app/internal/chatstore"
+	"notcursor.ai/app/internal/chime"
 	"notcursor.ai/app/internal/config"
 	"notcursor.ai/app/internal/costing"
 	"notcursor.ai/app/internal/dockicon"
@@ -531,6 +532,7 @@ func (a *App) GetSettings() map[string]any {
 		"recentProjects":     s.RecentProjects,
 		"showTerminal":       s.ShowTerminal,
 		"showFiles":          a.cfg.FilesVisible(),
+		"endSound":           a.cfg.EndSoundEnabled(),
 		"showSettings":       s.ShowSettings,
 		"theme":              a.cfg.Theme(),
 		"agentMaxSteps":      a.cfg.MaxAgentSteps(),
@@ -770,6 +772,17 @@ func (a *App) SaveShowFiles(show bool) error {
 
 func (a *App) SaveShowSettings(show bool) error {
 	return a.cfg.SetShowSettings(show)
+}
+
+// SaveEndSound remembers whether the chime plays when the agent finishes.
+func (a *App) SaveEndSound(on bool) error {
+	return a.cfg.SetEndSound(on)
+}
+
+// GetEndSound returns the built-in end-of-run chime as a data URL. The clip is
+// embedded into the binary, so both the macOS and the Windows build have it.
+func (a *App) GetEndSound() string {
+	return chime.DataURL()
 }
 
 // SaveLayoutSizes persists inner pane widths/heights (projects/tree/settings/terminal/chat column).

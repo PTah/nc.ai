@@ -96,12 +96,15 @@ type Settings struct {
 	// a version change means "update", an unclean exit means a crash/kill.
 	LastRunVersion string `json:"lastRunVersion,omitempty"`
 	CleanExit      bool   `json:"cleanExit,omitempty"`
-	GitUsername    string   `json:"gitUsername"`
-	GitPassword    string   `json:"gitPassword"`
-	SSHUser        string   `json:"sshUser"`
-	ShowTerminal   bool     `json:"showTerminal"`
+	GitUsername    string `json:"gitUsername"`
+	GitPassword    string `json:"gitPassword"`
+	SSHUser        string `json:"sshUser"`
+	ShowTerminal   bool   `json:"showTerminal"`
 	// ShowFiles: nil = default true (visible). Explicit false remembers Hide files.
 	ShowFiles *bool `json:"showFiles,omitempty"`
+	// EndSound: nil = default true (play the chime when the agent finishes).
+	// Explicit false remembers "Звук в конце работы" turned off.
+	EndSound *bool `json:"endSound,omitempty"`
 	// ShowSettings remembers the right settings pane visibility.
 	ShowSettings bool `json:"showSettings"`
 
@@ -888,6 +891,25 @@ func (s *Store) SetShowFiles(show bool) error {
 	s.mu.Lock()
 	v := show
 	s.settings.ShowFiles = &v
+	s.mu.Unlock()
+	return s.Save()
+}
+
+// EndSoundEnabled reports whether the chime plays when the agent finishes.
+// Default is true: the sound is on until the user turns it off.
+func (s *Store) EndSoundEnabled() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.settings.EndSound == nil {
+		return true
+	}
+	return *s.settings.EndSound
+}
+
+func (s *Store) SetEndSound(on bool) error {
+	s.mu.Lock()
+	v := on
+	s.settings.EndSound = &v
 	s.mu.Unlock()
 	return s.Save()
 }
