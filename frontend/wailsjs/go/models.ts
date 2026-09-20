@@ -566,6 +566,10 @@ export namespace update {
 	    assetUrl?: string;
 	    assetSize?: number;
 	    assetFound: boolean;
+	    sameVersion?: boolean;
+	    buildDiffers?: boolean;
+	    buildHash?: string;
+	    localHash?: string;
 	    error?: string;
 	
 	    static createFrom(source: any = {}) {
@@ -583,6 +587,10 @@ export namespace update {
 	        this.assetUrl = source["assetUrl"];
 	        this.assetSize = source["assetSize"];
 	        this.assetFound = source["assetFound"];
+	        this.sameVersion = source["sameVersion"];
+	        this.buildDiffers = source["buildDiffers"];
+	        this.buildHash = source["buildHash"];
+	        this.localHash = source["localHash"];
 	        this.error = source["error"];
 	    }
 	}
