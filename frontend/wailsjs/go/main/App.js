@@ -22,6 +22,10 @@ export function ChatOnce(arg1) {
   return window['go']['main']['App']['ChatOnce'](arg1);
 }
 
+export function CheckUpdate() {
+  return window['go']['main']['App']['CheckUpdate']();
+}
+
 export function ClearAllProviderKeys() {
   return window['go']['main']['App']['ClearAllProviderKeys']();
 }
@@ -74,6 +78,10 @@ export function GetDeepSeekPeakInfo(arg1) {
   return window['go']['main']['App']['GetDeepSeekPeakInfo'](arg1);
 }
 
+export function GetEndSound() {
+  return window['go']['main']['App']['GetEndSound']();
+}
+
 export function GetOpenRouterBalance() {
   return window['go']['main']['App']['GetOpenRouterBalance']();
 }
@@ -92,6 +100,10 @@ export function GetWelcome(arg1) {
 
 export function GetZaiBalance() {
   return window['go']['main']['App']['GetZaiBalance']();
+}
+
+export function InstallUpdate() {
+  return window['go']['main']['App']['InstallUpdate']();
 }
 
 export function ListArchivedChats() {
@@ -268,6 +280,10 @@ export function SaveDeepSeekKey(arg1) {
 
 export function SaveDeepSeekModel(arg1) {
   return window['go']['main']['App']['SaveDeepSeekModel'](arg1);
+}
+
+export function SaveEndSound(arg1) {
+  return window['go']['main']['App']['SaveEndSound'](arg1);
 }
 
 export function SaveGitAuth(arg1, arg2) {
