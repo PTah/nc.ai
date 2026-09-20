@@ -1,4 +1,4 @@
-package main
+﻿package main
 
 import (
 	"context"
@@ -1059,16 +1059,19 @@ func (a *App) PreferLocalModel(available []string) string {
 func (a *App) ProbeLocalHealth() map[string]any {
 	out := func(rep local.HealthReport) map[string]any {
 		return map[string]any{
-			"level":      string(rep.Level),
-			"label":      rep.Label,
-			"detail":     rep.Detail,
-			"model":      rep.Model,
-			"pingMs":     rep.PingMs,
-			"tokPerSec":  rep.TokPerSec,
-			"vramLoaded": rep.VRAMLoaded,
-			"sizeVram":   rep.SizeVRAM,
-			"loadMs":     rep.LoadMs,
-			"error":      rep.Error,
+			"level":           string(rep.Level),
+			"label":           rep.Label,
+			"detail":          rep.Detail,
+			"model":           rep.Model,
+			"pingMs":          rep.PingMs,
+			"tokPerSec":       rep.TokPerSec,
+			"prefillMs":       rep.PrefillMs,
+			"decodeTokPerSec": rep.DecodeTokPerSec,
+			"vramLoaded":      rep.VRAMLoaded,
+			"sizeVram":        rep.SizeVRAM,
+			"loadMs":          rep.LoadMs,
+			"hint":            rep.Hint,
+			"error":           rep.Error,
 		}
 	}
 	if !config.IsLocalProvider(a.cfg.Provider()) {

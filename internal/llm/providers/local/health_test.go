@@ -1,4 +1,4 @@
-package local
+﻿package local
 
 import (
 	"context"
@@ -31,6 +31,15 @@ func TestScoreHealth(t *testing.T) {
 	if crit.Level != HealthCritical {
 		t.Fatalf("crit: %s", crit.Level)
 	}
+
+	slowPrefill := HealthReport{PingMs: 500, TokPerSec: 60, PrefillMs: 4500, VRAMLoaded: true, SizeVRAM: 5 << 30}
+	scoreHealth(&slowPrefill)
+	if slowPrefill.Level != HealthWarn {
+		t.Fatalf("slow prefill should warn: %s", slowPrefill.Level)
+	}
+	if slowPrefill.Hint == "" || !strings.Contains(slowPrefill.Label, "prefill") {
+		t.Fatalf("hint/label: hint=%q label=%q", slowPrefill.Hint, slowPrefill.Label)
+	}
 }
 
 func TestProbeHealthOllama(t *testing.T) {
@@ -45,6 +54,7 @@ func TestProbeHealthOllama(t *testing.T) {
 		case r.URL.Path == "/api/generate":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"response": "ok", "total_duration": 4e8, "load_duration": 1e6,
+				"prompt_eval_count": 12, "prompt_eval_duration": 8e7,
 				"eval_count": 2, "eval_duration": 2e7,
 			})
 		default:
@@ -64,7 +74,10 @@ func TestProbeHealthOllama(t *testing.T) {
 	if !rep.VRAMLoaded || rep.TokPerSec < 50 {
 		t.Fatalf("%+v", rep)
 	}
-	if !strings.Contains(rep.Label, "tok/s") {
+	if rep.PrefillMs <= 0 || rep.DecodeTokPerSec < 50 {
+		t.Fatalf("prefill/decode missing: %+v", rep)
+	}
+	if !strings.Contains(rep.Label, "tok/s") || !strings.Contains(rep.Label, "prefill") {
 		t.Fatalf("label=%q", rep.Label)
 	}
 }

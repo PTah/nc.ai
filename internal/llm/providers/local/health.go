@@ -1,4 +1,4 @@
-package local
+﻿package local
 
 import (
 	"bytes"
@@ -25,16 +25,19 @@ const (
 
 // HealthReport is a quick Local/Ollama readiness snapshot.
 type HealthReport struct {
-	Level      HealthLevel `json:"level"`
-	Label      string      `json:"label"`
-	Detail     string      `json:"detail"`
-	Model      string      `json:"model"`
-	PingMs     int         `json:"pingMs"`
-	TokPerSec  float64     `json:"tokPerSec"`
-	VRAMLoaded bool        `json:"vramLoaded"`
-	SizeVRAM   int64       `json:"sizeVram"`
-	LoadMs     int         `json:"loadMs"`
-	Error      string      `json:"error,omitempty"`
+	Level           HealthLevel `json:"level"`
+	Label           string      `json:"label"`
+	Detail          string      `json:"detail"`
+	Model           string      `json:"model"`
+	PingMs          int         `json:"pingMs"`
+	TokPerSec       float64     `json:"tokPerSec"` // alias of DecodeTokPerSec for UI
+	PrefillMs       int         `json:"prefillMs"`
+	DecodeTokPerSec float64     `json:"decodeTokPerSec"`
+	VRAMLoaded      bool        `json:"vramLoaded"`
+	SizeVRAM        int64       `json:"sizeVram"`
+	LoadMs          int         `json:"loadMs"`
+	Hint            string      `json:"hint,omitempty"`
+	Error           string      `json:"error,omitempty"`
 }
 
 type ollamaPSResponse struct {
@@ -46,10 +49,12 @@ type ollamaPSResponse struct {
 }
 
 type ollamaGenerateResponse struct {
-	TotalDuration int64 `json:"total_duration"`
-	LoadDuration  int64 `json:"load_duration"`
-	EvalCount     int   `json:"eval_count"`
-	EvalDuration  int64 `json:"eval_duration"`
+	TotalDuration      int64 `json:"total_duration"`
+	LoadDuration       int64 `json:"load_duration"`
+	PromptEvalCount    int   `json:"prompt_eval_count"`
+	PromptEvalDuration int64 `json:"prompt_eval_duration"`
+	EvalCount          int   `json:"eval_count"`
+	EvalDuration       int64 `json:"eval_duration"`
 }
 
 // ProbeHealth checks VRAM residency (Ollama /api/ps) and a tiny generate/chat ping.
@@ -173,8 +178,12 @@ func (c *Client) pingGenerate(ctx context.Context, origin string, rep *HealthRep
 	if out.LoadDuration > 0 {
 		rep.LoadMs = int(out.LoadDuration / int64(time.Millisecond))
 	}
+	if out.PromptEvalDuration > 0 {
+		rep.PrefillMs = int(out.PromptEvalDuration / int64(time.Millisecond))
+	}
 	if out.EvalDuration > 0 && out.EvalCount > 0 {
-		rep.TokPerSec = float64(out.EvalCount) / (float64(out.EvalDuration) / 1e9)
+		rep.DecodeTokPerSec = float64(out.EvalCount) / (float64(out.EvalDuration) / 1e9)
+		rep.TokPerSec = rep.DecodeTokPerSec
 	}
 	return nil
 }
@@ -197,6 +206,10 @@ func (c *Client) pingChat(ctx context.Context, rep *HealthReport) error {
 func scoreHealth(rep *HealthReport) {
 	ping := rep.PingMs
 	tps := rep.TokPerSec
+	if tps <= 0 && rep.DecodeTokPerSec > 0 {
+		tps = rep.DecodeTokPerSec
+		rep.TokPerSec = tps
+	}
 	cold := rep.LoadMs >= 2000 || (!rep.VRAMLoaded && ping >= 1500)
 
 	switch {
@@ -212,11 +225,28 @@ func scoreHealth(rep *HealthReport) {
 		rep.Level = HealthOK
 	}
 
-	parts := make([]string, 0, 4)
+	// Prefill vs decode: slow prompt_eval with healthy decode → context/cache issue.
+	if rep.Hint == "" && rep.PrefillMs >= 3000 && tps >= 30 {
+		rep.Hint = "Prefill медленный при нормальном decode — укоротите контекст (Lite / новый чат) или включите prefix cache на сервере."
+		if rep.Level == HealthOK {
+			rep.Level = HealthWarn
+		}
+	}
+	if rep.Hint == "" && !rep.VRAMLoaded && tps > 0 && tps < 15 {
+		rep.Hint = "Похоже на CPU/offload. Для одного пользователя — Ollama/llama.cpp; для параллели — vLLM + prefix caching."
+	}
+
+	parts := make([]string, 0, 5)
 	if tps > 0 {
 		parts = append(parts, fmt.Sprintf("%.0f tok/s", tps))
 	}
-	if ping > 0 {
+	if rep.PrefillMs > 0 {
+		if rep.PrefillMs >= 1000 {
+			parts = append(parts, fmt.Sprintf("prefill %.1fs", float64(rep.PrefillMs)/1000))
+		} else {
+			parts = append(parts, fmt.Sprintf("prefill %dms", rep.PrefillMs))
+		}
+	} else if ping > 0 {
 		parts = append(parts, fmt.Sprintf("%d ms", ping))
 	}
 	if rep.VRAMLoaded {
@@ -238,10 +268,13 @@ func scoreHealth(rep *HealthReport) {
 		d.WriteString("Модель сейчас не в VRAM (возможен холодный старт). ")
 	}
 	if tps > 0 {
-		d.WriteString(fmt.Sprintf("Скорость генерации ≈ %.0f ток/с. ", tps))
+		d.WriteString(fmt.Sprintf("Decode ≈ %.0f ток/с. ", tps))
+	}
+	if rep.PrefillMs > 0 {
+		d.WriteString(fmt.Sprintf("Prefill ≈ %d мс. ", rep.PrefillMs))
 	}
 	if ping > 0 {
-		d.WriteString(fmt.Sprintf("Пинг ≈ %d мс. ", ping))
+		d.WriteString(fmt.Sprintf("Пинг (wall) ≈ %d мс. ", ping))
 	}
 	if rep.LoadMs > 0 {
 		d.WriteString(fmt.Sprintf("Загрузка модели ≈ %d мс. ", rep.LoadMs))
@@ -250,11 +283,15 @@ func scoreHealth(rep *HealthReport) {
 	case HealthOK:
 		d.WriteString("Всё хорошо — можно работать.")
 	case HealthWarn:
-		d.WriteString("Средне: подождите прогрева или проверьте GPU.")
+		d.WriteString("Средне: подождите прогрева или проверьте GPU/контекст.")
 	case HealthBad:
 		d.WriteString("Плохо: очень медленно (часто CPU вместо GPU).")
 	default:
 		d.WriteString("Критично: сервер еле отвечает или недоступен.")
+	}
+	if rep.Hint != "" {
+		d.WriteString(" ")
+		d.WriteString(rep.Hint)
 	}
 	rep.Detail = d.String()
 }

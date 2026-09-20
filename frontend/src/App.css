@@ -772,6 +772,31 @@ mark.nc-find-mark.nc-find-current {
 }
 .nc-msg.status { background: var(--msg-status); border-style: dashed; color: var(--muted); }
 .nc-role { font-size: 0.68rem; color: var(--muted); text-transform: uppercase; margin-bottom: 0.25rem; letter-spacing: 0.04em; }
+/* Actions under an agent answer (copy the whole reply). */
+.nc-msg-actions {
+  display: flex; gap: 0.3rem; margin-top: 0.45rem;
+  opacity: 0; transition: opacity 0.12s ease;
+}
+.nc-msg.assistant:hover .nc-msg-actions,
+.nc-msg-actions:focus-within { opacity: 1; }
+.nc-msg-action {
+  display: inline-flex; align-items: center; gap: 0.3rem;
+  padding: 0.15rem 0.4rem; border: 0; border-radius: 6px;
+  background: transparent; color: var(--muted); cursor: pointer;
+  font-size: 0.72rem; line-height: 1.2;
+}
+.nc-msg-action:hover { background: var(--hover-bg, rgba(127, 127, 127, 0.14)); color: var(--fg, inherit); }
+.nc-msg-action.copied { color: var(--accent, #4c9aff); }
+.nc-msg-action-icon { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.2; stroke-linecap: round; stroke-linejoin: round; }
+.nc-msg-action-text { font-size: 0.72rem; }
+/* "Развернуть всё / Свернуть всё" under the answer stream. */
+.nc-thread-actions { display: flex; justify-content: center; margin: 0.35rem 0 0.2rem; }
+.nc-expand-all {
+  font-size: 0.72rem; padding: 0.2rem 0.6rem; border-radius: 999px;
+  border: 1px solid var(--border); background: transparent; color: var(--muted);
+  cursor: pointer;
+}
+.nc-expand-all:hover { color: var(--fg, inherit); background: var(--hover-bg, rgba(127, 127, 127, 0.14)); }
 .nc-answer { font-size: 0.95rem; line-height: 1.45; }
 .nc-msg pre {
   margin: 0; white-space: pre-wrap; word-break: break-word; font: inherit;
