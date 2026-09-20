@@ -66,6 +66,7 @@ import {
   PreferQwenModel,
   CheckUpdate,
   InstallUpdate,
+  LocalBuildHash,
   ProjectHasChats,
   SaveActiveProvider,
   SaveAutoModels,
@@ -1242,6 +1243,7 @@ export default function App() {
   const [updatePhase, setUpdatePhase] = useState<'idle' | 'downloading' | 'installing'>('idle')
   const [updateProgress, setUpdateProgress] = useState<{done: number; total: number}>({done: 0, total: 0})
   const [updateError, setUpdateError] = useState('')
+  const [localBuildHash, setLocalBuildHash] = useState('')
   const updatePercent =
     updateProgress.total > 0
       ? Math.min(100, Math.round((updateProgress.done / updateProgress.total) * 100))
@@ -1808,6 +1810,7 @@ export default function App() {
           }
         }
       }).catch(() => undefined)
+      LocalBuildHash().then((h) => setLocalBuildHash(String(h || ''))).catch(() => undefined)
       GetSettings().then((s) => {
         if (!s) return
         const provider = parseProvider(s.activeProvider)
@@ -3801,9 +3804,13 @@ export default function App() {
                     ? `Версия ${String(updateInfo.latest)} скачана — перезапускаю приложение…`
                     : updatePhase === 'downloading'
                       ? `Скачиваю ${String(updateInfo.latest)}… ${updatePercent}%`
-                      : `Доступна новая версия ${String(updateInfo.latest)} (у вас ${String(updateInfo.current)}${
-                          updateInfo.assetSize ? `, ${fmtBytes(Number(updateInfo.assetSize))}` : ''
-                        }).`}
+                      : updateInfo.sameVersion
+                        ? `Версия ${String(updateInfo.latest)} та же, но опубликована другая сборка (у вас ${String(
+                            updateInfo.current,
+                          )}${updateInfo.assetSize ? `, ${fmtBytes(Number(updateInfo.assetSize))}` : ''}).`
+                        : `Доступна новая версия ${String(updateInfo.latest)} (у вас ${String(updateInfo.current)}${
+                            updateInfo.assetSize ? `, ${fmtBytes(Number(updateInfo.assetSize))}` : ''
+                          }).`}
                   {updateError ? ` ${updateError}` : ''}
                 </span>
                 {updatePhase === 'idle' && (
@@ -4860,8 +4867,10 @@ export default function App() {
             <p className="nc-help">По умолчанию скрыт — как в Cursor: задачи делает агент через tools.</p>
             <div className="nc-section-label">Обновления</div>
             <p className="nc-help">
-              Установлена версия <code>v{info.version}</code>. При старте приложение само проверяет релизы на GitHub
-              и предлагает обновление, если для вашей платформы вышла новая версия; поставить его можно отсюда же.
+              Установлена версия <code>v{info.version}</code>
+              {localBuildHash ? <> · сборка <code>{localBuildHash}</code></> : null}. При старте приложение само
+              проверяет релизы на GitHub и предлагает обновление, если вышла новая версия <em>или</em> опубликована
+              другая сборка той же версии (сравнение по sha256 бинарника).
             </p>
             <button type="button" className="nc-ghost" onClick={() => void checkUpdatesNow()}>
               Проверить обновления
