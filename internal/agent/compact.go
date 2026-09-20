@@ -1,4 +1,4 @@
-package agent
+﻿package agent
 
 import (
 	"fmt"
@@ -15,8 +15,10 @@ import (
 // tool messages breaks provider prefix cache hits across steps.
 
 const (
-	// keepFullToolResults is how many trailing tool results stay verbatim.
+	// keepFullToolResults is how many trailing tool results stay verbatim (cloud).
 	keepFullToolResults = 3
+	// keepFullToolResultsLocal is tighter for Local — KV cache is scarce.
+	keepFullToolResultsLocal = 2
 	// compactedToolMark prefixes collapsed tool outputs.
 	compactedToolMark = "[compacted] "
 )
@@ -26,8 +28,17 @@ const (
 // are compressed more aggressively than short status lines.
 // Non-tool messages are never touched.
 func CompactHistory(messages []llm.Message) []llm.Message {
+	return CompactHistoryN(messages, keepFullToolResults)
+}
+
+// CompactHistoryN is like CompactHistory but keeps only the last keep tool
+// results verbatim. keep < 1 is treated as 1.
+func CompactHistoryN(messages []llm.Message, keep int) []llm.Message {
 	out := make([]llm.Message, len(messages))
 	copy(out, messages)
+	if keep < 1 {
+		keep = 1
+	}
 
 	toolNameByID := map[string]string{}
 	for _, m := range out {
@@ -47,10 +58,10 @@ func CompactHistory(messages []llm.Message) []llm.Message {
 			toolIdx = append(toolIdx, i)
 		}
 	}
-	if len(toolIdx) <= keepFullToolResults {
+	if len(toolIdx) <= keep {
 		return out
 	}
-	cutoff := len(toolIdx) - keepFullToolResults
+	cutoff := len(toolIdx) - keep
 	for _, i := range toolIdx[:cutoff] {
 		name := toolNameByID[out[i].ToolCallID]
 		out[i].Content = compactedToolMark + summarizeToolContent(name, out[i].Content)
