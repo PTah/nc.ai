@@ -32,20 +32,40 @@ func (s *TodoStore) Snapshot() []Todo {
 	return out
 }
 
+// Apply применяет пришедший список. При merge=true недостающие поля берутся из
+// уже сохранённого пункта: агент часто присылает только id+status (или только
+// id+content), и раньше это либо ломало обновление («content is empty»), либо
+// сбрасывало статус обратно в pending — из-за чего галочки в UI не появлялись.
 func (s *TodoStore) Apply(merge bool, incoming []Todo) ([]Todo, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	prev := map[string]Todo{}
+	for _, t := range s.items {
+		prev[t.ID] = t
+	}
 	for i := range incoming {
 		incoming[i].ID = strings.TrimSpace(incoming[i].ID)
 		incoming[i].Content = strings.TrimSpace(incoming[i].Content)
-		incoming[i].Status = normalizeTodoStatus(incoming[i].Status)
+		incoming[i].Status = strings.TrimSpace(incoming[i].Status)
 		if incoming[i].ID == "" {
 			incoming[i].ID = fmt.Sprintf("t%d", i+1)
 		}
+		if merge {
+			if old, ok := prev[incoming[i].ID]; ok {
+				if incoming[i].Content == "" {
+					incoming[i].Content = old.Content
+				}
+				if incoming[i].Status == "" {
+					incoming[i].Status = old.Status
+				}
+			}
+		}
+		incoming[i].Status = normalizeTodoStatus(incoming[i].Status)
 		if incoming[i].Content == "" && incoming[i].Status != "cancelled" {
 			return nil, fmt.Errorf("todo %s: content is empty", incoming[i].ID)
 		}
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	if !merge {
 		s.items = incoming
 		return s.copyLocked(), nil

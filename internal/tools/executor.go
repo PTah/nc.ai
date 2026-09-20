@@ -675,7 +675,7 @@ func allToolSpecs() []llm.ToolSpec {
 			},
 			"required": []string{"id"},
 		}),
-		fn("todo_write", "Create or update the session task list. merge=true updates by id; merge=false replaces the list. Do not narrate todo updates to the user.", map[string]any{
+		fn("todo_write", "Create or update the session task list (the user watches it above the thread). merge=true updates by id; merge=false replaces the list. Set an item in_progress when you start it and completed the moment it is done — never leave finished work unmarked. When the whole task is finished, mark all remaining items completed or cancelled (or replace the list with merge=false and []). On merge, omitted content/status are kept from the existing item. Do not narrate todo updates to the user.", map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"merge": map[string]any{"type": "boolean"},
