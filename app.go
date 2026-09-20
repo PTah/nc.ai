@@ -1,4 +1,4 @@
-﻿package main
+package main
 
 import (
 	"context"
@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	stdruntime "runtime"
 	"strings"
 	"sync"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"notcursor.ai/app/internal/agent"
 	"notcursor.ai/app/internal/appmeta"
 	"notcursor.ai/app/internal/chatstore"
+	"notcursor.ai/app/internal/chime"
 	"notcursor.ai/app/internal/config"
 	"notcursor.ai/app/internal/costing"
 	"notcursor.ai/app/internal/dockicon"
@@ -29,6 +31,7 @@ import (
 	"notcursor.ai/app/internal/shell"
 	"notcursor.ai/app/internal/sshx"
 	"notcursor.ai/app/internal/tools"
+	"notcursor.ai/app/internal/update"
 	"notcursor.ai/app/internal/workspace"
 )
 
@@ -135,6 +138,61 @@ func (a *App) startup(ctx context.Context) {
 	a.loadRules()
 	costing.ApplyPersisted(a.cfg)
 	go a.priceRefreshLoop()
+	go a.autoCheckUpdate()
+}
+
+// autoCheckUpdate — тихая проверка обновлений после старта. Сеть не должна
+// задерживать запуск, а ошибки не показываем: пользователь всегда может
+// проверить вручную («Settings → Проверить обновления»).
+func (a *App) autoCheckUpdate() {
+	select {
+	case <-time.After(4 * time.Second):
+	case <-a.ctx.Done():
+		return
+	}
+	if info := a.checkUpdate(); info.Available {
+		runtime.EventsEmit(a.ctx, "update:available", info)
+	}
+}
+
+// checkUpdate сверяет текущую версию с последним релизом на GitHub.
+func (a *App) checkUpdate() update.Info {
+	ctx, cancel := context.WithTimeout(a.ctx, 30*time.Second)
+	defer cancel()
+	info, _ := update.Check(ctx, appmeta.Version, stdruntime.GOOS, stdruntime.GOARCH)
+	return info
+}
+
+// CheckUpdate — ручная проверка обновлений (кнопка в настройках).
+func (a *App) CheckUpdate() update.Info { return a.checkUpdate() }
+
+// InstallUpdate скачивает и ставит обновление, после чего завершает приложение:
+// подмену файлов и перезапуск делает отдельный процесс-подменщик, поэтому
+// приложению обязательно надо выйти (иначе exe/.app останутся занятыми).
+func (a *App) InstallUpdate() error {
+	info := a.checkUpdate()
+	if !info.Available {
+		if info.Error != "" {
+			return fmt.Errorf("не удалось проверить обновления: %s", info.Error)
+		}
+		return fmt.Errorf("обновлений нет — установлена последняя версия (%s)", info.Current)
+	}
+	stage, err := update.Install(a.ctx, info, func(done, total int64) {
+		runtime.EventsEmit(a.ctx, "update:progress", map[string]any{"done": done, "total": total})
+	})
+	if err != nil {
+		return err
+	}
+	runtime.EventsEmit(a.ctx, "update:installing", map[string]any{
+		"version": info.Latest,
+		"stage":   stage,
+	})
+	// Даём интерфейсу показать «перезапускаю…», затем выходим.
+	go func() {
+		time.Sleep(1500 * time.Millisecond)
+		runtime.Quit(a.ctx)
+	}()
+	return nil
 }
 
 // applyDeepSeekStartupDefaults: DeepSeek → flash model + Auto-Models on.
@@ -531,6 +589,7 @@ func (a *App) GetSettings() map[string]any {
 		"recentProjects":     s.RecentProjects,
 		"showTerminal":       s.ShowTerminal,
 		"showFiles":          a.cfg.FilesVisible(),
+		"endSound":           a.cfg.EndSoundEnabled(),
 		"showSettings":       s.ShowSettings,
 		"theme":              a.cfg.Theme(),
 		"agentMaxSteps":      a.cfg.MaxAgentSteps(),
@@ -770,6 +829,17 @@ func (a *App) SaveShowFiles(show bool) error {
 
 func (a *App) SaveShowSettings(show bool) error {
 	return a.cfg.SetShowSettings(show)
+}
+
+// SaveEndSound remembers whether the chime plays when the agent finishes.
+func (a *App) SaveEndSound(on bool) error {
+	return a.cfg.SetEndSound(on)
+}
+
+// GetEndSound returns the built-in end-of-run chime as a data URL. The clip is
+// embedded into the binary, so both the macOS and the Windows build have it.
+func (a *App) GetEndSound() string {
+	return chime.DataURL()
 }
 
 // SaveLayoutSizes persists inner pane widths/heights (projects/tree/settings/terminal/chat column).

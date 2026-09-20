@@ -64,6 +64,8 @@ import {
   SaveQwenEndpoint,
   ListQwenModels,
   PreferQwenModel,
+  CheckUpdate,
+  InstallUpdate,
   ProjectHasChats,
   SaveActiveProvider,
   SaveAutoModels,
@@ -77,6 +79,8 @@ import {
   SaveAgentWarnSteps,
   SaveComposerHeight,
   SaveShowTerminal,
+  GetEndSound,
+  SaveEndSound,
   SaveShowFiles,
   SaveShowSettings,
   SaveLayoutSizes,
@@ -96,7 +100,7 @@ import {
   WriteFile,
   ListProjects,
 } from '../wailsjs/go/main/App'
-import {EventsOn, EventsOff, ClipboardSetText} from '../wailsjs/runtime/runtime'
+import {EventsOn, EventsOff, ClipboardSetText, BrowserOpenURL} from '../wailsjs/runtime/runtime'
 import BrandMark from './BrandMark'
 import Markdown from './Markdown'
 import ProjectIcon from './ProjectIcon'
@@ -105,7 +109,7 @@ import {applyChatFindMarks, clearChatFindMarks, focusChatFindHit, type ChatFindH
 type Project = { name: string; path: string; opened?: string; iconUrl?: string }
 type FileEntry = { name: string; path: string; isDir: boolean }
 type ChatItem =
-  | { kind: 'user' | 'assistant' | 'system'; content: string; attachments?: ChatAttPreview[] }
+  | { kind: 'user' | 'assistant' | 'system'; content: string; attachments?: ChatAttPreview[]; at?: number }
   | { kind: 'reasoning'; content: string; seconds?: number }
   | { kind: 'progress'; content: string }
   | { kind: 'tool'; name: string; args: string; result?: string; phase: 'running' | 'done'; ok?: boolean; interrupted?: boolean }
@@ -332,6 +336,27 @@ function parseProvider(v: unknown): ProviderId {
   if (s === 'zai' || s === 'openrouter' || s === 'qwen') return s
   if (isLocalProvider(s)) return s === 'local' ? 'local:default' : s
   return 'deepseek'
+}
+
+/** Дата и время в ленте: «20.09.2026, 14:15:12» (локальное время). */
+function fmtAnswerTime(ms?: number): string {
+  if (!ms || !Number.isFinite(ms)) return ''
+  const d = new Date(ms)
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${p(d.getDate())}.${p(d.getMonth() + 1)}.${d.getFullYear()}, ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+}
+
+/** Размер в человекочитаемом виде (для баннера обновления). */
+function fmtBytes(n?: number): string {
+  if (!n || n <= 0) return ''
+  const units = ['Б', 'КБ', 'МБ', 'ГБ']
+  let v = n
+  let i = 0
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024
+    i++
+  }
+  return `${v < 10 && i > 0 ? v.toFixed(1) : Math.round(v)} ${units[i]}`
 }
 
 /** Человеческий текст о причине (пере)запуска: и для баннера, и для строки в ленте. */
@@ -960,7 +985,7 @@ function ThinkingBlock({
  * collapses behind a triangle once every item is done or cancelled — like
  * "Thinking…" and tool groups.
  */
-function TodoPanel({todos, expand}: {todos: TodoItem[]; expand?: ExpandSignal}) {
+function TodoPanel({todos, expand, busy}: {todos: TodoItem[]; expand?: ExpandSignal; busy?: boolean}) {
   const hasOpen = todos.some((t) => t.status !== 'completed' && t.status !== 'cancelled')
   const [open, setOpen] = useState(hasOpen)
   const prevOpen = useRef(hasOpen)
@@ -970,6 +995,11 @@ function TodoPanel({todos, expand}: {todos: TodoItem[]; expand?: ExpandSignal}) 
       setOpen(hasOpen)
     }
   }, [hasOpen])
+  // План раскрыт, пока идёт прогон, и сворачивается, когда агент закончил:
+  // выполненный (или брошенный) список не должен висеть раскрытым.
+  useEffect(() => {
+    setOpen(Boolean(busy))
+  }, [busy])
   useEffect(() => {
     if (expand && expand.n > 0) setOpen(expand.open)
   }, [expand])
@@ -1185,6 +1215,15 @@ export default function App() {
   // Restart banner: why the app (re)started, and whether stale steps were marked.
   const [startupNotice, setStartupNotice] = useState<Record<string, any>>({})
   const [noticeDismissed, setNoticeDismissed] = useState(false)
+  const [updateInfo, setUpdateInfo] = useState<Record<string, any> | null>(null)
+  const [updateDismissed, setUpdateDismissed] = useState(false)
+  const [updatePhase, setUpdatePhase] = useState<'idle' | 'downloading' | 'installing'>('idle')
+  const [updateProgress, setUpdateProgress] = useState<{done: number; total: number}>({done: 0, total: 0})
+  const [updateError, setUpdateError] = useState('')
+  const updatePercent =
+    updateProgress.total > 0
+      ? Math.min(100, Math.round((updateProgress.done / updateProgress.total) * 100))
+      : 0
   const [interruptedSeen, setInterruptedSeen] = useState(false)
   const [dragOver, setDragOver] = useState(false)
   const [retryVisible, setRetryVisible] = useState(false)
@@ -1222,6 +1261,13 @@ export default function App() {
   const [zaiBalance, setZaiBalance] = useState<{ok: boolean; availableUsd: number; detail: string; source: string} | null>(null)
   const [orBalance, setOrBalance] = useState<{ok: boolean; availableUsd: number; detail: string; source: string} | null>(null)
   const [autoModels, setAutoModels] = useState(true)
+  // End-of-run chime: on by default, the clip is embedded in the binary.
+  const [endSound, setEndSound] = useState(true)
+  const endSoundRef = useRef(true)
+  const chimeRef = useRef<HTMLAudioElement | null>(null)
+  useEffect(() => {
+    endSoundRef.current = endSound
+  }, [endSound])
   const [localLite, setLocalLite] = useState(false)
   const [toolConfirm, setToolConfirm] = useState(true)
   const [planMode, setPlanMode] = useState(false)
@@ -1375,6 +1421,31 @@ export default function App() {
       }))
     }
     return started
+  }, [])
+
+  // Plays the embedded end-of-run chime (settings item "Звук в конце работы").
+  const playEndSound = useCallback(() => {
+    if (!endSoundRef.current) return
+    const audio = chimeRef.current
+    if (!audio) return
+    try {
+      audio.currentTime = 0
+      void audio.play()?.catch(() => undefined)
+    } catch { /* автовоспроизведение запрещено — работе агента не мешаем */ }
+  }, [])
+
+  // Load the clip once: it is embedded in the binary (works on macOS and Windows).
+  useEffect(() => {
+    let alive = true
+    GetEndSound()
+      .then((url) => {
+        if (!alive || !url) return
+        const audio = new Audio(url)
+        audio.preload = 'auto'
+        chimeRef.current = audio
+      })
+      .catch(() => undefined)
+    return () => { alive = false }
   }, [])
 
   // Shared "run is over" cleanup. A run may finish for a project that is not on
@@ -1754,6 +1825,7 @@ export default function App() {
         if (provider === 'openrouter' && s.openrouterKeySet) void refreshOpenRouterBalance()
         if (isLocalProvider(provider)) void refreshLocalModels({applyPreferred: true})
         setAutoModels(Boolean(s.autoModels))
+        setEndSound(s.endSound !== false)
         setLocalLite(Boolean(s.localLite))
         setToolConfirm(s.toolConfirm !== false)
         setPlanMode(Boolean(s.planMode))
@@ -1814,6 +1886,9 @@ export default function App() {
 
     let offAgent: (() => void) | undefined
     let offTerm: (() => void) | undefined
+    let offUpdate: (() => void) | undefined
+    let offUpdateProgress: (() => void) | undefined
+    let offUpdateInstall: (() => void) | undefined
     try {
       offAgent = EventsOn('agent:event', (...args: unknown[]) => {
         try {
@@ -1889,11 +1964,12 @@ export default function App() {
             setSessionItems(sid, (prev) => {
               const copy = [...prev]
               const last = copy[copy.length - 1]
+              const at = Date.now()
               if (last && last.kind === 'assistant') {
-                copy[copy.length - 1] = {kind: 'assistant', content: text}
+                copy[copy.length - 1] = {...last, kind: 'assistant', content: text, at}
                 return copy
               }
-              return [...copy, {kind: 'assistant', content: text}]
+              return [...copy, {kind: 'assistant', content: text, at}]
             })
           } else if (ev.type === 'reasoning') {
             if (!reasoningStartRef.current[sid]) reasoningStartRef.current[sid] = Date.now()
@@ -1983,6 +2059,7 @@ export default function App() {
           } else if (ev.type === 'done' || ev.type === 'persist') {
             closeReasoning(sid)
             finishRunUI(sid)
+            if (ev.type === 'done') playEndSound()
             if (sid === activeSessionRef.current) setRetryVisible(false)
             void applyUsageStats()
           } else if (ev.type === 'error') {
@@ -2015,6 +2092,23 @@ export default function App() {
           /* ignore */
         }
       })
+
+      // Обновления: backend проверяет релиз на старте и присылает событие,
+      // а прогресс загрузки/установки приходит отдельными событиями.
+      offUpdate = EventsOn('update:available', (info: unknown) => {
+        const rec = info && typeof info === 'object' ? (info as Record<string, any>) : null
+        if (!rec || rec.available !== true) return
+        setUpdateInfo(rec)
+        setUpdateDismissed(false)
+        setUpdatePhase('idle')
+        setUpdateError('')
+      })
+      offUpdateProgress = EventsOn('update:progress', (p: unknown) => {
+        const rec = p && typeof p === 'object' ? (p as Record<string, any>) : {}
+        setUpdatePhase('downloading')
+        setUpdateProgress({done: Number(rec.done) || 0, total: Number(rec.total) || 0})
+      })
+      offUpdateInstall = EventsOn('update:installing', () => setUpdatePhase('installing'))
     } catch {
       // runtime bindings not ready
     }
@@ -2024,8 +2118,14 @@ export default function App() {
       try {
         EventsOff('agent:event')
         EventsOff('terminal:data')
+        EventsOff('update:available')
+        EventsOff('update:progress')
+        EventsOff('update:installing')
         offAgent?.()
         offTerm?.()
+        offUpdate?.()
+        offUpdateProgress?.()
+        offUpdateInstall?.()
       } catch {
         /* ignore */
       }
@@ -3160,6 +3260,41 @@ export default function App() {
   }
   runAgentRef.current = runAgent
 
+  /** Скачать и поставить обновление: backend сам завершит приложение после подмены. */
+  async function startUpdate() {
+    if (!updateInfo) return
+    if (updateInfo.assetFound !== true) {
+      const url = String(updateInfo.url || '')
+      if (url) BrowserOpenURL(url)
+      return
+    }
+    setUpdateError('')
+    setUpdatePhase('downloading')
+    try {
+      await InstallUpdate()
+    } catch (e) {
+      setUpdatePhase('idle')
+      setUpdateError(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  /** Ручная проверка обновлений (кнопка в настройках). */
+  async function checkUpdatesNow() {
+    setUpdateError('')
+    try {
+      const info = (await CheckUpdate()) as unknown as Record<string, any>
+      if (info && info.available === true) {
+        setUpdateInfo(info)
+        setUpdateDismissed(false)
+        setUpdatePhase('idle')
+        return
+      }
+      setUpdateError(`Обновлений нет — установлена последняя версия ${String(info?.current || '')}.`)
+    } catch (e) {
+      setUpdateError(e instanceof Error ? e.message : String(e))
+    }
+  }
+
   async function sendChat(e?: FormEvent) {
     e?.preventDefault()
     const sid = activeSessionId
@@ -3630,6 +3765,43 @@ export default function App() {
                 </button>
               </div>
             )}
+            {updateInfo?.available && !updateDismissed && (
+              <div className="nc-restart-note nc-update-note" role="status">
+                <span className="nc-restart-icon" aria-hidden>⭳</span>
+                <span className="nc-restart-text">
+                  {updatePhase === 'installing'
+                    ? `Версия ${String(updateInfo.latest)} скачана — перезапускаю приложение…`
+                    : updatePhase === 'downloading'
+                      ? `Скачиваю ${String(updateInfo.latest)}… ${updatePercent}%`
+                      : `Доступна новая версия ${String(updateInfo.latest)} (у вас ${String(updateInfo.current)}${
+                          updateInfo.assetSize ? `, ${fmtBytes(Number(updateInfo.assetSize))}` : ''
+                        }).`}
+                  {updateError ? ` ${updateError}` : ''}
+                </span>
+                {updatePhase === 'idle' && (
+                  <button type="button" className="nc-ghost nc-update-btn" onClick={() => void startUpdate()}>
+                    {updateInfo.assetFound ? 'Скачать и перезапустить' : 'Открыть релиз'}
+                  </button>
+                )}
+                {updatePhase === 'idle' && (
+                  <button
+                    type="button"
+                    className="nc-ghost nc-update-btn"
+                    onClick={() => {
+                      const url = String(updateInfo.url || '')
+                      if (url) BrowserOpenURL(url)
+                    }}
+                  >
+                    Что нового
+                  </button>
+                )}
+                {updatePhase === 'idle' && (
+                  <button type="button" className="nc-restart-x" title="Позже" onClick={() => setUpdateDismissed(true)}>
+                    ✕
+                  </button>
+                )}
+              </div>
+            )}
             {chatFindOpen && (
               <div className="nc-find-bar" role="search">
                 <label className="nc-find-label">
@@ -3776,6 +3948,11 @@ export default function App() {
                         ? <Markdown content={m.content} />
                         : <pre>{m.content}</pre>}
                       {m.kind === 'assistant' && m.content.trim() !== '' && <MessageActions text={m.content} />}
+                      {m.kind === 'assistant' && m.at ? (
+                        <div className="nc-msg-time" title="Время вывода ответа агента">
+                          {fmtAnswerTime(m.at)}
+                        </div>
+                      ) : null}
                     </div>
                   )
                 })}
@@ -3785,7 +3962,7 @@ export default function App() {
                     <pre>думаю… {runStatusElapsed}</pre>
                   </div>
                 )}
-                {todos.length > 0 && <TodoPanel todos={todos} expand={expandSignal} />}
+                {todos.length > 0 && <TodoPanel todos={todos} expand={expandSignal} busy={busy} />}
                 {(items.some((i) => i.kind === 'reasoning' || i.kind === 'tool') || todos.length > 0) && (
                   <div className="nc-thread-actions">
                     <button
@@ -4048,6 +4225,21 @@ export default function App() {
                   ? 'plus → max'
                   : 'flash / pro / vision'}
               )
+            </label>
+            <label
+              className="nc-top-check"
+              title="Играть звук, когда агент закончил работу и ответ выведен в чат"
+            >
+              <input
+                type="checkbox"
+                checked={endSound}
+                onChange={(e) => {
+                  const on = e.target.checked
+                  setEndSound(on)
+                  void SaveEndSound(on)
+                }}
+              />
+              Звук в конце работы
             </label>
             <label
               className="nc-top-check"
@@ -4627,6 +4819,15 @@ export default function App() {
               Показывать терминал (Ctrl-Shift-T)
             </label>
             <p className="nc-help">По умолчанию скрыт — как в Cursor: задачи делает агент через tools.</p>
+            <div className="nc-section-label">Обновления</div>
+            <p className="nc-help">
+              Установлена версия <code>v{info.version}</code>. При старте приложение само проверяет релизы на GitHub
+              и предлагает обновление, если для вашей платформы вышла новая версия; поставить его можно отсюда же.
+            </p>
+            <button type="button" className="nc-ghost" onClick={() => void checkUpdatesNow()}>
+              Проверить обновления
+            </button>
+            {updateError ? <p className="nc-help">{updateError}</p> : null}
             <div className="nc-section-label">Shell</div>
             <p className="nc-help">
               Интерактивный терминал через системный PTY (Windows ConPTY / macOS pty). Пустое поле — авто:

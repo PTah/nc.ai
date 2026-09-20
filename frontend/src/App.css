@@ -1399,6 +1399,20 @@ mark.nc-find-mark.nc-find-current {
   padding: 0 0.2rem;
 }
 .nc-restart-x:hover { color: var(--text); }
+.nc-update-note { border-left-color: #2ea043; }
+.nc-update-note .nc-restart-icon { color: #2ea043; }
+.nc-update-btn {
+  flex: 0 0 auto;
+  width: auto;
+  margin: 0;
+  padding: 0.25rem 0.55rem;
+  font-size: 0.78rem;
+}
+.nc-msg-time {
+  margin-top: 0.35rem;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
 .nc-msg.tool.interrupted .nc-tool-icon { color: var(--muted); }
 .nc-msg.tool.interrupted .nc-tool-title { font-style: italic; }
 

@@ -8,12 +8,12 @@
   "frontend:dev:serverUrl": "auto",
   "author": {
     "name": "jdoe",
-    "email": "papatramp@gmail.com"
+    "email": "jdoe@gmail.com"
   },
   "info": {
     "companyName": "jdoe",
     "productName": "NotCursor.ai",
-		"productVersion": "0.6.27.0",
+		"productVersion": "0.6.30.0",
     "copyright": "Copyright © 2026 jdoe",
     "comments": "NotCursor.ai — lightweight native AI IDE agent"
   }
