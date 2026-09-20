@@ -5,7 +5,7 @@ import "time"
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "0.6.30"
+	Version = "0.6.31"
 )
 
 // DeepSeekProRetireRFC3339 is when the provider retires V4 Pro
@@ -29,19 +29,19 @@ func DeepSeekProRetired(now time.Time) bool {
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
-	"При старте проверяются релизы на GitHub: новую версию можно скачать и поставить прямо из приложения",
+	"Зависший шаг обрывается сам: если шаг молчит дольше 10 минут, прогон останавливается и объясняет, где встали и что делать",
+	"При старте проверяются релизы на GitHub — по версии и по хешу сборки, поэтому видна и перезаливка файла",
 	"План задач отмечает выполненное галочками и сам сворачивается, когда работа закончена",
 	"В списке Projects слева от имени — иконка из папки проекта (или стандартная)",
 	"Новый провайдер Qwen (Alibaba Cloud DashScope): qwen-max / qwen-plus / qwen-turbo, coder и vision",
-	"Ввод, очередь и todo — свои у каждого проекта: вопрос не уйдёт в чужой чат",
 }
 
 var HighlightsEN = []string{
-	"GitHub releases are checked on start: the new version can be downloaded and installed in place",
+	"A stuck step aborts on its own: a step silent for over 10 minutes stops the run and explains where it hung and what to do",
+	"GitHub releases are checked on start — by version and by build hash, so a re-uploaded file is noticed too",
 	"The task plan ticks finished items and collapses by itself once the run is over",
 	"Project list shows a folder icon (or a default glyph) beside each project name",
 	"New provider Qwen (Alibaba Cloud DashScope): qwen-max / qwen-plus / qwen-turbo, coder and vision",
-	"Input, queue and todos are per project: a question never lands in another chat",
 }
 
 // UICopy is localized chrome for the Welcome splash.

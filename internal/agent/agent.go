@@ -174,6 +174,12 @@ type Runner struct {
 	RetryCount int
 	// RetryBackoff is the base wait between reconnect attempts (grows linearly per attempt).
 	RetryBackoff time.Duration
+	// StallLimit — сколько тишины терпим на одном шаге: если ни модели, ни
+	// инструменты не подают признаков жизни дольше этого времени, прогон
+	// принудительно обрывается с разбором (0 = не следить, отрицательное = тоже 0).
+	StallLimit time.Duration
+	// stall — состояние watchdog'а текущего прогона (см. stall.go).
+	stall *stallWatch
 	// OnUsage, when set, is called after each provider response with the model
 	// that produced it and its token usage (usage may be nil for some providers).
 	OnUsage func(model string, u *llm.Usage)
@@ -473,10 +479,12 @@ func (r *Runner) chatOnce(ctx context.Context, req *llm.ChatRequest, emit EmitFu
 		resp, err := sp.ChatCompletionStream(ctx, req, func(d llm.StreamDelta) {
 			if strings.TrimSpace(d.ReasoningContent) != "" {
 				streamed = true
+				r.stallTouch("модель присылает рассуждение")
 				emit(Event{Type: "reasoning", Content: d.ReasoningContent})
 			}
 			if d.Content != "" {
 				streamed = true
+				r.stallTouch("модель присылает ответ")
 				emit(Event{Type: "delta", Content: d.Content})
 			}
 		})
@@ -484,6 +492,38 @@ func (r *Runner) chatOnce(ctx context.Context, req *llm.ChatRequest, emit EmitFu
 	}
 	resp, err := r.Provider.ChatCompletion(ctx, req)
 	return resp, false, err
+}
+
+// stallTouch отмечает признак жизни для watchdog'а (если он включён).
+func (r *Runner) stallTouch(what string) {
+	if r.stall != nil {
+		r.stall.touch(what)
+	}
+}
+
+// stallDone сообщает watchdog'у, что инструмент завершился.
+func (r *Runner) stallDone() {
+	if r.stall != nil {
+		r.stall.onToolDone()
+	}
+}
+
+// watchStall ждёт тишины дольше лимита и обрывает прогон с разбором.
+func (r *Runner) watchStall(ctx context.Context, cancel context.CancelFunc, w *stallWatch, emit EmitFunc) {
+	t := time.NewTicker(stallTick)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			if text, bad := w.verdict(time.Now()); bad {
+				emit(Event{Type: "notice", Content: text})
+				cancel()
+				return
+			}
+		}
+	}
 }
 
 func isTransientError(err error) bool {
@@ -612,12 +652,39 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 	go prog.heartbeat(ctx, emit)
 	emit(Event{Type: "progress", Content: prog.payload("start")})
 
+	// Watchdog «затыка»: шаг без признаков жизни дольше StallLimit обрывается,
+	// чтобы пользователь не ждал впустую десятки минут (см. stall.go).
+	runCtx, cancelRun := context.WithCancel(ctx)
+	defer cancelRun()
+	limit := r.StallLimit
+	if limit == 0 {
+		limit = DefaultStallLimit
+	}
+	if limit < 0 {
+		limit = 0
+	}
+	watch := newStallWatch(limit)
+	r.stall = watch
+	defer func() { r.stall = nil }()
+	if limit > 0 {
+		go r.watchStall(runCtx, cancelRun, watch, emit)
+	}
+	stallErr := func() error {
+		if text := watch.stalledText(); text != "" {
+			return fmt.Errorf("%w: %s", ErrStalled, firstLine(text, 90))
+		}
+		return nil
+	}
+
 	localNudgeDone := false
 	exploreToolsOnly := false
 	for step := 0; step < max; step++ {
-		if ctx.Err() != nil {
-			emit(Event{Type: "error", Content: ctx.Err().Error()})
-			return messages, ctx.Err()
+		if runCtx.Err() != nil {
+			if serr := stallErr(); serr != nil {
+				return messages, serr
+			}
+			emit(Event{Type: "error", Content: runCtx.Err().Error()})
+			return messages, runCtx.Err()
 		}
 		// Long run: keep the user posted instead of silently grinding on.
 		if warnAt > 0 && step > 0 && step%warnAt == 0 {
@@ -626,6 +693,7 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 
 		model := r.resolveModel(step, emit)
 		prog.beginStep(step + 1)
+		watch.onStep(step+1, model)
 		var toolSpecs []llm.ToolSpec
 		switch {
 		case exploreToolsOnly:
@@ -647,8 +715,11 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 			Stream:          true,
 			Model:           model,
 		}
-		resp, streamed, err := r.chat(ctx, req, emit)
+		resp, streamed, err := r.chat(runCtx, req, emit)
 		if err != nil {
+			if serr := stallErr(); serr != nil {
+				return messages, serr
+			}
 			emit(Event{Type: "error", Content: err.Error()})
 			return messages, err
 		}
@@ -699,12 +770,25 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 			for _, call := range msg.ToolCalls {
 				prog.setCurrent(call.Function.Name, call.Function.Arguments)
 			}
-			outs, err := r.execTools(ctx, msg.ToolCalls, emit)
+			if len(msg.ToolCalls) > 0 {
+				first := msg.ToolCalls[0]
+				detail := toolAction(first.Function.Name, first.Function.Arguments)
+				if len(msg.ToolCalls) > 1 {
+					detail = fmt.Sprintf("%s (и ещё %d)", detail, len(msg.ToolCalls)-1)
+				}
+				watch.onPhase("tool", detail)
+			}
+			outs, err := r.execTools(runCtx, msg.ToolCalls, emit)
 			if err != nil {
+				if serr := stallErr(); serr != nil {
+					return messages, serr
+				}
 				emit(Event{Type: "error", Content: err.Error()})
 				return messages, err
 			}
 			messages = append(messages, outs...)
+			watch.touch("инструменты выполнены")
+			watch.onPhase("model", "Жду ответ модели")
 			if text, due := prog.noteTools(msg.ToolCalls); due {
 				emit(Event{Type: "progress", Content: text})
 			}
@@ -755,8 +839,11 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 		Stream:          true,
 		Model:           wrapModel,
 	}
-	resp, streamed, err := r.chat(ctx, req, emit)
+	resp, streamed, err := r.chat(runCtx, req, emit)
 	if err != nil {
+		if serr := stallErr(); serr != nil {
+			return messages, serr
+		}
 		emit(Event{Type: "error", Content: fmt.Sprintf("лимит шагов (%d); финальный ответ не получен: %v", max, err)})
 		return messages, err
 	}
@@ -848,6 +935,7 @@ func (r *Runner) execOne(ctx context.Context, call llm.ToolCall, emit EmitFunc) 
 	}
 	result, execErr := r.Tools.Execute(ctx, call)
 	ok := execErr == nil
+	r.stallDone()
 	if execErr != nil {
 		result = fmt.Sprintf("ERROR: %v", execErr)
 	}
