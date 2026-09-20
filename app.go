@@ -605,6 +605,7 @@ func (a *App) GetSettings() map[string]any {
 		"theme":              a.cfg.Theme(),
 		"agentMaxSteps":      a.cfg.MaxAgentSteps(),
 		"agentWarnSteps":     a.cfg.AgentWarnSteps(),
+		"agentStallMinutes":  int(a.cfg.AgentStallLimit().Minutes()),
 		"autoModels":         a.cfg.AutoModels(),
 		"localLite":          a.cfg.LocalLiteEnabled(),
 		"toolConfirm":        a.cfg.ToolConfirmEnabled(),
@@ -1526,6 +1527,12 @@ func (a *App) SaveAgentWarnSteps(steps int) error {
 	return a.cfg.SetAgentWarnSteps(steps)
 }
 
+// SaveAgentStallMin stores how many minutes of silence on a step are tolerated
+// before the run is aborted with an explanation (-1 = watchdog off).
+func (a *App) SaveAgentStallMin(min int) error {
+	return a.cfg.SetAgentStallMin(min)
+}
+
 // SaveGitAuth is deprecated: Git uses OS credential helpers / SSH keys.
 // Calling it clears any leftover in-app secrets.
 func (a *App) SaveGitAuth(_, _ string) error {
@@ -2061,6 +2068,7 @@ func (a *App) RunAgentWithAttachments(userMessage string, attachments []agent.At
 		Tools:          runTools,
 		MaxSteps:       a.cfg.MaxAgentSteps(),
 		WarnSteps:      a.cfg.AgentWarnSteps(),
+		StallLimit:     a.cfg.AgentStallLimit(),
 		RulesText:      bundle.SelectStableForPrompt(),
 		TurnRulesText:  bundle.SelectTurnRules(hints),
 		StickyModel:    sticky,
