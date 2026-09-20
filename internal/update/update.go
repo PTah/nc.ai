@@ -9,6 +9,8 @@ package update
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,8 +19,10 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -66,7 +70,13 @@ type Info struct {
 	AssetURL   string `json:"assetUrl,omitempty"`
 	AssetSize  int64  `json:"assetSize,omitempty"`
 	AssetFound bool   `json:"assetFound"`
-	Error      string `json:"error,omitempty"`
+	// SameVersion — номер версии совпал, но сборка опубликована другая
+	// (в релиз перезалили файл). Сравнение по хешу исполняемого файла.
+	SameVersion  bool   `json:"sameVersion,omitempty"`
+	BuildDiffers bool   `json:"buildDiffers,omitempty"`
+	BuildHash    string `json:"buildHash,omitempty"`
+	LocalHash    string `json:"localHash,omitempty"`
+	Error        string `json:"error,omitempty"`
 }
 
 // Client — HTTP-клиент с разумными таймаутами (проверка идёт на старте).
@@ -161,6 +171,106 @@ func PickAsset(assets []Asset, goos, goarch string) (Asset, bool) {
 	return Asset{}, false
 }
 
+// Sha256SidecarSuffix — суффикс вспомогательного файла релиза: рядом с архивом
+// кладётся <имя архива>.sha256 с sha256 главного исполняемого файла ВНУТРИ
+// архива. GitHub отдаёт digest только самого архива, а сравнивать надо
+// запускаемый бинарник — поэтому публикуем его отдельным маленьким файлом.
+// Если файла нет, проверка работает как раньше (только по номеру версии).
+const Sha256SidecarSuffix = ".sha256"
+
+var sha256Token = regexp.MustCompile(`(?i)\b[0-9a-f]{64}\b`)
+
+// ParseSha256 вытаскивает первый sha256-хеш из подписи (совместимо с sha256sum).
+func ParseSha256(s string) string {
+	if m := sha256Token.FindString(s); m != "" {
+		return strings.ToLower(m)
+	}
+	return ""
+}
+
+// ExecutableHash считает sha256 файла.
+func ExecutableHash(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+var (
+	localHashOnce sync.Once
+	localHash     string
+)
+
+// LocalExeHash — sha256 работающего сейчас исполняемого файла (кэшируется: под
+// нами он не меняется). На macOS это <bundle>/Contents/MacOS/NotCursor.
+func LocalExeHash() string {
+	localHashOnce.Do(func() {
+		exe, err := os.Executable()
+		if err != nil {
+			return
+		}
+		if resolved, rerr := filepath.EvalSymlinks(exe); rerr == nil && resolved != "" {
+			exe = resolved
+		}
+		hash, err := ExecutableHash(exe)
+		if err != nil {
+			return
+		}
+		localHash = hash
+	})
+	return localHash
+}
+
+// PickSidecar ищет вспомогательный файл с хешем для конкретного архива.
+func PickSidecar(assets []Asset, assetName string) (Asset, bool) {
+	if strings.TrimSpace(assetName) == "" {
+		return Asset{}, false
+	}
+	want := strings.ToLower(assetName + Sha256SidecarSuffix)
+	for _, a := range assets {
+		if strings.ToLower(strings.TrimSpace(a.Name)) == want && a.URL != "" {
+			return a, true
+		}
+	}
+	return Asset{}, false
+}
+
+// FetchSha256 скачивает подпись и возвращает хеш (пусто при любой ошибке).
+func FetchSha256(ctx context.Context, url string) string {
+	if url == "" {
+		return ""
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	actx, cancel := context.WithTimeout(ctx, assetTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(actx, http.MethodGet, url, nil)
+	if err != nil {
+		return ""
+	}
+	req.Header.Set("User-Agent", userAgent)
+	res, err := Client.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer res.Body.Close()
+	if res.StatusCode >= 300 {
+		return ""
+	}
+	body, err := io.ReadAll(io.LimitReader(res.Body, 4096)) // подпись крошечная
+	if err != nil {
+		return ""
+	}
+	return ParseSha256(string(body))
+}
+
 // LatestRelease забирает последний опубликованный релиз (без черновиков и пре-релизов).
 func LatestRelease(ctx context.Context) (*Release, error) {
 	if ctx == nil {
@@ -200,7 +310,7 @@ func LatestRelease(ctx context.Context) (*Release, error) {
 // Check сравнивает текущую версию с последним релизом и подбирает файл.
 // Ошибка сети возвращается как есть — вызывающий решает, показывать ли её.
 func Check(ctx context.Context, current, goos, goarch string) (Info, error) {
-	info := Info{Current: current, URL: ReleasePage}
+	info := Info{Current: current, URL: ReleasePage, LocalHash: LocalExeHash()}
 	rel, err := LatestRelease(ctx)
 	if err != nil {
 		info.Error = err.Error()
@@ -211,15 +321,28 @@ func Check(ctx context.Context, current, goos, goarch string) (Info, error) {
 	if rel.HTMLURL != "" {
 		info.URL = rel.HTMLURL
 	}
-	if CompareVersions(info.Latest, current) <= 0 {
-		return info, nil
-	}
-	info.Available = true
+	newer := CompareVersions(info.Latest, current) > 0
+
 	if a, ok := PickAsset(rel.Assets, goos, goarch); ok {
 		info.AssetFound = true
 		info.AssetName = a.Name
 		info.AssetURL = a.URL
 		info.AssetSize = a.Size
+		// Второй сигнал — хеш сборки: ловит перезаливку файла под тем же номером
+		// версии (когда «по цифрам» версия та же, а сборка уже другая).
+		if sc, ok := PickSidecar(rel.Assets, a.Name); ok {
+			if remote := FetchSha256(ctx, sc.URL); remote != "" {
+				info.BuildHash = remote
+				info.BuildDiffers = info.LocalHash != "" && info.LocalHash != remote
+			}
+		}
+	}
+	switch {
+	case newer:
+		info.Available = true
+	case info.BuildDiffers:
+		info.Available = true
+		info.SameVersion = true
 	}
 	return info, nil
 }
