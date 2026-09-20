@@ -258,6 +258,10 @@ export function SaveAgentMaxSteps(arg1) {
   return window['go']['main']['App']['SaveAgentMaxSteps'](arg1);
 }
 
+export function SaveAgentStallMin(arg1) {
+  return window['go']['main']['App']['SaveAgentStallMin'](arg1);
+}
+
 export function SaveAgentWarnSteps(arg1) {
   return window['go']['main']['App']['SaveAgentWarnSteps'](arg1);
 }

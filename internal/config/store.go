@@ -50,6 +50,10 @@ func qwenBaseURLFor(endpoint string) string {
 // DefaultLocalBaseURL is the Ollama OpenAI-compatible root on localhost.
 const DefaultLocalBaseURL = "http://127.0.0.1:11434/v1"
 
+// DefaultAgentStallMin — сколько минут тишины на шаге терпим по умолчанию,
+// прежде чем оборвать прогон (0 в настройках = это значение, отрицательное = выкл).
+const DefaultAgentStallMin = 10
+
 // DefaultAgentMaxSteps caps the tool-using agent loop when the user has not set
 // a value. Real diagnostics jobs (scan several switches, grep a big tree) need
 // far more than the earlier 40/80 steps.
@@ -119,6 +123,10 @@ type Settings struct {
 	// AgentWarnSteps is the step count after which a long run emits a warning
 	// notice (0 = default, negative = never warn).
 	AgentWarnSteps int `json:"agentWarnSteps,omitempty"`
+
+	// AgentStallMin — сколько минут тишины на шаге терпим, прежде чем оборвать
+	// прогон с разбором. 0 = по умолчанию (DefaultAgentStallMin), -1 = выключено.
+	AgentStallMin int `json:"agentStallMin,omitempty"`
 
 	// AutoModels enables per-turn model routing (DeepSeek flash/pro/vision;
 	// Z.ai free flash → glm-5.3; OpenRouter flash → coder on complex tasks).
@@ -242,6 +250,7 @@ func NewStore() *Store {
 			Shell:           "",
 			AgentMaxSteps:   DefaultAgentMaxSteps,
 			AgentWarnSteps:  DefaultAgentWarnSteps,
+			AgentStallMin:   DefaultAgentStallMin,
 			AutoModels:      true,
 		},
 		keys: map[string]string{},
@@ -1134,6 +1143,37 @@ func (s *Store) SetAgentMaxSteps(steps int) error {
 	}
 	s.mu.Lock()
 	s.settings.AgentMaxSteps = steps
+	s.mu.Unlock()
+	return s.Save()
+}
+
+// AgentStallLimit возвращает лимит тишины на шаге: 0 = значение по умолчанию,
+// отрицательное = watchdog выключен.
+func (s *Store) AgentStallLimit() time.Duration {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	min := s.settings.AgentStallMin
+	if min == 0 {
+		min = DefaultAgentStallMin
+	}
+	if min < 0 {
+		return 0
+	}
+	if min > 240 {
+		min = 240
+	}
+	return time.Duration(min) * time.Minute
+}
+
+func (s *Store) SetAgentStallMin(min int) error {
+	if min < 0 {
+		min = -1 // -1 = выключено
+	}
+	if min > 240 {
+		min = 240
+	}
+	s.mu.Lock()
+	s.settings.AgentStallMin = min
 	s.mu.Unlock()
 	return s.Save()
 }

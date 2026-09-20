@@ -78,6 +78,7 @@ import {
   ResolveToolApproval,
   SaveAgentMaxSteps,
   SaveAgentWarnSteps,
+  SaveAgentStallMin,
   SaveComposerHeight,
   SaveShowTerminal,
   GetEndSound,
@@ -1301,6 +1302,8 @@ export default function App() {
   const [deepseekPeak, setDeepseekPeak] = useState<{peak: boolean; tooltip: string}>({peak: false, tooltip: ''})
   const [maxSteps, setMaxSteps] = useState(120)
   const [warnSteps, setWarnSteps] = useState(120)
+  const [stallMinutes, setStallMinutes] = useState(10)
+  const [stallOff, setStallOff] = useState(false)
   const unlimitedSteps = maxSteps < 0
   const [deepseekKeySet, setDeepseekKeySet] = useState(false)
   const [zaiKeySet, setZaiKeySet] = useState(false)
@@ -1859,6 +1862,15 @@ export default function App() {
         setPlanMode(Boolean(s.planMode))
         if (typeof s.appDataDir === 'string' && s.appDataDir) setAppDataDir(s.appDataDir)
         if (typeof s.agentMaxSteps === 'number' && s.agentMaxSteps !== 0) setMaxSteps(s.agentMaxSteps)
+        const stall = Number((s as Record<string, any>).agentStallMinutes)
+        if (Number.isFinite(stall)) {
+          if (stall > 0) {
+            setStallMinutes(stall)
+            setStallOff(false)
+          } else {
+            setStallOff(true)
+          }
+        }
         if (typeof s.agentWarnSteps === 'number' && s.agentWarnSteps !== 0) {
           // negative in settings = warnings off; the field shows 0 for that
           setWarnSteps(s.agentWarnSteps < 0 ? 0 : s.agentWarnSteps)
@@ -3154,6 +3166,7 @@ export default function App() {
     await SaveAutoModels(autoModels)
     await SaveAgentMaxSteps(unlimitedSteps ? -1 : (Number(maxSteps) || 120))
     await SaveAgentWarnSteps(warnSteps > 0 ? Number(warnSteps) : -1)
+    await SaveAgentStallMin(stallOff ? -1 : Math.min(240, Math.max(1, Number(stallMinutes) || 10)))
     await SaveShowTerminal(showTerm)
     await SaveTheme(theme)
     if (activeSessionId) setSessionItems(activeSessionId, (m) => [...m, {kind: 'system', content: 'Settings saved'}])
@@ -4839,10 +4852,30 @@ export default function App() {
                 onChange={(e) => setWarnSteps(Number(e.target.value))}
               />
             </label>
+            <label>
+              Обрывать зависший шаг через, мин
+              <input
+                type="number"
+                min={1}
+                max={240}
+                value={stallMinutes}
+                disabled={stallOff}
+                onChange={(e) => setStallMinutes(Number(e.target.value))}
+              />
+            </label>
+            <label className="nc-check">
+              <input type="checkbox" checked={stallOff} onChange={(e) => setStallOff(e.target.checked)} />
+              Не обрывать зависший шаг (не рекомендую)
+            </label>
             <p className="nc-help">
               Шагов за один запрос: по умолчанию 120. С галочкой «без ограничения» агент не
               останавливается, а после указанного порога пишет, что работа продолжается. 0 в пороге —
               предупреждений нет.
+              {' '}
+              Отдельно следим за «затыком»: если шаг не подаёт признаков жизни (ни ответа модели, ни
+              инструментов) дольше указанного времени, прогон обрывается, а в чат уходит разбор — на каком
+              шаге встали, в какой фазе (ждём модель или висит инструмент) и что делать. По умолчанию
+              10 минут.
             </p>
 
             <div className="nc-section-label">Interface</div>
