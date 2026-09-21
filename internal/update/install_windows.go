@@ -8,7 +8,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
+	"time"
 )
 
 // swapScript ждёт выхода приложения, подменяет exe и запускает новую версию.
@@ -52,32 +54,94 @@ Start-Sleep -Seconds 2
 if ($replaced) { Remove-Item -LiteralPath $old -Force -ErrorAction SilentlyContinue }
 `
 
-// spawnSwap пишет скрипт подмены и запускает его отдельным (detached) процессом,
-// который переживёт выход приложения.
+// spawnSwap пишет скрипт подмены и запускает его отдельным процессом, который
+// переживёт выход приложения.
 func spawnSwap(stage, unpacked, appExe string) error {
+	return spawnSwapFor(stage, unpacked, appExe, os.Getpid())
+}
+
+const (
+	// createNoWindow — «тихая» консоль без окна.
+	//
+	// DETACHED_PROCESS (0x8) здесь использовать нельзя: PowerShell 5.1 с этим
+	// флагом стартует и умирает, не выполнив ни одной строки скрипта — ни
+	// swap.log, ни подмены exe (проверено тестом TestSwapLaunchesHelperProcess).
+	createNoWindow = 0x08000000
+	// createNewProcessGroup — свой процесс-группа, чтобы Ctrl+C в консоли
+	// приложения не задел подменщика.
+	createNewProcessGroup = 0x00000200
+	// processQueryLimitedInformation — доступ к коду выхода чужого процесса.
+	processQueryLimitedInformation = 0x1000
+	stillActive                    = 259
+)
+
+func processAlive(pid int) bool {
+	h, err := syscall.OpenProcess(processQueryLimitedInformation, false, uint32(pid))
+	if err != nil {
+		return false
+	}
+	defer func() { _ = syscall.CloseHandle(h) }()
+	var code uint32
+	if err := syscall.GetExitCodeProcess(h, &code); err != nil {
+		return false
+	}
+	return code == stillActive
+}
+
+func spawnSwapFor(stage, unpacked, appExe string, targetPid int) error {
 	newExe, ok := findWindowsExe(unpacked)
 	if !ok {
 		return errors.New("в архиве обновления не найден NotCursor.exe")
 	}
 	script := filepath.Join(stage, "swap.ps1")
-	if err := os.WriteFile(script, []byte(swapScript), 0o644); err != nil {
+	// UTF-8 с BOM: PowerShell 5.1 иначе читает .ps1 как ANSI (правило проекта).
+	if err := os.WriteFile(script, append([]byte{0xEF, 0xBB, 0xBF}, swapScript...), 0o644); err != nil {
 		return err
 	}
 	logPath := filepath.Join(stage, "swap.log")
+	errPath := filepath.Join(stage, "swap.err")
+	errFile, err := os.Create(errPath)
+	if err != nil {
+		return err
+	}
+	defer errFile.Close()
+
 	cmd := exec.Command("powershell.exe",
-		"-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script,
-		"-TargetPid", fmt.Sprint(os.Getpid()),
+		"-NoProfile", "-WindowStyle", "Hidden", "-ExecutionPolicy", "Bypass", "-File", script,
+		"-TargetPid", fmt.Sprint(targetPid),
 		"-NewExe", newExe,
 		"-AppExe", appExe,
 		"-Log", logPath,
 	)
 	cmd.Dir = stage
-	cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, nil, nil
-	// DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP: процесс не привязан к нашему
-	// и не умрёт вместе с приложением.
-	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: 0x00000008 | 0x00000200}
-	if err := cmd.Start(); err != nil {
-		return err
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, nil, errFile
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		CreationFlags: createNoWindow | createNewProcessGroup,
+		HideWindow:    true,
 	}
-	return cmd.Process.Release()
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("не удалось запустить подмену: %w", err)
+	}
+	pid := cmd.Process.Pid
+	_ = cmd.Process.Release()
+
+	// Подменщик должен дойти до первой строки (она пишет swap.log). Если он умер
+	// сразу — сообщаем причину из swap.err, а не оставляем «скачал, но ничего не
+	// произошло»: в этом случае приложение не будет закрыто.
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if fi, statErr := os.Stat(logPath); statErr == nil && fi.Size() > 0 {
+			return nil
+		}
+		if !processAlive(pid) {
+			msg, _ := os.ReadFile(errPath)
+			if len(msg) == 0 {
+				msg = []byte("подменщик не оставил сообщений")
+			}
+			return fmt.Errorf("подмена не запустилась: %s", strings.TrimSpace(string(msg)))
+		}
+		time.Sleep(150 * time.Millisecond)
+	}
+	// Процесс жив, просто ещё не дошёл до записи в лог — не мешаем ему.
+	return nil
 }
