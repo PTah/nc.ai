@@ -5,6 +5,7 @@ import {workspace} from '../models';
 import {rules} from '../models';
 import {costing} from '../models';
 import {openrouter} from '../models';
+import {providernews} from '../models';
 import {main} from '../models';
 import {zai} from '../models';
 import {chatstore} from '../models';
@@ -52,6 +53,8 @@ export function GetEndSound():Promise<string>;
 
 export function GetOpenRouterBalance():Promise<openrouter.AccountBalance>;
 
+export function GetProviderNews(arg1:boolean):Promise<providernews.Payload>;
+
 export function GetSettings():Promise<Record<string, any>>;
 
 export function GetUsageStats():Promise<main.UsageStats>;
@@ -87,6 +90,8 @@ export function ListZaiModels():Promise<Array<string>>;
 export function LoadChat(arg1:string):Promise<string>;
 
 export function LocalBuildHash():Promise<string>;
+
+export function MarkProviderNewsRead():Promise<void>;
 
 export function NewChatSession(arg1:string):Promise<chatstore.Session>;
 

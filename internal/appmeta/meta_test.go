@@ -1,6 +1,7 @@
 package appmeta
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -30,12 +31,41 @@ func TestHighlightsFor(t *testing.T) {
 }
 
 func TestDeepSeekProRetired(t *testing.T) {
-	before := time.Date(2026, 9, 14, 11, 59, 0, 0, time.FixedZone("CST", 8*3600))
-	after := time.Date(2026, 9, 14, 12, 1, 0, 0, time.FixedZone("CST", 8*3600))
-	if DeepSeekProRetired(before) {
-		t.Fatal("pro must be available before 12:00 Beijing")
+	// DeepSeek called the retirement off on 2026-09-10 and still lists
+	// deepseek-v4-pro in Models & Pricing, so without an announced date the model
+	// stays alive — this is what the costing paths rely on.
+	if DeepSeekProRetireRFC3339 != "" {
+		t.Fatalf("ожидалось снятое уведомление об отставке, получено %q", DeepSeekProRetireRFC3339)
 	}
-	if !DeepSeekProRetired(after) {
-		t.Fatal("pro must be retired after 12:00 Beijing")
+	if !DeepSeekProRetireAt().IsZero() {
+		t.Fatal("без объявленной даты момент отставки должен быть нулевым")
+	}
+	after := time.Date(2026, 9, 14, 12, 1, 0, 0, time.FixedZone("CST", 8*3600))
+	if DeepSeekProRetired(after) {
+		t.Fatal("pro должен считаться живым после отмены отставки")
+	}
+
+	// И логика на случай, если провайдер объявит новую дату.
+	at := time.Date(2026, 10, 1, 12, 0, 0, 0, time.FixedZone("CST", 8*3600))
+	if retiredAt(time.Time{}, after) {
+		t.Fatal("нулевая дата не должна считаться отставкой")
+	}
+	if retiredAt(at, at.Add(-time.Minute)) {
+		t.Fatal("до объявленного момента модель должна быть доступна")
+	}
+	if !retiredAt(at, at.Add(time.Minute)) {
+		t.Fatal("после объявленного момента модель должна считаться ушедшей")
+	}
+}
+
+func TestHighlightsMentionProviderNews(t *testing.T) {
+	found := false
+	for _, line := range HighlightsRU {
+		if strings.Contains(line, "Новости провайдеров") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("в списке «что нового» нет упоминания новостей провайдеров")
 	}
 }
