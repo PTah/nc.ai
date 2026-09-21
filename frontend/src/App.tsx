@@ -83,6 +83,8 @@ import {
   SaveShowTerminal,
   GetEndSound,
   SaveEndSound,
+  GetProviderNews,
+  MarkProviderNewsRead,
   SaveShowFiles,
   SaveShowSettings,
   SaveLayoutSizes,
@@ -116,6 +118,24 @@ type ChatItem =
   | { kind: 'progress'; content: string }
   | { kind: 'tool'; name: string; args: string; result?: string; phase: 'running' | 'done'; ok?: boolean; interrupted?: boolean }
   | { kind: 'file'; path: string; content: string }
+
+/** One entry of the provider news digest. */
+type ProviderNewsItem = {
+  id: string
+  provider: string
+  title: string
+  date?: string
+  url: string
+}
+
+/** Snapshot returned by App.GetProviderNews. */
+type ProviderNewsPayload = {
+  items: ProviderNewsItem[]
+  updatedAt?: string
+  newCount: number
+  stale: boolean
+  errors?: { provider: string; message: string }[]
+}
 
 /** Snapshot of a running agent turn (agent:event "progress"). */
 type RunProgressInfo = {
@@ -1216,6 +1236,10 @@ export default function App() {
   const [showTree, setShowTree] = useState(true)
   const [showTerm, setShowTerm] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
+  // Provider news digest (DeepSeek / Z.AI / OpenRouter / Qwen).
+  const [news, setNews] = useState<ProviderNewsPayload | null>(null)
+  const [newsBusy, setNewsBusy] = useState(false)
+  const [newsError, setNewsError] = useState('')
   const [layout, setLayout] = useState({
     projectsW: 200,
     treeW: 220,
@@ -1746,6 +1770,26 @@ export default function App() {
       return value
     })
   }, [])
+
+  // Cache-first load; force=true refreshes the feeds and clears the "new" badge.
+  const loadProviderNews = useCallback(async (force: boolean) => {
+    setNewsBusy(true)
+    setNewsError('')
+    try {
+      const payload = await GetProviderNews(force)
+      setNews(payload)
+      if (force) void MarkProviderNewsRead().catch(() => undefined)
+    } catch (e) {
+      setNewsError(String((e as Error)?.message || e))
+    } finally {
+      setNewsBusy(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!showSettings) return
+    void loadProviderNews(false)
+  }, [showSettings, loadProviderNews])
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme)
@@ -5017,6 +5061,56 @@ export default function App() {
               )}
             </ul>
             <button type="button" className="nc-ghost" onClick={() => void refreshRules(true)}>Reload rules</button>
+
+            <div className="nc-section-label">Новости провайдеров</div>
+            <p className="nc-help">
+              Что нового у DeepSeek, Z.AI, OpenRouter и Qwen: модели, цены, изменения API.
+              Обновляется не чаще раза в сутки.
+            </p>
+            <div className="nc-news-head">
+              <button
+                type="button"
+                className="nc-ghost"
+                disabled={newsBusy}
+                onClick={() => void loadProviderNews(true)}
+              >
+                {newsBusy ? 'Обновляю…' : 'Обновить'}
+              </button>
+              {(news?.newCount ?? 0) > 0 && <span className="nc-news-badge">{news?.newCount} новых</span>}
+              {news && news.updatedAt && (
+                <span className="nc-news-updated">
+                  от {new Date(news.updatedAt).toLocaleString()}
+                </span>
+              )}
+            </div>
+            {newsError && <p className="nc-news-error">{newsError}</p>}
+            {news && news.items.length > 0 ? (
+              <ul className="nc-news-list">
+                {news.items.slice(0, 12).map((n) => (
+                  <li key={n.id} className="nc-news-item">
+                    <button
+                      type="button"
+                      className="nc-news-link"
+                      title={n.title}
+                      onClick={() => BrowserOpenURL(n.url)}
+                    >
+                      <span className={`nc-news-provider p-${n.provider.replace(/[^a-z]/gi, '').toLowerCase()}`}>
+                        {n.provider}
+                      </span>
+                      <span className="nc-news-title">{n.title}</span>
+                      {n.date && <span className="nc-news-date">{n.date}</span>}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="nc-help">Пока пусто — нажмите «Обновить».</p>
+            )}
+            {news && (news.errors?.length ?? 0) > 0 && (
+              <p className="nc-help">
+                Не ответили: {(news.errors ?? []).map((e) => `${e.provider} (${e.message})`).join(', ')}
+              </p>
+            )}
           </aside>
         )}
       </div>

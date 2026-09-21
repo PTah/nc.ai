@@ -111,18 +111,23 @@ func TestCostProOffPeak(t *testing.T) {
 	}
 }
 
-func TestCostProRetiredBillsAsFlash(t *testing.T) {
+func TestCostProKeepsOwnPriceAfterRetirementCallOff(t *testing.T) {
 	SetDeepSeekPeakSheet(BuiltinDeepSeekPeak())
 	SetPeakWindows(DefaultPeakWindows())
-	// After 2026-09-14 12:00 Beijing the provider routes V4 Pro to V4.1 Flash.
+	// DeepSeek called the V4 Pro retirement off on 2026-09-10 (the model is still
+	// in Models & Pricing), so pro keeps its own tariff after 2026-09-14 12:00
+	// Beijing instead of being billed as Flash.
 	at := time.Date(2026, 9, 15, 12, 0, 0, 0, time.UTC)
 	u := &llm.Usage{
 		PromptCacheHitTokens:  500_000,
 		PromptCacheMissTokens: 500_000,
 		CompletionTokens:      100_000,
 	}
-	if got, want := CostAt("deepseek-v4-pro", u, at), CostAt("deepseek-v4-flash", u, at); !almost(got, want) {
-		t.Fatalf("retired pro = %v, want flash %v", got, want)
+	if got, flash := CostAt("deepseek-v4-pro", u, at), CostAt("deepseek-v4-flash", u, at); almost(got, flash) {
+		t.Fatalf("pro billed as flash (%v), хотя отставка снята", got)
+	}
+	if got, want := CostAt("deepseek-v4-flash", u, at), CostAt("deepseek-flash", u, at); !almost(got, want) {
+		t.Fatalf("legacy flash = %v, want %v", got, want)
 	}
 }
 

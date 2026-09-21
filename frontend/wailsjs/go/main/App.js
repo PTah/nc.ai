@@ -86,6 +86,10 @@ export function GetOpenRouterBalance() {
   return window['go']['main']['App']['GetOpenRouterBalance']();
 }
 
+export function GetProviderNews(arg1) {
+  return window['go']['main']['App']['GetProviderNews'](arg1);
+}
+
 export function GetSettings() {
   return window['go']['main']['App']['GetSettings']();
 }
@@ -156,6 +160,10 @@ export function LoadChat(arg1) {
 
 export function LocalBuildHash() {
   return window['go']['main']['App']['LocalBuildHash']();
+}
+
+export function MarkProviderNewsRead() {
+  return window['go']['main']['App']['MarkProviderNewsRead']();
 }
 
 export function NewChatSession(arg1) {

@@ -26,6 +26,7 @@ import (
 	"notcursor.ai/app/internal/llm/providers/openrouter"
 	"notcursor.ai/app/internal/llm/providers/qwen"
 	"notcursor.ai/app/internal/llm/providers/zai"
+	"notcursor.ai/app/internal/providernews"
 	"notcursor.ai/app/internal/redact"
 	"notcursor.ai/app/internal/rules"
 	"notcursor.ai/app/internal/shell"
@@ -846,6 +847,30 @@ func (a *App) SaveShowSettings(show bool) error {
 // SaveEndSound remembers whether the chime plays when the agent finishes.
 func (a *App) SaveEndSound(on bool) error {
 	return a.cfg.SetEndSound(on)
+}
+
+// GetProviderNews returns the cached provider digest (DeepSeek, Z.AI,
+// OpenRouter, Qwen). force=true refreshes it; otherwise the cache is refreshed
+// only when it is older than providernews.StaleAfter.
+func (a *App) GetProviderNews(force bool) (providernews.Payload, error) {
+	prev, err := providernews.Load()
+	if err != nil {
+		return providernews.Payload{}, err
+	}
+	payload := providernews.PayloadOf(prev, time.Now())
+	if !force && !payload.Stale && len(prev.Items) > 0 {
+		return payload, nil
+	}
+	fresh, rerr := providernews.Refresh(context.Background(), prev)
+	if rerr != nil {
+		return payload, rerr
+	}
+	return providernews.PayloadOf(fresh, time.Now()), nil
+}
+
+// MarkProviderNewsRead remembers that the user looked at the digest.
+func (a *App) MarkProviderNewsRead() error {
+	return providernews.MarkRead()
 }
 
 // GetEndSound returns the built-in end-of-run chime as a data URL. The clip is

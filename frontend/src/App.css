@@ -797,6 +797,29 @@ mark.nc-find-mark.nc-find-current {
   cursor: pointer;
 }
 .nc-expand-all:hover { color: var(--fg, inherit); background: var(--hover-bg, rgba(127, 127, 127, 0.14)); }
+/* Provider news digest in Settings. */
+.nc-news-head { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; margin: 0.25rem 0 0.35rem; }
+.nc-news-badge {
+  font-size: 0.68rem; padding: 0.05rem 0.4rem; border-radius: 999px;
+  background: var(--accent, #4c9aff); color: #fff;
+}
+.nc-news-updated { font-size: 0.68rem; color: var(--muted); }
+.nc-news-error { font-size: 0.72rem; color: var(--danger, #e5534b); margin: 0.2rem 0; }
+.nc-news-list { list-style: none; margin: 0.2rem 0 0.4rem; padding: 0; display: flex; flex-direction: column; gap: 0.15rem; }
+.nc-news-item { margin: 0; }
+.nc-news-link {
+  display: flex; align-items: baseline; gap: 0.35rem; width: 100%;
+  padding: 0.15rem 0.25rem; border: 0; border-radius: 5px; background: transparent;
+  color: inherit; text-align: left; cursor: pointer; font-size: 0.74rem; line-height: 1.3;
+}
+.nc-news-link:hover { background: var(--hover-bg, rgba(127, 127, 127, 0.14)); }
+.nc-news-provider {
+  flex: 0 0 auto; font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.03em;
+  padding: 0.02rem 0.3rem; border-radius: 4px; background: var(--hover-bg, rgba(127, 127, 127, 0.18));
+  color: var(--muted);
+}
+.nc-news-title { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nc-news-date { flex: 0 0 auto; font-size: 0.66rem; color: var(--muted); }
 .nc-answer { font-size: 0.95rem; line-height: 1.45; }
 .nc-msg pre {
   margin: 0; white-space: pre-wrap; word-break: break-word; font: inherit;
