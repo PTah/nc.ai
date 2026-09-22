@@ -53,6 +53,10 @@ type App struct {
 	// runActive is true while an agent run is in flight: the local health probe
 	// must not send its own generation and compete for the model slot.
 	runActive bool
+	// updMu guards the last successful update check (см. cachedUpdate).
+	updMu   sync.Mutex
+	updInfo update.Info
+	updAt   time.Time
 	// priceNoticeSeen remembers the last failure notice per provider: a flaky
 	// price endpoint should not repeat the same line in the chat.
 	priceNoticeMu   sync.Mutex
@@ -175,10 +179,27 @@ func (a *App) autoCheckUpdate() {
 
 // checkUpdate сверяет текущую версию с последним релизом на GitHub.
 func (a *App) checkUpdate() update.Info {
-	ctx, cancel := context.WithTimeout(a.ctx, 30*time.Second)
+	ctx, cancel := context.WithTimeout(a.ctx, 60*time.Second)
 	defer cancel()
 	info, _ := update.Check(ctx, appmeta.Version, stdruntime.GOOS, stdruntime.GOARCH)
+	if info.Latest != "" {
+		a.updMu.Lock()
+		a.updInfo, a.updAt = info, time.Now()
+		a.updMu.Unlock()
+	}
 	return info
+}
+
+// cachedUpdate — недавний (5 минут) успешный результат проверки. Нужен, чтобы
+// установка не ходила в сеть второй раз: api.github.com из России то отвечает,
+// то висит, и раньше «Скачать» падало на повторной проверке.
+func (a *App) cachedUpdate() (update.Info, bool) {
+	a.updMu.Lock()
+	defer a.updMu.Unlock()
+	if a.updInfo.Available && a.updInfo.AssetURL != "" && time.Since(a.updAt) < 5*time.Minute {
+		return a.updInfo, true
+	}
+	return update.Info{}, false
 }
 
 // CheckUpdate — ручная проверка обновлений (кнопка в настройках).
@@ -199,10 +220,13 @@ func (a *App) LocalBuildHash() string {
 // подмену файлов и перезапуск делает отдельный процесс-подменщик, поэтому
 // приложению обязательно надо выйти (иначе exe/.app останутся занятыми).
 func (a *App) InstallUpdate() error {
-	info := a.checkUpdate()
+	info, ok := a.cachedUpdate()
+	if !ok {
+		info = a.checkUpdate()
+	}
 	if !info.Available {
 		if info.Error != "" {
-			return fmt.Errorf("не удалось проверить обновления: %s", info.Error)
+			return fmt.Errorf("не удалось проверить обновления (%s). Проверьте связь с GitHub или скачайте файл вручную: %s", info.Error, update.ReleasePage)
 		}
 		return fmt.Errorf("обновлений нет — установлена последняя версия (%s)", info.Current)
 	}
