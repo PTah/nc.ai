@@ -4,7 +4,7 @@ html {
 }
 body {
   margin: 0;
-  font-family: "Segoe UI", "JetBrains Mono", Consolas, monospace;
+  font-family: var(--font-ui, "Segoe UI", system-ui, sans-serif);
 }
 #root {
   height: 100vh;

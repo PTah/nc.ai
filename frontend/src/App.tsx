@@ -90,6 +90,8 @@ import {
   SaveLayoutSizes,
   SaveShell,
   SaveTheme,
+  SaveUiFont,
+  SaveMonoFont,
   SaveChat,
   SaveChatSession,
   LoadChat,
@@ -1200,6 +1202,45 @@ function parseAgentEvent(...args: unknown[]): AgentEvent | null {
   return null
 }
 
+function normalizeUiFont(id: string): string {
+  switch (String(id || '').toLowerCase()) {
+    case 'verdana':
+    case 'tahoma':
+    case 'arial':
+    case 'system':
+      return String(id).toLowerCase()
+    default:
+      return 'default'
+  }
+}
+
+function normalizeMonoFont(id: string): string {
+  switch (String(id || '').toLowerCase()) {
+    case 'lucida':
+    case 'consolas':
+    case 'courier':
+    case 'cascadia':
+      return String(id).toLowerCase()
+    default:
+      return 'default'
+  }
+}
+
+function monoFontStack(id: string): string {
+  switch (normalizeMonoFont(id)) {
+    case 'lucida':
+      return '"Lucida Console", "Lucida Sans Typewriter", monospace'
+    case 'consolas':
+      return 'Consolas, "Courier New", monospace'
+    case 'courier':
+      return '"Courier New", Courier, monospace'
+    case 'cascadia':
+      return '"Cascadia Mono", "Cascadia Code", Consolas, monospace'
+    default:
+      return 'Menlo, Consolas, "Courier New", monospace'
+  }
+}
+
 export default function App() {
   const [info, setInfo] = useState({name: 'NotCursor.ai', version: '0.6.3'})
   const [usage, setUsage] = useState<UsageSnapshot>(emptyUsage)
@@ -1335,6 +1376,8 @@ export default function App() {
   const [qwenKeySet, setQwenKeySet] = useState(false)
   const [localKeySet, setLocalKeySet] = useState(false)
   const [theme, setTheme] = useState<'dark' | 'light'>('dark')
+  const [uiFont, setUiFont] = useState('default')
+  const [monoFont, setMonoFont] = useState('default')
   const [termCmd, setTermCmd] = useState('')
   const [chatFindOpen, setChatFindOpen] = useState(false)
   const [chatFindQuery, setChatFindQuery] = useState('')
@@ -1795,11 +1838,50 @@ export default function App() {
     document.documentElement.setAttribute('data-theme', theme)
   }, [theme])
 
+  useEffect(() => {
+    document.documentElement.setAttribute('data-ui-font', uiFont)
+  }, [uiFont])
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-mono-font', monoFont)
+    const stack = monoFontStack(monoFont)
+    try {
+      if (xtermRef.current) {
+        xtermRef.current.options.fontFamily = stack
+        fitRef.current?.fit()
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [monoFont])
+
   const applyTheme = useCallback(async (next: 'dark' | 'light') => {
     setTheme(next)
     document.documentElement.setAttribute('data-theme', next)
     try {
       await SaveTheme(next)
+    } catch {
+      /* ignore */
+    }
+  }, [])
+
+  const applyUiFont = useCallback(async (next: string) => {
+    const id = normalizeUiFont(next)
+    setUiFont(id)
+    document.documentElement.setAttribute('data-ui-font', id)
+    try {
+      await SaveUiFont(id)
+    } catch {
+      /* ignore */
+    }
+  }, [])
+
+  const applyMonoFont = useCallback(async (next: string) => {
+    const id = normalizeMonoFont(next)
+    setMonoFont(id)
+    document.documentElement.setAttribute('data-mono-font', id)
+    try {
+      await SaveMonoFont(id)
     } catch {
       /* ignore */
     }
@@ -1930,6 +2012,14 @@ export default function App() {
         if (s.theme === 'light' || s.theme === 'dark') {
           setTheme(s.theme)
           document.documentElement.setAttribute('data-theme', s.theme)
+        }
+        {
+          const ui = normalizeUiFont(String(s.uiFont || ''))
+          setUiFont(ui)
+          document.documentElement.setAttribute('data-ui-font', ui)
+          const mono = normalizeMonoFont(String(s.monoFont || ''))
+          setMonoFont(mono)
+          document.documentElement.setAttribute('data-mono-font', mono)
         }
         setLayout({
           projectsW: Number(s.layoutProjectsW) || 200,
@@ -2657,7 +2747,7 @@ export default function App() {
         convertEol: true,
         cursorBlink: true,
         fontSize: 13,
-        fontFamily: 'Menlo, Consolas, "Courier New", monospace',
+        fontFamily: monoFontStack(monoFont),
         theme: {background: '#0d0d0d', foreground: '#c8f7c5'},
       })
       const fit = new FitAddon()
@@ -3213,6 +3303,8 @@ export default function App() {
     await SaveAgentStallMin(stallOff ? -1 : Math.min(240, Math.max(1, Number(stallMinutes) || 10)))
     await SaveShowTerminal(showTerm)
     await SaveTheme(theme)
+    await SaveUiFont(uiFont)
+    await SaveMonoFont(monoFont)
     if (activeSessionId) setSessionItems(activeSessionId, (m) => [...m, {kind: 'system', content: 'Settings saved'}])
   }
 
@@ -4933,6 +5025,35 @@ export default function App() {
                 <option value="light">Light</option>
               </select>
             </label>
+            <label>
+              UI font
+              <select
+                value={uiFont}
+                onChange={(e) => void applyUiFont(e.target.value)}
+              >
+                <option value="default">Segoe UI (default)</option>
+                <option value="verdana">Verdana</option>
+                <option value="tahoma">Tahoma</option>
+                <option value="arial">Arial</option>
+                <option value="system">System UI</option>
+              </select>
+            </label>
+            <label>
+              Mono font
+              <select
+                value={monoFont}
+                onChange={(e) => void applyMonoFont(e.target.value)}
+              >
+                <option value="default">Consolas / Menlo (default)</option>
+                <option value="lucida">Lucida Console</option>
+                <option value="consolas">Consolas</option>
+                <option value="courier">Courier New</option>
+                <option value="cascadia">Cascadia Mono</option>
+              </select>
+            </label>
+            <p className="nc-help">
+              UI — интерфейс и ответы в чате; Mono — код, терминал и tool-блоки.
+            </p>
             <label className="nc-check">
               <input
                 type="checkbox"

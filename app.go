@@ -604,6 +604,8 @@ func (a *App) GetSettings() map[string]any {
 		"endSound":           a.cfg.EndSoundEnabled(),
 		"showSettings":       s.ShowSettings,
 		"theme":              a.cfg.Theme(),
+		"uiFont":             a.cfg.UiFont(),
+		"monoFont":           a.cfg.MonoFont(),
 		"agentMaxSteps":      a.cfg.MaxAgentSteps(),
 		"agentWarnSteps":     a.cfg.AgentWarnSteps(),
 		"agentStallMinutes":  int(a.cfg.AgentStallLimit().Minutes()),
@@ -1541,6 +1543,14 @@ func (a *App) waitUserAsk(ctx context.Context, sessionID, callID, question strin
 
 func (a *App) SaveTheme(theme string) error {
 	return a.cfg.SetTheme(theme)
+}
+
+func (a *App) SaveUiFont(id string) error {
+	return a.cfg.SetUiFont(id)
+}
+
+func (a *App) SaveMonoFont(id string) error {
+	return a.cfg.SetMonoFont(id)
 }
 
 func (a *App) SaveAgentMaxSteps(steps int) error {
