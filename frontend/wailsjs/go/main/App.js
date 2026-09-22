@@ -326,6 +326,10 @@ export function SaveLocalModel(arg1) {
   return window['go']['main']['App']['SaveLocalModel'](arg1);
 }
 
+export function SaveMonoFont(arg1) {
+  return window['go']['main']['App']['SaveMonoFont'](arg1);
+}
+
 export function SaveOpenRouterKey(arg1) {
   return window['go']['main']['App']['SaveOpenRouterKey'](arg1);
 }
@@ -370,16 +374,12 @@ export function SaveTheme(arg1) {
   return window['go']['main']['App']['SaveTheme'](arg1);
 }
 
-export function SaveUiFont(arg1) {
-  return window['go']['main']['App']['SaveUiFont'](arg1);
-}
-
-export function SaveMonoFont(arg1) {
-  return window['go']['main']['App']['SaveMonoFont'](arg1);
-}
-
 export function SaveToolConfirm(arg1) {
   return window['go']['main']['App']['SaveToolConfirm'](arg1);
+}
+
+export function SaveUiFont(arg1) {
+  return window['go']['main']['App']['SaveUiFont'](arg1);
 }
 
 export function SaveWindowGeometry() {

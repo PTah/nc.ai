@@ -108,3 +108,30 @@ func TestSafeVersion(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+// decideUpdate mirrors DecideAvailability for readable table cases.
+func decideUpdate(remoteVer, localVer string, buildDiffers bool) (available, sameVersion bool) {
+	return DecideAvailability(CompareVersions(remoteVer, localVer), buildDiffers)
+}
+
+func TestDecideUpdate(t *testing.T) {
+	cases := []struct {
+		name                   string
+		remote, local          string
+		diff                   bool
+		wantAvail, wantSameVer bool
+	}{
+		{"remote newer", "0.6.34", "0.6.33", false, true, false},
+		{"same ver rebuild", "0.6.33", "0.6.33", true, true, true},
+		{"same ver same build", "0.6.33", "0.6.33", false, false, false},
+		{"local ahead ignores hash", "0.6.32", "0.6.33", true, false, false},
+		{"local ahead no hash", "0.6.32", "0.6.33", false, false, false},
+	}
+	for _, c := range cases {
+		gotAvail, gotSame := decideUpdate(c.remote, c.local, c.diff)
+		if gotAvail != c.wantAvail || gotSame != c.wantSameVer {
+			t.Errorf("%s: got avail=%v same=%v, want avail=%v same=%v",
+				c.name, gotAvail, gotSame, c.wantAvail, c.wantSameVer)
+		}
+	}
+}
