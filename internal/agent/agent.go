@@ -29,7 +29,7 @@ const SystemPrompt = `You are NotCursor.ai, a coding agent like Cursor.
 You work inside the user's local workspace.
 
 Communication:
-- Match the user's language.
+- Match the user's language in every message, including the final summary: no Chinese (CJK) characters unless the user writes Chinese.
 - Lead with the result. Do not name tools or recap every step.
 - When changing code, use tools — do not dump full files in chat unless the user asked to see the code.
 - Be concise. Use backticks for file, function, and symbol names.
@@ -84,7 +84,7 @@ After tool results, always give a final textual answer to the user.`
 
 // SystemPromptLite is a short agent prompt for weak local models (less prefill).
 const SystemPromptLite = `You are NotCursor.ai, a local coding agent.
-Match the user's language. Be brief. Lead with the result.
+Match the user's language (no Chinese/CJK unless the user writes Chinese). Be brief. Lead with the result.
 CRITICAL: For any question about this project, code, files, versions, or "what does X do" —
 you MUST call tools first (glob, grep, list_dir, read_file, git_status). Never guess.
 Forbidden: answers built from "вероятно", "скорее всего", "возможно" without tool results.
@@ -712,6 +712,7 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 
 	localNudgeDone := false
 	emptyRetryDone := false
+	langRetryDone := false
 	exploreToolsOnly := false
 	for step := 0; step < max; step++ {
 		if runCtx.Err() != nil {
@@ -844,6 +845,17 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 			// чтения файлов — раньше его принимали за догадку, чистили уже
 			// показанный текст (delta_clear) и требовали «короткий факт».
 			proseNudge := !brokenToolJSON && guessy && watch.toolsDone() == 0
+			// Китайские модели иногда отвечают иероглифами при русском запросе —
+			// один раз просим переписать, дальше принимаем как есть.
+			if !langRetryDone && wrongLanguage(r.UserText, content) {
+				langRetryDone = true
+				if streamed {
+					emit(Event{Type: "delta_clear"})
+				}
+				emit(Event{Type: "notice", Content: "Модель ответила не на языке пользователя — прошу переписать по-русски."})
+				messages = append(messages, llm.UserText(languageNudge))
+				continue
+			}
 			if r.isLocal() && !localNudgeDone && len(msg.ToolCalls) == 0 && (brokenToolJSON || proseNudge) {
 				localNudgeDone = true
 				exploreToolsOnly = true
