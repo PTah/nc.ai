@@ -83,7 +83,16 @@ func (c *Client) ProbeHealth(ctx context.Context) HealthReport {
 		return rep
 	}
 
+	if c.isKnownNotOllama() {
+		return c.pingChatOnly(ctx, &rep)
+	}
+
 	c.fillVRAM(ctx, origin, &rep)
+	// /api/ps ответил 404 — сервер не Ollama (LM Studio, Lemonade, vLLM):
+	// /api/generate у них тоже нет, сразу чат-пинг.
+	if c.isKnownNotOllama() {
+		return c.pingChatOnly(ctx, &rep)
+	}
 
 	if err := c.pingGenerate(ctx, origin, &rep); err != nil {
 		if err2 := c.pingChat(ctx, &rep); err2 != nil {
@@ -99,6 +108,19 @@ func (c *Client) ProbeHealth(ctx context.Context) HealthReport {
 	return rep
 }
 
+// pingChatOnly — health для серверов без Ollama-эндпоинтов: только чат-пинг.
+func (c *Client) pingChatOnly(ctx context.Context, rep *HealthReport) HealthReport {
+	if err := c.pingChat(ctx, rep); err != nil {
+		rep.Error = err.Error()
+		rep.Level = HealthCritical
+		rep.Label = "Local down"
+		rep.Detail = "Сервер не отвечает: " + rep.Error
+		return *rep
+	}
+	scoreHealth(rep)
+	return *rep
+}
+
 func (c *Client) fillVRAM(ctx context.Context, origin string, rep *HealthReport) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, origin+"/api/ps", nil)
 	if err != nil {
@@ -112,9 +134,18 @@ func (c *Client) fillVRAM(ctx context.Context, origin string, rep *HealthReport)
 	}
 	defer res.Body.Close()
 	data, err := io.ReadAll(io.LimitReader(res.Body, 1<<20))
-	if err != nil || res.StatusCode >= 300 {
+	if err != nil {
 		return
 	}
+	if res.StatusCode == http.StatusNotFound {
+		// /api/ps есть только у Ollama.
+		c.markNotOllama()
+		return
+	}
+	if res.StatusCode >= 300 {
+		return
+	}
+	c.markOllama()
 	var ps ollamaPSResponse
 	if json.Unmarshal(data, &ps) != nil {
 		return
@@ -166,6 +197,10 @@ func (c *Client) pingGenerate(ctx context.Context, origin string, rep *HealthRep
 	wall := time.Since(start)
 	if err != nil {
 		return err
+	}
+	if res.StatusCode == http.StatusNotFound {
+		// /api/generate есть только у Ollama.
+		c.markNotOllama()
 	}
 	if res.StatusCode >= 300 {
 		return mapAPIError(res.StatusCode, data)
