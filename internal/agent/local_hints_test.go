@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -11,6 +12,23 @@ func TestContextFillNotice(t *testing.T) {
 	got := contextFillNotice(7000, 8192)
 	if !strings.Contains(got, "7000") || !strings.Contains(got, "8192") {
 		t.Fatalf("notice=%q", got)
+	}
+	unknown := contextFillNoticeUnknown(9000)
+	if !strings.Contains(unknown, "9000") || !strings.Contains(unknown, "OLLAMA_CONTEXT_LENGTH") {
+		t.Fatalf("unknown notice=%q", unknown)
+	}
+}
+
+func TestContextPayload(t *testing.T) {
+	var got struct {
+		Used  int `json:"used"`
+		Limit int `json:"limit"`
+	}
+	if err := json.Unmarshal([]byte(contextPayload(1234, 8192)), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Used != 1234 || got.Limit != 8192 {
+		t.Fatalf("payload=%+v", got)
 	}
 }
 
@@ -25,14 +43,18 @@ func TestLocalContextNoticeOncePerRun(t *testing.T) {
 	if got := r.localContextNotice(&llm.Usage{PromptTokens: 8000}); got != "" {
 		t.Fatalf("warning must not repeat, got %q", got)
 	}
-	// Облачные провайдеры и незаданный контекст — молча.
+	// Контекст не задан: молчим до 8k, дальше предупреждаем про OLLAMA_CONTEXT_LENGTH.
+	unset := &Runner{ProviderID: "local:default"}
+	if got := unset.localContextNotice(&llm.Usage{PromptTokens: 4000}); got != "" {
+		t.Fatalf("unset numCtx below threshold must stay silent, got %q", got)
+	}
+	if got := unset.localContextNotice(&llm.Usage{PromptTokens: 9000}); !strings.Contains(got, "OLLAMA_CONTEXT_LENGTH") {
+		t.Fatalf("expected unknown-context warning, got %q", got)
+	}
+	// Облачные провайдеры не трогаем.
 	cloud := &Runner{ProviderID: "deepseek", LocalNumCtx: 8192}
 	if got := cloud.localContextNotice(&llm.Usage{PromptTokens: 8000}); got != "" {
 		t.Fatalf("cloud must stay silent, got %q", got)
-	}
-	unset := &Runner{ProviderID: "local:default"}
-	if got := unset.localContextNotice(&llm.Usage{PromptTokens: 8000}); got != "" {
-		t.Fatalf("unset numCtx must stay silent, got %q", got)
 	}
 }
 

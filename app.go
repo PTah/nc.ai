@@ -632,6 +632,7 @@ func (a *App) GetSettings() map[string]any {
 		"agentStallMinutes":  int(a.cfg.AgentStallLimit().Minutes()),
 		"autoModels":         a.cfg.AutoModels(),
 		"localLite":          a.cfg.LocalLiteEnabled(),
+		"localSkipRules":     a.cfg.LocalSkipRulesEnabled(),
 		"toolConfirm":        a.cfg.ToolConfirmEnabled(),
 		"planMode":           a.cfg.PlanModeEnabled(),
 		"visionModel":        deepseek.VisionModel,
@@ -1457,6 +1458,11 @@ func (a *App) SaveLocalLite(on bool) error {
 	return a.cfg.SetLocalLite(on)
 }
 
+// SaveLocalSkipRules — не подключать проектные правила на Local-серверах.
+func (a *App) SaveLocalSkipRules(on bool) error {
+	return a.cfg.SetLocalSkipRules(on)
+}
+
 // SetIDEContext records the file open in the in-app editor for the next agent turn.
 func (a *App) SetIDEContext(path string, line int) {
 	a.ideMu.Lock()
@@ -2099,9 +2105,11 @@ func (a *App) RunAgentWithAttachments(userMessage string, attachments []agent.At
 	provider := a.cfg.Provider()
 	autoModels := cfg.AutoModels
 	localLite := false
+	localSkipRules := false
 	var localModels []agent.LocalModelInfo
 	if config.IsLocalProvider(provider) {
 		localLite = a.cfg.LocalLiteEnabled()
+		localSkipRules = a.cfg.LocalSkipRulesEnabled()
 		if infos, err := a.listLocalModelInfos(); err == nil {
 			for _, m := range infos {
 				localModels = append(localModels, agent.NewLocalModelInfo(m.ID, m.Capabilities))
@@ -2130,14 +2138,21 @@ func (a *App) RunAgentWithAttachments(userMessage string, attachments []agent.At
 		runTools = a.tools.ForRun(projKey)
 	}
 
+	// Правила проекта (десятки КБ) на маленьком окне контекста вытесняют задачу.
+	rulesText := bundle.SelectStableForPrompt()
+	turnRulesText := bundle.SelectTurnRules(hints)
+	if localSkipRules {
+		rulesText, turnRulesText = "", ""
+	}
+
 	runner := &agent.Runner{
 		Provider:       a.llm,
 		Tools:          runTools,
 		MaxSteps:       a.cfg.MaxAgentSteps(),
 		WarnSteps:      a.cfg.AgentWarnSteps(),
 		StallLimit:     a.cfg.AgentStallLimit(),
-		RulesText:      bundle.SelectStableForPrompt(),
-		TurnRulesText:  bundle.SelectTurnRules(hints),
+		RulesText:      rulesText,
+		TurnRulesText:  turnRulesText,
 		StickyModel:    sticky,
 		ProjectMap:     projectMap,
 		IDEContext:     a.ideContextText(),
@@ -2151,6 +2166,12 @@ func (a *App) RunAgentWithAttachments(userMessage string, attachments []agent.At
 		UserText:       userMessage,
 		HasImages:      hasImages,
 		HintPathCount:  len(hints),
+	}
+	if localSkipRules {
+		a.emitFor(sid, agent.Event{
+			Type:    "notice",
+			Content: "Local: проектные правила не подключены (галочка «Не подключать проектные правила» в Settings → Local).",
+		})
 	}
 	// ApproveTool is always wired; it decides per call whether a prompt is
 	// needed, so toggling "Confirm dangerous tools" applies immediately.
