@@ -51,7 +51,7 @@ func TestReasoningContentWinsOverReasoning(t *testing.T) {
 	}
 }
 
-func TestChatCompletionSendsNumCtx(t *testing.T) {
+func TestNumCtxNotSentToServer(t *testing.T) {
 	var body map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		raw, _ := io.ReadAll(r.Body)
@@ -63,30 +63,30 @@ func TestChatCompletionSendsNumCtx(t *testing.T) {
 
 	c := New(srv.URL+"/v1", "", "m1")
 	c.http = srv.Client()
+	// Контекст нужен приложению для индикатора и предупреждений, но в запрос
+	// уходить не должен: строгие OpenAI-серверы (Lemonade, vLLM, LM Studio)
+	// нестандартные поля могут отвергнуть с 400.
 	c.SetNumCtx(8192)
 	if _, err := c.ChatCompletion(context.Background(), &llm.ChatRequest{
 		Messages: []llm.Message{{Role: "user", Content: "hi"}},
 	}); err != nil {
 		t.Fatal(err)
 	}
-	opts, ok := body["options"].(map[string]any)
-	if !ok {
-		t.Fatalf("options missing in %v", body)
+	if _, ok := body["options"]; ok {
+		t.Fatalf("options must not be sent: %v", body["options"])
 	}
-	if got, _ := opts["num_ctx"].(float64); got != 8192 {
-		t.Fatalf("num_ctx=%v want 8192", opts["num_ctx"])
+	if _, ok := body["num_ctx"]; ok {
+		t.Fatalf("num_ctx must not be sent: %v", body["num_ctx"])
+	}
+	if c.NumCtx() != 8192 {
+		t.Fatalf("numCtx=%d want 8192", c.NumCtx())
 	}
 }
 
-func TestNumCtxUnsetSendsNoOptions(t *testing.T) {
+func TestNumCtxClampsNegative(t *testing.T) {
 	c := New("http://127.0.0.1:11434/v1", "", "m")
 	c.SetNumCtx(-5)
 	if c.NumCtx() != 0 {
 		t.Fatalf("numCtx=%d want 0", c.NumCtx())
-	}
-	var p apiRequest
-	c.withNumCtx(&p)
-	if p.Options != nil {
-		t.Fatalf("options=%v want nil", p.Options)
 	}
 }

@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"notcursor.ai/app/internal/llm"
@@ -26,11 +27,16 @@ type Client struct {
 	model   string
 	baseURL string
 	http    *http.Client
-	// numCtx — размер контекста из настроек сервера (0 = не задан). Идёт в
-	// options.num_ctx и используется приложением для предупреждений о
-	// заполнении контекста. Ollama в OpenAI-совместимом режиме это поле
-	// игнорирует (ollama#5356) — там контекст задаётся OLLAMA_CONTEXT_LENGTH.
+	// numCtx — размер контекста из настроек сервера (0 = не задан). В запрос он
+	// НЕ уходит: нестандартные поля (options.num_ctx) строгие OpenAI-серверы
+	// (Lemonade, vLLM, LM Studio) могут отвергнуть с 400, а Ollama в
+	// OpenAI-режиме его всё равно игнорирует (ollama#5356) — контекст там
+	// задаётся на сервере. Значение нужно приложению для индикатора заполнения
+	// окна и предупреждений.
 	numCtx int
+	// ollamaState: 0 — неизвестно, 1 — Ollama, -1 — не Ollama (LM Studio,
+	// Lemonade, vLLM): у них нет /api/ps и /api/generate, не дёргаем их зря.
+	ollamaState int32
 }
 
 func New(baseURL, apiKey, model string) *Client {
@@ -70,11 +76,12 @@ func (c *Client) SetNumCtx(n int) {
 // NumCtx возвращает размер контекста сервера (0 = не задан).
 func (c *Client) NumCtx() int { return c.numCtx }
 
-func (c *Client) withNumCtx(p *apiRequest) {
-	if c.numCtx > 0 {
-		p.Options = map[string]any{"num_ctx": c.numCtx}
-	}
-}
+// isKnownNotOllama — сервер уже опознали как не-Ollama.
+func (c *Client) isKnownNotOllama() bool { return atomic.LoadInt32(&c.ollamaState) < 0 }
+
+// markOllama / markNotOllama запоминают тип сервера по ответам /api/ps и /api/generate.
+func (c *Client) markOllama()    { atomic.StoreInt32(&c.ollamaState, 1) }
+func (c *Client) markNotOllama() { atomic.StoreInt32(&c.ollamaState, -1) }
 
 // NormalizeBaseURL trims, adds http:// if missing, strips trailing slash.
 func NormalizeBaseURL(u string) string {
@@ -96,9 +103,6 @@ type apiRequest struct {
 	Stream      bool           `json:"stream"`
 	Temperature *float64       `json:"temperature,omitempty"`
 	MaxTokens   *int           `json:"max_tokens,omitempty"`
-	// Options — серверные опции (num_ctx). Ollama OpenAI-совместимый слой их
-	// игнорирует, см. numCtx у Client.
-	Options map[string]any `json:"options,omitempty"`
 }
 
 type modelsListResponse struct {
@@ -326,8 +330,6 @@ func (c *Client) ChatCompletion(ctx context.Context, req *llm.ChatRequest) (*llm
 		t := 0.2
 		payload.Temperature = &t
 	}
-	c.withNumCtx(&payload)
-
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return nil, err

@@ -50,7 +50,6 @@ func (c *Client) ChatCompletionStream(ctx context.Context, req *llm.ChatRequest,
 		t := 0.2
 		payload.Temperature = &t
 	}
-	c.withNumCtx(&payload)
 
 	body, err := json.Marshal(payload)
 	if err != nil {
