@@ -307,6 +307,21 @@ func LatestRelease(ctx context.Context) (*Release, error) {
 	return &rel, nil
 }
 
+// DecideAvailability: предлагать ли обновление.
+// remoteVsLocal — CompareVersions(remote, local); buildDiffers — хеши
+// разошлись. Хеш учитывается только при равных номерах версии: локальная
+// сборка новее GitHub не должна звать «обновиться» из‑за другого sha256.
+func DecideAvailability(remoteVsLocal int, buildDiffers bool) (available, sameVersion bool) {
+	switch {
+	case remoteVsLocal > 0:
+		return true, false
+	case remoteVsLocal == 0 && buildDiffers:
+		return true, true
+	default:
+		return false, false
+	}
+}
+
 // Check сравнивает текущую версию с последним релизом и подбирает файл.
 // Ошибка сети возвращается как есть — вызывающий решает, показывать ли её.
 func Check(ctx context.Context, current, goos, goarch string) (Info, error) {
@@ -321,29 +336,26 @@ func Check(ctx context.Context, current, goos, goarch string) (Info, error) {
 	if rel.HTMLURL != "" {
 		info.URL = rel.HTMLURL
 	}
-	newer := CompareVersions(info.Latest, current) > 0
+	// cmp: remote vs local — >0 remote newer, 0 same, <0 local ahead of GitHub.
+	cmp := CompareVersions(info.Latest, current)
 
 	if a, ok := PickAsset(rel.Assets, goos, goarch); ok {
 		info.AssetFound = true
 		info.AssetName = a.Name
 		info.AssetURL = a.URL
 		info.AssetSize = a.Size
-		// Второй сигнал — хеш сборки: ловит перезаливку файла под тем же номером
-		// версии (когда «по цифрам» версия та же, а сборка уже другая).
-		if sc, ok := PickSidecar(rel.Assets, a.Name); ok {
-			if remote := FetchSha256(ctx, sc.URL); remote != "" {
-				info.BuildHash = remote
-				info.BuildDiffers = info.LocalHash != "" && info.LocalHash != remote
+		// Хеш сборки имеет смысл только при том же номере версии: иначе
+		// локальная 0.6.33 и релиз 0.6.32 всегда «разные» и ложно зовут обновиться.
+		if cmp == 0 {
+			if sc, ok := PickSidecar(rel.Assets, a.Name); ok {
+				if remote := FetchSha256(ctx, sc.URL); remote != "" {
+					info.BuildHash = remote
+					info.BuildDiffers = info.LocalHash != "" && info.LocalHash != remote
+				}
 			}
 		}
 	}
-	switch {
-	case newer:
-		info.Available = true
-	case info.BuildDiffers:
-		info.Available = true
-		info.SameVersion = true
-	}
+	info.Available, info.SameVersion = DecideAvailability(cmp, info.BuildDiffers)
 	return info, nil
 }
 

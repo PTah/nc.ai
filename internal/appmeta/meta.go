@@ -5,7 +5,7 @@ import "time"
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "0.6.33"
+	Version = "0.6.34"
 )
 
 // DeepSeekProRetireRFC3339 is the announced V4 Pro retirement instant, empty
@@ -51,19 +51,19 @@ func retiredAt(at time.Time, now time.Time) bool {
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
+	"Не предлагаем «обновить», если у вас версия новее, чем последний релиз на GitHub",
 	"В Settings → Interface — выбор шрифтов UI и mono (Verdana, Lucida Console и др.)",
 	"Автообновление на Windows надёжнее перезапускает приложение после установки",
 	"В настройках — «Новости провайдеров»: что нового у DeepSeek, Z.AI, OpenRouter и Qwen",
 	"Зависший шаг обрывается сам: если шаг молчит дольше 10 минут — разбор в чате",
-	"При старте проверяются релизы на GitHub — по версии и по хешу сборки",
 }
 
 var HighlightsEN = []string{
+	"No update prompt when your build is newer than the latest GitHub release",
 	"Settings → Interface: pick UI and monospace fonts (Verdana, Lucida Console, and more)",
 	"Windows auto-update more reliably relaunches the app after install",
 	"Settings include provider news: what's new at DeepSeek, Z.AI, OpenRouter and Qwen",
 	"A stuck step aborts on its own: silence over 10 minutes yields a chat breakdown",
-	"GitHub releases are checked on start — by version and by build hash",
 }
 
 // UICopy is localized chrome for the Welcome splash.

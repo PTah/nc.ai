@@ -3954,11 +3954,11 @@ export default function App() {
                     : updatePhase === 'downloading'
                       ? `Скачиваю ${String(updateInfo.latest)}… ${updatePercent}%`
                       : updateInfo.sameVersion
-                        ? `Версия ${String(updateInfo.latest)} та же, но опубликована другая сборка (у вас ${String(
-                            updateInfo.current,
-                          )}${updateInfo.assetSize ? `, ${fmtBytes(Number(updateInfo.assetSize))}` : ''}).`
+                        ? `Версия ${String(updateInfo.latest)} та же, но на GitHub другая сборка (у вас другой файл${
+                            updateInfo.assetSize ? `; скачать ${fmtBytes(Number(updateInfo.assetSize))}` : ''
+                          }).`
                         : `Доступна новая версия ${String(updateInfo.latest)} (у вас ${String(updateInfo.current)}${
-                            updateInfo.assetSize ? `, ${fmtBytes(Number(updateInfo.assetSize))}` : ''
+                            updateInfo.assetSize ? `; скачать ${fmtBytes(Number(updateInfo.assetSize))}` : ''
                           }).`}
                   {updateError ? ` ${updateError}` : ''}
                 </span>
@@ -5067,8 +5067,8 @@ export default function App() {
             <p className="nc-help">
               Установлена версия <code>v{info.version}</code>
               {localBuildHash ? <> · сборка <code>{localBuildHash}</code></> : null}. При старте приложение само
-              проверяет релизы на GitHub и предлагает обновление, если вышла новая версия <em>или</em> опубликована
-              другая сборка той же версии (сравнение по sha256 бинарника).
+              проверяет релизы на GitHub и предлагает обновление только если там версия <em>новее</em>, либо
+              тот же номер, но другой sha256 бинарника. Если у вас сборка новее GitHub — баннер не показывается.
             </p>
             <button type="button" className="nc-ghost" onClick={() => void checkUpdatesNow()}>
               Проверить обновления

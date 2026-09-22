@@ -173,6 +173,8 @@ export function SaveLocalLite(arg1:boolean):Promise<void>;
 
 export function SaveLocalModel(arg1:string):Promise<void>;
 
+export function SaveMonoFont(arg1:string):Promise<void>;
+
 export function SaveOpenRouterKey(arg1:string):Promise<void>;
 
 export function SaveOpenRouterModel(arg1:string):Promise<void>;
@@ -195,11 +197,9 @@ export function SaveShowTerminal(arg1:boolean):Promise<void>;
 
 export function SaveTheme(arg1:string):Promise<void>;
 
-export function SaveUiFont(arg1:string):Promise<void>;
-
-export function SaveMonoFont(arg1:string):Promise<void>;
-
 export function SaveToolConfirm(arg1:boolean):Promise<void>;
+
+export function SaveUiFont(arg1:string):Promise<void>;
 
 export function SaveWindowGeometry():Promise<void>;
 
