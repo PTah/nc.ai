@@ -930,6 +930,8 @@ type DisplayRow =
   | { key: string; kind: 'item'; item: ChatItem }
   | { key: string; kind: 'tool_group'; tools: Extract<ChatItem, {kind: 'tool'}>[]; summary: string }
   | { key: string; kind: 'process'; rows: DisplayRow[] }
+  // Синтетическая строка: завершённый план задач встаёт в поток как обычный блок.
+  | { key: string; kind: 'todos' }
 
 /**
  * Global "expand/collapse every block" click. The signal is a counter, so two
@@ -1096,6 +1098,11 @@ function buildDisplayRows(items: ChatItem[], compact = false): DisplayRow[] {
     i++
   }
   return collapseProcess(rows, compact)
+}
+
+/** Ключи строк-хвоста не должны совпадать с ключами головы того же списка. */
+function rekeyRows(rows: DisplayRow[], prefix: string): DisplayRow[] {
+  return rows.map((row) => ({...row, key: prefix + row.key}) as DisplayRow)
 }
 
 function isProcessRow(r: DisplayRow): boolean {
@@ -1363,6 +1370,8 @@ export default function App() {
   const [toolConfirm, setToolConfirm] = useState(true)
   const [planMode, setPlanMode] = useState(false)
   const [todosBySession, setTodosBySession] = useState<Record<string, TodoItem[]>>({})
+  // Место в ленте, куда «уезжает» завершённый план задач (индекс элемента чата).
+  const [todosFlowAnchor, setTodosFlowAnchor] = useState<Record<string, number>>({})
   const [editor, setEditor] = useState<EditorState | null>(null)
   const [askAnswer, setAskAnswer] = useState('')
   const [deepseekPeak, setDeepseekPeak] = useState<{peak: boolean; tooltip: string}>({peak: false, tooltip: ''})
@@ -1475,6 +1484,28 @@ export default function App() {
     ? queueCount > 0 ? `думает… · очередь ${queueCount}` : 'думает…'
     : queueCount > 0 ? `в очереди: ${queueCount}` : ''
   const {total: rulesTotal, applied: rulesApplied} = rulesCounts(rulesInfo)
+
+  // Пока прогон идёт, панель плана закреплена внизу ленты. Когда прогон
+  // закончился, план встаёт в поток на месте завершения и дальше скроллится как
+  // обычный текст — выполненный список не висит в самом низу окна.
+  const todosBusyRef = useRef(false)
+  useEffect(() => {
+    const was = todosBusyRef.current
+    todosBusyRef.current = busy
+    if (!was || busy || !activeSessionId) return
+    setTodosFlowAnchor((prev) => ({...prev, [activeSessionId]: items.length}))
+  }, [busy, activeSessionId, items.length])
+
+  const todoFlowAt = !busy && todos.length > 0 && activeSessionId
+    ? todosFlowAnchor[activeSessionId]
+    : undefined
+  const displayRows = typeof todoFlowAt === 'number'
+    ? [
+        ...buildDisplayRows(items.slice(0, Math.min(todoFlowAt, items.length)), !busy),
+        {key: '__todos', kind: 'todos'} as DisplayRow,
+        ...rekeyRows(buildDisplayRows(items.slice(Math.min(todoFlowAt, items.length)), !busy), 'tail-'),
+      ]
+    : buildDisplayRows(items, !busy)
 
   const setInput = useCallback((value: string, sid = activeSessionRef.current) => {
     if (!sid) return
@@ -4083,13 +4114,16 @@ export default function App() {
                   title="Изменить ширину чата"
                   onMouseDown={(e) => beginResize('chat', e, 'right')}
                 />
-                {buildDisplayRows(items, !busy).map((row, idx, all) => {
+                {displayRows.map((row, idx, all) => {
                   const isLastRow = idx === all.length - 1
                   if (row.kind === 'process') {
                     return <ProcessGroup key={row.key} rows={row.rows} expand={expandSignal} autoOpen={busy && isLastRow} />
                   }
                   if (row.kind === 'tool_group') {
                     return <ToolGroup key={row.key} summary={row.summary} tools={row.tools} expand={expandSignal} autoOpen={busy && isLastRow} />
+                  }
+                  if (row.kind === 'todos') {
+                    return <TodoPanel key={row.key} todos={todos} expand={expandSignal} busy={false} />
                   }
                   const m = row.item
                   if (m.kind === 'tool') {
@@ -4159,7 +4193,7 @@ export default function App() {
                     <pre>думаю… {runStatusElapsed}</pre>
                   </div>
                 )}
-                {todos.length > 0 && <TodoPanel todos={todos} expand={expandSignal} busy={busy} />}
+                {busy && todos.length > 0 && <TodoPanel todos={todos} expand={expandSignal} busy={busy} />}
                 {(items.some((i) => i.kind === 'reasoning' || i.kind === 'tool') || todos.length > 0) && (
                   <div className="nc-thread-actions">
                     <button
