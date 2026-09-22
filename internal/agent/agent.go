@@ -43,7 +43,11 @@ Tools:
 - Prefer apply_patch for partial edits; write_file only for new files or full rewrites.
 - Use delete_file for removals and move_file for renames (do not rm/mv via shell).
 - Call get_env_info when OS/toolchain matters.
-- Use todo_write for multi-step work; keep the list current; do not narrate todo updates.
+- Use todo_write for multi-step work (3+ steps): create the list once, then keep it
+  current — set an item in_progress the moment you start it and completed the moment it
+  is done, in the same batch as the work. Update as you go, not at the end: a list left
+  in its initial state is a bug. When the work is finished, mark every remaining item
+  completed or cancelled.
 - Post a short stage line (what is done, what comes next, plainly) only when the
   user asked for interim results ("показывай промежуточные результаты") or when you
   have been working for more than two minutes without giving any result. Otherwise
@@ -186,6 +190,9 @@ type Runner struct {
 	// localModelNotice / ctxWarned — однократные предупреждения за прогон.
 	localModelNotice bool
 	ctxWarned        bool
+	// todoIdle / todoNudges — счётчики напоминаний обновить ToDo (todo_nudge.go).
+	todoIdle   int
+	todoNudges int
 	// OnUsage, when set, is called after each provider response with the model
 	// that produced it and its token usage (usage may be nil for some providers).
 	OnUsage func(model string, u *llm.Usage)
@@ -818,6 +825,9 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 				return messages, err
 			}
 			messages = append(messages, outs...)
+			if rem := r.todoStaleReminder(msg.ToolCalls); rem != "" {
+				messages = append(messages, llm.UserText(rem))
+			}
 			watch.touch("инструменты выполнены")
 			watch.onPhase("model", "Жду ответ модели")
 			if text, due := prog.noteTools(msg.ToolCalls); due {
