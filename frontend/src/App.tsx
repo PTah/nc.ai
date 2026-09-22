@@ -292,6 +292,7 @@ type LocalEndpointRow = {
   name: string
   baseUrl: string
   model: string
+  numCtx: number
   keySet: boolean
 }
 
@@ -1964,10 +1965,11 @@ export default function App() {
             name: String(raw?.name || raw?.id || 'Custom'),
             baseUrl: String(raw?.baseUrl || LOCAL_BASE_DEFAULT),
             model: String(raw?.model || ''),
+            numCtx: Math.max(0, Number(raw?.numCtx || 0) || 0),
             keySet: Boolean(raw?.keySet),
           }))
           setLocalEndpoints(rows.length ? rows : [{
-            id: 'default', name: 'Custom', baseUrl: LOCAL_BASE_DEFAULT, model: '', keySet: Boolean(s.localKeySet),
+            id: 'default', name: 'Custom', baseUrl: LOCAL_BASE_DEFAULT, model: '', numCtx: 0, keySet: Boolean(s.localKeySet),
           }])
           const activeId = isLocalProvider(provider) ? provider.slice('local:'.length) : 'default'
           const cur = rows.find((r) => r.id === activeId) || rows[0]
@@ -4674,12 +4676,13 @@ export default function App() {
                     onClick={() => {
                       void (async () => {
                         try {
-                          const row = await UpsertLocalEndpoint('', 'New local', LOCAL_BASE_DEFAULT, '')
+                          const row = await UpsertLocalEndpoint('', 'New local', LOCAL_BASE_DEFAULT, '', 0)
                           const ep: LocalEndpointRow = {
                             id: String(row.id),
                             name: String(row.name || 'New local'),
                             baseUrl: String(row.baseUrl || LOCAL_BASE_DEFAULT),
                             model: String(row.model || ''),
+                            numCtx: Math.max(0, Number(row.numCtx || 0) || 0),
                             keySet: Boolean(row.keySet),
                           }
                           setLocalEndpoints((prev) => [...prev.filter((x) => x.id !== ep.id), ep])
@@ -4709,6 +4712,7 @@ export default function App() {
                             name: String(row.name || 'copy'),
                             baseUrl: String(row.baseUrl || LOCAL_BASE_DEFAULT),
                             model: String(row.model || ''),
+                            numCtx: Math.max(0, Number(row.numCtx || 0) || 0),
                             keySet: false,
                           }
                           setLocalEndpoints((prev) => [...prev, ep])
@@ -4764,12 +4768,14 @@ export default function App() {
                       const name = e.target.value.trim() || 'Custom'
                       setLocalEpName(name)
                       const id = activeProvider.startsWith('local:') ? activeProvider.slice(6) : 'default'
-                      void UpsertLocalEndpoint(id, name, localBaseUrl, localModel).then((row) => {
+                      const rowNumCtx = localEndpoints.find((x) => x.id === id)?.numCtx ?? 0
+                      void UpsertLocalEndpoint(id, name, localBaseUrl, localModel, rowNumCtx).then((row) => {
                         setLocalEndpoints((prev) => prev.map((x) => x.id === id ? {
                           ...x,
                           name: String(row.name || name),
                           baseUrl: String(row.baseUrl || localBaseUrl),
                           model: String(row.model || localModel),
+                          numCtx: Math.max(0, Number(row.numCtx || 0) || 0),
                         } : x))
                       })
                     }}
@@ -4838,6 +4844,36 @@ export default function App() {
                     }}
                     placeholder="qwen2.5-coder:14b"
                   />
+                </label>
+                <label>
+                  Context (num_ctx)
+                  <input
+                    type="number"
+                    min={0}
+                    step={1024}
+                    value={localEndpoints.find((x) => x.id === (activeProvider.startsWith('local:') ? activeProvider.slice('local:'.length) : 'default'))?.numCtx || ''}
+                    placeholder="4096"
+                    onChange={(e) => {
+                      const id = activeProvider.startsWith('local:') ? activeProvider.slice('local:'.length) : 'default'
+                      const next = Math.max(0, Number(e.target.value) || 0)
+                      setLocalEndpoints((prev) => prev.map((x) => x.id === id ? {...x, numCtx: next} : x))
+                    }}
+                    onBlur={(e) => {
+                      const id = activeProvider.startsWith('local:') ? activeProvider.slice('local:'.length) : 'default'
+                      const next = Math.max(0, Number(e.target.value) || 0)
+                      void UpsertLocalEndpoint(id, localEpName, localBaseUrl, localModel, next).then((row) => {
+                        setLocalEndpoints((prev) => prev.map((x) => x.id === id ? {
+                          ...x,
+                          numCtx: Math.max(0, Number(row.numCtx || 0) || 0),
+                        } : x))
+                      })
+                    }}
+                  />
+                  <span className="nc-help" style={{display: 'inline'}}>
+                    Окно контекста сервера: по нему приложение предупреждает о переполнении. Ollama
+                    в OpenAI-совместимом режиме его игнорирует — там контекст задаётся
+                    OLLAMA_CONTEXT_LENGTH.
+                  </span>
                 </label>
                 <button type="button" className="nc-ghost" onClick={() => void refreshLocalModels({applyPreferred: true})}>
                   Refresh models

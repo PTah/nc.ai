@@ -50,6 +50,9 @@ type App struct {
 	rulesMu sync.RWMutex
 	cancels map[string]context.CancelFunc
 	runGens map[string]uint64
+	// runActive is true while an agent run is in flight: the local health probe
+	// must not send its own generation and compete for the model slot.
+	runActive bool
 	// priceNoticeSeen remembers the last failure notice per provider: a flaky
 	// price endpoint should not repeat the same line in the chat.
 	priceNoticeMu   sync.Mutex
@@ -93,6 +96,20 @@ func NewApp() *App {
 		pendingApprove:     map[string]chan bool{},
 		pendingAsk:         map[string]chan string{},
 	}
+}
+
+// setRunActive отмечает, что идёт прогон агента: health-проба локального сервера
+// в это время не должна слать свой generation и отбирать слот у модели.
+func (a *App) setRunActive(on bool) {
+	a.mu.Lock()
+	a.runActive = on
+	a.mu.Unlock()
+}
+
+func (a *App) runInFlight() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.runActive
 }
 
 // clearSessionStickyModels drops Auto-models session sticky so a manual model
@@ -458,7 +475,11 @@ func (a *App) refreshProvider() {
 		}
 		a.llm = qwen.NewWithBaseURL(key, model, a.cfg.QwenBaseURL())
 	case config.IsLocalProvider(provider):
-		a.llm = local.New(a.cfg.LocalBaseURL(), key, model)
+		c := local.New(a.cfg.LocalBaseURL(), key, model)
+		if ep, ok := a.cfg.LocalEndpointByID(config.LocalEndpointID(provider)); ok {
+			c.SetNumCtx(ep.NumCtx)
+		}
+		a.llm = c
 	default:
 		if model == "" {
 			model = deepseek.DefaultModel
@@ -1063,9 +1084,9 @@ func (a *App) SaveLocalBaseURL(baseURL string) error {
 }
 
 // UpsertLocalEndpoint creates or updates a LAN/local server profile.
-func (a *App) UpsertLocalEndpoint(id, name, baseURL, model string) (map[string]any, error) {
+func (a *App) UpsertLocalEndpoint(id, name, baseURL, model string, numCtx int) (map[string]any, error) {
 	ep, err := a.cfg.UpsertLocalEndpoint(config.LocalEndpoint{
-		ID: id, Name: name, BaseURL: baseURL, Model: model,
+		ID: id, Name: name, BaseURL: baseURL, Model: model, NumCtx: numCtx,
 	})
 	if err != nil {
 		return nil, err
@@ -1074,7 +1095,7 @@ func (a *App) UpsertLocalEndpoint(id, name, baseURL, model string) (map[string]a
 		a.refreshProvider()
 	}
 	return map[string]any{
-		"id": ep.ID, "name": ep.Name, "baseUrl": ep.BaseURL, "model": ep.Model,
+		"id": ep.ID, "name": ep.Name, "baseUrl": ep.BaseURL, "model": ep.Model, "numCtx": ep.NumCtx,
 		"keySet": a.cfg.HasAPIKey(config.MakeLocalProvider(ep.ID)),
 	}, nil
 }
@@ -1200,6 +1221,17 @@ func (a *App) ProbeLocalHealth() map[string]any {
 		}
 	}
 	client := local.New(ep.BaseURL, a.cfg.APIKey(config.MakeLocalProvider(ep.ID)), ep.Model)
+	if a.runInFlight() {
+		// Ollama serves one model slot: a probe while the agent is generating
+		// waits in the queue, blows the 45s budget and painted a false
+		// "Local down" badge during long local answers.
+		return out(local.HealthReport{
+			Level:  local.HealthWarn,
+			Label:  "Local занят",
+			Detail: "Идёт прогон агента — пинг пропущен, чтобы не конкурировать за слот модели. Статус обновится после ответа.",
+			Model:  ep.Model,
+		})
+	}
 	ctx := a.ctx
 	if ctx == nil {
 		ctx = context.Background()
@@ -2113,6 +2145,7 @@ func (a *App) RunAgentWithAttachments(userMessage string, attachments []agent.At
 		AutoModels:     autoModels,
 		LocalLite:      localLite,
 		LocalModels:    localModels,
+		LocalNumCtx:    a.cfg.LocalNumCtx(),
 		ProviderID:     provider,
 		PreferredModel: a.cfg.ActiveModel(),
 		UserText:       userMessage,
@@ -2165,6 +2198,8 @@ func (a *App) RunAgentWithAttachments(userMessage string, attachments []agent.At
 	}
 
 	go func() {
+		a.setRunActive(true)
+		defer a.setRunActive(false)
 		dockicon.BeginAgent()
 		defer dockicon.EndAgent()
 

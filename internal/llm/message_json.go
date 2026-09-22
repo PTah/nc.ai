@@ -12,6 +12,9 @@ type wireMessage struct {
 	ToolCallID       string          `json:"tool_call_id,omitempty"`
 	ToolCalls        []ToolCall      `json:"tool_calls,omitempty"`
 	ReasoningContent *string         `json:"reasoning_content"`
+	// Ollama's OpenAI-compat layer reports the thinking trace as "reasoning"
+	// (message.reasoning / delta.reasoning), not as DeepSeek's reasoning_content.
+	Reasoning *string `json:"reasoning"`
 }
 
 func (m *Message) UnmarshalJSON(data []byte) error {
@@ -24,9 +27,12 @@ func (m *Message) UnmarshalJSON(data []byte) error {
 	m.ToolCallID = w.ToolCallID
 	m.ToolCalls = w.ToolCalls
 	m.Content, m.Parts = parseContentParts(w.Content)
-	if w.ReasoningContent != nil {
+	switch {
+	case w.ReasoningContent != nil:
 		m.ReasoningContent = *w.ReasoningContent
-	} else {
+	case w.Reasoning != nil:
+		m.ReasoningContent = *w.Reasoning
+	default:
 		m.ReasoningContent = ""
 	}
 	return nil

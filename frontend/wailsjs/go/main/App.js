@@ -434,8 +434,8 @@ export function TerminalWrite(arg1) {
   return window['go']['main']['App']['TerminalWrite'](arg1);
 }
 
-export function UpsertLocalEndpoint(arg1, arg2, arg3, arg4) {
-  return window['go']['main']['App']['UpsertLocalEndpoint'](arg1, arg2, arg3, arg4);
+export function UpsertLocalEndpoint(arg1, arg2, arg3, arg4, arg5) {
+  return window['go']['main']['App']['UpsertLocalEndpoint'](arg1, arg2, arg3, arg4, arg5);
 }
 
 export function WriteCursorRule(arg1, arg2) {
