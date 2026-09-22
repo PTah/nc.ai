@@ -624,6 +624,27 @@ function fmtTok(n: number): string {
   return `${Math.round(n / 1000)}k`
 }
 
+/**
+ * Сетевые сбои проверки обновлений (api.github.com из России часто висит или
+ * блокируется) показываем по-человечески, а не текстом ошибки Go.
+ */
+function friendlyUpdateError(raw: string): string {
+  const t = raw.toLowerCase()
+  const netish = [
+    'timeout awaiting response headers',
+    'context deadline exceeded',
+    'i/o timeout',
+    'no such host',
+    'connection refused',
+    'connection reset',
+    'proxyconnect',
+    'tls handshake',
+    'unexpected eof',
+  ].some((sign) => t.includes(sign))
+  if (!netish) return raw
+  return 'нет связи с GitHub (api.github.com недоступен или не отвечает). Можно скачать релиз вручную: https://github.com/PTah/nc.ai/releases/latest'
+}
+
 /** Деньги в долларах: 0.0123 → «$0.0123». */
 function fmtUsd(c: number): string {
   return `$${Number(c || 0).toFixed(4)}`
@@ -3508,7 +3529,7 @@ export default function App() {
       await InstallUpdate()
     } catch (e) {
       setUpdatePhase('idle')
-      setUpdateError(e instanceof Error ? e.message : String(e))
+      setUpdateError(friendlyUpdateError(e instanceof Error ? e.message : String(e)))
     }
   }
 
@@ -3525,7 +3546,7 @@ export default function App() {
       }
       setUpdateError(`Обновлений нет — установлена последняя версия ${String(info?.current || '')}.`)
     } catch (e) {
-      setUpdateError(e instanceof Error ? e.message : String(e))
+      setUpdateError(friendlyUpdateError(e instanceof Error ? e.message : String(e)))
     }
   }
 

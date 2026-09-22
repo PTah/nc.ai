@@ -10,6 +10,7 @@ package update
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -18,6 +19,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -38,7 +40,12 @@ const (
 	maxReleaseJSON = 1 << 20 // 1 МБ на JSON релиза — с большим запасом
 	maxAssetBytes  = 300 << 20
 	assetTimeout   = 20 * time.Second
+	apiTimeout     = 45 * time.Second
 	downloadTick   = 250 * time.Millisecond
+	// apiAttempts/apiRetryDelay — повторы для GitHub API: сеть до него из
+	// России рвётся часто, а проверка обновлений идёт на старте.
+	apiAttempts   = 3
+	apiRetryDelay = 700 * time.Millisecond
 )
 
 // Asset — один файл релиза.
@@ -80,17 +87,24 @@ type Info struct {
 }
 
 // Client — HTTP-клиент с разумными таймаутами (проверка идёт на старте).
+//
+// HTTP/2 принудительно выключен: из России api.github.com по h2 часто «висит»
+// на заголовках ответа («http2: timeout awaiting response headers»), а по
+// HTTP/1.1 тот же запрос проходит. Таймаут заголовков увеличен до 30 с.
 var Client = &http.Client{
 	Transport: &http.Transport{
 		Proxy: http.ProxyFromEnvironment,
 		DialContext: (&net.Dialer{
-			Timeout:   8 * time.Second,
+			Timeout:   10 * time.Second,
 			KeepAlive: 30 * time.Second,
 		}).DialContext,
-		ForceAttemptHTTP2:     true,
+		ForceAttemptHTTP2:     false,
+		TLSNextProto:          map[string]func(string, *tls.Conn) http.RoundTripper{},
+		MaxIdleConns:          4,
 		IdleConnTimeout:       30 * time.Second,
-		TLSHandshakeTimeout:   8 * time.Second,
-		ResponseHeaderTimeout: 15 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ResponseHeaderTimeout: 30 * time.Second,
+		ExpectContinueTimeout: time.Second,
 	},
 }
 
@@ -251,12 +265,7 @@ func FetchSha256(ctx context.Context, url string) string {
 	}
 	actx, cancel := context.WithTimeout(ctx, assetTimeout)
 	defer cancel()
-	req, err := http.NewRequestWithContext(actx, http.MethodGet, url, nil)
-	if err != nil {
-		return ""
-	}
-	req.Header.Set("User-Agent", userAgent)
-	res, err := Client.Do(req)
+	res, err := getWithRetry(actx, url, "")
 	if err != nil {
 		return ""
 	}
@@ -271,21 +280,117 @@ func FetchSha256(ctx context.Context, url string) string {
 	return ParseSha256(string(body))
 }
 
+// getWithRetry выполняет GET с повторами: 5xx и сетевые ошибки повторяем,
+// 4xx отдаём сразу. Используется и для API, и для подписи релиза.
+func getWithRetry(ctx context.Context, url, accept string) (*http.Response, error) {
+	var lastErr error
+	for attempt := 0; attempt < apiAttempts; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(time.Duration(attempt) * apiRetryDelay):
+			}
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("User-Agent", userAgent)
+		if accept != "" {
+			req.Header.Set("Accept", accept)
+		}
+		res, err := Client.Do(req)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if res.StatusCode >= 500 {
+			_, _ = io.Copy(io.Discard, io.LimitReader(res.Body, 4096))
+			_ = res.Body.Close()
+			lastErr = fmt.Errorf("GitHub API: HTTP %d", res.StatusCode)
+			continue
+		}
+		return res, nil
+	}
+	if lastErr == nil {
+		lastErr = errors.New("GitHub API: нет ответа")
+	}
+	return nil, lastErr
+}
+
+// latestTagFrom читает тег последнего релиза из HTML-редиректа
+// github.com/.../releases/latest (302 → /releases/tag/vX.Y.Z).
+func latestTagFrom(ctx context.Context, pageURL string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, pageURL, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("User-Agent", userAgent)
+	client := *Client
+	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	res, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer res.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(res.Body, 4096))
+	if res.StatusCode < 300 || res.StatusCode >= 400 {
+		return "", fmt.Errorf("GitHub: HTTP %d вместо редиректа", res.StatusCode)
+	}
+	tag := path.Base(strings.TrimRight(res.Header.Get("Location"), "/"))
+	if !strings.HasPrefix(tag, "v") || ParseVersion(tag) == nil {
+		return "", fmt.Errorf("GitHub: не разобрать тег релиза %q", tag)
+	}
+	return tag, nil
+}
+
+// syntheticAssets собирает имена файлов релиза по платформе: они
+// детерминированы (nc.ai-<версия>-<platform>.zip + .sha256), поэтому при
+// недоступном API их можно не спрашивать у GitHub.
+func syntheticAssets(version, goos, goarch string) []Asset {
+	out := make([]Asset, 0, 4)
+	for _, suffix := range AssetSuffixes(goos, goarch) {
+		name := "nc.ai-" + version + suffix
+		out = append(out, Asset{Name: name})
+	}
+	return out
+}
+
+// releaseByRedirect — запасной путь, когда api.github.com недоступен: тег берём
+// из редиректа страницы релизов, имена файлов достраиваем сами.
+func releaseByRedirect(ctx context.Context, goos, goarch string) (*Release, error) {
+	return releaseByRedirectFrom(ctx, ReleasePage, goos, goarch)
+}
+
+func releaseByRedirectFrom(ctx context.Context, pageURL, goos, goarch string) (*Release, error) {
+	tag, err := latestTagFrom(ctx, pageURL)
+	if err != nil {
+		return nil, err
+	}
+	ver := strings.TrimPrefix(tag, "v")
+	rel := &Release{
+		Tag:     tag,
+		Name:    tag,
+		HTMLURL: "https://github.com/" + RepoSlug + "/releases/tag/" + tag,
+	}
+	for _, a := range syntheticAssets(ver, goos, goarch) {
+		rel.Assets = append(rel.Assets, Asset{
+			Name: a.Name,
+			URL:  "https://github.com/" + RepoSlug + "/releases/download/" + tag + "/" + a.Name,
+		})
+	}
+	return rel, nil
+}
+
 // LatestRelease забирает последний опубликованный релиз (без черновиков и пре-релизов).
 func LatestRelease(ctx context.Context) (*Release, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	actx, cancel := context.WithTimeout(ctx, assetTimeout)
+	actx, cancel := context.WithTimeout(ctx, apiTimeout)
 	defer cancel()
-	req, err := http.NewRequestWithContext(actx, http.MethodGet, apiLatest, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("User-Agent", userAgent)
-	req.Header.Set("Accept", "application/vnd.github+json")
-
-	res, err := Client.Do(req)
+	res, err := getWithRetry(actx, apiLatest, "application/vnd.github+json")
 	if err != nil {
 		return nil, err
 	}
@@ -328,8 +433,14 @@ func Check(ctx context.Context, current, goos, goarch string) (Info, error) {
 	info := Info{Current: current, URL: ReleasePage, LocalHash: LocalExeHash()}
 	rel, err := LatestRelease(ctx)
 	if err != nil {
-		info.Error = err.Error()
-		return info, err
+		// api.github.com может быть недоступен (блокировка, DPI), а github.com
+		// открывается — тогда берём тег из редиректа страницы релизов.
+		if fb, ferr := releaseByRedirect(ctx, goos, goarch); ferr == nil {
+			rel, err = fb, nil
+		} else {
+			info.Error = err.Error()
+			return info, err
+		}
 	}
 	info.Latest = strings.TrimPrefix(rel.Tag, "v")
 	info.Notes = strings.TrimSpace(rel.Body)
