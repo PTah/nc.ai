@@ -48,8 +48,20 @@
   --brand-bg: #0a0c0e;
   --ghost-hover: #222;
   --k: #8ab4ff;
-  font-family: "Segoe UI", Consolas, monospace;
+  --font-ui: "Segoe UI", system-ui, sans-serif;
+  --font-mono: Menlo, Consolas, "Courier New", monospace;
+  font-family: var(--font-ui);
 }
+
+[data-ui-font="verdana"] { --font-ui: Verdana, Geneva, sans-serif; }
+[data-ui-font="tahoma"] { --font-ui: Tahoma, Geneva, sans-serif; }
+[data-ui-font="arial"] { --font-ui: Arial, Helvetica, sans-serif; }
+[data-ui-font="system"] { --font-ui: system-ui, -apple-system, "Segoe UI", sans-serif; }
+
+[data-mono-font="lucida"] { --font-mono: "Lucida Console", "Lucida Sans Typewriter", monospace; }
+[data-mono-font="consolas"] { --font-mono: Consolas, "Courier New", monospace; }
+[data-mono-font="courier"] { --font-mono: "Courier New", Courier, monospace; }
+[data-mono-font="cascadia"] { --font-mono: "Cascadia Mono", "Cascadia Code", Consolas, monospace; }
 
 [data-theme="light"] {
   color-scheme: light;
@@ -764,7 +776,7 @@ mark.nc-find-mark.nc-find-current {
   border-radius: 8px;
   border: 1px solid var(--border);
   background: color-mix(in srgb, var(--msg-bg, #111) 70%, transparent);
-  font-family: Menlo, Consolas, "Courier New", monospace;
+  font-family: var(--font-mono);
   font-size: 0.82rem;
   line-height: 1.45;
   white-space: pre-wrap;
@@ -862,7 +874,7 @@ mark.nc-find-mark.nc-find-current {
   margin-left: auto;
   font-size: 0.72rem;
   color: var(--muted);
-  font-family: Consolas, monospace;
+  font-family: var(--font-mono);
 }
 .nc-tool-details { margin-top: 0.35rem; }
 .nc-tool-details > summary {
@@ -977,7 +989,7 @@ mark.nc-find-mark.nc-find-current {
 }
 .nc-check input { width: auto; }
 .nc-empty { color: var(--muted); font-size: 0.78rem; padding: 0.35rem 0.15rem; line-height: 1.35; }
-.nc-crash { color: var(--crash); padding: 16px; white-space: pre-wrap; font: 13px/1.4 Menlo, monospace; }
+.nc-crash { color: var(--crash); padding: 16px; white-space: pre-wrap; font: 13px/1.4 var(--font-mono); }
 
 @media (max-width: 1200px) {
   .nc-root:not(.no-settings) {
@@ -1001,7 +1013,7 @@ mark.nc-find-mark.nc-find-current {
 .nc-markdown ul, .nc-markdown ol { margin: 0.4rem 0; padding-left: 1.4rem; }
 .nc-markdown li { margin: 0.15rem 0; }
 .nc-markdown code {
-  font-family: Consolas, "Courier New", monospace;
+  font-family: var(--font-mono);
   font-size: 0.85em;
   background: var(--tool-pre-bg);
   border: 1px solid var(--border);
@@ -1015,7 +1027,7 @@ mark.nc-find-mark.nc-find-current {
   padding: 0.6rem 0.7rem;
   overflow-x: auto;
   white-space: pre;
-  font-family: Consolas, "Courier New", monospace;
+  font-family: var(--font-mono);
   font-size: 0.82rem;
 }
 .nc-markdown pre code {
@@ -1055,7 +1067,7 @@ mark.nc-find-mark.nc-find-current {
 .nc-rules-source.project { color: var(--tool-icon-ok); }
 .nc-rules-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
 .nc-rules-always { flex: 0 0 auto; color: var(--pill-ok); font-size: 0.62rem; }
-.nc-help code { font-family: Consolas, "Courier New", monospace; font-size: 0.85em; background: var(--tool-pre-bg); padding: 0.05rem 0.25rem; border-radius: 4px; }
+.nc-help code { font-family: var(--font-mono); font-size: 0.85em; background: var(--tool-pre-bg); padding: 0.05rem 0.25rem; border-radius: 4px; }
 
 .nc-projects {
   display: flex;
@@ -1297,7 +1309,7 @@ mark.nc-find-mark.nc-find-current {
   min-height: 280px;
   width: 100%;
   resize: vertical;
-  font-family: Menlo, Consolas, "Courier New", monospace;
+  font-family: var(--font-mono);
   font-size: 0.78rem;
   line-height: 1.45;
   padding: 0.65rem 0.75rem;
@@ -1636,7 +1648,7 @@ mark.nc-find-mark.nc-find-current {
   padding: 0.5rem 0.7rem;
   background: var(--input-bg);
   color: var(--text);
-  font-family: Consolas, "Courier New", monospace;
+  font-family: var(--font-mono);
   font-size: 0.82rem;
   line-height: 1.4;
 }

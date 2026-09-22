@@ -5,7 +5,7 @@ import "time"
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "0.6.32"
+	Version = "0.6.33"
 )
 
 // DeepSeekProRetireRFC3339 is the announced V4 Pro retirement instant, empty
@@ -51,19 +51,19 @@ func retiredAt(at time.Time, now time.Time) bool {
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
-	"В настройках — «Новости провайдеров»: что нового у DeepSeek, Z.AI, OpenRouter и Qwen (модели, цены, изменения API), обновление раз в сутки или по кнопке",
-	"Зависший шаг обрывается сам: если шаг молчит дольше 10 минут, прогон останавливается и объясняет, где встали и что делать",
-	"При старте проверяются релизы на GitHub — по версии и по хешу сборки, поэтому видна и перезаливка файла",
-	"План задач отмечает выполненное галочками и сам сворачивается, когда работа закончена",
-	"В списке Projects слева от имени — иконка из папки проекта (или стандартная)",
+	"В Settings → Interface — выбор шрифтов UI и mono (Verdana, Lucida Console и др.)",
+	"Автообновление на Windows надёжнее перезапускает приложение после установки",
+	"В настройках — «Новости провайдеров»: что нового у DeepSeek, Z.AI, OpenRouter и Qwen",
+	"Зависший шаг обрывается сам: если шаг молчит дольше 10 минут — разбор в чате",
+	"При старте проверяются релизы на GitHub — по версии и по хешу сборки",
 }
 
 var HighlightsEN = []string{
-	"Settings now include provider news: what's new at DeepSeek, Z.AI, OpenRouter and Qwen (models, prices, API changes), refreshed daily or on demand",
-	"A stuck step aborts on its own: a step silent for over 10 minutes stops the run and explains where it hung and what to do",
-	"GitHub releases are checked on start — by version and by build hash, so a re-uploaded file is noticed too",
-	"The task plan ticks finished items and collapses by itself once the run is over",
-	"Project list shows a folder icon (or a default glyph) beside each project name",
+	"Settings → Interface: pick UI and monospace fonts (Verdana, Lucida Console, and more)",
+	"Windows auto-update more reliably relaunches the app after install",
+	"Settings include provider news: what's new at DeepSeek, Z.AI, OpenRouter and Qwen",
+	"A stuck step aborts on its own: silence over 10 minutes yields a chat breakdown",
+	"GitHub releases are checked on start — by version and by build hash",
 }
 
 // UICopy is localized chrome for the Welcome splash.

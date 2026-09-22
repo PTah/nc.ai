@@ -24,19 +24,24 @@ const swapScript = `param(
   [Parameter(Mandatory=$true)][string]$AppExe,
   [string]$Log
 )
-$ErrorActionPreference = 'SilentlyContinue'
-function Note([string]$m) { if ($Log) { Add-Content -LiteralPath $Log -Value ("{0} {1}" -f (Get-Date -Format o), $m) } }
-Note "waiting for pid $TargetPid"
-try { Wait-Process -Id $TargetPid -Timeout 30 -ErrorAction Stop } catch { Note "wait timed out" }
+$ErrorActionPreference = 'Continue'
+function Note([string]$m) {
+  if (-not $Log) { return }
+  try { Add-Content -LiteralPath $Log -Value ("{0} {1}" -f (Get-Date -Format o), $m) -ErrorAction Stop } catch {}
+}
+Note "swap start pid=$TargetPid new=$NewExe app=$AppExe"
+try { Wait-Process -Id $TargetPid -Timeout 45 -ErrorAction Stop } catch { Note "wait ended: $($_.Exception.Message)" }
 if (Get-Process -Id $TargetPid -ErrorAction SilentlyContinue) {
   Note "stopping pid $TargetPid"
   Stop-Process -Id $TargetPid -Force -ErrorAction SilentlyContinue
+  Start-Sleep -Milliseconds 500
 }
 Start-Sleep -Milliseconds 800
 $old = "$AppExe.old"
 Remove-Item -LiteralPath $old -Force -ErrorAction SilentlyContinue
 if (Test-Path -LiteralPath $AppExe) {
   Move-Item -LiteralPath $AppExe -Destination $old -Force -ErrorAction SilentlyContinue
+  if (Test-Path -LiteralPath $AppExe) { Note "move to .old failed, will try overwrite" } else { Note "moved aside" }
 }
 $replaced = $false
 try {
@@ -48,14 +53,40 @@ try {
 }
 if (-not $replaced -and (Test-Path -LiteralPath $old)) {
   Move-Item -LiteralPath $old -Destination $AppExe -Force -ErrorAction SilentlyContinue
+  Note "restored previous exe"
 }
-Start-Process -FilePath $AppExe
+if (-not (Test-Path -LiteralPath $AppExe)) {
+  Note "FATAL: AppExe missing after swap"
+  exit 1
+}
+Unblock-File -LiteralPath $AppExe -ErrorAction SilentlyContinue
+$dir = Split-Path -Parent $AppExe
+$started = $false
+for ($i = 0; $i -lt 3 -and -not $started; $i++) {
+  try {
+    $p = Start-Process -FilePath $AppExe -WorkingDirectory $dir -PassThru -ErrorAction Stop
+    if ($p -and $p.Id) {
+      Start-Sleep -Milliseconds 700
+      if (Get-Process -Id $p.Id -ErrorAction SilentlyContinue) {
+        Note ("started ok pid=$($p.Id) attempt=$($i+1)")
+        $started = $true
+        break
+      }
+      Note ("process exited immediately pid=$($p.Id) attempt=$($i+1)")
+    }
+  } catch {
+    Note ("Start-Process failed attempt=$($i+1): $($_.Exception.Message)")
+  }
+  Start-Sleep -Seconds 1
+}
+if (-not $started) { Note "FATAL: could not relaunch application" }
 Start-Sleep -Seconds 2
 if ($replaced) { Remove-Item -LiteralPath $old -Force -ErrorAction SilentlyContinue }
+Note "swap done"
 `
 
-// spawnSwap пишет скрипт подмены и запускает его отдельным процессом, который
-// переживёт выход приложения.
+// spawnSwap пишет скрипт подмены и запускает его отдельным процессом вне Job
+// приложения, чтобы он пережил Quit и смог подменить exe + перезапустить UI.
 func spawnSwap(stage, unpacked, appExe string) error {
 	return spawnSwapFor(stage, unpacked, appExe, os.Getpid())
 }
@@ -70,6 +101,9 @@ const (
 	// createNewProcessGroup — свой процесс-группа, чтобы Ctrl+C в консоли
 	// приложения не задел подменщика.
 	createNewProcessGroup = 0x00000200
+	// createBreakawayFromJob — если приложение в Job (WebView2/Wails), без
+	// этого флага Windows убивает helper вместе с родительским процессом.
+	createBreakawayFromJob = 0x01000000
 	// processQueryLimitedInformation — доступ к коду выхода чужого процесса.
 	processQueryLimitedInformation = 0x1000
 	stillActive                    = 259
@@ -116,7 +150,7 @@ func spawnSwapFor(stage, unpacked, appExe string, targetPid int) error {
 	cmd.Dir = stage
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, nil, errFile
 	cmd.SysProcAttr = &syscall.SysProcAttr{
-		CreationFlags: createNoWindow | createNewProcessGroup,
+		CreationFlags: createNoWindow | createNewProcessGroup | createBreakawayFromJob,
 		HideWindow:    true,
 	}
 	if err := cmd.Start(); err != nil {

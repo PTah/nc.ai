@@ -115,6 +115,11 @@ type Settings struct {
 	// Theme: "dark" (default) or "light".
 	Theme string `json:"theme,omitempty"`
 
+	// UiFont: interface (sans) font id — "default" | "verdana" | "tahoma" | "arial" | "system".
+	UiFont string `json:"uiFont,omitempty"`
+	// MonoFont: monospace font id — "default" | "lucida" | "consolas" | "courier" | "cascadia".
+	MonoFont string `json:"monoFont,omitempty"`
+
 	// AgentMaxSteps caps the tool-using agent loop. 0 means the default
 	// (config.DefaultAgentMaxSteps), negative means "no cap" — the run then
 	// only warns after AgentWarnSteps.
@@ -1093,6 +1098,52 @@ func (s *Store) Theme() string {
 		return "light"
 	}
 	return "dark"
+}
+
+func normalizeUiFont(id string) string {
+	switch strings.ToLower(strings.TrimSpace(id)) {
+	case "verdana", "tahoma", "arial", "system":
+		return strings.ToLower(strings.TrimSpace(id))
+	default:
+		return "default"
+	}
+}
+
+func normalizeMonoFont(id string) string {
+	switch strings.ToLower(strings.TrimSpace(id)) {
+	case "lucida", "consolas", "courier", "cascadia":
+		return strings.ToLower(strings.TrimSpace(id))
+	default:
+		return "default"
+	}
+}
+
+func (s *Store) SetUiFont(id string) error {
+	id = normalizeUiFont(id)
+	s.mu.Lock()
+	s.settings.UiFont = id
+	s.mu.Unlock()
+	return s.Save()
+}
+
+func (s *Store) UiFont() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return normalizeUiFont(s.settings.UiFont)
+}
+
+func (s *Store) SetMonoFont(id string) error {
+	id = normalizeMonoFont(id)
+	s.mu.Lock()
+	s.settings.MonoFont = id
+	s.mu.Unlock()
+	return s.Save()
+}
+
+func (s *Store) MonoFont() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return normalizeMonoFont(s.settings.MonoFont)
 }
 
 // MaxAgentSteps returns the stored hard cap: 0 = default, negative = no cap
