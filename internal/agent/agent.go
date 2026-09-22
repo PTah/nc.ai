@@ -178,8 +178,14 @@ type Runner struct {
 	// инструменты не подают признаков жизни дольше этого времени, прогон
 	// принудительно обрывается с разбором (0 = не следить, отрицательное = тоже 0).
 	StallLimit time.Duration
+	// LocalNumCtx — окно контекста активного локального сервера в токенах
+	// (0 = не задано: предупреждения о заполнении контекста выключены).
+	LocalNumCtx int
 	// stall — состояние watchdog'а текущего прогона (см. stall.go).
 	stall *stallWatch
+	// localModelNotice / ctxWarned — однократные предупреждения за прогон.
+	localModelNotice bool
+	ctxWarned        bool
 	// OnUsage, when set, is called after each provider response with the model
 	// that produced it and its token usage (usage may be nil for some providers).
 	OnUsage func(model string, u *llm.Usage)
@@ -212,6 +218,21 @@ func (r *Runner) reportUsage(model string, u *llm.Usage) {
 		return
 	}
 	r.OnUsage(model, u)
+}
+
+// localContextNotice — предупреждение (один раз за прогон), если промпт подошёл
+// к настроенному окну контекста локального сервера: сервер начнёт обрезать
+// историю, и ответы могут приходить пустыми.
+func (r *Runner) localContextNotice(u *llm.Usage) string {
+	if !r.isLocal() || r.LocalNumCtx <= 0 || r.ctxWarned {
+		return ""
+	}
+	tokens := usagePromptTokens(u)
+	if tokens <= 0 || float64(tokens) < 0.85*float64(r.LocalNumCtx) {
+		return ""
+	}
+	r.ctxWarned = true
+	return contextFillNotice(tokens, r.LocalNumCtx)
 }
 
 // resolveModel picks the model for this step and emits a "model" event when it changes.
@@ -320,6 +341,12 @@ func (r *Runner) resolveModel(step int, emit EmitFunc) string {
 			model = ModelQwenPlus
 		default:
 			model = ModelFlash
+		}
+	}
+	if r.isLocal() && r.AutoModels && !r.localModelNotice {
+		if pref := strings.TrimSpace(r.PreferredModel); pref != "" && model != "" && !strings.EqualFold(pref, model) {
+			r.localModelNotice = true
+			emit(Event{Type: "notice", Content: localModelNoticeText(pref, model, reason)})
 		}
 	}
 	r.runModel = model
@@ -677,6 +704,7 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 	}
 
 	localNudgeDone := false
+	emptyRetryDone := false
 	exploreToolsOnly := false
 	for step := 0; step < max; step++ {
 		if runCtx.Err() != nil {
@@ -724,6 +752,9 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 			return messages, err
 		}
 		r.reportUsage(billingModel(resp.Model, model), resp.Usage)
+		if text := r.localContextNotice(resp.Usage); text != "" {
+			emit(Event{Type: "notice", Content: text})
+		}
 		if len(resp.Choices) == 0 {
 			err = fmt.Errorf("empty model response")
 			emit(Event{Type: "error", Content: err.Error()})
@@ -798,13 +829,18 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 			content := strings.TrimSpace(msg.Content)
 			guessy := len(content) > 80 || strings.Contains(strings.ToLower(content), "вероятн") ||
 				strings.Contains(strings.ToLower(content), "скорее всего")
-			if r.isLocal() && !localNudgeDone && len(msg.ToolCalls) == 0 && (brokenToolJSON || guessy) {
+			// Переспрашивать прозу можно только пока в прогоне не выполнено ни
+			// одного инструмента. Иначе это законный финальный ответ после
+			// чтения файлов — раньше его принимали за догадку, чистили уже
+			// показанный текст (delta_clear) и требовали «короткий факт».
+			proseNudge := !brokenToolJSON && guessy && watch.toolsDone() == 0
+			if r.isLocal() && !localNudgeDone && len(msg.ToolCalls) == 0 && (brokenToolJSON || proseNudge) {
 				localNudgeDone = true
 				exploreToolsOnly = true
 				if streamed && !brokenToolJSON {
 					emit(Event{Type: "delta_clear"})
 				}
-				notice := "Local: модель ответила без tools — прошу прочитать файлы и ответить по фактам."
+				notice := "Local: файлы ещё не читались, а модель ответила без tools — прошу прочитать файлы и ответить по фактам."
 				if brokenToolJSON {
 					notice = "Local: модель выдала битый JSON вместо tool call — повторяю только с чтением файлов."
 				}
@@ -817,7 +853,20 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 				continue
 			}
 			if content == "" {
-				emit(Event{Type: "error", Content: fmt.Sprintf("пустой финальный ответ (finish=%s)", finish)})
+				// Пустой ответ local-сервера: обычно это обрезанный контекст
+				// (Ollama молча режет промпт) или ответ целиком в thinking.
+				// Один раз просим ответить текстом, дальше — понятная ошибка.
+				if r.isLocal() && !emptyRetryDone {
+					emptyRetryDone = true
+					emit(Event{Type: "notice", Content: "Local: пустой ответ модели — прошу ответить текстом без tools."})
+					messages = append(messages, llm.UserText(
+						emptyAnswerNudge(r.LocalNumCtx, strings.TrimSpace(msg.ReasoningContent) != ""),
+					))
+					continue
+				}
+				emit(Event{Type: "error", Content: emptyAnswerError(
+					finish, r.LocalNumCtx, strings.TrimSpace(msg.ReasoningContent) != "", usagePromptTokens(resp.Usage),
+				)})
 			} else if finish == "length" {
 				emit(Event{Type: "error", Content: "ответ обрезан (finish=length)"})
 			}

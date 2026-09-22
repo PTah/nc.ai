@@ -114,6 +114,17 @@ func (s *stallWatch) onToolDone() {
 	s.touch("инструмент завершён")
 }
 
+// toolsDone — сколько инструментов уже завершилось в этом прогоне.
+// Нужен, чтобы не переспрашивать законный финальный ответ после чтения файлов.
+func (s *stallWatch) toolsDone() int {
+	if s == nil {
+		return 0
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.st.tools
+}
+
 // verdict возвращает текст разбора, если тишина превысила лимит.
 func (s *stallWatch) verdict(now time.Time) (string, bool) {
 	if s == nil || s.limit <= 0 {

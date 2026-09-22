@@ -26,6 +26,11 @@ type Client struct {
 	model   string
 	baseURL string
 	http    *http.Client
+	// numCtx — размер контекста из настроек сервера (0 = не задан). Идёт в
+	// options.num_ctx и используется приложением для предупреждений о
+	// заполнении контекста. Ollama в OpenAI-совместимом режиме это поле
+	// игнорирует (ollama#5356) — там контекст задаётся OLLAMA_CONTEXT_LENGTH.
+	numCtx int
 }
 
 func New(baseURL, apiKey, model string) *Client {
@@ -54,6 +59,23 @@ func (c *Client) SetBaseURL(baseURL string) {
 func (c *Client) BaseURL() string { return c.baseURL }
 func (c *Client) Model() string   { return c.model }
 
+// SetNumCtx задаёт размер контекста сервера (0 = не задан).
+func (c *Client) SetNumCtx(n int) {
+	if n < 0 {
+		n = 0
+	}
+	c.numCtx = n
+}
+
+// NumCtx возвращает размер контекста сервера (0 = не задан).
+func (c *Client) NumCtx() int { return c.numCtx }
+
+func (c *Client) withNumCtx(p *apiRequest) {
+	if c.numCtx > 0 {
+		p.Options = map[string]any{"num_ctx": c.numCtx}
+	}
+}
+
 // NormalizeBaseURL trims, adds http:// if missing, strips trailing slash.
 func NormalizeBaseURL(u string) string {
 	u = strings.TrimSpace(u)
@@ -74,6 +96,9 @@ type apiRequest struct {
 	Stream      bool           `json:"stream"`
 	Temperature *float64       `json:"temperature,omitempty"`
 	MaxTokens   *int           `json:"max_tokens,omitempty"`
+	// Options — серверные опции (num_ctx). Ollama OpenAI-совместимый слой их
+	// игнорирует, см. numCtx у Client.
+	Options map[string]any `json:"options,omitempty"`
 }
 
 type modelsListResponse struct {
@@ -301,6 +326,7 @@ func (c *Client) ChatCompletion(ctx context.Context, req *llm.ChatRequest) (*llm
 		t := 0.2
 		payload.Temperature = &t
 	}
+	c.withNumCtx(&payload)
 
 	body, err := json.Marshal(payload)
 	if err != nil {

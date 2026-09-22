@@ -50,6 +50,7 @@ func (c *Client) ChatCompletionStream(ctx context.Context, req *llm.ChatRequest,
 		t := 0.2
 		payload.Temperature = &t
 	}
+	c.withNumCtx(&payload)
 
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -100,6 +101,7 @@ type streamChunk struct {
 			Role             string `json:"role"`
 			Content          string `json:"content"`
 			ReasoningContent string `json:"reasoning_content"`
+			Reasoning        string `json:"reasoning"`
 			ToolCalls        []struct {
 				Index    int    `json:"index"`
 				ID       string `json:"id"`
@@ -174,10 +176,16 @@ func consumeOpenAISSE(r io.Reader, onDelta func(llm.StreamDelta)) (*llm.ChatResp
 				onDelta(llm.StreamDelta{Content: d.Content})
 			}
 		}
-		if d.ReasoningContent != "" {
-			reasoning.WriteString(d.ReasoningContent)
+		// DeepSeek отдаёт рассуждения как reasoning_content, Ollama в
+		// OpenAI-совместимом режиме — как reasoning.
+		think := d.ReasoningContent
+		if think == "" {
+			think = d.Reasoning
+		}
+		if think != "" {
+			reasoning.WriteString(think)
 			if onDelta != nil {
-				onDelta(llm.StreamDelta{ReasoningContent: d.ReasoningContent})
+				onDelta(llm.StreamDelta{ReasoningContent: think})
 			}
 		}
 		for _, tc := range d.ToolCalls {

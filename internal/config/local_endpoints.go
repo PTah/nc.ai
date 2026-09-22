@@ -16,6 +16,24 @@ type LocalEndpoint struct {
 	Name    string `json:"name"`
 	BaseURL string `json:"baseUrl"`
 	Model   string `json:"model,omitempty"`
+	// NumCtx — размер контекста сервера в токенах (0 = не задан). Нужен, чтобы
+	// предупреждать о заполнении окна: Ollama в OpenAI-совместимом режиме
+	// num_ctx игнорирует (ollama#5356), там контекст = OLLAMA_CONTEXT_LENGTH.
+	NumCtx int `json:"numCtx,omitempty"`
+}
+
+// maxNumCtx — верхняя граница здравого смысла для контекста локального сервера.
+const maxNumCtx = 1 << 21
+
+// clampNumCtx приводит размер контекста к допустимому диапазону (0 = не задан).
+func clampNumCtx(n int) int {
+	if n < 0 {
+		return 0
+	}
+	if n > maxNumCtx {
+		return maxNumCtx
+	}
+	return n
 }
 
 // IsLocalProvider reports whether provider is "local" or "local:<id>".
@@ -122,8 +140,9 @@ func (s *Store) ensureLocalEndpointsLocked() bool {
 		}
 		url := normalizeLocalBaseURL(ep.BaseURL)
 		model := strings.TrimSpace(ep.Model)
-		norm := LocalEndpoint{ID: id, Name: name, BaseURL: url, Model: model}
-		if ep.ID != id || ep.Name != name || ep.BaseURL != url || ep.Model != model {
+		numCtx := clampNumCtx(ep.NumCtx)
+		norm := LocalEndpoint{ID: id, Name: name, BaseURL: url, Model: model, NumCtx: numCtx}
+		if ep.ID != id || ep.Name != name || ep.BaseURL != url || ep.Model != model || ep.NumCtx != numCtx {
 			changed = true
 		}
 		out = append(out, norm)
@@ -201,7 +220,7 @@ func (s *Store) UpsertLocalEndpoint(ep LocalEndpoint) (LocalEndpoint, error) {
 	}
 	url := normalizeLocalBaseURL(ep.BaseURL)
 	model := strings.TrimSpace(ep.Model)
-	next := LocalEndpoint{ID: id, Name: name, BaseURL: url, Model: model}
+	next := LocalEndpoint{ID: id, Name: name, BaseURL: url, Model: model, NumCtx: clampNumCtx(ep.NumCtx)}
 	if i := s.indexLocalEndpointLocked(id); i >= 0 {
 		if next.Model == "" {
 			next.Model = s.settings.LocalEndpoints[i].Model
@@ -260,6 +279,7 @@ func (s *Store) DuplicateLocalEndpoint(id string) (LocalEndpoint, error) {
 		Name:    src.Name + " copy",
 		BaseURL: src.BaseURL,
 		Model:   src.Model,
+		NumCtx:  src.NumCtx,
 	})
 }
 
@@ -272,4 +292,14 @@ func (s *Store) LocalEndpointByID(id string) (LocalEndpoint, bool) {
 		return LocalEndpoint{}, false
 	}
 	return s.settings.LocalEndpoints[i], true
+}
+
+// LocalNumCtx returns the context window of the active local server (0 = не задан).
+func (s *Store) LocalNumCtx() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if ep := s.activeLocalEndpointLocked(); ep != nil {
+		return clampNumCtx(ep.NumCtx)
+	}
+	return 0
 }
