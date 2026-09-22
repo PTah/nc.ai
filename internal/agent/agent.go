@@ -231,15 +231,27 @@ func (r *Runner) reportUsage(model string, u *llm.Usage) {
 // к настроенному окну контекста локального сервера: сервер начнёт обрезать
 // историю, и ответы могут приходить пустыми.
 func (r *Runner) localContextNotice(u *llm.Usage) string {
-	if !r.isLocal() || r.LocalNumCtx <= 0 || r.ctxWarned {
+	if !r.isLocal() || r.ctxWarned {
 		return ""
 	}
 	tokens := usagePromptTokens(u)
-	if tokens <= 0 || float64(tokens) < 0.85*float64(r.LocalNumCtx) {
+	if tokens <= 0 {
+		return ""
+	}
+	if r.LocalNumCtx > 0 {
+		if float64(tokens) < 0.85*float64(r.LocalNumCtx) {
+			return ""
+		}
+		r.ctxWarned = true
+		return contextFillNotice(tokens, r.LocalNumCtx)
+	}
+	// Контекст не задан: системный промпт + правила проекта + инструменты легко
+	// переваливают за 8k, а Ollama по умолчанию обрезает до 4096.
+	if tokens < contextUnknownWarnTokens {
 		return ""
 	}
 	r.ctxWarned = true
-	return contextFillNotice(tokens, r.LocalNumCtx)
+	return contextFillNoticeUnknown(tokens)
 }
 
 // resolveModel picks the model for this step and emits a "model" event when it changes.
@@ -762,6 +774,9 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 		r.reportUsage(billingModel(resp.Model, model), resp.Usage)
 		if text := r.localContextNotice(resp.Usage); text != "" {
 			emit(Event{Type: "notice", Content: text})
+		}
+		if used := usagePromptTokens(resp.Usage); used > 0 {
+			emit(Event{Type: "context", Content: contextPayload(used, r.LocalNumCtx)})
 		}
 		if len(resp.Choices) == 0 {
 			err = fmt.Errorf("empty model response")

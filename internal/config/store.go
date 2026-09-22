@@ -149,6 +149,11 @@ type Settings struct {
 	// Nil = unset → off (see LocalLiteEnabled).
 	LocalLite *bool `json:"localLite,omitempty"`
 
+	// LocalSkipRules: не подключать проектные правила на Local (правила проекта
+	// занимают десятки КБ и на маленьком окне контекста вытесняют задачу).
+	// Nil = unset → off (see LocalSkipRulesEnabled).
+	LocalSkipRules *bool `json:"localSkipRules,omitempty"`
+
 	// Main window geometry (logical pixels). Zero width/height → defaults.
 	WindowWidth     int  `json:"windowWidth,omitempty"`
 	WindowHeight    int  `json:"windowHeight,omitempty"`
@@ -866,6 +871,26 @@ func (s *Store) SetLocalLite(on bool) error {
 	s.mu.Lock()
 	v := on
 	s.settings.LocalLite = &v
+	s.mu.Unlock()
+	return s.Save()
+}
+
+// LocalSkipRulesEnabled reports whether Local runs skip project rules.
+// Правила проекта — десятки КБ: на маленьком окне контекста они вытесняют
+// собственно задачу. Nil = unset → off.
+func (s *Store) LocalSkipRulesEnabled() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.settings.LocalSkipRules == nil {
+		return false
+	}
+	return *s.settings.LocalSkipRules
+}
+
+func (s *Store) SetLocalSkipRules(on bool) error {
+	s.mu.Lock()
+	v := on
+	s.settings.LocalSkipRules = &v
 	s.mu.Unlock()
 	return s.Save()
 }

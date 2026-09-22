@@ -71,6 +71,7 @@ import {
   SaveActiveProvider,
   SaveAutoModels,
   SaveLocalLite,
+  SaveLocalSkipRules,
   SaveToolConfirm,
   SavePlanMode,
   SetIDEContext,
@@ -615,6 +616,15 @@ function usageFromUnknown(raw: unknown): UsageSnapshot | null {
   }
 }
 
+/** Токены в компактном виде: 12400 → «12.4k». */
+function fmtTok(n: number): string {
+  if (!Number.isFinite(n) || n <= 0) return '0'
+  if (n < 1000) return String(Math.round(n))
+  if (n < 100000) return `${(n / 1000).toFixed(1)}k`
+  return `${Math.round(n / 1000)}k`
+}
+
+/** Деньги в долларах: 0.0123 → «$0.0123». */
 function fmtUsd(c: number): string {
   return `$${Number(c || 0).toFixed(4)}`
 }
@@ -1367,6 +1377,8 @@ export default function App() {
     endSoundRef.current = endSound
   }, [endSound])
   const [localLite, setLocalLite] = useState(false)
+  const [localSkipRules, setLocalSkipRules] = useState(false)
+  const [ctxUsage, setCtxUsage] = useState<{used: number; limit: number} | null>(null)
   const [toolConfirm, setToolConfirm] = useState(true)
   const [planMode, setPlanMode] = useState(false)
   const [todosBySession, setTodosBySession] = useState<Record<string, TodoItem[]>>({})
@@ -2017,6 +2029,7 @@ export default function App() {
         setAutoModels(Boolean(s.autoModels))
         setEndSound(s.endSound !== false)
         setLocalLite(Boolean(s.localLite))
+        setLocalSkipRules(Boolean(s.localSkipRules))
         setToolConfirm(s.toolConfirm !== false)
         setPlanMode(Boolean(s.planMode))
         if (typeof s.appDataDir === 'string' && s.appDataDir) setAppDataDir(s.appDataDir)
@@ -2105,6 +2118,15 @@ export default function App() {
             const next = usageFromUnknown(ev.content)
             if (next) setUsage(next)
             else void applyUsageStats()
+            return
+          }
+          if (ev.type === 'context') {
+            try {
+              const j = JSON.parse(String(ev.content || '{}'))
+              setCtxUsage({used: Number(j?.used || 0) || 0, limit: Number(j?.limit || 0) || 0})
+            } catch {
+              /* индикатор контекста не критичен */
+            }
             return
           }
           if (ev.type === 'notice') {
@@ -3728,6 +3750,18 @@ export default function App() {
             <span className="nc-cost-total">total {fmtUsd(usage.costUsd)}</span>
             <span className="nc-cost-sep">·</span>
             <span className="nc-cost-cache">{fmtCachePct(usage.chatCacheHitTokens, usage.chatCacheMissTokens)}</span>
+            {ctxUsage && ctxUsage.used > 0 && (
+              <>
+                <span className="nc-cost-sep">·</span>
+                <span
+                  className="nc-cost-ctx"
+                  title="Заполнение окна контекста: токены последнего запроса (prompt) и настроенный размер окна в Settings → Local → Context. Если сервер режет историю, значение подходит к границе."
+                >
+                  ctx {fmtTok(ctxUsage.used)}
+                  {ctxUsage.limit > 0 ? ` / ${fmtTok(ctxUsage.limit)}` : ''}
+                </span>
+              </>
+            )}
             {showBalance && (
               <>
                 <span className="nc-cost-sep">·</span>
@@ -4702,6 +4736,22 @@ export default function App() {
                     }}
                   />
                   Custom lite <span className="nc-help" style={{display: 'inline'}}>(та же галочка, что в топбаре)</span>
+                </label>
+                <label
+                  className="nc-top-check"
+                  style={{marginBottom: 8}}
+                  title="Проектные правила (.cursor/rules, AGENTS.md) занимают десятки КБ. На маленьком окне контекста (Ollama по умолчанию 4096) они вытесняют саму задачу — включите, если модель «не видит» файлы или отвечает пусто."
+                >
+                  <input
+                    type="checkbox"
+                    checked={localSkipRules}
+                    onChange={(e) => {
+                      const on = e.target.checked
+                      setLocalSkipRules(on)
+                      void SaveLocalSkipRules(on)
+                    }}
+                  />
+                  Не подключать проектные правила <span className="nc-help" style={{display: 'inline'}}>(экономит контекст)</span>
                 </label>
                 <div style={{display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8}}>
                   <button

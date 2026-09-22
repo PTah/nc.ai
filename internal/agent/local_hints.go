@@ -1,10 +1,29 @@
 package agent
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"notcursor.ai/app/internal/llm"
 )
+
+// contextUnknownWarnTokens — порог предупреждения, когда размер контекста
+// сервера неизвестен (у Ollama по умолчанию 4096).
+const contextUnknownWarnTokens = 8192
+
+// contextPayload — заполнение контекста для индикатора в UI.
+func contextPayload(used, limit int) string {
+	b, _ := json.Marshal(map[string]int{"used": used, "limit": limit})
+	return string(b)
+}
+
+// contextFillNoticeUnknown — предупреждение, когда контекст сервера не задан.
+func contextFillNoticeUnknown(promptTokens int) string {
+	return fmt.Sprintf(
+		"Local: промпт ~%d токенов, а контекст сервера не задан (у Ollama по умолчанию 4096) — история почти наверняка режется. "+
+			"Поднимите контекст (OLLAMA_CONTEXT_LENGTH) и укажите его в Settings → Local → Context.",
+		promptTokens)
+}
 
 // Подсказки для локальных серверов (Ollama, LM Studio, llama.cpp). Вынесены
 // отдельно, чтобы проверялись тестами без запуска полного прогона агента.

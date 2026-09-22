@@ -326,6 +326,10 @@ export function SaveLocalModel(arg1) {
   return window['go']['main']['App']['SaveLocalModel'](arg1);
 }
 
+export function SaveLocalSkipRules(arg1) {
+  return window['go']['main']['App']['SaveLocalSkipRules'](arg1);
+}
+
 export function SaveMonoFont(arg1) {
   return window['go']['main']['App']['SaveMonoFont'](arg1);
 }
