@@ -1382,6 +1382,7 @@ export default function App() {
     level: string
     label: string
     detail: string
+    kind: string
   } | null>(null)
   const localHealthTimer = useRef<number | null>(null)
   const [zaiEndpoint, setZaiEndpoint] = useState<ZaiEndpointId>('paas')
@@ -3176,12 +3177,14 @@ export default function App() {
         level: String(h.level || 'critical'),
         label: String(h.label || 'Local ?'),
         detail: String(h.detail || ''),
+        kind: String(h.kind || ''),
       })
     } catch (e) {
       setLocalHealth({
         level: 'critical',
         label: 'Local down',
         detail: formatConnectError(e),
+        kind: '',
       })
     }
   }
@@ -4976,10 +4979,17 @@ export default function App() {
                     }}
                   />
                   <span className="nc-help" style={{display: 'inline'}}>
-                    Окно контекста сервера: по нему приложение предупреждает о переполнении. Ollama
-                    в OpenAI-совместимом режиме его игнорирует — там контекст задаётся
-                    OLLAMA_CONTEXT_LENGTH.
+                    Окно контекста сервера: по нему считается заполнение (`ctx …/…` в статус-баре) и
+                    приходят предупреждения. В запрос значение не уходит: у Ollama окно задаётся
+                    переменной OLLAMA_CONTEXT_LENGTH, у Lemonade/LM Studio — на стороне сервера.
                   </span>
+                  {localHealth?.kind ? (
+                    <span className="nc-help" style={{display: 'block'}}>
+                      {localHealth.kind === 'openai'
+                        ? 'Сервер: OpenAI-совместимый (Lemonade / LM Studio / vLLM) — окно поднимается на его стороне.'
+                        : 'Сервер: Ollama — окно поднимается переменной OLLAMA_CONTEXT_LENGTH.'}
+                    </span>
+                  ) : null}
                 </label>
                 <button type="button" className="nc-ghost" onClick={() => void refreshLocalModels({applyPreferred: true})}>
                   Refresh models

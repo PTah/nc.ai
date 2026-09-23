@@ -17,23 +17,31 @@ func contextPayload(used, limit int) string {
 	return string(b)
 }
 
-// contextFillNoticeUnknown — предупреждение, когда контекст сервера не задан.
-func contextFillNoticeUnknown(promptTokens int) string {
+// contextFillNoticeUnknown — предупреждение, когда окно контекста не задано.
+func contextFillNoticeUnknown(promptTokens int, kind string) string {
 	return fmt.Sprintf(
-		"Local: промпт ~%d токенов, а контекст сервера не задан (у Ollama по умолчанию 4096) — история почти наверняка режется. "+
-			"Поднимите контекст (OLLAMA_CONTEXT_LENGTH) и укажите его в Settings → Local → Context.",
-		promptTokens)
+		"Local: промпт ~%d токенов, а окно контекста в настройках не задано — неизвестно, режет ли сервер историю. Что делать: %s.",
+		promptTokens, localRaiseContextAdvice(kind))
 }
 
 // Подсказки для локальных серверов (Ollama, LM Studio, llama.cpp). Вынесены
 // отдельно, чтобы проверялись тестами без запуска полного прогона агента.
 
+// localRaiseContextAdvice — как поднять окно контекста на конкретном сервере:
+// у Ollama это переменная окружения, у Lemonade/LM Studio/vLLM — настройки
+// самого сервера при загрузке модели.
+func localRaiseContextAdvice(kind string) string {
+	if kind == "openai" {
+		return "окно задаётся на стороне сервера при загрузке модели (Lemonade, LM Studio, vLLM) — поднимите его там и укажите то же число в Settings → Local → Context"
+	}
+	return "поднимите контекст сервера (OLLAMA_CONTEXT_LENGTH) и укажите то же число в Settings → Local → Context"
+}
+
 // contextFillNotice — предупреждение, что промпт подошёл к окну контекста.
-func contextFillNotice(promptTokens, numCtx int) string {
+func contextFillNotice(promptTokens, numCtx int, kind string) string {
 	return fmt.Sprintf(
-		"Local: промпт ~%d токенов при контексте %d — сервер может обрезать историю (и отвечать пусто). "+
-			"Поднимите контекст (OLLAMA_CONTEXT_LENGTH) или начните новый чат.",
-		promptTokens, numCtx)
+		"Local: промпт ~%d токенов при контексте %d — сервер может обрезать историю (и отвечать пусто). Что делать: %s.",
+		promptTokens, numCtx, localRaiseContextAdvice(kind))
 }
 
 // emptyAnswerNudge — что попросить у модели после пустого ответа.
@@ -49,17 +57,17 @@ func emptyAnswerNudge(numCtx int, sawThinking bool) string {
 }
 
 // emptyAnswerError — диагностика, если ответ так и остался пустым.
-func emptyAnswerError(finish string, numCtx int, sawThinking bool, promptTokens int) string {
+func emptyAnswerError(finish string, numCtx int, kind string, sawThinking bool, promptTokens int) string {
 	msg := fmt.Sprintf("пустой финальный ответ (finish=%s)", finish)
 	switch {
 	case sawThinking:
 		msg += " — модель ушла в размышления и не выдала текст (thinking-only)"
 	case numCtx > 0 && promptTokens >= numCtx:
-		msg += fmt.Sprintf(" — промпт ~%d токенов при контексте %d: сервер обрезал историю", promptTokens, numCtx)
+		msg += fmt.Sprintf(" — промпт ~%d токенов при контексте %d: сервер обрезал историю (%s)", promptTokens, numCtx, localRaiseContextAdvice(kind))
 	case promptTokens > 0:
-		msg += fmt.Sprintf(" — промпт ~%d токенов, проверьте контекст сервера (OLLAMA_CONTEXT_LENGTH)", promptTokens)
+		msg += fmt.Sprintf(" — промпт ~%d токенов, проверьте окно контекста сервера", promptTokens)
 	}
-	return msg + ". Что делать: начать новый чат (история короче), поднять контекст сервера или взять модель поменьше."
+	return msg + ". Что делать: начать новый чат (история короче), поднять окно модели или взять модель поменьше."
 }
 
 // usagePromptTokens — сколько токенов занял промпт (0, если провайдер не сообщил).

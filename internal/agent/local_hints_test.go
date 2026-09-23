@@ -9,13 +9,26 @@ import (
 )
 
 func TestContextFillNotice(t *testing.T) {
-	got := contextFillNotice(7000, 8192)
-	if !strings.Contains(got, "7000") || !strings.Contains(got, "8192") {
-		t.Fatalf("notice=%q", got)
+	ollama := contextFillNotice(7000, 8192, "ollama")
+	if !strings.Contains(ollama, "7000") || !strings.Contains(ollama, "8192") || !strings.Contains(ollama, "OLLAMA_CONTEXT_LENGTH") {
+		t.Fatalf("ollama notice=%q", ollama)
 	}
-	unknown := contextFillNoticeUnknown(9000)
+	// Для Lemonade/LM Studio совет про OLLAMA_CONTEXT_LENGTH бессмысленен:
+	// окно задаётся на стороне сервера.
+	openai := contextFillNotice(7000, 8192, "openai")
+	if strings.Contains(openai, "OLLAMA_CONTEXT_LENGTH") {
+		t.Fatalf("openai notice must not mention OLLAMA_CONTEXT_LENGTH: %q", openai)
+	}
+	if !strings.Contains(openai, "Lemonade") {
+		t.Fatalf("openai notice must name the servers: %q", openai)
+	}
+	unknown := contextFillNoticeUnknown(9000, "ollama")
 	if !strings.Contains(unknown, "9000") || !strings.Contains(unknown, "OLLAMA_CONTEXT_LENGTH") {
 		t.Fatalf("unknown notice=%q", unknown)
+	}
+	unknownOpenai := contextFillNoticeUnknown(9000, "openai")
+	if strings.Contains(unknownOpenai, "OLLAMA_CONTEXT_LENGTH") {
+		t.Fatalf("unknown openai notice must not mention env var: %q", unknownOpenai)
 	}
 }
 
@@ -73,15 +86,19 @@ func TestEmptyAnswerNudgeMentionsThinking(t *testing.T) {
 }
 
 func TestEmptyAnswerErrorDiagnostics(t *testing.T) {
-	think := emptyAnswerError("stop", 0, true, 0)
+	think := emptyAnswerError("stop", 0, "ollama", true, 0)
 	if !strings.Contains(think, "thinking-only") {
 		t.Fatalf("err=%q", think)
 	}
-	overflow := emptyAnswerError("stop", 4096, false, 5000)
+	overflow := emptyAnswerError("stop", 4096, "ollama", false, 5000)
 	if !strings.Contains(overflow, "обрезал историю") {
 		t.Fatalf("err=%q", overflow)
 	}
-	plain := emptyAnswerError("stop", 0, false, 0)
+	lemonade := emptyAnswerError("stop", 65536, "openai", false, 70000)
+	if strings.Contains(lemonade, "OLLAMA_CONTEXT_LENGTH") || !strings.Contains(lemonade, "Lemonade") {
+		t.Fatalf("openai overflow err=%q", lemonade)
+	}
+	plain := emptyAnswerError("stop", 0, "", false, 0)
 	if !strings.Contains(plain, "finish=stop") || strings.Contains(plain, "обрезал историю") {
 		t.Fatalf("err=%q", plain)
 	}

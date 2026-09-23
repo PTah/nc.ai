@@ -2169,27 +2169,35 @@ func (a *App) RunAgentWithAttachments(userMessage string, attachments []agent.At
 		rulesText, turnRulesText = "", ""
 	}
 
+	// Тип локального сервера (Ollama или OpenAI-совместимый) — от него зависят
+	// подсказки про окно контекста: у Lemonade/LM Studio окно задаётся на сервере.
+	localServerKind := ""
+	if c, ok := a.llm.(*local.Client); ok {
+		localServerKind = c.ServerKind()
+	}
+
 	runner := &agent.Runner{
-		Provider:       a.llm,
-		Tools:          runTools,
-		MaxSteps:       a.cfg.MaxAgentSteps(),
-		WarnSteps:      a.cfg.AgentWarnSteps(),
-		StallLimit:     a.cfg.AgentStallLimit(),
-		RulesText:      rulesText,
-		TurnRulesText:  turnRulesText,
-		StickyModel:    sticky,
-		ProjectMap:     projectMap,
-		IDEContext:     a.ideContextText(),
-		PlanMode:       a.cfg.PlanModeEnabled(),
-		AutoModels:     autoModels,
-		LocalLite:      localLite,
-		LocalModels:    localModels,
-		LocalNumCtx:    a.cfg.LocalNumCtx(),
-		ProviderID:     provider,
-		PreferredModel: a.cfg.ActiveModel(),
-		UserText:       userMessage,
-		HasImages:      hasImages,
-		HintPathCount:  len(hints),
+		Provider:        a.llm,
+		Tools:           runTools,
+		MaxSteps:        a.cfg.MaxAgentSteps(),
+		WarnSteps:       a.cfg.AgentWarnSteps(),
+		StallLimit:      a.cfg.AgentStallLimit(),
+		RulesText:       rulesText,
+		TurnRulesText:   turnRulesText,
+		StickyModel:     sticky,
+		ProjectMap:      projectMap,
+		IDEContext:      a.ideContextText(),
+		PlanMode:        a.cfg.PlanModeEnabled(),
+		AutoModels:      autoModels,
+		LocalLite:       localLite,
+		LocalModels:     localModels,
+		LocalNumCtx:     a.cfg.LocalNumCtx(),
+		LocalServerKind: localServerKind,
+		ProviderID:      provider,
+		PreferredModel:  a.cfg.ActiveModel(),
+		UserText:        userMessage,
+		HasImages:       hasImages,
+		HintPathCount:   len(hints),
 	}
 	if localSkipRules {
 		a.emitFor(sid, agent.Event{
