@@ -298,6 +298,7 @@ docs/                  # ТЗ, архитектура, протоколы
 ## Документация
 
 - [ТЗ](docs/TZ.md)
+- [Roadmap](docs/roadmap.md) — субагенты и планы по контексту локальных серверов
 - [Архитектура](docs/architecture/overview.md)
 - [Протоколы AI](docs/exchange-protocols/README.md)
 

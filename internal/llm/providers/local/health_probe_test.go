@@ -32,6 +32,9 @@ func TestProbeHealthNonOllamaServer(t *testing.T) {
 	if !c.isKnownNotOllama() {
 		t.Fatalf("server must be detected as non-Ollama: %+v", rep)
 	}
+	if rep.Kind != "openai" {
+		t.Fatalf("kind=%q want openai", rep.Kind)
+	}
 	if rep.Label == "Local down" {
 		t.Fatalf("healthy OpenAI-compatible server must not be down: %+v", rep)
 	}
@@ -63,6 +66,9 @@ func TestProbeHealthOllamaServer(t *testing.T) {
 	rep := c.ProbeHealth(context.Background())
 	if c.isKnownNotOllama() {
 		t.Fatalf("ollama server must not be marked non-Ollama: %+v", rep)
+	}
+	if rep.Kind != "ollama" {
+		t.Fatalf("kind=%q want ollama", rep.Kind)
 	}
 	if !rep.VRAMLoaded || rep.SizeVRAM == 0 {
 		t.Fatalf("vram info expected: %+v", rep)

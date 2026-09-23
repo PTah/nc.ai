@@ -83,6 +83,20 @@ func (c *Client) isKnownNotOllama() bool { return atomic.LoadInt32(&c.ollamaStat
 func (c *Client) markOllama()    { atomic.StoreInt32(&c.ollamaState, 1) }
 func (c *Client) markNotOllama() { atomic.StoreInt32(&c.ollamaState, -1) }
 
+// ServerKind — тип сервера за OpenAI-совместимым эндпоинтом: "ollama", "openai"
+// (Lemonade, LM Studio, vLLM) или "" — ещё не определили. Определяется по
+// /api/ps и /api/generate: они есть только у Ollama.
+func (c *Client) ServerKind() string {
+	switch atomic.LoadInt32(&c.ollamaState) {
+	case 1:
+		return "ollama"
+	case -1:
+		return "openai"
+	default:
+		return ""
+	}
+}
+
 // NormalizeBaseURL trims, adds http:// if missing, strips trailing slash.
 func NormalizeBaseURL(u string) string {
 	u = strings.TrimSpace(u)

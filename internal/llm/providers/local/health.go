@@ -1,4 +1,4 @@
-﻿package local
+package local
 
 import (
 	"bytes"
@@ -38,6 +38,9 @@ type HealthReport struct {
 	LoadMs          int         `json:"loadMs"`
 	Hint            string      `json:"hint,omitempty"`
 	Error           string      `json:"error,omitempty"`
+	// Kind — определённый тип сервера: "ollama" или "openai" (Lemonade, LM Studio,
+	// vLLM). Пусто, пока не определили.
+	Kind string `json:"kind,omitempty"`
 }
 
 type ollamaPSResponse struct {
@@ -65,14 +68,14 @@ func (c *Client) ProbeHealth(ctx context.Context) HealthReport {
 		rep.Error = "base URL пустой"
 		rep.Label = "Local down"
 		rep.Detail = rep.Error
-		return rep
+		return c.finished(rep)
 	}
 	if model == "" {
 		rep.Error = "модель не выбрана"
 		rep.Label = "Local: нет модели"
 		rep.Detail = "Выберите модель в Settings"
 		rep.Level = HealthBad
-		return rep
+		return c.finished(rep)
 	}
 
 	origin, err := ollamaOrigin(c.baseURL)
@@ -80,7 +83,7 @@ func (c *Client) ProbeHealth(ctx context.Context) HealthReport {
 		rep.Error = err.Error()
 		rep.Label = "Local down"
 		rep.Detail = err.Error()
-		return rep
+		return c.finished(rep)
 	}
 
 	if c.isKnownNotOllama() {
@@ -100,11 +103,21 @@ func (c *Client) ProbeHealth(ctx context.Context) HealthReport {
 			rep.Level = HealthCritical
 			rep.Label = "Local down"
 			rep.Detail = "Сервер не отвечает: " + rep.Error
-			return rep
+			return c.finished(rep)
 		}
 	}
 
 	scoreHealth(&rep)
+	return c.finished(rep)
+}
+
+// finished проставляет определённый тип сервера: Ollama или OpenAI-совместимый
+// (Lemonade, LM Studio, vLLM) — по нему UI и подсказки выбирают формулировки.
+func (c *Client) finished(rep HealthReport) HealthReport {
+	rep.Kind = c.ServerKind()
+	if rep.Kind == "openai" && rep.Detail != "" {
+		rep.Detail += " · сервер OpenAI-совместимый (Lemonade/LM Studio/vLLM)"
+	}
 	return rep
 }
 
@@ -115,10 +128,10 @@ func (c *Client) pingChatOnly(ctx context.Context, rep *HealthReport) HealthRepo
 		rep.Level = HealthCritical
 		rep.Label = "Local down"
 		rep.Detail = "Сервер не отвечает: " + rep.Error
-		return *rep
+		return c.finished(*rep)
 	}
 	scoreHealth(rep)
-	return *rep
+	return c.finished(*rep)
 }
 
 func (c *Client) fillVRAM(ctx context.Context, origin string, rep *HealthReport) {

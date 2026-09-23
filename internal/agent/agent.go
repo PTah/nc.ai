@@ -1,4 +1,4 @@
-﻿package agent
+package agent
 
 import (
 	"context"
@@ -185,6 +185,10 @@ type Runner struct {
 	// LocalNumCtx — окно контекста активного локального сервера в токенах
 	// (0 = не задано: предупреждения о заполнении контекста выключены).
 	LocalNumCtx int
+	// LocalServerKind — тип локального сервера: "ollama", "openai" (Lemonade,
+	// LM Studio, vLLM) или "" — не определён. Нужен, чтобы подсказки не советовали
+	// OLLAMA_CONTEXT_LENGTH там, где окно задаётся на стороне сервера.
+	LocalServerKind string
 	// stall — состояние watchdog'а текущего прогона (см. stall.go).
 	stall *stallWatch
 	// localModelNotice / ctxWarned — однократные предупреждения за прогон.
@@ -243,7 +247,7 @@ func (r *Runner) localContextNotice(u *llm.Usage) string {
 			return ""
 		}
 		r.ctxWarned = true
-		return contextFillNotice(tokens, r.LocalNumCtx)
+		return contextFillNotice(tokens, r.LocalNumCtx, r.LocalServerKind)
 	}
 	// Контекст не задан: системный промпт + правила проекта + инструменты легко
 	// переваливают за 8k, а Ollama по умолчанию обрезает до 4096.
@@ -251,7 +255,7 @@ func (r *Runner) localContextNotice(u *llm.Usage) string {
 		return ""
 	}
 	r.ctxWarned = true
-	return contextFillNoticeUnknown(tokens)
+	return contextFillNoticeUnknown(tokens, r.LocalServerKind)
 }
 
 // resolveModel picks the model for this step and emits a "model" event when it changes.
@@ -441,9 +445,9 @@ func (r *Runner) systemPrompt() string {
 }
 
 // buildMessages assembles the request in prefix-cache-friendly order:
-//   1. stable system (+ optional project_map)
-//   2. prior chat history
-//   3. per-turn dynamic bits (path rules, IDE snapshot, user)
+//  1. stable system (+ optional project_map)
+//  2. prior chat history
+//  3. per-turn dynamic bits (path rules, IDE snapshot, user)
 //
 // Do not put timestamps / request IDs into the system prompt — they bust
 // provider prefix caches (DeepSeek / vLLM / SGLang).
@@ -902,7 +906,7 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 					continue
 				}
 				emit(Event{Type: "error", Content: emptyAnswerError(
-					finish, r.LocalNumCtx, strings.TrimSpace(msg.ReasoningContent) != "", usagePromptTokens(resp.Usage),
+					finish, r.LocalNumCtx, r.LocalServerKind, strings.TrimSpace(msg.ReasoningContent) != "", usagePromptTokens(resp.Usage),
 				)})
 			} else if finish == "length" {
 				emit(Event{Type: "error", Content: "ответ обрезан (finish=length)"})
