@@ -71,7 +71,7 @@ func (s *Service) run(args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = root
 	configureCmd(cmd)
-	cmd.Env = gitEnv()
+	cmd.Env = gitEnv(root)
 	// Не ждём потомков бесконечно, если гасим git по таймауту.
 	cmd.WaitDelay = 5 * time.Second
 	var stdout, stderr bytes.Buffer
@@ -117,7 +117,12 @@ func isNetworkCommand(args []string) bool {
 // gitEnv — окружение, в котором git никогда не ждёт ввода: иначе push в
 // репозиторий с несохранёнными креденшелами подвисает (а GCM ещё и открывает
 // своё окно поверх приложения).
-func gitEnv() []string {
+//
+// SSH-команду пользователя не перетираем: если у него настроен
+// `core.sshCommand` (например полный путь к ssh.exe) или свой GIT_SSH_COMMAND,
+// мы лишь добавляем к ней BatchMode. Иначе push в remote, которому нужен
+// конкретный ключ из ~/.ssh/config, падал бы с «Permission denied (publickey)».
+func gitEnv(repoDir string) []string {
 	env := os.Environ()
 	env = append(env,
 		"GIT_TERMINAL_PROMPT=0",
@@ -125,11 +130,39 @@ func gitEnv() []string {
 		"GIT_PAGER=cat",
 		"PAGER=cat",
 	)
-	if os.Getenv("GIT_SSH_COMMAND") == "" {
-		// Ключ с паролем и без ssh-agent: падаем сразу с внятной ошибкой.
-		env = append(env, "GIT_SSH_COMMAND=ssh -oBatchMode=yes -oStrictHostKeyChecking=accept-new")
+	switch own := strings.TrimSpace(os.Getenv("GIT_SSH_COMMAND")); {
+	case own != "":
+		// Команду пользователя не трогаем совсем — он знает, что делает.
+	case configuredSSHCommand(repoDir) != "":
+		env = append(env, "GIT_SSH_COMMAND="+configuredSSHCommand(repoDir)+" -oBatchMode=yes")
+	default:
+		env = append(env, "GIT_SSH_COMMAND=ssh -oBatchMode=yes")
 	}
 	return env
+}
+
+// configuredSSHCommand читает core.sshCommand (репозиторий, затем global).
+func configuredSSHCommand(repoDir string) string {
+	if repoDir == "" {
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	for _, args := range [][]string{
+		{"-C", repoDir, "config", "--get", "core.sshCommand"},
+		{"config", "--global", "--get", "core.sshCommand"},
+	} {
+		cmd := exec.CommandContext(ctx, "git", args...)
+		configureCmd(cmd)
+		out, err := cmd.Output()
+		if err != nil {
+			continue
+		}
+		if v := strings.TrimSpace(string(out)); v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 func (s *Service) Status() (string, error) {
