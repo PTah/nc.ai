@@ -329,7 +329,7 @@ func priceNotice(provider string, updated bool, errMsg string, pricesFrom time.T
 	case errMsg != "":
 		msg := fmt.Sprintf("Система: проверка цен %s не прошла — %s", provider, costing.DescribeFetchError(errMsg))
 		if !pricesFrom.IsZero() {
-			msg += fmt.Sprintf(". Расчёт идёт по прайсу от %s", pricesFrom.Local().Format("02.01.2006 15:04"))
+			msg += fmt.Sprintf(". Расчёт идёт по прайсу от %s", pricesFrom.Local().Format("02.01.2006 15:04:05"))
 		}
 		return msg
 	case updated:
@@ -545,7 +545,7 @@ func (a *App) logAgentLine(line string) {
 		return
 	}
 	defer f.Close()
-	_, _ = fmt.Fprintf(f, "%s %s\n", time.Now().Format("2006-01-02 15:04:05"), line)
+	_, _ = fmt.Fprintf(f, "%s %s\n", time.Now().Format("02.01.2006 15:04:05"), line)
 }
 
 func (a *App) emit(evt agent.Event) {
