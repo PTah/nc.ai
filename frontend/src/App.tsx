@@ -18,6 +18,8 @@ import {
   CreateProject,
   DefaultProjectParentDir,
   DeleteChatSession,
+  CloneRepo,
+  CloneTargetPath,
   DetectDefaultShell,
   GetDeepSeekPeakInfo,
   GetSettings,
@@ -1343,6 +1345,12 @@ export default function App() {
   const [newProject, setNewProject] = useState<{name: string; parent: string} | null>(null)
   const [newProjectErr, setNewProjectErr] = useState('')
   const [newProjectBusy, setNewProjectBusy] = useState(false)
+  // Диалог клонирования: ссылка, куда клонировать, предпросмотр пути и ошибка
+  // (в ней перечислены попытки SSH и HTTPS, если доступа нет ни там, ни там).
+  const [cloneDlg, setCloneDlg] = useState<{url: string; parent: string} | null>(null)
+  const [cloneTarget, setCloneTarget] = useState('')
+  const [cloneErr, setCloneErr] = useState('')
+  const [cloneBusy, setCloneBusy] = useState(false)
   const [pendingCloseChatId, setPendingCloseChatId] = useState<string | null>(null)
   const [projects, setProjects] = useState<Project[]>([])
   const [active, setActive] = useState<Project | null>(null)
@@ -3065,6 +3073,77 @@ export default function App() {
     setNewProjectErr('')
   }
 
+  function openCloneDlg() {
+    setProjectMenu(false)
+    setCloneDlg({url: '', parent: ''})
+    setCloneTarget('')
+    setCloneErr('')
+    setCloneBusy(false)
+  }
+
+  function closeCloneDlg() {
+    if (cloneBusy) return
+    setCloneDlg(null)
+    setCloneErr('')
+    setCloneTarget('')
+  }
+
+  async function pickCloneParent() {
+    try {
+      const dir = await PickProjectDir()
+      if (!dir) return
+      setCloneDlg((prev) => (prev ? {...prev, parent: dir} : prev))
+    } catch {
+      /* отмена выбора папки — не ошибка */
+    }
+  }
+
+  async function runClone() {
+    if (!cloneDlg) return
+    const url = cloneDlg.url.trim()
+    const parent = cloneDlg.parent
+    if (!url || !parent) return
+    setCloneBusy(true)
+    setCloneErr('')
+    try {
+      const res = await CloneRepo(url, parent)
+      setCloneDlg(null)
+      setCloneTarget('')
+      const path = String((res as {path?: string})?.path || '')
+      if (path) await openProject(path)
+      setProjects(asList(await ListProjects()))
+    } catch (e) {
+      setCloneErr(String(e))
+    } finally {
+      setCloneBusy(false)
+    }
+  }
+
+  // Предпросмотр папки: считаем на бэкенде, чтобы имя репозитория разбиралось
+  // там же, где идёт клонирование.
+  useEffect(() => {
+    if (!cloneDlg) return
+    const url = cloneDlg.url.trim()
+    if (!url || !cloneDlg.parent) {
+      setCloneTarget('')
+      return
+    }
+    let alive = true
+    const timer = window.setTimeout(() => {
+      void CloneTargetPath(url, cloneDlg.parent)
+        .then((path) => {
+          if (alive) setCloneTarget(String(path || ''))
+        })
+        .catch(() => {
+          if (alive) setCloneTarget('')
+        })
+    }, 250)
+    return () => {
+      alive = false
+      window.clearTimeout(timer)
+    }
+  }, [cloneDlg])
+
   async function openProject(path: string) {
     if (active && activeSessionId) {
       try { await SaveChatSession(activeSessionId, JSON.stringify(items)) } catch { /* ignore */ }
@@ -3994,13 +4073,16 @@ export default function App() {
                 <button type="button" role="menuitem" onClick={() => void openNewProject()}>
                   Create project…
                 </button>
+                <button type="button" role="menuitem" onClick={() => void openCloneDlg()}>
+                  Clone repository…
+                </button>
               </div>
             )}
           </div>
           <div className="nc-section-label">Projects</div>
           <ul className="nc-list" onClick={() => setProjectCtx(null)}>
             {asList(projects).length === 0 && (
-              <li className="nc-empty">Нет проектов — «Project» → Open project / Create project</li>
+              <li className="nc-empty">Нет проектов — «Project» → Open project / Create project / Clone repository</li>
             )}
             {asList(projects).map((p) => (
               <li key={p.path} className={active?.path === p.path ? 'active' : ''}>
@@ -5994,6 +6076,70 @@ export default function App() {
                 onClick={() => void createNewProject()}
               >
                 {newProjectBusy ? 'Создание…' : 'Создать'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {cloneDlg && (
+        <div className="nc-modal-backdrop" role="presentation" onClick={closeCloneDlg}>
+          <div
+            className="nc-modal nc-new-project"
+            role="dialog"
+            aria-labelledby="nc-clone-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="nc-confirm-app">{info.name || 'NotCursor.ai'}</p>
+            <h2 id="nc-clone-title">Клонировать репозиторий</h2>
+            <p className="nc-help">
+              Способ доступа выбирается сам: если SSH настроен и хост отвечает — клонируем по SSH,
+              иначе по HTTPS. Если доступа нет ни там, ни там, покажем, чего не хватает.
+            </p>
+            <div className="nc-new-project-field">
+              <span>Ссылка на репозиторий</span>
+              <input
+                autoFocus
+                value={cloneDlg.url}
+                placeholder="git@git.papatramp.ru:PapaTramp/Pentest.git или https://…"
+                spellCheck={false}
+                onChange={(e) => {
+                  const value = e.target.value
+                  setCloneErr('')
+                  setCloneDlg((prev) => (prev ? {...prev, url: value} : prev))
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') void runClone()
+                  if (e.key === 'Escape') closeCloneDlg()
+                }}
+              />
+            </div>
+            <div className="nc-new-project-field">
+              <span>Куда клонировать</span>
+              <div className="nc-new-project-row">
+                <input
+                  value={cloneDlg.parent}
+                  readOnly
+                  placeholder="папка не выбрана — нажмите «Обзор…»"
+                  title={cloneDlg.parent}
+                />
+                <button type="button" className="nc-ghost" disabled={cloneBusy} onClick={() => void pickCloneParent()}>
+                  Обзор…
+                </button>
+              </div>
+            </div>
+            {cloneTarget ? <p className="nc-new-project-path">Появится папка: {cloneTarget}</p> : null}
+            {cloneErr ? <p className="nc-rule-edit-err" style={{whiteSpace: 'pre-line'}}>{cloneErr}</p> : null}
+            <div className="nc-close-project-actions">
+              <button type="button" className="nc-ghost" disabled={cloneBusy} onClick={closeCloneDlg}>
+                Отмена
+              </button>
+              <button
+                type="button"
+                disabled={cloneBusy || !cloneDlg.url.trim() || !cloneDlg.parent}
+                onClick={() => void runClone()}
+              >
+                {cloneBusy ? 'Клонирую…' : 'Клонировать'}
               </button>
             </div>
           </div>
