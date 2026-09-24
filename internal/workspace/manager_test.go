@@ -167,3 +167,56 @@ func TestSearchFilesRespectsLimit(t *testing.T) {
 		t.Fatalf("SearchFiles returned %d hits, want 2: %v", len(hits), hits)
 	}
 }
+
+// NewFolder is "Create project": it must create the folder, make it active and
+// never climb out of the parent the user picked.
+func TestNewFolderCreatesAndOpens(t *testing.T) {
+	m := NewManager()
+	parent := t.TempDir()
+
+	p, err := m.NewFolder(parent, "my-project")
+	if err != nil {
+		t.Fatalf("NewFolder: %v", err)
+	}
+	want := filepath.Join(parent, "my-project")
+	if p.Path != want || p.Name != "my-project" {
+		t.Fatalf("project = %q (%q), want %q", p.Path, p.Name, want)
+	}
+	if st, err := os.Stat(want); err != nil || !st.IsDir() {
+		t.Fatalf("folder not created: %v", err)
+	}
+	if root, err := m.ActiveRoot(); err != nil || root != want {
+		t.Fatalf("active root = %q, %v; want %q", root, err, want)
+	}
+	if err := m.WriteFile("main.go", "package main"); err != nil {
+		t.Fatalf("write into new project: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(want, "main.go")); err != nil {
+		t.Fatalf("file landed outside the new project: %v", err)
+	}
+
+	// Creating it twice must not silently reopen an existing folder.
+	if _, err := m.NewFolder(parent, "my-project"); err == nil {
+		t.Fatal("NewFolder over an existing folder = nil error")
+	}
+	// The parent must be an existing directory.
+	if _, err := m.NewFolder(filepath.Join(parent, "missing"), "x"); err == nil {
+		t.Fatal("NewFolder with a missing parent = nil error")
+	}
+	if _, err := m.NewFolder(parent, ""); err == nil {
+		t.Fatal("NewFolder with an empty name = nil error")
+	}
+}
+
+func TestValidateFolderName(t *testing.T) {
+	for _, name := range []string{"my-project", "My Project", "app_v2", "con-art"} {
+		if err := ValidateFolderName(name); err != nil {
+			t.Fatalf("ValidateFolderName(%q) = %v, want nil", name, err)
+		}
+	}
+	for _, name := range []string{"", ".", "..", "a/b", `a\b`, "..\\evil", "bad:name", "trail.", "trail ", "CON", "nul.txt", "lpt9", "bell\x07"} {
+		if err := ValidateFolderName(name); err == nil {
+			t.Fatalf("ValidateFolderName(%q) = nil, want error", name)
+		}
+	}
+}

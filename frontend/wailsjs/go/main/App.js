@@ -62,6 +62,14 @@ export function CloseProject(arg1, arg2) {
   return window['go']['main']['App']['CloseProject'](arg1, arg2);
 }
 
+export function CreateProject(arg1, arg2) {
+  return window['go']['main']['App']['CreateProject'](arg1, arg2);
+}
+
+export function DefaultProjectParentDir() {
+  return window['go']['main']['App']['DefaultProjectParentDir']();
+}
+
 export function DeleteChatSession(arg1) {
   return window['go']['main']['App']['DeleteChatSession'](arg1);
 }
@@ -180,6 +188,10 @@ export function OpenProject(arg1) {
 
 export function PickProjectDir() {
   return window['go']['main']['App']['PickProjectDir']();
+}
+
+export function PickProjectParentDir() {
+  return window['go']['main']['App']['PickProjectParentDir']();
 }
 
 export function PreferDeepSeekModel(arg1) {

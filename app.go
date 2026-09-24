@@ -1820,10 +1820,62 @@ func (a *App) ListProjects() []workspace.Project {
 	return a.ws.List()
 }
 
+// PickProjectDir asks for an existing folder to open as a project.
 func (a *App) PickProjectDir() (string, error) {
 	return runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{
-		Title: "Open Project",
+		Title:            "Open Project",
+		DefaultDirectory: a.projectDialogDir(),
 	})
+}
+
+// PickProjectParentDir asks for the folder that will contain a new project.
+func (a *App) PickProjectParentDir() (string, error) {
+	return runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{
+		Title:            "Create Project — папка для нового проекта",
+		DefaultDirectory: a.projectDialogDir(),
+	})
+}
+
+// DefaultProjectParentDir is where a new project goes when the user has not
+// picked a folder yet — the dialog prefills this value.
+func (a *App) DefaultProjectParentDir() string {
+	return a.projectDialogDir()
+}
+
+// projectDialogDir picks the starting folder for the project dialogs: the last
+// folder a project was created in, else the parent of the active project, else
+// the home directory.
+func (a *App) projectDialogDir() string {
+	if dir := strings.TrimSpace(a.cfg.LastProjectParent()); dir != "" {
+		if st, err := os.Stat(dir); err == nil && st.IsDir() {
+			return dir
+		}
+	}
+	if root, err := a.ws.ActiveRoot(); err == nil && root != "" {
+		return filepath.Dir(root)
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		return home
+	}
+	return ""
+}
+
+// CreateProject creates the folder <parentDir>/<name> and opens it as a
+// project, so a new project can start without an existing folder on disk.
+// An empty parentDir falls back to DefaultProjectParentDir.
+func (a *App) CreateProject(parentDir, name string) (*workspace.Project, error) {
+	parent := strings.TrimSpace(parentDir)
+	if parent == "" {
+		parent = a.projectDialogDir()
+	}
+	p, err := a.ws.NewFolder(parent, name)
+	if err != nil {
+		return nil, err
+	}
+	if absParent, err := filepath.Abs(parent); err == nil {
+		_ = a.cfg.SetLastProjectParent(absParent)
+	}
+	return a.OpenProject(p.Path)
 }
 
 func (a *App) OpenProject(path string) (*workspace.Project, error) {

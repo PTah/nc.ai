@@ -82,6 +82,83 @@ func (m *Manager) Open(path string) (*Project, error) {
 	return &p, nil
 }
 
+// NewFolder creates a project folder named name directly inside parent and opens
+// it. The name is validated (ValidateFolderName), parent must be an existing
+// directory and the target must not exist yet — so "Create project" never
+// silently lands in, or reopens, a folder the user did not intend.
+func (m *Manager) NewFolder(parent, name string) (*Project, error) {
+	name = strings.TrimSpace(name)
+	if err := ValidateFolderName(name); err != nil {
+		return nil, err
+	}
+	parent = strings.TrimSpace(parent)
+	if parent == "" {
+		return nil, fmt.Errorf("выберите папку, где создать проект")
+	}
+	absParent, err := filepath.Abs(parent)
+	if err != nil {
+		return nil, err
+	}
+	st, err := os.Stat(absParent)
+	if err != nil {
+		return nil, fmt.Errorf("папка недоступна: %s", absParent)
+	}
+	if !st.IsDir() {
+		return nil, fmt.Errorf("не папка: %s", absParent)
+	}
+	full := filepath.Join(absParent, name)
+	if _, err := os.Stat(full); err == nil {
+		return nil, fmt.Errorf("папка уже существует: %s — её можно открыть как существующий проект", full)
+	} else if !os.IsNotExist(err) {
+		return nil, err
+	}
+	if err := os.MkdirAll(full, 0o755); err != nil {
+		return nil, err
+	}
+	return m.Open(full)
+}
+
+// ValidateFolderName rejects names that would climb out of the parent folder or
+// break on Windows (path separators, reserved characters, reserved device
+// names, trailing dot/space). Only the folder name is validated; the parent
+// always comes from a directory picker.
+func ValidateFolderName(name string) error {
+	switch {
+	case name == "":
+		return fmt.Errorf("введите имя проекта")
+	case name == "." || name == "..":
+		return fmt.Errorf("недопустимое имя проекта: %q", name)
+	case strings.ContainsAny(name, `/\`):
+		return fmt.Errorf("имя проекта не должно содержать разделители пути — папку выберите отдельно")
+	case strings.ContainsAny(name, `<>:"|?*`):
+		return fmt.Errorf(`имя проекта не должно содержать символы < > : " | ? *`)
+	case strings.HasSuffix(name, "."), strings.HasSuffix(name, " "):
+		return fmt.Errorf("имя проекта не должно заканчиваться точкой или пробелом")
+	}
+	for _, r := range name {
+		if r < 0x20 {
+			return fmt.Errorf("имя проекта не должно содержать управляющие символы")
+		}
+	}
+	if isWindowsReservedName(name) {
+		return fmt.Errorf("имя %q зарезервировано Windows — выберите другое", name)
+	}
+	return nil
+}
+
+// isWindowsReservedName reports whether the base name (before the extension)
+// is a legacy DOS device name that Windows refuses to use as a folder.
+func isWindowsReservedName(name string) bool {
+	base := strings.ToUpper(strings.TrimSuffix(name, filepath.Ext(name)))
+	switch base {
+	case "CON", "PRN", "AUX", "NUL",
+		"COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+		"LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9":
+		return true
+	}
+	return false
+}
+
 func (m *Manager) ActiveRoot() (string, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()

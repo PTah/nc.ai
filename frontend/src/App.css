@@ -1,4 +1,4 @@
-﻿:root,
+:root,
 [data-theme="dark"] {
   color-scheme: dark;
   --bg: #121212;
@@ -1357,6 +1357,59 @@ mark.nc-find-mark.nc-find-current {
 }
 .nc-ctx-menu button:hover {
   background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+/* Project ▾ — Open project / Create project */
+.nc-project-new {
+  position: relative;
+  flex: 0 0 auto;
+}
+.nc-project-new-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.nc-project-new-caret {
+  font-size: 0.75rem;
+  opacity: 0.8;
+}
+.nc-project-new-menu {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 0.25rem);
+  min-width: 0;
+}
+
+.nc-new-project-field {
+  margin: 0.65rem 0 0;
+}
+.nc-new-project-field > span {
+  display: block;
+  margin-bottom: 0.25rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+.nc-new-project-row {
+  display: flex;
+  gap: 0.4rem;
+}
+.nc-new-project-row input {
+  min-width: 0;
+}
+.nc-new-project-row .nc-ghost {
+  width: auto;
+  margin: 0;
+  flex: 0 0 auto;
+}
+.nc-new-project-path {
+  margin: 0.6rem 0 0;
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  color: var(--muted);
+  word-break: break-all;
 }
 
 .nc-close-project h2 {
