@@ -77,7 +77,7 @@ func (c *Client) ChatCompletionStream(ctx context.Context, req *llm.ChatRequest,
 	defer res.Body.Close()
 	if res.StatusCode >= 300 {
 		data, _ := io.ReadAll(io.LimitReader(res.Body, 1<<20))
-		return nil, mapAPIError(res.StatusCode, data)
+		return nil, mapAPIError(res.StatusCode, data, res.Header)
 	}
 
 	agg, err := consumeOpenAISSE(res.Body, onDelta)

@@ -216,7 +216,7 @@ func (c *Client) pingGenerate(ctx context.Context, origin string, rep *HealthRep
 		c.markNotOllama()
 	}
 	if res.StatusCode >= 300 {
-		return mapAPIError(res.StatusCode, data)
+		return mapAPIError(res.StatusCode, data, res.Header)
 	}
 	var out ollamaGenerateResponse
 	if err := json.Unmarshal(data, &out); err != nil {

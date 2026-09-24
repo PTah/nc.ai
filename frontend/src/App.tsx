@@ -1520,18 +1520,48 @@ export default function App() {
     : queueCount > 0 ? `в очереди: ${queueCount}` : ''
   const {total: rulesTotal, applied: rulesApplied} = rulesCounts(rulesInfo)
 
-  // Пока прогон идёт, панель плана закреплена внизу ленты. Когда прогон
-  // закончился, план встаёт в поток на месте завершения и дальше скроллится как
-  // обычный текст — выполненный список не висит в самом низу окна.
+  // Пока прогон идёт и в плане остались открытые пункты, панель плана
+  // закреплена внизу ленты. Как только все пункты закрыты (или прогон
+  // закончился), план занимает место в потоке на момент закрытия и дальше
+  // скроллится с текстом — выполненный список не висит в самом низу окна.
+  const todosClosed = todos.length > 0
+    && !todos.some((t) => t.status !== 'completed' && t.status !== 'cancelled')
   const todosBusyRef = useRef(false)
+  const todosClosedRef = useRef(false)
   useEffect(() => {
-    const was = todosBusyRef.current
+    if (!activeSessionId) return
+    const wasBusy = todosBusyRef.current
+    const wasClosed = todosClosedRef.current
     todosBusyRef.current = busy
-    if (!was || busy || !activeSessionId) return
-    setTodosFlowAnchor((prev) => ({...prev, [activeSessionId]: items.length}))
-  }, [busy, activeSessionId, items.length])
+    todosClosedRef.current = todosClosed
+    const pin = (at: number) => {
+      setTodosFlowAnchor((prev) => (prev[activeSessionId] !== undefined
+        ? prev
+        : {...prev, [activeSessionId]: at}))
+    }
+    const unpin = () => {
+      setTodosFlowAnchor((prev) => {
+        if (prev[activeSessionId] === undefined) return prev
+        const next = {...prev}
+        delete next[activeSessionId]
+        return next
+      })
+    }
+    // Закрытый план встаёт в поток сразу: иначе список 7/7 продолжает висеть
+    // внизу, пока агент ещё пишет ответ.
+    if (todosClosed) {
+      pin(items.length)
+      return
+    }
+    // Новый прогон или план снова открыт — прежнее место не подходит.
+    if ((busy && !wasBusy) || wasClosed) {
+      unpin()
+      return
+    }
+    if (wasBusy && !busy) pin(items.length)
+  }, [busy, todosClosed, activeSessionId, items.length])
 
-  const todoFlowAt = !busy && todos.length > 0 && activeSessionId
+  const todoFlowAt = todos.length > 0 && activeSessionId && (!busy || todosClosed)
     ? todosFlowAnchor[activeSessionId]
     : undefined
   const displayRows = typeof todoFlowAt === 'number'
@@ -4252,7 +4282,7 @@ export default function App() {
                     <pre>думаю… {runStatusElapsed}</pre>
                   </div>
                 )}
-                {busy && todos.length > 0 && <TodoPanel todos={todos} expand={expandSignal} busy={busy} />}
+                {busy && todos.length > 0 && todoFlowAt === undefined && <TodoPanel todos={todos} expand={expandSignal} busy={busy} />}
                 {(items.some((i) => i.kind === 'reasoning' || i.kind === 'tool') || todos.length > 0) && (
                   <div className="nc-thread-actions">
                     <button

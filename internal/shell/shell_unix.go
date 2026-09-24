@@ -4,7 +4,8 @@ package shell
 
 import "os/exec"
 
-func configureCmd(cmd *exec.Cmd) {}
+// ConfigureCmd is a no-op outside Windows (no console window to hide).
+func ConfigureCmd(cmd *exec.Cmd) {}
 
 func decodeShellBytes(b []byte) string {
 	return string(b)

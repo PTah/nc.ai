@@ -12,7 +12,11 @@ import (
 
 const createNoWindow = 0x08000000
 
-func configureCmd(cmd *exec.Cmd) {
+// ConfigureCmd hides the console window Windows would otherwise flash for the
+// child process (CREATE_NO_WINDOW + HideWindow). Needed for every helper process
+// the app spawns — git, shells, version probes — so the UI does not blink with
+// cmd/PowerShell windows.
+func ConfigureCmd(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		HideWindow:    true,
 		CreationFlags: createNoWindow,

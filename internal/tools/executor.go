@@ -494,6 +494,7 @@ func toolVersion(bin string, args ...string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, bin, args...)
+	shell.ConfigureCmd(cmd)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return ""
