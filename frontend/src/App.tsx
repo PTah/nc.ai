@@ -112,6 +112,7 @@ import BrandMark from './BrandMark'
 import Markdown from './Markdown'
 import ProjectIcon from './ProjectIcon'
 import {applyChatFindMarks, clearChatFindMarks, focusChatFindHit, type ChatFindHit} from './chatFind'
+import {fmtDate, fmtDateTime} from './datetime'
 
 type Project = { name: string; path: string; opened?: string; iconUrl?: string }
 type FileEntry = { name: string; path: string; isDir: boolean }
@@ -196,10 +197,7 @@ type QueuedMsg = {
 
 function formatArchiveAt(raw: unknown): string {
   if (!raw) return ''
-  const d = raw instanceof Date ? raw : new Date(String(raw))
-  if (Number.isNaN(d.getTime())) return String(raw)
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+  return fmtDateTime(raw)
 }
 
 function mapArchivedFromGo(raw: unknown): ArchiveChat | null {
@@ -384,12 +382,10 @@ function parseProvider(v: unknown): ProviderId {
   return 'deepseek'
 }
 
-/** Дата и время в ленте: «20.09.2026, 14:15:12» (локальное время). */
+/** Дата и время в ленте: «20.09.2026 14:15:12» (локальное время). */
 function fmtAnswerTime(ms?: number): string {
   if (!ms || !Number.isFinite(ms)) return ''
-  const d = new Date(ms)
-  const p = (n: number) => String(n).padStart(2, '0')
-  return `${p(d.getDate())}.${p(d.getMonth() + 1)}.${d.getFullYear()}, ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+  return fmtDateTime(ms)
 }
 
 /**
@@ -5455,7 +5451,7 @@ export default function App() {
               {(news?.newCount ?? 0) > 0 && <span className="nc-news-badge">{news?.newCount} новых</span>}
               {news && news.updatedAt && (
                 <span className="nc-news-updated">
-                  от {new Date(news.updatedAt).toLocaleString()}
+                  от {fmtDateTime(news.updatedAt)}
                 </span>
               )}
             </div>
@@ -5478,7 +5474,7 @@ export default function App() {
                         {n.provider}
                       </span>
                       <span className="nc-news-title">{n.title}</span>
-                      {n.date && <span className="nc-news-date">{n.date}</span>}
+                      {n.date && <span className="nc-news-date">{fmtDate(n.date)}</span>}
                     </button>
                   </li>
                 ))}
