@@ -404,6 +404,7 @@ func (a *App) RefreshProviderPrices() map[string]any {
 
 func (a *App) beforeClose(ctx context.Context) (prevent bool) {
 	a.ctx = ctx
+	a.stopBackgroundWork()
 	_ = a.cfg.SetRunState(appmeta.Version, true)
 	a.saveWindowGeometry()
 	a.saveLastProject()
@@ -412,9 +413,19 @@ func (a *App) beforeClose(ctx context.Context) (prevent bool) {
 
 func (a *App) shutdown(ctx context.Context) {
 	a.ctx = ctx
+	a.stopBackgroundWork()
 	_ = a.cfg.SetRunState(appmeta.Version, true)
 	a.saveWindowGeometry()
 	a.saveLastProject()
+}
+
+// stopBackgroundWork гасит фоновые команды агента и интерактивный терминал:
+// иначе после закрытия окна в системе остаются висеть сборки и серверы.
+func (a *App) stopBackgroundWork() {
+	if a.tools != nil && a.tools.Jobs != nil {
+		a.tools.Jobs.KillAll()
+	}
+	a.StopTerminal()
 }
 
 // deployMarkerName is dropped by build.ps1 before a deploy restart, so the next
@@ -919,7 +930,8 @@ func (a *App) GetProviderNews(force bool) (providernews.Payload, error) {
 		return providernews.Payload{}, err
 	}
 	payload := providernews.PayloadOf(prev, time.Now())
-	if !force && !payload.Stale && len(prev.Items) > 0 {
+	linksStale := providernews.NeedsLinkMigration(prev) && time.Since(prev.UpdatedAt) > 10*time.Minute
+	if !force && !payload.Stale && !linksStale && len(prev.Items) > 0 {
 		return payload, nil
 	}
 	fresh, rerr := providernews.Refresh(context.Background(), prev)
