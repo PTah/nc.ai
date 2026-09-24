@@ -15,7 +15,12 @@ type Provider interface {
 }
 ```
 
-`ChatCompletionStream` — этап 2. Пока канон агента — **non-stream** `ChatCompletion` + loop по `tool_calls`.
+`ChatCompletionStream` — **реализовано** (`StreamingProvider`, SSE-агрегация: `internal/llm/providers/local/stream.go`). Агент стримит дельты, собирает финальное сообщение и продолжает loop по `tool_calls`.
+
+Общие правила поверх любого провайдера:
+
+- **Инлайн-thinking**: ведущие блоки `<think>`, `<thinking>`, `<reasoning>` в `content` отделяются в reasoning — и в потоке дельт, и в собранном ответе (`internal/llm/think.go`). Литеральный тег в середине ответа не трогается.
+- **Лимиты**: `429` превращается в `*llm.RateLimitError` с разбором `Retry-After` и `x-ratelimit-reset-*`; агент ждёт лимит (до 60 сек) и повторяет запрос сам, суточный лимит не ждёт (`internal/llm/ratelimit.go`).
 
 Код в `internal/llm/providers/*` и `internal/agent` **следует документам этой папки**. Если поведение API изменилось — сначала обновить протокол, потом код.
 

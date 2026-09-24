@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"notcursor.ai/app/internal/shell"
 )
 
 func (r *Registry) readLints(paths []string) (string, error) {
@@ -72,6 +74,7 @@ func runGoVet(root, pkg string) (string, error) {
 	}
 	cmd := exec.CommandContext(ctx, "go", "vet", arg)
 	cmd.Dir = root
+	shell.ConfigureCmd(cmd)
 	var buf bytes.Buffer
 	cmd.Stdout = &buf
 	cmd.Stderr = &buf

@@ -221,7 +221,7 @@ func (c *Client) listOpenAIModels(ctx context.Context) ([]string, error) {
 		return nil, err
 	}
 	if res.StatusCode >= 300 {
-		return nil, mapAPIError(res.StatusCode, data)
+		return nil, mapAPIError(res.StatusCode, data, res.Header)
 	}
 	var out modelsListResponse
 	if err := json.Unmarshal(data, &out); err != nil {
@@ -270,7 +270,7 @@ func (c *Client) listOllamaTagInfos(ctx context.Context) ([]ModelInfo, error) {
 		return nil, err
 	}
 	if res.StatusCode >= 300 {
-		return nil, mapAPIError(res.StatusCode, data)
+		return nil, mapAPIError(res.StatusCode, data, res.Header)
 	}
 	var out ollamaTagsResponse
 	if err := json.Unmarshal(data, &out); err != nil {
@@ -364,7 +364,7 @@ func (c *Client) ChatCompletion(ctx context.Context, req *llm.ChatRequest) (*llm
 		return nil, err
 	}
 	if res.StatusCode >= 300 {
-		return nil, mapAPIError(res.StatusCode, data)
+		return nil, mapAPIError(res.StatusCode, data, res.Header)
 	}
 	var out llm.ChatResponse
 	if err := json.Unmarshal(data, &out); err != nil {
@@ -385,7 +385,7 @@ type apiErrorBody struct {
 	ErrorString string `json:"-"`
 }
 
-func mapAPIError(status int, body []byte) error {
+func mapAPIError(status int, body []byte, h http.Header) error {
 	var payload apiErrorBody
 	_ = json.Unmarshal(body, &payload)
 	msg := strings.TrimSpace(payload.Error.Message)
@@ -403,7 +403,17 @@ func mapAPIError(status int, body []byte) error {
 	case 404:
 		return fmt.Errorf("Local API: endpoint не найден (404). Проверьте Base URL (нужен суффикс /v1).")
 	case 429:
-		return fmt.Errorf("Local API: слишком много запросов, попробуйте позднее…")
+		// Лимиты бесплатных тарифов (5 RPM / 200 RPD): сообщаем, когда можно
+		// повторить, и сколько запросов осталось — агент подождёт сам.
+		detail := msg
+		if q := llm.RateLimitQuota(h); q != "" {
+			if detail == "" {
+				detail = q
+			} else {
+				detail += " (" + q + ")"
+			}
+		}
+		return &llm.RateLimitError{Provider: "Local API", Detail: detail, Wait: llm.RetryAfter(h)}
 	case 500, 502, 503:
 		return fmt.Errorf("Local API временно недоступен (%d).", status)
 	}

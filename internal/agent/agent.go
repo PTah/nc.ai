@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -22,6 +23,11 @@ const DefaultWarnSteps = 120
 // unlimitedCeiling is the practical ceiling for "no cap" runs: a run that gets
 // this far is looping and would burn tokens forever.
 const unlimitedCeiling = 100000
+
+// maxRateLimitWait — сколько согласны ждать лимит провайдера внутри прогона.
+// 5 RPM из бесплатных тарифов укладываются с запасом, а суточный лимит (часы)
+// не ждём: пользователю честнее показать ошибку сразу.
+const maxRateLimitWait = 60 * time.Second
 
 const maxToolResultBytes = 12288
 
@@ -509,10 +515,27 @@ func (r *Runner) chat(ctx context.Context, req *llm.ChatRequest, emit EmitFunc) 
 	resp, streamed, err = r.chatOnce(ctx, req, emit)
 	for attempt := 0; err != nil && isTransientError(err) && attempt < r.retryCount(); attempt++ {
 		wait := r.retryBackoff() * time.Duration(attempt+1)
-		emit(Event{Type: "reconnect", Content: fmt.Sprintf(
-			"Соединение с LLM потеряно (%v). Повторная попытка %d/%d через %.0f сек…",
-			err, attempt+1, r.retryCount(), wait.Seconds(),
-		)})
+		// Провайдер сам сказал, когда можно повторить (Free-тарифы: 5 RPM /
+		// 200 RPD). Суточный лимит не ждём — отдаём ошибку с подсказкой.
+		var rate *llm.RateLimitError
+		if errors.As(err, &rate) {
+			if rate.Wait > maxRateLimitWait {
+				return nil, false, err
+			}
+			if rate.Wait > wait {
+				wait = rate.Wait
+			}
+			r.stallTouch("жду лимит провайдера")
+			emit(Event{Type: "notice", Content: fmt.Sprintf(
+				"Провайдер ограничил частоту запросов (429). Жду %s и повторяю (%d/%d)…",
+				llm.FormatWait(wait), attempt+1, r.retryCount(),
+			)})
+		} else {
+			emit(Event{Type: "reconnect", Content: fmt.Sprintf(
+				"Соединение с LLM потеряно (%v). Повторная попытка %d/%d через %.0f сек…",
+				err, attempt+1, r.retryCount(), wait.Seconds(),
+			)})
+		}
 		select {
 		case <-time.After(wait):
 		case <-ctx.Done():
@@ -526,18 +549,41 @@ func (r *Runner) chat(ctx context.Context, req *llm.ChatRequest, emit EmitFunc) 
 func (r *Runner) chatOnce(ctx context.Context, req *llm.ChatRequest, emit EmitFunc) (*llm.ChatResponse, bool, error) {
 	if sp, ok := r.Provider.(llm.StreamingProvider); ok {
 		streamed := false
+		// Часть эндпоинтов присылает «размышления» инлайном в content
+		// (<think>…</think>): разводим поток на ответ и reasoning, чтобы теги не
+		// попадали в текст ответа и в историю чата.
+		var split llm.ThinkSplitter
+		emitReasoning := func(s string) {
+			if strings.TrimSpace(s) == "" {
+				return
+			}
+			streamed = true
+			r.stallTouch("модель присылает рассуждение")
+			emit(Event{Type: "reasoning", Content: s})
+		}
+		emitBody := func(s string) {
+			if s == "" {
+				return
+			}
+			streamed = true
+			r.stallTouch("модель присылает ответ")
+			emit(Event{Type: "delta", Content: s})
+		}
 		resp, err := sp.ChatCompletionStream(ctx, req, func(d llm.StreamDelta) {
 			if strings.TrimSpace(d.ReasoningContent) != "" {
-				streamed = true
-				r.stallTouch("модель присылает рассуждение")
-				emit(Event{Type: "reasoning", Content: d.ReasoningContent})
+				emitReasoning(d.ReasoningContent)
 			}
 			if d.Content != "" {
-				streamed = true
-				r.stallTouch("модель присылает ответ")
-				emit(Event{Type: "delta", Content: d.Content})
+				body, think := split.Push(d.Content)
+				emitReasoning(think)
+				emitBody(body)
 			}
 		})
+		if err == nil {
+			body, think := split.Flush()
+			emitReasoning(think)
+			emitBody(body)
+		}
 		return resp, streamed, err
 	}
 	resp, err := r.Provider.ChatCompletion(ctx, req)
@@ -790,6 +836,9 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 
 		msg := resp.Choices[0].Message
 		msg.Role = "assistant"
+		// reasoning из stream-потока уже разведён при выводе дельт, но в
+		// собранном сообщении thinking всё ещё лежит в content — чистим историю.
+		llm.SplitThinkMessage(&msg)
 		finish := strings.TrimSpace(resp.Choices[0].FinishReason)
 
 		// Local models (Ollama etc.) often dump tool calls as JSON in content
@@ -944,6 +993,7 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 	}
 	msg := resp.Choices[0].Message
 	msg.Role = "assistant"
+	llm.SplitThinkMessage(&msg)
 	messages = append(messages, msg)
 	if !streamed {
 		if strings.TrimSpace(msg.ReasoningContent) != "" {

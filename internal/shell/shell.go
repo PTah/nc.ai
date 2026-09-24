@@ -52,7 +52,7 @@ func Run(ctx context.Context, command, cwd, shellPath string, timeout time.Durat
 	env := os.Environ()
 	env = append(env, "GIT_PAGER=cat", "PAGER=cat", "CI=1")
 	cmd.Env = env
-	configureCmd(cmd)
+	ConfigureCmd(cmd)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

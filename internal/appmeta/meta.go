@@ -5,7 +5,7 @@ import "time"
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "0.6.33"
+	Version = "0.7.0"
 )
 
 // DeepSeekProRetireRFC3339 is the announced V4 Pro retirement instant, empty
@@ -51,19 +51,19 @@ func retiredAt(at time.Time, now time.Time) bool {
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
-	"Не предлагаем «обновить», если у вас версия новее, чем последний релиз на GitHub",
-	"В Settings → Interface — выбор шрифтов UI и mono (Verdana, Lucida Console и др.)",
-	"Автообновление на Windows надёжнее перезапускает приложение после установки",
+	"Больше не мелькают окна cmd/PowerShell: служебные процессы (node, npm, go, python) идут скрыто",
+	"Размышления моделей (<think>…</think>) уходят в «Думал», а не в текст ответа",
+	"429 от провайдера: приложение само ждёт лимит и пишет «повтор через 42 сек»",
+	"План задач уезжает в поток после выполнения — не висит в самом низу окна",
 	"В настройках — «Новости провайдеров»: что нового у DeepSeek, Z.AI, OpenRouter и Qwen",
-	"Зависший шаг обрывается сам: если шаг молчит дольше 10 минут — разбор в чате",
 }
 
 var HighlightsEN = []string{
-	"No update prompt when your build is newer than the latest GitHub release",
-	"Settings → Interface: pick UI and monospace fonts (Verdana, Lucida Console, and more)",
-	"Windows auto-update more reliably relaunches the app after install",
+	"No more flashing cmd/PowerShell windows: helper processes (node, npm, go, python) run hidden",
+	"Model thinking (<think>…</think>) goes to the reasoning block, not into the answer",
+	"On 429 the app waits for the limit itself and says how long: \"retry in 42 sec\"",
+	"The todo plan moves into the flow once done — no longer pinned at the bottom",
 	"Settings include provider news: what's new at DeepSeek, Z.AI, OpenRouter and Qwen",
-	"A stuck step aborts on its own: silence over 10 minutes yields a chat breakdown",
 }
 
 // UICopy is localized chrome for the Welcome splash.
