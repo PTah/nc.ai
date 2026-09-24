@@ -32,7 +32,8 @@ func New(baseURL, apiKey, model string) *Client {
 		model:   strings.TrimSpace(model),
 		baseURL: strings.TrimRight(base, "/"),
 		http: &http.Client{
-			Timeout: 300 * time.Second,
+			Timeout:   300 * time.Second,
+			Transport: llm.Transport(),
 		},
 	}
 }

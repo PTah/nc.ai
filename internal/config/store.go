@@ -63,6 +63,35 @@ const DefaultAgentMaxSteps = 120
 // still working and what it is doing.
 const DefaultAgentWarnSteps = 120
 
+// DefaultAgentRetryCount / DefaultAgentRetryBudgetSec — сколько переподключений
+// делаем после сетевого обрыва внутри одного шага и сколько суммарно готовы на
+// них ждать. Провайдеры за CDN (api.deepseek.com → CloudFront) рвут длинные
+// SSE-потоки, поэтому и то и другое настраивается в Settings → Network.
+const (
+	DefaultAgentRetryCount     = 3
+	DefaultAgentRetryBudgetSec = 180
+
+	// Верхние границы для тех же настроек (защита от опечаток в UI).
+	maxAgentRetryCount     = 10
+	maxAgentRetryBudgetSec = 900
+)
+
+// HTTP protocol modes for provider requests (Settings → Network).
+const (
+	// HTTPProtocolAuto — ALPN-переговоры: HTTP/2, если сервер его поддерживает.
+	HTTPProtocolAuto = "auto"
+	// HTTPProtocolHTTP11 — только HTTP/1.1: h2 выключен (лечит обрывы
+	// длинных потоков через CDN/DPI).
+	HTTPProtocolHTTP11 = "http11"
+)
+
+// HTTP/2 keepalive (Settings → Network): PING после стольких секунд тишины.
+const (
+	DefaultHTTP2PingSec = 20
+	minHTTP2PingSec     = 5
+	maxHTTP2PingSec     = 120
+)
+
 type Settings struct {
 	// ActiveProvider selects which LLM backend is used ("deepseek" | "zai" | "openrouter" | "local").
 	ActiveProvider string `json:"activeProvider,omitempty"`
@@ -135,6 +164,22 @@ type Settings struct {
 	// AgentStallMin — сколько минут тишины на шаге терпим, прежде чем оборвать
 	// прогон с разбором. 0 = по умолчанию (DefaultAgentStallMin), -1 = выключено.
 	AgentStallMin int `json:"agentStallMin,omitempty"`
+
+	// AgentRetryCount — сколько раз переподключаемся к провайдеру после
+	// сетевого обрыва внутри шага. 0 = DefaultAgentRetryCount.
+	AgentRetryCount int `json:"agentRetryCount,omitempty"`
+
+	// AgentRetryBudgetSec — суммарный лимит ожидания серии повторов, сек.
+	// 0 = DefaultAgentRetryBudgetSec.
+	AgentRetryBudgetSec int `json:"agentRetryBudgetSec,omitempty"`
+
+	// HTTPProtocol — протокол для запросов к провайдерам: "" / "auto" (HTTP/2,
+	// если сервер умеет) или "http11" (только HTTP/1.1, h2 выключен).
+	HTTPProtocol string `json:"httpProtocol,omitempty"`
+
+	// HTTP2PingSec — HTTP/2 keepalive: через сколько секунд тишины (ни одного
+	// кадра от сервера) отправляем PING. 0 = DefaultHTTP2PingSec, -1 = выключено.
+	HTTP2PingSec int `json:"http2PingSec,omitempty"`
 
 	// AutoModels enables per-turn model routing (DeepSeek flash/pro/vision;
 	// Z.ai free flash → glm-5.3; OpenRouter flash → coder on complex tasks).
@@ -1255,6 +1300,122 @@ func (s *Store) SetAgentStallMin(min int) error {
 	s.settings.AgentStallMin = min
 	s.mu.Unlock()
 	return s.Save()
+}
+
+// AgentRetryCount — сколько переподключений делаем после сетевого обрыва шага
+// (0 = DefaultAgentRetryCount, максимум 10).
+func (s *Store) AgentRetryCount() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	n := s.settings.AgentRetryCount
+	if n <= 0 {
+		return DefaultAgentRetryCount
+	}
+	if n > maxAgentRetryCount {
+		return maxAgentRetryCount
+	}
+	return n
+}
+
+func (s *Store) SetAgentRetryCount(n int) error {
+	if n < 0 {
+		n = 0 // 0 = значение по умолчанию
+	}
+	if n > maxAgentRetryCount {
+		n = maxAgentRetryCount
+	}
+	s.mu.Lock()
+	s.settings.AgentRetryCount = n
+	s.mu.Unlock()
+	return s.Save()
+}
+
+// AgentRetryBudget — суммарное время ожидания серии повторов (0 = дефолт).
+func (s *Store) AgentRetryBudget() time.Duration {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	sec := s.settings.AgentRetryBudgetSec
+	if sec <= 0 {
+		sec = DefaultAgentRetryBudgetSec
+	}
+	if sec > maxAgentRetryBudgetSec {
+		sec = maxAgentRetryBudgetSec
+	}
+	return time.Duration(sec) * time.Second
+}
+
+func (s *Store) SetAgentRetryBudgetSec(sec int) error {
+	if sec < 0 {
+		sec = 0 // 0 = значение по умолчанию
+	}
+	if sec > maxAgentRetryBudgetSec {
+		sec = maxAgentRetryBudgetSec
+	}
+	s.mu.Lock()
+	s.settings.AgentRetryBudgetSec = sec
+	s.mu.Unlock()
+	return s.Save()
+}
+
+// HTTPProtocolMode — протокол для запросов к провайдерам: HTTPProtocolAuto
+// (по умолчанию) или HTTPProtocolHTTP11.
+func (s *Store) HTTPProtocolMode() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return NormalizeHTTPProtocol(s.settings.HTTPProtocol)
+}
+
+// HTTP2Ping — интервал h2 keepalive (PING после стольких секунд тишины).
+// 0 = DefaultHTTP2PingSec, отрицательное значение = выключено.
+func (s *Store) HTTP2Ping() time.Duration {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	sec := s.settings.HTTP2PingSec
+	switch {
+	case sec < 0:
+		return 0
+	case sec == 0:
+		sec = DefaultHTTP2PingSec
+	case sec < minHTTP2PingSec:
+		sec = minHTTP2PingSec
+	case sec > maxHTTP2PingSec:
+		sec = maxHTTP2PingSec
+	}
+	return time.Duration(sec) * time.Second
+}
+
+// SetHTTP2Ping сохраняет интервал h2 keepalive: 0 = по умолчанию, <0 = выключить.
+func (s *Store) SetHTTP2Ping(sec int) error {
+	if sec > 0 {
+		if sec < minHTTP2PingSec {
+			sec = minHTTP2PingSec
+		}
+		if sec > maxHTTP2PingSec {
+			sec = maxHTTP2PingSec
+		}
+	}
+	s.mu.Lock()
+	s.settings.HTTP2PingSec = sec
+	s.mu.Unlock()
+	return s.Save()
+}
+
+// SetHTTPProtocolMode сохраняет выбор протокола; неизвестное значение → auto.
+func (s *Store) SetHTTPProtocolMode(mode string) error {
+	s.mu.Lock()
+	s.settings.HTTPProtocol = NormalizeHTTPProtocol(mode)
+	s.mu.Unlock()
+	return s.Save()
+}
+
+// NormalizeHTTPProtocol приводит значение к одному из известных режимов.
+func NormalizeHTTPProtocol(mode string) string {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case HTTPProtocolHTTP11, "http1.1", "http/1.1", "h1", "http1":
+		return HTTPProtocolHTTP11
+	default:
+		return HTTPProtocolAuto
+	}
 }
 
 func (s *Store) SetWindowGeometry(width, height, x, y int, maximised bool) error {

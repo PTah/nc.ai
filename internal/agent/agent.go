@@ -30,8 +30,9 @@ const unlimitedCeiling = 100000
 const maxRateLimitWait = 60 * time.Second
 
 // retryBudget — сколько суммарно готовы ждать серию повторов после сетевых
-// ошибок. Сеть, которая рвёт каждую попытку, не должна растягивать прогон на
-// десятки минут: лучше честная ошибка, чем «тишина».
+// ошибок, если в Runner не задан свой лимит (Settings → Network). Сеть, которая
+// рвёт каждую попытку, не должна растягивать прогон на десятки минут: лучше
+// честная ошибка, чем «тишина».
 const retryBudget = 3 * time.Minute
 
 const maxToolResultBytes = 12288
@@ -189,6 +190,13 @@ type Runner struct {
 	RetryCount int
 	// RetryBackoff is the base wait between reconnect attempts (grows linearly per attempt).
 	RetryBackoff time.Duration
+	// RetryBudget limits the total wait of one reconnect series (0 = retryBudget).
+	// Настраивается в Settings → Network: провайдеры за CDN рвут длинные потоки,
+	// и одного-двух повторов иногда мало.
+	RetryBudget time.Duration
+	// OnNetworkRetry is called before each reconnect attempt (attempt is 1-based).
+	// The app uses it for the drop counter shown in Settings.
+	OnNetworkRetry func(attempt int, err error)
 	// StallLimit — сколько тишины терпим на одном шаге: если ни модели, ни
 	// инструменты не подают признаков жизни дольше этого времени, прогон
 	// принудительно обрывается с разбором (0 = не следить, отрицательное = тоже 0).
@@ -516,6 +524,13 @@ func (r *Runner) retryBackoff() time.Duration {
 	return r.RetryBackoff
 }
 
+func (r *Runner) budget() time.Duration {
+	if r.RetryBudget <= 0 {
+		return retryBudget
+	}
+	return r.RetryBudget
+}
+
 // chat calls the provider (streaming when available) and retries transient network errors,
 // emitting a "reconnect" event before each attempt so the UI can show progress.
 // streamed is true when content/reasoning deltas were already pushed via emit.
@@ -526,7 +541,8 @@ func (r *Runner) chat(ctx context.Context, req *llm.ChatRequest, emit EmitFunc) 
 	var waited time.Duration
 	for attempt := 0; err != nil && isTransientError(err) && attempt < r.retryCount(); attempt++ {
 		wait := r.retryBackoff() * time.Duration(attempt+1)
-		if waited+wait > retryBudget {
+		if waited+wait > r.budget() {
+			r.logf("reconnect stopped: серия повторов заняла %s (бюджет %s): %v", waited.Round(time.Second), r.budget(), err)
 			return nil, false, fmt.Errorf("%w: сеть недоступна, повторов накопилось на %s", err, waited.Round(time.Second))
 		}
 		// Провайдер сам сказал, когда можно повторить (Free-тарифы: 5 RPM /
@@ -547,6 +563,10 @@ func (r *Runner) chat(ctx context.Context, req *llm.ChatRequest, emit EmitFunc) 
 		} else {
 			// Повтор — это признак жизни: прогон борется с сетью, а не завис.
 			r.stallTouch("повтор после сетевой ошибки")
+			r.logf("reconnect %d/%d через %.0fs: %v", attempt+1, r.retryCount(), wait.Seconds(), err)
+			if r.OnNetworkRetry != nil {
+				r.OnNetworkRetry(attempt+1, err)
+			}
 			emit(Event{Type: "reconnect", Content: fmt.Sprintf(
 				"Соединение с LLM потеряно (%v). Повторная попытка %d/%d через %.0f сек…",
 				err, attempt+1, r.retryCount(), wait.Seconds(),

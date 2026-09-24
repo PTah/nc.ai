@@ -254,6 +254,10 @@ export function ResolveUserAsk(arg1, arg2, arg3) {
   return window['go']['main']['App']['ResolveUserAsk'](arg1, arg2, arg3);
 }
 
+export function ResetNetworkStats() {
+  return window['go']['main']['App']['ResetNetworkStats']();
+}
+
 export function RunAgent(arg1) {
   return window['go']['main']['App']['RunAgent'](arg1);
 }
@@ -280,6 +284,14 @@ export function SaveActiveProvider(arg1) {
 
 export function SaveAgentMaxSteps(arg1) {
   return window['go']['main']['App']['SaveAgentMaxSteps'](arg1);
+}
+
+export function SaveAgentRetryBudgetSec(arg1) {
+  return window['go']['main']['App']['SaveAgentRetryBudgetSec'](arg1);
+}
+
+export function SaveAgentRetryCount(arg1) {
+  return window['go']['main']['App']['SaveAgentRetryCount'](arg1);
 }
 
 export function SaveAgentStallMin(arg1) {
@@ -320,6 +332,14 @@ export function SaveEndSound(arg1) {
 
 export function SaveGitAuth(arg1, arg2) {
   return window['go']['main']['App']['SaveGitAuth'](arg1, arg2);
+}
+
+export function SaveHTTP2PingSec(arg1) {
+  return window['go']['main']['App']['SaveHTTP2PingSec'](arg1);
+}
+
+export function SaveHTTPProtocol(arg1) {
+  return window['go']['main']['App']['SaveHTTPProtocol'](arg1);
 }
 
 export function SaveLayoutSizes(arg1, arg2, arg3, arg4, arg5) {

@@ -88,7 +88,8 @@ func NewWithBaseURL(apiKey, model, baseURL string) *Client {
 		model:   model,
 		baseURL: strings.TrimRight(baseURL, "/"),
 		http: &http.Client{
-			Timeout: 180 * time.Second,
+			Timeout:   180 * time.Second,
+			Transport: llm.Transport(),
 		},
 	}
 }

@@ -63,7 +63,8 @@ func New(apiKey, model string) *Client {
 		model:   model,
 		baseURL: DefaultBaseURL,
 		http: &http.Client{
-			Timeout: 180 * time.Second,
+			Timeout:   180 * time.Second,
+			Transport: llm.Transport(),
 		},
 	}
 }
