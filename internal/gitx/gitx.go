@@ -2,12 +2,22 @@ package gitx
 
 import (
 	"bytes"
+	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"notcursor.ai/app/internal/workspace"
+)
+
+// Лимиты на git-команды. Без них push в недоступный remote висит бесконечно,
+// а запрос пароля у Git Credential Manager может вытащить GUI-окно поверх чата.
+const (
+	gitCommandTimeout = 90 * time.Second
+	gitNetworkTimeout = 300 * time.Second
 )
 
 // Service runs the OS `git` binary in the active workspace so auth comes from
@@ -52,9 +62,18 @@ func (s *Service) run(args ...string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	cmd := exec.Command("git", args...)
+	timeout := gitCommandTimeout
+	if isNetworkCommand(args) {
+		timeout = gitNetworkTimeout
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = root
 	configureCmd(cmd)
+	cmd.Env = gitEnv()
+	// Не ждём потомков бесконечно, если гасим git по таймауту.
+	cmd.WaitDelay = 5 * time.Second
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -62,6 +81,10 @@ func (s *Service) run(args ...string) (string, error) {
 	out := strings.TrimSpace(stdout.String())
 	errText := strings.TrimSpace(stderr.String())
 	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return "", fmt.Errorf("git %s: превышен лимит ожидания %s — проверьте доступность remote и ключи (пароли git приложение не спрашивает)",
+				strings.Join(args, " "), timeout)
+		}
 		msg := errText
 		if msg == "" {
 			msg = out
@@ -78,6 +101,35 @@ func (s *Service) run(args ...string) (string, error) {
 		return out + "\n" + errText, nil
 	}
 	return out, nil
+}
+
+// isNetworkCommand: команды, которые ходят в remote — им нужен запас времени.
+func isNetworkCommand(args []string) bool {
+	for _, a := range args {
+		switch a {
+		case "push", "pull", "fetch", "clone", "ls-remote", "submodule":
+			return true
+		}
+	}
+	return false
+}
+
+// gitEnv — окружение, в котором git никогда не ждёт ввода: иначе push в
+// репозиторий с несохранёнными креденшелами подвисает (а GCM ещё и открывает
+// своё окно поверх приложения).
+func gitEnv() []string {
+	env := os.Environ()
+	env = append(env,
+		"GIT_TERMINAL_PROMPT=0",
+		"GCM_INTERACTIVE=never",
+		"GIT_PAGER=cat",
+		"PAGER=cat",
+	)
+	if os.Getenv("GIT_SSH_COMMAND") == "" {
+		// Ключ с паролем и без ssh-agent: падаем сразу с внятной ошибкой.
+		env = append(env, "GIT_SSH_COMMAND=ssh -oBatchMode=yes -oStrictHostKeyChecking=accept-new")
+	}
+	return env
 }
 
 func (s *Service) Status() (string, error) {
@@ -172,7 +224,7 @@ func (s *Service) Push(remote, branch string) (string, error) {
 	}
 	out, err := s.run(args...)
 	if err != nil {
-		return "", fmt.Errorf("%w\n(hint: configure OS git credentials / SSH keys — NotCursor does not store Git passwords)", err)
+		return "", fmt.Errorf("%w\n(hint: настройте OS git credentials / SSH keys — NotCursor пароли Git не хранит и не спрашивает)", err)
 	}
 	if out == "" {
 		return fmt.Sprintf("pushed to %s", remote), nil

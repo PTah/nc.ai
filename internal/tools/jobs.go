@@ -35,13 +35,18 @@ type bgJob struct {
 
 // JobStore tracks background run_terminal processes.
 type JobStore struct {
-	mu   sync.Mutex
-	jobs map[string]*bgJob
+	mu      sync.Mutex
+	jobs    map[string]*bgJob
+	cancels map[string]context.CancelFunc
 }
 
 func NewJobStore() *JobStore {
-	return &JobStore{jobs: map[string]*bgJob{}}
+	return &JobStore{jobs: map[string]*bgJob{}, cancels: map[string]context.CancelFunc{}}
 }
+
+// maxFinishedJobs — сколько завершённых jobs держим в истории: без чистки карта
+// растёт всю сессию (каждый запуск агента добавляет записи).
+const maxFinishedJobs = 20
 
 func (s *JobStore) Start(command, cwd, shellPath string, timeout time.Duration) (string, error) {
 	if strings.TrimSpace(command) == "" {
@@ -63,14 +68,21 @@ func (s *JobStore) Start(command, cwd, shellPath string, timeout time.Duration) 
 			return "", fmt.Errorf("too many background jobs (max 8)")
 		}
 	}
+	s.pruneFinishedLocked()
 	id := "job_" + strings.ReplaceAll(uuid.NewString(), "-", "")[:10]
 	j := &bgJob{ID: id, Command: command, Cwd: cwd, Started: time.Now(), Status: jobRunning}
 	s.jobs[id] = j
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	s.cancels[id] = cancel
 	s.mu.Unlock()
 
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
+		defer func() {
+			s.mu.Lock()
+			delete(s.cancels, id)
+			s.mu.Unlock()
+		}()
 		res, err := shell.Run(ctx, command, cwd, shellPath, timeout)
 		j.mu.Lock()
 		j.Ended = time.Now()
@@ -86,6 +98,50 @@ func (s *JobStore) Start(command, cwd, shellPath string, timeout time.Duration) 
 		j.mu.Unlock()
 	}()
 	return id, nil
+}
+
+// KillAll останавливает все запущенные фоновые команды — вызывается при выходе
+// из приложения, чтобы в системе не оставались висящие сборки и серверы.
+func (s *JobStore) KillAll() {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	cancels := make([]context.CancelFunc, 0, len(s.cancels))
+	for _, cancel := range s.cancels {
+		cancels = append(cancels, cancel)
+	}
+	s.cancels = map[string]context.CancelFunc{}
+	s.mu.Unlock()
+	for _, cancel := range cancels {
+		cancel()
+	}
+}
+
+// pruneFinishedLocked оставляет только последние завершённые jobs.
+func (s *JobStore) pruneFinishedLocked() {
+	var finished []*bgJob
+	for _, j := range s.jobs {
+		j.mu.Lock()
+		if j.Status == jobDone {
+			finished = append(finished, j)
+		}
+		j.mu.Unlock()
+	}
+	if len(finished) <= maxFinishedJobs {
+		return
+	}
+	// Сортируем по старту и убираем самые давние.
+	for i := 0; i < len(finished); i++ {
+		for k := i + 1; k < len(finished); k++ {
+			if finished[k].Started.Before(finished[i].Started) {
+				finished[i], finished[k] = finished[k], finished[i]
+			}
+		}
+	}
+	for _, j := range finished[:len(finished)-maxFinishedJobs] {
+		delete(s.jobs, j.ID)
+	}
 }
 
 func (s *JobStore) Status(id string, waitSec, charCount int, priority string) (string, error) {

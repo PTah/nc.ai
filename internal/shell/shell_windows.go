@@ -3,8 +3,11 @@
 package shell
 
 import (
+	"context"
 	"os/exec"
+	"strconv"
 	"syscall"
+	"time"
 	"unicode/utf8"
 
 	"golang.org/x/text/encoding/charmap"
@@ -21,6 +24,26 @@ func ConfigureCmd(cmd *exec.Cmd) {
 		HideWindow:    true,
 		CreationFlags: createNoWindow,
 	}
+}
+
+// prepareTree оставлен no-op: на Windows дерево гасим через taskkill (см. killTree).
+func prepareTree(cmd *exec.Cmd) {}
+
+// killTree убивает процесс вместе с детьми: cmd.Process.Kill() гасит только
+// оболочку, а её потомки (go build, docker, серверы) продолжают держать пайпы —
+// из-за этого таймаут «залипает», а в системе остаются висящие процессы.
+func killTree(cmd *exec.Cmd) {
+	if cmd == nil || cmd.Process == nil {
+		return
+	}
+	// taskkill ограничиваем по времени: он часть пути гашения и не должен
+	// задерживать возврат из команды.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	kill := exec.CommandContext(ctx, "taskkill", "/F", "/T", "/PID", strconv.Itoa(cmd.Process.Pid))
+	ConfigureCmd(kill)
+	_ = kill.Run()
+	_ = cmd.Process.Kill()
 }
 
 func decodeShellBytes(b []byte) string {

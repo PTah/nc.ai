@@ -185,8 +185,33 @@ func (s *Service) Exec(host, user string, port int, keyName, password, command s
 	var stdout, stderr bytes.Buffer
 	session.Stdout = &stdout
 	session.Stderr = &stderr
-	runErr := session.Run(command)
+
+	// Удалённая команда тоже должна укладываться в лимит: ClientConfig.Timeout
+	// ограничивает только dial и handshake, а `tail -f` или зависший apt держали
+	// бы агент бесконечно.
+	runDone := make(chan error, 1)
+	go func() { runDone <- session.Run(command) }()
+
+	var runErr error
+	timedOut := false
+	select {
+	case runErr = <-runDone:
+	case <-time.After(timeout):
+		timedOut = true
+		_ = session.Signal(ssh.SIGKILL)
+		_ = session.Close()
+		_ = client.Close()
+		select {
+		case runErr = <-runDone:
+		case <-time.After(2 * time.Second):
+			// Сессия не отвечает даже после закрытия — отдаём то, что успели прочитать.
+		}
+	}
+
 	out := fmt.Sprintf("stdout:\n%s\nstderr:\n%s", stdout.String(), stderr.String())
+	if timedOut {
+		return out + fmt.Sprintf("\nERROR: удалённая команда не уложилась в %s — SSH-сессия закрыта", timeout), nil
+	}
 	if runErr != nil {
 		return out + "\nERROR: " + runErr.Error(), nil
 	}

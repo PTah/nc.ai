@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // HTTPStatusError — не-2xx ответ провайдера вместе с телом и заголовками:
@@ -33,6 +35,37 @@ func StreamUnsupported(status int) bool {
 	return false
 }
 
+// streamTransport — транспорт для SSE: общий Timeout снимаем (поток живёт
+// долго), но ждём заголовки ответа ограниченно, чтобы мёртвый хост отваливался
+// за ~90 секунд, а не висел до stall-watchdog.
+var streamTransport = &http.Transport{
+	Proxy: http.ProxyFromEnvironment,
+	DialContext: (&net.Dialer{
+		Timeout:   15 * time.Second,
+		KeepAlive: 30 * time.Second,
+	}).DialContext,
+	ForceAttemptHTTP2:     true,
+	MaxIdleConns:          10,
+	IdleConnTimeout:       90 * time.Second,
+	TLSHandshakeTimeout:   15 * time.Second,
+	ExpectContinueTimeout: time.Second,
+	ResponseHeaderTimeout: 90 * time.Second,
+}
+
+// StreamClient готовит HTTP-клиент под поток: без общего Timeout (иначе длинный
+// ответ обрывается), с транспортом по умолчанию и лимитом на заголовки ответа.
+func StreamClient(base *http.Client) *http.Client {
+	if base == nil {
+		return &http.Client{Transport: streamTransport}
+	}
+	clone := *base
+	clone.Timeout = 0
+	if clone.Transport == nil {
+		clone.Transport = streamTransport
+	}
+	return &clone
+}
+
 // StreamOpenAI выполняет уже подготовленный POST и разбирает SSE-поток
 // Chat Completions, отдавая дельты в onDelta. Заголовки и тело запроса готовит
 // провайдер — форма потока у DeepSeek, Z.ai, Qwen, OpenRouter и Local одинакова
@@ -42,16 +75,7 @@ func StreamOpenAI(ctx context.Context, client *http.Client, req *http.Request, o
 		return nil, fmt.Errorf("stream: пустой запрос")
 	}
 	req.Header.Set("Accept", "text/event-stream")
-	// Поток может идти дольше обычного таймаута запроса: снимаем Timeout,
-	// отмена — через ctx.
-	if client != nil && client.Timeout > 0 {
-		clone := *client
-		clone.Timeout = 0
-		client = &clone
-	}
-	if client == nil {
-		client = http.DefaultClient
-	}
+	client = StreamClient(client)
 	res, err := client.Do(req)
 	if err != nil {
 		return nil, err

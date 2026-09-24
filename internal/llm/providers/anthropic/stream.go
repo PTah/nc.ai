@@ -33,16 +33,8 @@ func (c *Client) ChatCompletionStream(ctx context.Context, req *llm.ChatRequest,
 	c.setHeaders(httpReq)
 	httpReq.Header.Set("Accept", "text/event-stream")
 
-	// Поток может идти дольше обычного таймаута: снимаем Timeout, отмена — ctx.
-	client := c.http
-	if client != nil && client.Timeout > 0 {
-		clone := *client
-		clone.Timeout = 0
-		client = &clone
-	}
-	if client == nil {
-		client = http.DefaultClient
-	}
+	// Поток идёт долго — общий Timeout снимаем, отмена через ctx.
+	client := llm.StreamClient(c.http)
 	res, err := client.Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("anthropic: %w", err)
