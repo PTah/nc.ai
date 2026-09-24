@@ -95,6 +95,9 @@ type Settings struct {
 	Shell          string   `json:"shell"`
 	RecentProjects []string `json:"recentProjects"`
 	LastProject    string   `json:"lastProject,omitempty"`
+	// LastProjectParent is the folder the user last created a project in; the
+	// open/create dialogs start from it.
+	LastProjectParent string `json:"lastProjectParent,omitempty"`
 
 	// LastRunVersion + CleanExit let the next launch explain a (re)start:
 	// a version change means "update", an unclean exit means a crash/kill.
@@ -1330,6 +1333,25 @@ func (s *Store) SetLastProject(path string) error {
 	}
 	s.mu.Lock()
 	s.settings.LastProject = path
+	s.mu.Unlock()
+	return s.Save()
+}
+
+// LastProjectParent returns the folder the user last created a project in.
+func (s *Store) LastProjectParent() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.settings.LastProjectParent
+}
+
+// SetLastProjectParent remembers the folder used by "Create project", so the
+// next project starts in the same place.
+func (s *Store) SetLastProjectParent(path string) error {
+	if strings.TrimSpace(path) == "" {
+		return nil
+	}
+	s.mu.Lock()
+	s.settings.LastProjectParent = path
 	s.mu.Unlock()
 	return s.Save()
 }

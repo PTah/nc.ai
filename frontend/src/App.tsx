@@ -15,6 +15,8 @@ import {
   ClearOpenRouterKey,
   ClearZaiKey,
   CloseProject,
+  CreateProject,
+  DefaultProjectParentDir,
   DeleteChatSession,
   DetectDefaultShell,
   GetDeepSeekPeakInfo,
@@ -28,6 +30,7 @@ import {
   NewChatSession,
   OpenProject,
   PickProjectDir,
+  PickProjectParentDir,
   ReadCursorRule,
   ReadFile,
   ReloadCursorRules,
@@ -507,6 +510,13 @@ function wantsInterimProgress(text: string): boolean {
 
 function asList<T>(v: T[] | null | undefined): T[] {
   return Array.isArray(v) ? v : []
+}
+
+// joinProjectPath renders "parent/name" for the create-project preview, using
+// the separator of the parent path (backslash on Windows).
+function joinProjectPath(parent: string, name: string): string {
+  const sep = parent.includes('\\') ? '\\' : '/'
+  return parent.replace(/[\\/]+$/, '') + sep + name
 }
 
 function formatDuration(totalSec: number): string {
@@ -1324,6 +1334,10 @@ export default function App() {
   } | null>(null)
   const [projectCtx, setProjectCtx] = useState<{x: number; y: number; path: string; name: string} | null>(null)
   const [closeProjectDlg, setCloseProjectDlg] = useState<{path: string; name: string} | null>(null)
+  const [projectMenu, setProjectMenu] = useState(false)
+  const [newProject, setNewProject] = useState<{name: string; parent: string} | null>(null)
+  const [newProjectErr, setNewProjectErr] = useState('')
+  const [newProjectBusy, setNewProjectBusy] = useState(false)
   const [pendingCloseChatId, setPendingCloseChatId] = useState<string | null>(null)
   const [projects, setProjects] = useState<Project[]>([])
   const [active, setActive] = useState<Project | null>(null)
@@ -1475,6 +1489,7 @@ export default function App() {
   // reasoningStartAt: when the streaming reasoning block of a session began, so
   // the transcript can say "Думал 8 с" instead of just "Размышления".
   const reasoningStartRef = useRef<Record<string, number>>({})
+  const projectMenuRef = useRef<HTMLDivElement | null>(null)
   const runAgentRef = useRef<(
     sid: string,
     text: string,
@@ -2946,7 +2961,26 @@ export default function App() {
     }
   }, [projectCtx])
 
+  useEffect(() => {
+    if (!projectMenu) return
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Node | null
+      if (t && projectMenuRef.current?.contains(t)) return
+      setProjectMenu(false)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setProjectMenu(false)
+    }
+    window.addEventListener('mousedown', onDown)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('mousedown', onDown)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [projectMenu])
+
   async function openPicked() {
+    setProjectMenu(false)
     try {
       const dir = await PickProjectDir()
       if (!dir) return
@@ -2954,6 +2988,51 @@ export default function App() {
     } catch (e) {
       if (activeSessionId) setSessionItems(activeSessionId, (m) => [...m, {kind: 'system', content: String(e)}])
     }
+  }
+
+  // "Create project" starts from the folder the user created a project in last
+  // (backend default), so the common case is: type a name, press Создать.
+  async function openNewProject() {
+    setProjectMenu(false)
+    setNewProjectErr('')
+    let parent = ''
+    try {
+      parent = await DefaultProjectParentDir()
+    } catch {
+      /* pick the folder manually */
+    }
+    setNewProject({name: '', parent})
+  }
+
+  async function pickNewProjectParent() {
+    try {
+      const dir = await PickProjectParentDir()
+      if (!dir) return
+      setNewProject((prev) => (prev ? {...prev, parent: dir} : prev))
+    } catch (e) {
+      setNewProjectErr(String(e))
+    }
+  }
+
+  async function createNewProject() {
+    if (!newProject) return
+    setNewProjectBusy(true)
+    setNewProjectErr('')
+    try {
+      const p = await CreateProject(newProject.parent, newProject.name)
+      setNewProject(null)
+      await openProject(p.path)
+    } catch (e) {
+      setNewProjectErr(String(e))
+    } finally {
+      setNewProjectBusy(false)
+    }
+  }
+
+  function closeNewProject() {
+    if (newProjectBusy) return
+    setNewProject(null)
+    setNewProjectErr('')
   }
 
   async function openProject(path: string) {
@@ -3857,11 +3936,31 @@ export default function App() {
         }}
       >
         <aside className="nc-projects">
-          <button type="button" onClick={openPicked}>Open Project…</button>
+          <div className="nc-project-new" ref={projectMenuRef}>
+            <button
+              type="button"
+              className="nc-project-new-btn"
+              aria-haspopup="menu"
+              aria-expanded={projectMenu}
+              onClick={() => setProjectMenu((v) => !v)}
+            >
+              Project <span className="nc-project-new-caret">▾</span>
+            </button>
+            {projectMenu && (
+              <div className="nc-ctx-menu nc-project-new-menu" role="menu">
+                <button type="button" role="menuitem" onClick={() => void openPicked()}>
+                  Open project…
+                </button>
+                <button type="button" role="menuitem" onClick={() => void openNewProject()}>
+                  Create project…
+                </button>
+              </div>
+            )}
+          </div>
           <div className="nc-section-label">Projects</div>
           <ul className="nc-list" onClick={() => setProjectCtx(null)}>
             {asList(projects).length === 0 && (
-              <li className="nc-empty">Нет проектов — нажмите Open Project…</li>
+              <li className="nc-empty">Нет проектов — «Project» → Open project / Create project</li>
             )}
             {asList(projects).map((p) => (
               <li key={p.path} className={active?.path === p.path ? 'active' : ''}>
@@ -5703,6 +5802,72 @@ export default function App() {
                 </div>
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {newProject && (
+        <div className="nc-modal-backdrop" role="presentation" onClick={closeNewProject}>
+          <div
+            className="nc-modal nc-new-project"
+            role="dialog"
+            aria-labelledby="nc-new-project-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="nc-confirm-app">{info.name || 'NotCursor.ai'}</p>
+            <h2 id="nc-new-project-title">Новый проект</h2>
+            <p className="nc-help">
+              Создадим папку проекта и сразу откроем её — дальше пишем в чат, как в обычном проекте.
+            </p>
+            <div className="nc-new-project-field">
+              <span>Имя проекта (оно же имя папки)</span>
+              <input
+                autoFocus
+                value={newProject.name}
+                placeholder="my-new-project"
+                spellCheck={false}
+                onChange={(e) => {
+                  const value = e.target.value
+                  setNewProject((prev) => (prev ? {...prev, name: value} : prev))
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') void createNewProject()
+                  if (e.key === 'Escape') closeNewProject()
+                }}
+              />
+            </div>
+            <div className="nc-new-project-field">
+              <span>Где создать</span>
+              <div className="nc-new-project-row">
+                <input
+                  value={newProject.parent}
+                  readOnly
+                  placeholder="папка не выбрана — нажмите «Обзор…»"
+                  title={newProject.parent}
+                />
+                <button type="button" className="nc-ghost" onClick={() => void pickNewProjectParent()}>
+                  Обзор…
+                </button>
+              </div>
+            </div>
+            {newProject.parent && newProject.name.trim() ? (
+              <p className="nc-new-project-path">
+                Создадим: {joinProjectPath(newProject.parent, newProject.name.trim())}
+              </p>
+            ) : null}
+            {newProjectErr ? <p className="nc-rule-edit-err">{newProjectErr}</p> : null}
+            <div className="nc-close-project-actions">
+              <button type="button" className="nc-ghost" disabled={newProjectBusy} onClick={closeNewProject}>
+                Отмена
+              </button>
+              <button
+                type="button"
+                disabled={newProjectBusy || !newProject.name.trim() || !newProject.parent}
+                onClick={() => void createNewProject()}
+              >
+                {newProjectBusy ? 'Создание…' : 'Создать'}
+              </button>
+            </div>
           </div>
         </div>
       )}
