@@ -10,16 +10,61 @@ import (
 // DefaultLocalEndpointID is the migrated / first built-in local server slot.
 const DefaultLocalEndpointID = "default"
 
-// LocalEndpoint is one OpenAI-compatible LAN/local server profile.
+// DefaultAnthropicBaseURL — адрес по умолчанию для профиля с протоколом Anthropic.
+const DefaultAnthropicBaseURL = "https://api.anthropic.com"
+
+// ProtocolAnthropic значит, что эндпоинт говорит на Anthropic Messages API
+// (api.anthropic.com, Selora, Atria), а не на OpenAI Chat Completions.
+const ProtocolAnthropic = "anthropic"
+
+// LocalEndpoint is one OpenAI-compatible LAN/local server profile — либо, при
+// Protocol = anthropic, профиль Anthropic Messages. Сюда же попадают публичные
+// OpenAI-совместимые роутеры бесплатных тарифов: формат общения один и тот же.
 type LocalEndpoint struct {
 	ID      string `json:"id"`
 	Name    string `json:"name"`
 	BaseURL string `json:"baseUrl"`
 	Model   string `json:"model,omitempty"`
+	// Protocol — формат API: "" / "openai" (Chat Completions) или "anthropic".
+	Protocol string `json:"protocol,omitempty"`
+	// ReasoningEffort — "low" / "medium" / "high": отправлять ли reasoning_effort.
+	// По умолчанию не отправляем: строгие локальные серверы (Ollama, vLLM,
+	// LM Studio) отвечают на незнакомое поле 400. Публичные роутеры, наоборот,
+	// ждут его, чтобы включить «размышления».
+	ReasoningEffort string `json:"reasoningEffort,omitempty"`
 	// NumCtx — размер контекста сервера в токенах (0 = не задан). Нужен, чтобы
 	// предупреждать о заполнении окна: Ollama в OpenAI-совместимом режиме
 	// num_ctx игнорирует (ollama#5356), там контекст = OLLAMA_CONTEXT_LENGTH.
 	NumCtx int `json:"numCtx,omitempty"`
+}
+
+// EndpointProtocol нормализует выбранный формат API ("" = OpenAI-совместимый).
+func EndpointProtocol(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "anthropic", "claude", "messages", "anthropic-messages":
+		return ProtocolAnthropic
+	default:
+		return ""
+	}
+}
+
+// EndpointReasoningEffort нормализует reasoning_effort ("" = не отправлять).
+func EndpointReasoningEffort(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "low", "medium", "high":
+		return strings.ToLower(strings.TrimSpace(raw))
+	default:
+		return ""
+	}
+}
+
+// endpointBaseURL подставляет адрес по умолчанию под выбранный протокол.
+func endpointBaseURL(raw, protocol string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" && protocol == ProtocolAnthropic {
+		return DefaultAnthropicBaseURL
+	}
+	return normalizeLocalBaseURL(raw)
 }
 
 // maxNumCtx — верхняя граница здравого смысла для контекста локального сервера.
@@ -138,11 +183,20 @@ func (s *Store) ensureLocalEndpointsLocked() bool {
 		if name == "" {
 			name = id
 		}
-		url := normalizeLocalBaseURL(ep.BaseURL)
 		model := strings.TrimSpace(ep.Model)
 		numCtx := clampNumCtx(ep.NumCtx)
-		norm := LocalEndpoint{ID: id, Name: name, BaseURL: url, Model: model, NumCtx: numCtx}
-		if ep.ID != id || ep.Name != name || ep.BaseURL != url || ep.Model != model || ep.NumCtx != numCtx {
+		protocol := EndpointProtocol(ep.Protocol)
+		reasoning := EndpointReasoningEffort(ep.ReasoningEffort)
+		norm := LocalEndpoint{
+			ID: id, Name: name,
+			BaseURL:         endpointBaseURL(ep.BaseURL, protocol),
+			Model:           model,
+			Protocol:        protocol,
+			ReasoningEffort: reasoning,
+			NumCtx:          numCtx,
+		}
+		if ep.ID != id || ep.Name != name || ep.BaseURL != norm.BaseURL || ep.Model != model ||
+			ep.Protocol != protocol || ep.ReasoningEffort != reasoning || ep.NumCtx != numCtx {
 			changed = true
 		}
 		out = append(out, norm)
@@ -218,9 +272,17 @@ func (s *Store) UpsertLocalEndpoint(ep LocalEndpoint) (LocalEndpoint, error) {
 			n++
 		}
 	}
-	url := normalizeLocalBaseURL(ep.BaseURL)
+	protocol := EndpointProtocol(ep.Protocol)
 	model := strings.TrimSpace(ep.Model)
-	next := LocalEndpoint{ID: id, Name: name, BaseURL: url, Model: model, NumCtx: clampNumCtx(ep.NumCtx)}
+	next := LocalEndpoint{
+		ID:              id,
+		Name:            name,
+		BaseURL:         endpointBaseURL(ep.BaseURL, protocol),
+		Model:           model,
+		Protocol:        protocol,
+		ReasoningEffort: EndpointReasoningEffort(ep.ReasoningEffort),
+		NumCtx:          clampNumCtx(ep.NumCtx),
+	}
 	if i := s.indexLocalEndpointLocked(id); i >= 0 {
 		if next.Model == "" {
 			next.Model = s.settings.LocalEndpoints[i].Model
@@ -276,10 +338,12 @@ func (s *Store) DuplicateLocalEndpoint(id string) (LocalEndpoint, error) {
 	src := s.settings.LocalEndpoints[i]
 	s.mu.Unlock()
 	return s.UpsertLocalEndpoint(LocalEndpoint{
-		Name:    src.Name + " copy",
-		BaseURL: src.BaseURL,
-		Model:   src.Model,
-		NumCtx:  src.NumCtx,
+		Name:            src.Name + " copy",
+		BaseURL:         src.BaseURL,
+		Model:           src.Model,
+		Protocol:        src.Protocol,
+		ReasoningEffort: src.ReasoningEffort,
+		NumCtx:          src.NumCtx,
 	})
 }
 

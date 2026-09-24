@@ -32,7 +32,7 @@ type Provider interface {
 | [deepseek.md](./deepseek.md) | DeepSeek | **этап 1 — первый endpoint** |
 | [openrouter.md](./openrouter.md) | OpenRouter | **реализовано** |
 | [qwen.md](./qwen.md) | Qwen (Alibaba Cloud / DashScope) | **реализовано** |
-| [anthropic.md](./anthropic.md) | Anthropic Claude | спецификация + маппинг |
+| [anthropic.md](./anthropic.md) | Anthropic Claude | **реализовано** (профиль `protocol: anthropic`) |
 | [zai-glm.md](./zai-glm.md) | Z.ai / BigModel GLM | спецификация |
 | [ollama.md](./ollama.md) | Local / Ollama / LM Studio (OpenAI-compat) | **реализовано** |
 | [tools-and-agent-loop.md](./tools-and-agent-loop.md) | Function calling / agent loop | обязательно |
@@ -48,6 +48,12 @@ type Provider interface {
 | Anthropic | `https://api.anthropic.com` | `POST /v1/messages` | `x-api-key` + `anthropic-version` |
 | Z.ai | `https://open.bigmodel.cn/api/paas/v4` | `POST /chat/completions` | `Authorization: Bearer <key>` |
 | Local | `http://127.0.0.1:11434/v1` (настраивается) | `POST /chat/completions` | опциональный Bearer |
+| Custom-профиль с `protocol: anthropic` | `https://api.anthropic.com` (или Selora, Atria) | `POST /v1/messages` | `x-api-key` + `anthropic-version` (и Bearer для роутеров) |
+
+Профили **Local / custom** принимают любой OpenAI-совместимый хост, поэтому публичные
+роутеры бесплатных тарифов (Atria, Routeway, Selora, ShareLLM, Vireonix, OdiRouter)
+заводятся без кода: Settings → Local → Base URL + ключ. Формат общения переключается
+полем `protocol` (Chat Completions / Anthropic Messages).
 
 ## Источники (официальные)
 

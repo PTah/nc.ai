@@ -229,7 +229,7 @@ export function TerminalResize(arg1:number,arg2:number):Promise<void>;
 
 export function TerminalWrite(arg1:string):Promise<void>;
 
-export function UpsertLocalEndpoint(arg1:string,arg2:string,arg3:string,arg4:string,arg5:number):Promise<Record<string, any>>;
+export function UpsertLocalEndpoint(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string,arg6:string,arg7:number):Promise<Record<string, any>>;
 
 export function WriteCursorRule(arg1:string,arg2:string):Promise<void>;
 
