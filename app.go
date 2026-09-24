@@ -1978,6 +1978,35 @@ func (a *App) CreateProject(parentDir, name string) (*workspace.Project, error) 
 	return a.OpenProject(p.Path)
 }
 
+// CloneRepo клонирует репозиторий в выбранную папку и сразу открывает его как
+// проект. Способ доступа выбирается сам: SSH, если он настроен и хост отвечает,
+// иначе HTTPS. Если не сработало ни то, ни другое — возвращаем ошибку, в которой
+// перечислены обе попытки.
+func (a *App) CloneRepo(rawURL, parentDir string) (map[string]any, error) {
+	res, err := a.tools.Git.Clone(context.Background(), rawURL, parentDir)
+	if err != nil {
+		return nil, err
+	}
+	p, err := a.OpenProject(res.Path)
+	if err != nil {
+		return nil, fmt.Errorf("репозиторий склонирован в %s, но проект не открылся: %w", res.Path, err)
+	}
+	if abs, err := filepath.Abs(strings.TrimSpace(parentDir)); err == nil {
+		_ = a.cfg.SetLastProjectParent(abs)
+	}
+	return map[string]any{
+		"path":   p.Path,
+		"name":   p.Name,
+		"method": res.Method,
+		"url":    res.UsedURL,
+	}, nil
+}
+
+// CloneTargetPath — предпросмотр папки, куда ляжет репозиторий (для диалога Clone).
+func (a *App) CloneTargetPath(rawURL, parentDir string) (string, error) {
+	return a.tools.Git.CloneTarget(rawURL, parentDir)
+}
+
 func (a *App) OpenProject(path string) (*workspace.Project, error) {
 	p, err := a.ws.Open(path)
 	if err != nil {

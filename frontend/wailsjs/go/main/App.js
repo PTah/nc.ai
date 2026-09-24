@@ -58,6 +58,14 @@ export function ClearZaiKey() {
   return window['go']['main']['App']['ClearZaiKey']();
 }
 
+export function CloneRepo(arg1, arg2) {
+  return window['go']['main']['App']['CloneRepo'](arg1, arg2);
+}
+
+export function CloneTargetPath(arg1, arg2) {
+  return window['go']['main']['App']['CloneTargetPath'](arg1, arg2);
+}
+
 export function CloseProject(arg1, arg2) {
   return window['go']['main']['App']['CloseProject'](arg1, arg2);
 }

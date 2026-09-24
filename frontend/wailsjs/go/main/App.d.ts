@@ -39,6 +39,10 @@ export function ClearQwenKey():Promise<void>;
 
 export function ClearZaiKey():Promise<void>;
 
+export function CloneRepo(arg1:string,arg2:string):Promise<Record<string, any>>;
+
+export function CloneTargetPath(arg1:string,arg2:string):Promise<string>;
+
 export function CloseProject(arg1:string,arg2:string):Promise<workspace.Project>;
 
 export function CreateProject(arg1:string,arg2:string):Promise<workspace.Project>;
