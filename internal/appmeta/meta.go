@@ -5,7 +5,7 @@ import "time"
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "0.7.0"
+	Version = "0.7.1"
 )
 
 // DeepSeekProRetireRFC3339 is the announced V4 Pro retirement instant, empty
@@ -51,18 +51,18 @@ func retiredAt(at time.Time, now time.Time) bool {
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
-	"Больше не мелькают окна cmd/PowerShell: служебные процессы (node, npm, go, python) идут скрыто",
+	"В Settings → Local есть API format: OpenAI-совместимый или Anthropic Messages — Claude напрямую",
 	"Размышления моделей (<think>…</think>) уходят в «Думал», а не в текст ответа",
+	"reasoning_effort включается в профиле эндпоинта (по умолчанию не отправляется)",
 	"429 от провайдера: приложение само ждёт лимит и пишет «повтор через 42 сек»",
-	"План задач уезжает в поток после выполнения — не висит в самом низу окна",
 	"В настройках — «Новости провайдеров»: что нового у DeepSeek, Z.AI, OpenRouter и Qwen",
 }
 
 var HighlightsEN = []string{
-	"No more flashing cmd/PowerShell windows: helper processes (node, npm, go, python) run hidden",
+	"Settings → Local now has API format: OpenAI-compatible or Anthropic Messages — Claude directly",
 	"Model thinking (<think>…</think>) goes to the reasoning block, not into the answer",
+	"reasoning_effort is opt-in per endpoint profile (not sent by default)",
 	"On 429 the app waits for the limit itself and says how long: \"retry in 42 sec\"",
-	"The todo plan moves into the flow once done — no longer pinned at the bottom",
 	"Settings include provider news: what's new at DeepSeek, Z.AI, OpenRouter and Qwen",
 }
 

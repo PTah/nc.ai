@@ -27,6 +27,8 @@ type Client struct {
 	model   string
 	baseURL string
 	http    *http.Client
+	// reasoning — reasoning_effort для этого эндпоинта ("" = не отправлять).
+	reasoning string
 	// numCtx — размер контекста из настроек сервера (0 = не задан). В запрос он
 	// НЕ уходит: нестандартные поля (options.num_ctx) строгие OpenAI-серверы
 	// (Lemonade, vLLM, LM Studio) могут отвергнуть с 400, а Ollama в
@@ -76,6 +78,11 @@ func (c *Client) SetNumCtx(n int) {
 // NumCtx возвращает размер контекста сервера (0 = не задан).
 func (c *Client) NumCtx() int { return c.numCtx }
 
+// SetReasoningEffort включает reasoning_effort в запрос ("" = не отправлять).
+func (c *Client) SetReasoningEffort(effort string) {
+	c.reasoning = strings.TrimSpace(effort)
+}
+
 // isKnownNotOllama — сервер уже опознали как не-Ollama.
 func (c *Client) isKnownNotOllama() bool { return atomic.LoadInt32(&c.ollamaState) < 0 }
 
@@ -110,13 +117,14 @@ func NormalizeBaseURL(u string) string {
 }
 
 type apiRequest struct {
-	Model       string         `json:"model"`
-	Messages    []llm.Message  `json:"messages"`
-	Tools       []llm.ToolSpec `json:"tools,omitempty"`
-	ToolChoice  any            `json:"tool_choice,omitempty"`
-	Stream      bool           `json:"stream"`
-	Temperature *float64       `json:"temperature,omitempty"`
-	MaxTokens   *int           `json:"max_tokens,omitempty"`
+	Model           string         `json:"model"`
+	Messages        []llm.Message  `json:"messages"`
+	Tools           []llm.ToolSpec `json:"tools,omitempty"`
+	ToolChoice      any            `json:"tool_choice,omitempty"`
+	Stream          bool           `json:"stream"`
+	Temperature     *float64       `json:"temperature,omitempty"`
+	MaxTokens       *int           `json:"max_tokens,omitempty"`
+	ReasoningEffort string         `json:"reasoning_effort,omitempty"`
 }
 
 type modelsListResponse struct {
@@ -329,13 +337,15 @@ func (c *Client) ChatCompletion(ctx context.Context, req *llm.ChatRequest) (*llm
 		}
 	}
 
-	// Do not forward thinking / reasoning_effort — most local servers reject them.
+	// thinking не отправляем никогда, а reasoning_effort — только если профиль
+	// эндпоинта его включил (см. c.reasoning).
 	payload := apiRequest{
 		Model:      model,
 		Messages:   req.Messages,
 		Tools:      req.Tools,
 		ToolChoice: req.ToolChoice,
 		Stream:     false,
+		ReasoningEffort: strings.TrimSpace(c.reasoning),
 		MaxTokens:  req.MaxTokens,
 	}
 	if req.Temperature != nil {

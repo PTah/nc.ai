@@ -21,6 +21,7 @@ import (
 	"notcursor.ai/app/internal/costing"
 	"notcursor.ai/app/internal/dockicon"
 	"notcursor.ai/app/internal/llm"
+	"notcursor.ai/app/internal/llm/providers/anthropic"
 	"notcursor.ai/app/internal/llm/providers/deepseek"
 	"notcursor.ai/app/internal/llm/providers/local"
 	"notcursor.ai/app/internal/llm/providers/openrouter"
@@ -499,9 +500,18 @@ func (a *App) refreshProvider() {
 		}
 		a.llm = qwen.NewWithBaseURL(key, model, a.cfg.QwenBaseURL())
 	case config.IsLocalProvider(provider):
+		epID := config.LocalEndpointID(provider)
+		ep, ok := a.cfg.LocalEndpointByID(epID)
+		if ok && config.EndpointProtocol(ep.Protocol) == config.ProtocolAnthropic {
+			// Профиль на Anthropic Messages API: api.anthropic.com или роутер
+			// бесплатного тарифа (Selora, Atria) с /v1/messages.
+			a.llm = anthropic.New(ep.BaseURL, key, model)
+			break
+		}
 		c := local.New(a.cfg.LocalBaseURL(), key, model)
-		if ep, ok := a.cfg.LocalEndpointByID(config.LocalEndpointID(provider)); ok {
+		if ok {
 			c.SetNumCtx(ep.NumCtx)
+			c.SetReasoningEffort(ep.ReasoningEffort)
 		}
 		a.llm = c
 	default:
@@ -611,11 +621,14 @@ func (a *App) GetSettings() map[string]any {
 	localEps := make([]map[string]any, 0, len(s.LocalEndpoints))
 	for _, ep := range a.cfg.LocalEndpoints() {
 		localEps = append(localEps, map[string]any{
-			"id":      ep.ID,
-			"name":    ep.Name,
-			"baseUrl": ep.BaseURL,
-			"model":   ep.Model,
-			"keySet":  a.cfg.HasAPIKey(config.MakeLocalProvider(ep.ID)),
+			"id":              ep.ID,
+			"name":            ep.Name,
+			"baseUrl":         ep.BaseURL,
+			"model":           ep.Model,
+			"protocol":        ep.Protocol,
+			"reasoningEffort": ep.ReasoningEffort,
+			"numCtx":          ep.NumCtx,
+			"keySet":          a.cfg.HasAPIKey(config.MakeLocalProvider(ep.ID)),
 		})
 	}
 	localKeyProvider := provider
@@ -1108,10 +1121,12 @@ func (a *App) SaveLocalBaseURL(baseURL string) error {
 	return nil
 }
 
-// UpsertLocalEndpoint creates or updates a LAN/local server profile.
-func (a *App) UpsertLocalEndpoint(id, name, baseURL, model string, numCtx int) (map[string]any, error) {
+// UpsertLocalEndpoint creates or updates a LAN/local server profile
+// (протокол — OpenAI Chat Completions или Anthropic Messages).
+func (a *App) UpsertLocalEndpoint(id, name, baseURL, model, protocol, reasoningEffort string, numCtx int) (map[string]any, error) {
 	ep, err := a.cfg.UpsertLocalEndpoint(config.LocalEndpoint{
-		ID: id, Name: name, BaseURL: baseURL, Model: model, NumCtx: numCtx,
+		ID: id, Name: name, BaseURL: baseURL, Model: model,
+		Protocol: protocol, ReasoningEffort: reasoningEffort, NumCtx: numCtx,
 	})
 	if err != nil {
 		return nil, err
@@ -1120,7 +1135,8 @@ func (a *App) UpsertLocalEndpoint(id, name, baseURL, model string, numCtx int) (
 		a.refreshProvider()
 	}
 	return map[string]any{
-		"id": ep.ID, "name": ep.Name, "baseUrl": ep.BaseURL, "model": ep.Model, "numCtx": ep.NumCtx,
+		"id": ep.ID, "name": ep.Name, "baseUrl": ep.BaseURL, "model": ep.Model,
+		"protocol": ep.Protocol, "reasoningEffort": ep.ReasoningEffort, "numCtx": ep.NumCtx,
 		"keySet": a.cfg.HasAPIKey(config.MakeLocalProvider(ep.ID)),
 	}, nil
 }
@@ -1142,6 +1158,7 @@ func (a *App) DuplicateLocalEndpoint(id string) (map[string]any, error) {
 	}
 	return map[string]any{
 		"id": ep.ID, "name": ep.Name, "baseUrl": ep.BaseURL, "model": ep.Model,
+		"protocol": ep.Protocol, "reasoningEffort": ep.ReasoningEffort, "numCtx": ep.NumCtx,
 		"keySet": false,
 	}, nil
 }
@@ -1185,13 +1202,24 @@ func (a *App) listLocalModelInfosFor(endpointID string) ([]local.ModelInfo, erro
 			Model:   a.cfg.LocalModel(),
 		}
 	}
-	client := local.New(ep.BaseURL, a.cfg.APIKey(config.MakeLocalProvider(ep.ID)), ep.Model)
 	ctx := a.ctx
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
+	if config.EndpointProtocol(ep.Protocol) == config.ProtocolAnthropic {
+		ids, err := anthropic.New(ep.BaseURL, a.cfg.APIKey(config.MakeLocalProvider(ep.ID)), ep.Model).ListModels(ctx)
+		if err != nil {
+			return nil, err
+		}
+		infos := make([]local.ModelInfo, 0, len(ids))
+		for _, id := range ids {
+			infos = append(infos, local.ModelInfo{ID: id})
+		}
+		return infos, nil
+	}
+	client := local.New(ep.BaseURL, a.cfg.APIKey(config.MakeLocalProvider(ep.ID)), ep.Model)
 	return client.ListModelInfos(ctx)
 }
 
@@ -1244,6 +1272,40 @@ func (a *App) ProbeLocalHealth() map[string]any {
 			BaseURL: a.cfg.LocalBaseURL(),
 			Model:   a.cfg.LocalModel(),
 		}
+	}
+	// Anthropic-профиль: VRAM и загрузка модели тут не применимы — просто
+	// проверяем, что ключ и /v1/models отвечают.
+	if config.EndpointProtocol(ep.Protocol) == config.ProtocolAnthropic {
+		if a.runInFlight() {
+			return out(local.HealthReport{
+				Level:  local.HealthWarn,
+				Label:  "Anthropic занят",
+				Detail: "Идёт прогон агента — пинг пропущен. Статус обновится после ответа.",
+				Model:  ep.Model,
+			})
+		}
+		ctx := a.ctx
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		ctx, cancel := context.WithTimeout(ctx, 45*time.Second)
+		defer cancel()
+		ids, err := anthropic.New(ep.BaseURL, a.cfg.APIKey(config.MakeLocalProvider(ep.ID)), ep.Model).ListModels(ctx)
+		if err != nil {
+			return out(local.HealthReport{
+				Level:  local.HealthCritical,
+				Label:  "Anthropic недоступен",
+				Detail: err.Error(),
+				Model:  ep.Model,
+				Error:  err.Error(),
+			})
+		}
+		return out(local.HealthReport{
+			Level:  local.HealthOK,
+			Label:  "Anthropic OK",
+			Detail: fmt.Sprintf("Messages API отвечает, моделей: %d.", len(ids)),
+			Model:  ep.Model,
+		})
 	}
 	client := local.New(ep.BaseURL, a.cfg.APIKey(config.MakeLocalProvider(ep.ID)), ep.Model)
 	if a.runInFlight() {

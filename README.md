@@ -9,7 +9,7 @@ AI-агент для работы с кодом в отдельном окне: 
 Keychain / Windows Credential Manager), история чатов — локально. Наружу уходит только запрос к
 тому провайдеру LLM, которого вы выбрали сами.
 
-**Версия:** `0.7.0` · **На выходе:** `build/bin/NotCursor.exe` (Windows) и `build/bin/NotCursor.app` (macOS)
+**Версия:** `0.7.1` · **На выходе:** `build/bin/NotCursor.exe` (Windows) и `build/bin/NotCursor.app` (macOS)
 
 ## Быстрый старт
 
@@ -277,7 +277,7 @@ app.go                 # Wails façade / bindings
 main.go                # окно: размер, позиция, maximised
 frontend/src/          # React UI: чат, вкладки, вложения, темы
 internal/agent/        # agent loop, retry, компакция, plan
-internal/llm/          # типы, общий OpenAI-compat слой, providers/{deepseek,zai,openrouter,qwen,local}
+internal/llm/          # типы, общий OpenAI-compat слой, providers/{deepseek,zai,openrouter,qwen,local,anthropic}
 internal/tools/        # registry + executor
 internal/netx/         # SSRF-safe HTTP
 internal/redact/       # маскирование секретов в выводе инструментов

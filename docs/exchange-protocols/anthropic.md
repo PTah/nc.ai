@@ -127,4 +127,21 @@ Content-Type: application/json
 
 ## Этап внедрения
 
-Этап 3. До этого Claude доступен через OpenRouter (OpenAI-shaped), без прямого Anthropic адаптера.
+**Реализовано** (`internal/llm/providers/anthropic`): нестриминговый `ChatCompletion`,
+маппинг в обе стороны из `adapter.go`, tools и tool_result, картинки (data URL → `base64`,
+обычная ссылка → `url`), thinking-блоки ответа → `reasoning_content`, `429` →
+`llm.RateLimitError` с `Retry-After`.
+
+Профиль включается в Settings → Local: **API format → Anthropic Messages**, база —
+`https://api.anthropic.com` или роутер с `/v1/messages` (Selora, Atria), ключ — в
+Credential Manager / Keychain, как у остальных провайдеров. Шаг 7 маппинга (стриминг)
+пока не реализован.
+
+Ограничения:
+
+- **streaming не реализован** — ответ приходит целиком, как у остальных нестриминговых
+  провайдеров;
+- **thinking обратно не отправляем**: подпись блока (`signature`) не сохраняем, поэтому
+  extended thinking вместе с tools на прямом API не включаем. Нужны размышления Claude —
+  берите OpenAI-совместимый роут (OpenRouter) или профиль Chat Completions;
+- `reasoning_effort` в профиле Anthropic не отправляется (там это поле не поддерживается).

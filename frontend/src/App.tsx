@@ -293,11 +293,30 @@ type LocalEndpointRow = {
   name: string
   baseUrl: string
   model: string
+  protocol?: string
+  reasoningEffort?: string
   numCtx: number
   keySet: boolean
 }
 
 const LOCAL_BASE_DEFAULT = 'http://127.0.0.1:11434/v1'
+
+// ANTHROPIC_BASE_DEFAULT — адрес по умолчанию для профиля с протоколом Anthropic.
+const ANTHROPIC_BASE_DEFAULT = 'https://api.anthropic.com'
+
+// LOCAL_PROTOCOLS — форматы общения с эндпоинтом (поле protocol в профиле).
+const LOCAL_PROTOCOLS: {id: string; label: string}[] = [
+  {id: '', label: 'OpenAI-совместимый (Chat Completions)'},
+  {id: 'anthropic', label: 'Anthropic Messages (Claude)'},
+]
+
+// REASONING_EFFORTS — отправлять ли reasoning_effort (по умолчанию нет).
+const REASONING_EFFORTS: {id: string; label: string}[] = [
+  {id: '', label: 'не отправлять'},
+  {id: 'low', label: 'low'},
+  {id: 'medium', label: 'medium'},
+  {id: 'high', label: 'high'},
+]
 
 const LOCAL_PRESETS: {id: string; label: string; url: string}[] = [
   {id: 'ollama', label: 'Ollama', url: 'http://127.0.0.1:11434/v1'},
@@ -2061,6 +2080,8 @@ export default function App() {
             name: String(raw?.name || raw?.id || 'Custom'),
             baseUrl: String(raw?.baseUrl || LOCAL_BASE_DEFAULT),
             model: String(raw?.model || ''),
+            protocol: String(raw?.protocol || ''),
+            reasoningEffort: String(raw?.reasoningEffort || ''),
             numCtx: Math.max(0, Number(raw?.numCtx || 0) || 0),
             keySet: Boolean(raw?.keySet),
           }))
@@ -4815,7 +4836,7 @@ export default function App() {
                     onClick={() => {
                       void (async () => {
                         try {
-                          const row = await UpsertLocalEndpoint('', 'New local', LOCAL_BASE_DEFAULT, '', 0)
+                          const row = await UpsertLocalEndpoint('', 'New local', LOCAL_BASE_DEFAULT, '', '', '', 0)
                           const ep: LocalEndpointRow = {
                             id: String(row.id),
                             name: String(row.name || 'New local'),
@@ -4907,8 +4928,8 @@ export default function App() {
                       const name = e.target.value.trim() || 'Custom'
                       setLocalEpName(name)
                       const id = activeProvider.startsWith('local:') ? activeProvider.slice(6) : 'default'
-                      const rowNumCtx = localEndpoints.find((x) => x.id === id)?.numCtx ?? 0
-                      void UpsertLocalEndpoint(id, name, localBaseUrl, localModel, rowNumCtx).then((row) => {
+                      const cur = localEndpoints.find((x) => x.id === id)
+                      void UpsertLocalEndpoint(id, name, localBaseUrl, localModel, cur?.protocol ?? '', cur?.reasoningEffort ?? '', cur?.numCtx ?? 0).then((row) => {
                         setLocalEndpoints((prev) => prev.map((x) => x.id === id ? {
                           ...x,
                           name: String(row.name || name),
@@ -4936,6 +4957,57 @@ export default function App() {
                       <option key={p.id} value={p.id}>{p.label}</option>
                     ))}
                   </select>
+                </label>
+                <label>
+                  API format
+                  <select
+                    value={localEndpoints.find((x) => x.id === (activeProvider.startsWith('local:') ? activeProvider.slice('local:'.length) : 'default'))?.protocol || ''}
+                    onChange={(e) => {
+                      const id = activeProvider.startsWith('local:') ? activeProvider.slice('local:'.length) : 'default'
+                      const cur = localEndpoints.find((x) => x.id === id)
+                      const next = e.target.value
+                      let nextBase = localBaseUrl
+                      if (next === 'anthropic' && (!nextBase.trim() || nextBase === LOCAL_BASE_DEFAULT)) {
+                        nextBase = ANTHROPIC_BASE_DEFAULT
+                        setLocalBaseUrl(nextBase)
+                        void SaveLocalBaseURL(nextBase)
+                      }
+                      setLocalEndpoints((prev) => prev.map((x) => x.id === id ? {...x, protocol: next, baseUrl: nextBase} : x))
+                      void UpsertLocalEndpoint(id, localEpName, nextBase, localModel, next, cur?.reasoningEffort ?? '', cur?.numCtx ?? 0)
+                    }}
+                  >
+                    {LOCAL_PROTOCOLS.map((p) => (
+                      <option key={p.id || 'openai'} value={p.id}>{p.label}</option>
+                    ))}
+                  </select>
+                  <span className="nc-help" style={{display: 'inline'}}>
+                    OpenAI-совместимый — обычный <code>/v1/chat/completions</code> (Ollama, LM Studio, vLLM
+                    и публичные роутеры бесплатных тарифов). Anthropic Messages — <code>/v1/messages</code>
+                    (api.anthropic.com, Selora, Atria): запрос переводится адаптером, инструменты и картинки
+                    работают так же.
+                  </span>
+                </label>
+                <label>
+                  Reasoning effort
+                  <select
+                    value={localEndpoints.find((x) => x.id === (activeProvider.startsWith('local:') ? activeProvider.slice('local:'.length) : 'default'))?.reasoningEffort || ''}
+                    onChange={(e) => {
+                      const id = activeProvider.startsWith('local:') ? activeProvider.slice('local:'.length) : 'default'
+                      const cur = localEndpoints.find((x) => x.id === id)
+                      const next = e.target.value
+                      setLocalEndpoints((prev) => prev.map((x) => x.id === id ? {...x, reasoningEffort: next} : x))
+                      void UpsertLocalEndpoint(id, localEpName, localBaseUrl, localModel, cur?.protocol ?? '', next, cur?.numCtx ?? 0)
+                    }}
+                  >
+                    {REASONING_EFFORTS.map((p) => (
+                      <option key={p.id || 'off'} value={p.id}>{p.label}</option>
+                    ))}
+                  </select>
+                  <span className="nc-help" style={{display: 'inline'}}>
+                    Отправлять <code>reasoning_effort</code> в запросе (только формат Chat Completions).
+                    По умолчанию не отправляем: Ollama, vLLM и LM Studio отвечают на незнакомое поле 400,
+                    а публичные роутеры, наоборот, включают «размышления» только по нему.
+                  </span>
                 </label>
                 <label>
                   Base URL
@@ -5000,7 +5072,8 @@ export default function App() {
                     onBlur={(e) => {
                       const id = activeProvider.startsWith('local:') ? activeProvider.slice('local:'.length) : 'default'
                       const next = Math.max(0, Number(e.target.value) || 0)
-                      void UpsertLocalEndpoint(id, localEpName, localBaseUrl, localModel, next).then((row) => {
+                      const cur = localEndpoints.find((x) => x.id === id)
+                      void UpsertLocalEndpoint(id, localEpName, localBaseUrl, localModel, cur?.protocol ?? '', cur?.reasoningEffort ?? '', next).then((row) => {
                         setLocalEndpoints((prev) => prev.map((x) => x.id === id ? {
                           ...x,
                           numCtx: Math.max(0, Number(row.numCtx || 0) || 0),
