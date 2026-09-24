@@ -133,11 +133,11 @@ export function RemoveLocalEndpoint(arg1:string):Promise<void>;
 
 export function RenameChatSession(arg1:string,arg2:string):Promise<void>;
 
+export function ResetNetworkStats():Promise<void>;
+
 export function ResolveToolApproval(arg1:string,arg2:string,arg3:boolean):Promise<void>;
 
 export function ResolveUserAsk(arg1:string,arg2:string,arg3:string):Promise<void>;
-
-export function ResetNetworkStats():Promise<void>;
 
 export function RunAgent(arg1:string):Promise<void>;
 

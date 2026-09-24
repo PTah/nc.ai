@@ -246,16 +246,16 @@ export function RenameChatSession(arg1, arg2) {
   return window['go']['main']['App']['RenameChatSession'](arg1, arg2);
 }
 
+export function ResetNetworkStats() {
+  return window['go']['main']['App']['ResetNetworkStats']();
+}
+
 export function ResolveToolApproval(arg1, arg2, arg3) {
   return window['go']['main']['App']['ResolveToolApproval'](arg1, arg2, arg3);
 }
 
 export function ResolveUserAsk(arg1, arg2, arg3) {
   return window['go']['main']['App']['ResolveUserAsk'](arg1, arg2, arg3);
-}
-
-export function ResetNetworkStats() {
-  return window['go']['main']['App']['ResetNetworkStats']();
 }
 
 export function RunAgent(arg1) {

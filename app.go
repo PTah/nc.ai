@@ -200,7 +200,14 @@ func (a *App) checkUpdate() update.Info {
 	info, _ := update.Check(ctx, appmeta.Version, stdruntime.GOOS, stdruntime.GOARCH)
 	if info.Latest != "" {
 		a.updMu.Lock()
-		a.updInfo, a.updAt = info, time.Now()
+		if info.Available {
+			a.updInfo, a.updAt = info, time.Now()
+		} else {
+			// Свежая проверка сказала «нечего ставить» — прошлый «доступен
+			// апдейт» больше не держим, иначе «Скачать» из старого баннера
+			// переустановит то же самое.
+			a.updInfo = update.Info{}
+		}
 		a.updMu.Unlock()
 	}
 	return info
