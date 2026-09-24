@@ -3708,7 +3708,13 @@ export default function App() {
         setUpdatePhase('idle')
         return
       }
-      setUpdateError(`Обновлений нет — установлена последняя версия ${String(info?.current || '')}.`)
+      // Свежая проверка предложения не дала — старый баннер обязательно снимаем:
+      // иначе «Проверить обновления» выглядит как кнопка, которая ничего не делает.
+      setUpdateInfo(null)
+      setUpdateDismissed(false)
+      setUpdatePhase('idle')
+      const mine = localBuildHash ? ` (ваша сборка ${localBuildHash})` : ''
+      setUpdateError(`Обновлений нет — установлена последняя версия ${String(info?.current || '')}${mine}.`)
     } catch (e) {
       setUpdateError(friendlyUpdateError(e instanceof Error ? e.message : String(e)))
     }
@@ -4226,9 +4232,11 @@ export default function App() {
                     : updatePhase === 'downloading'
                       ? `Скачиваю ${String(updateInfo.latest)}… ${updatePercent}%`
                       : updateInfo.sameVersion
-                        ? `Версия ${String(updateInfo.latest)} та же, но на GitHub другая сборка (у вас другой файл${
-                            updateInfo.assetSize ? `; скачать ${fmtBytes(Number(updateInfo.assetSize))}` : ''
-                          }).`
+                        ? `Версия ${String(updateInfo.latest)} та же, но на GitHub другая сборка: ваш файл ${
+                            updateInfo.localHash ? String(updateInfo.localHash).slice(0, 12) : '?'
+                          }, на GitHub ${
+                            updateInfo.buildHash ? String(updateInfo.buildHash).slice(0, 12) : '?'
+                          }${updateInfo.assetSize ? ` (скачать ${fmtBytes(Number(updateInfo.assetSize))})` : ''}.`
                         : `Доступна новая версия ${String(updateInfo.latest)} (у вас ${String(updateInfo.current)}${
                             updateInfo.assetSize ? `; скачать ${fmtBytes(Number(updateInfo.assetSize))}` : ''
                           }).`}
