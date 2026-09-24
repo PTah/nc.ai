@@ -303,7 +303,8 @@ docs/                  # ТЗ, архитектура, протоколы
 
 ## Что дальше
 
-- стриминг ответа по SSE — сейчас ответ приходит целиком;
+- стриминг ответа — пока только у профилей Local / custom (Chat Completions, `internal/llm/providers/local/stream.go`);
+  DeepSeek, Z.ai, Qwen, OpenRouter и профиль Anthropic отвечают целиком;
 - diff viewer и LSP: пока простой редактор и `go vet` как инструмент;
 - разнести `frontend/src/App.tsx` на хуки;
 - провайдер и модель **на каждый чат**: сейчас провайдер выбирается глобально (Settings → Provider,
