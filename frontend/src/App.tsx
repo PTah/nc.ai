@@ -5468,7 +5468,11 @@ export default function App() {
                       type="button"
                       className="nc-news-link"
                       title={n.title}
-                      onClick={() => BrowserOpenURL(n.url)}
+                      onClick={() => {
+                        // Ссылка всегда должна открывать страницу; если её нет —
+                        // ничего не делаем, чтобы не улететь на пустую вкладку.
+                        if (n.url) BrowserOpenURL(n.url)
+                      }}
                     >
                       <span className={`nc-news-provider p-${n.provider.replace(/[^a-z]/gi, '').toLowerCase()}`}>
                         {n.provider}

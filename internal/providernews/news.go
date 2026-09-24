@@ -133,6 +133,19 @@ func PayloadOf(s Snapshot, now time.Time) Payload {
 	return p
 }
 
+// NeedsLinkMigration сообщает, что в кэше остались ссылки-эндпоинты (каталожные
+// новости раньше вели на api/v1/models и .md-файлы): такую запись надо
+// перечитать, чтобы клик открывал страницу для человека.
+func NeedsLinkMigration(s Snapshot) bool {
+	for _, it := range s.Items {
+		u := strings.ToLower(strings.TrimSpace(it.URL))
+		if u == "" || strings.Contains(u, "/api/") || strings.HasSuffix(u, ".md") {
+			return true
+		}
+	}
+	return false
+}
+
 // MarkRead remembers that the user looked at the digest.
 func MarkRead() error {
 	s, err := Load()
@@ -194,15 +207,7 @@ func Refresh(ctx context.Context, prev Snapshot) (Snapshot, error) {
 	for name, prevList := range prev.ModelLists {
 		snapshot.ModelLists[name] = prevList
 	}
-	for _, cat := range []struct {
-		provider string
-		url      string
-		parse    func([]byte) []string
-	}{
-		{"DeepSeek", deepSeekPricingURL, parseDeepSeekCatalog},
-		{"Z.AI", zaiPricingURL, parseZaiCatalog},
-		{"OpenRouter", openRouterModelsURL, parseOpenRouterCatalog},
-	} {
+	for _, cat := range catalogSources {
 		body, err := fetch(ctx, cat.url)
 		if err != nil {
 			continue // catalog problems must not spam the digest
@@ -211,7 +216,9 @@ func Refresh(ctx context.Context, prev Snapshot) (Snapshot, error) {
 		if len(cur) == 0 {
 			continue
 		}
-		snapshot.Items = append(snapshot.Items, catalogDiff(cat.provider, cat.url, snapshot.ModelLists[cat.provider], cur, today)...)
+		// Ссылка в новости — человеческая страница (cat.link), а не тот API-адрес,
+		// с которого мы читаем каталог: иначе клик открывает сырой JSON.
+		snapshot.Items = append(snapshot.Items, catalogDiff(cat.provider, cat.link, snapshot.ModelLists[cat.provider], cur, today)...)
 		snapshot.ModelLists[cat.provider] = cur
 	}
 	// Keep previously known entries when a feed temporarily fails, so the list
@@ -289,7 +296,10 @@ func catalogDiff(provider, url string, prev, cur []string, today string) []Item 
 
 const (
 	openRouterModelsURL = "https://openrouter.ai/api/v1/models"
-	zaiPricingURL       = "https://docs.z.ai/guides/overview/pricing.md"
+	// openRouterModelsPage — та же информация глазами человека: сюда ведём из новости.
+	openRouterModelsPage = "https://openrouter.ai/models"
+	zaiPricingURL        = "https://docs.z.ai/guides/overview/pricing.md"
+	zaiPricingPage       = "https://docs.z.ai/guides/overview/pricing"
 )
 
 // deepSeekModelRe pulls the model column out of the pricing table.
@@ -413,6 +423,20 @@ const (
 	deepSeekDefaultDate = "Change Log"
 )
 
+// catalogSources — откуда читаем каталог моделей (url) и куда ведём человека (link).
+// link обязан быть открываемой страницей: api/v1/models и .md-файлы — не ссылка
+// для новости, клик по ним показывал сырой JSON/Markdown.
+var catalogSources = []struct {
+	provider string
+	url      string
+	link     string
+	parse    func([]byte) []string
+}{
+	{"DeepSeek", deepSeekPricingURL, deepSeekPricingURL, parseDeepSeekCatalog},
+	{"Z.AI", zaiPricingURL, zaiPricingPage, parseZaiCatalog},
+	{"OpenRouter", openRouterModelsURL, openRouterModelsPage, parseOpenRouterCatalog},
+}
+
 func fetch(ctx context.Context, url string) ([]byte, error) {
 	reqCtx, cancel := context.WithTimeout(ctx, requestTimeout)
 	defer cancel()
@@ -452,6 +476,8 @@ var (
 	// OpenRouter's blog lists a title, an excerpt and then the date, so the text
 	// pass picks the excerpt. Read the heading + date pair straight from markup.
 	openRouterEntryRe = regexp.MustCompile(`(?is)<h[23][^>]*>\s*(?:<[^>]+>\s*)*([^<]{8,200}?)\s*(?:<[^>]+>\s*)*</h[23]>.{0,900}?((?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+20\d\d)`)
+	// hrefRe — ссылки в разметке; нужны, чтобы вести на статью, а не на индекс.
+	hrefRe = regexp.MustCompile(`(?i)href\s*=\s*["']([^"']+)["']`)
 )
 
 // zaiStopTitles are page chrome and navigation labels that sit next to dates.
@@ -592,18 +618,21 @@ func parseZaiReleaseNotes(body []byte) []Item {
 
 // parseOpenRouterBlog reads the blog index from markup: a heading followed by the
 // publish date. Text flattening is useless here because the excerpt sits between
-// the title and the date.
+// the title and the date. Ссылку на статью ищем рядом с заголовком — иначе клик
+// уводил на корень блога вместо самой новости.
 func parseOpenRouterBlog(body []byte) []Item {
 	raw := scriptRe.ReplaceAllString(string(body), " ")
-	matches := openRouterEntryRe.FindAllStringSubmatch(raw, 60)
+	matches := openRouterEntryRe.FindAllStringSubmatchIndex(raw, 60)
 	var out []Item
 	seen := map[string]bool{}
 	for _, m := range matches {
-		title := firstLine(cleanText(m[1]), titleLimit)
-		date := humanDateToISO(cleanText(m[2]))
+		title := firstLine(cleanText(raw[m[2]:m[3]]), titleLimit)
+		date := humanDateToISO(cleanText(raw[m[4]:m[5]]))
 		if title == "" || date == "" {
 			continue
 		}
+		// ID держим по корню блога: ссылка на статью появилась позже, а id
+		// должен остаться прежним, иначе весь блог разом станет «новым».
 		id := makeID("OpenRouter", openRouterBlogURL, title)
 		if seen[id] {
 			continue
@@ -614,10 +643,43 @@ func parseOpenRouterBlog(body []byte) []Item {
 			Provider: "OpenRouter",
 			Title:    title,
 			Date:     date,
-			URL:      openRouterBlogURL,
+			URL:      openRouterPostURL(raw, m[0]),
 		})
 	}
 	return out
+}
+
+// openRouterPostURL ищет ближайшую к заголовку ссылку на статью. Карточка блога
+// оборачивается в <a href="/blog/…">, заголовок идёт внутри. Если ссылки нет,
+// возвращаем корень блога — он открывается как страница, а не как JSON.
+func openRouterPostURL(raw string, at int) string {
+	const window = 1500
+	start := at - window
+	if start < 0 {
+		start = 0
+	}
+	best := ""
+	for _, m := range hrefRe.FindAllStringSubmatch(raw[start:at], -1) {
+		cand := strings.TrimSpace(m[1])
+		if !strings.Contains(cand, "/blog/") {
+			continue
+		}
+		// Сам индекс блога (/blog, /blog/) не считаем статьёй.
+		if trimmed := strings.TrimRight(cand, "/"); strings.HasSuffix(trimmed, "/blog") {
+			continue
+		}
+		best = cand
+	}
+	switch {
+	case best == "":
+		return openRouterBlogURL
+	case strings.HasPrefix(best, "http://"), strings.HasPrefix(best, "https://"):
+		return best
+	case strings.HasPrefix(best, "/"):
+		return "https://openrouter.ai" + best
+	default:
+		return openRouterBlogURL
+	}
 }
 
 // cleanText removes leftover markup and collapses whitespace in a fragment.
