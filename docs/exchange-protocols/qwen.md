@@ -35,7 +35,8 @@ Content-Type: application/json
    `qwen-turbo`, `qwen3-coder-*`).
 4. Ответ **не содержит** `usage.cost` (в отличие от OpenRouter). Стоимость считаем по
    собственному тарифу в `costing` (approx USD / 1M).
-5. Streaming SSE поддерживается API, но в агенте пока `stream: false`.
+5. Streaming SSE: агент использует `stream: true` с `stream_options.include_usage`
+   (usage приходит последним чанком).
 6. Баланса через API нет — смотреть консоль Model Studio.
 
 ### Рекомендуемые модели (tools)

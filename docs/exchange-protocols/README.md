@@ -15,7 +15,7 @@ type Provider interface {
 }
 ```
 
-`ChatCompletionStream` — **реализовано** (`StreamingProvider`, SSE-агрегация: `internal/llm/providers/local/stream.go`). Агент стримит дельты, собирает финальное сообщение и продолжает loop по `tool_calls`.
+`ChatCompletionStream` — **реализовано у всех провайдеров**: DeepSeek, Z.ai, Qwen, OpenRouter и Local / custom разбираются общим кодом (`internal/llm/openai_stream.go`), Anthropic Messages — своим SSE-парсером (`internal/llm/providers/anthropic/stream.go`). Агент стримит дельты, собирает финальное сообщение и продолжает loop по `tool_calls`. Если эндпоинт не принимает `stream_options`, запрос автоматически откатывается на non-stream.
 
 Общие правила поверх любого провайдера:
 

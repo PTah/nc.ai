@@ -358,7 +358,9 @@ curl https://api.deepseek.com/chat/completions \
 | `internal/agent/agent.go` | канон хода: append assistant целиком → tools → `role=tool` → снова API |
 | `internal/config` | API key, model |
 
-Этап 1: non-stream. SSE — этап 2 (`ChatCompletionStream`).
+Этап 1: non-stream. SSE реализован в `ChatCompletionStream`: `stream: true`,
+`stream_options.include_usage` (usage приходит последним чанком), `reasoning_content`
+в дельтах разбирается в общий `llm.StreamDelta` (`internal/llm/openai_stream.go`).
 
 ---
 

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -61,6 +62,7 @@ type apiRequest struct {
 	Tools           []llm.ToolSpec `json:"tools,omitempty"`
 	ToolChoice      any            `json:"tool_choice,omitempty"`
 	Stream          bool           `json:"stream"`
+	StreamOptions   *streamOptions `json:"stream_options,omitempty"`
 	Temperature     *float64       `json:"temperature,omitempty"`
 	MaxTokens       *int           `json:"max_tokens,omitempty"`
 	Thinking        map[string]any `json:"thinking,omitempty"`
@@ -68,6 +70,17 @@ type apiRequest struct {
 }
 
 func (c *Client) ChatCompletion(ctx context.Context, req *llm.ChatRequest) (*llm.ChatResponse, error) {
+	return c.chat(ctx, req, false, nil)
+}
+
+// ChatCompletionStream — то же самое, но ответ идёт по SSE
+// (docs/exchange-protocols/deepseek.md §7): дельты уходят в onDelta,
+// возвращается собранное сообщение с tool_calls.
+func (c *Client) ChatCompletionStream(ctx context.Context, req *llm.ChatRequest, onDelta func(llm.StreamDelta)) (*llm.ChatResponse, error) {
+	return c.chat(ctx, req, true, onDelta)
+}
+
+func (c *Client) chat(ctx context.Context, req *llm.ChatRequest, stream bool, onDelta func(llm.StreamDelta)) (*llm.ChatResponse, error) {
 	if c.apiKey == "" {
 		return nil, fmt.Errorf("deepseek: api key is empty")
 	}
@@ -105,7 +118,8 @@ func (c *Client) ChatCompletion(ctx context.Context, req *llm.ChatRequest) (*llm
 		Messages:        req.Messages,
 		Tools:           req.Tools,
 		ToolChoice:      req.ToolChoice,
-		Stream:          false, // stage-1: non-stream only (SSE later)
+		Stream:          stream,
+		StreamOptions:   includeUsage(stream),
 		MaxTokens:       req.MaxTokens,
 		Thinking:        thinking,
 		ReasoningEffort: effort,
@@ -125,6 +139,25 @@ func (c *Client) ChatCompletion(ctx context.Context, req *llm.ChatRequest) (*llm
 	httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Accept", "application/json")
+
+	if stream {
+		out, err := llm.StreamOpenAI(ctx, c.http, httpReq, onDelta)
+		if err != nil {
+			var status *llm.HTTPStatusError
+			if errors.As(err, &status) {
+				// Эндпоинт не понял stream_options — отдаём обычный ответ.
+				if llm.StreamUnsupported(status.Status) {
+					return c.ChatCompletion(ctx, req)
+				}
+				return nil, mapAPIError(status.Status, status.Body)
+			}
+			return nil, err
+		}
+		if out.Model == "" {
+			out.Model = model
+		}
+		return out, nil
+	}
 
 	res, err := c.http.Do(httpReq)
 	if err != nil {
@@ -146,6 +179,19 @@ func (c *Client) ChatCompletion(ctx context.Context, req *llm.ChatRequest) (*llm
 		out.Model = model
 	}
 	return &out, nil
+}
+
+// includeUsage просит usage в последнем SSE-чанке (DeepSeek умеет это с
+// stream_options.include_usage); для обычного запроса опция не нужна.
+func includeUsage(stream bool) *streamOptions {
+	if !stream {
+		return nil
+	}
+	return &streamOptions{IncludeUsage: true}
+}
+
+type streamOptions struct {
+	IncludeUsage bool `json:"include_usage"`
 }
 
 type apiErrorBody struct {

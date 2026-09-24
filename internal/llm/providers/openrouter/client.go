@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -256,6 +257,15 @@ func FilterCodingModels(items []ModelInfo, maxExtra int) []string {
 }
 
 func (c *Client) ChatCompletion(ctx context.Context, req *llm.ChatRequest) (*llm.ChatResponse, error) {
+	return c.chat(ctx, req, false, nil)
+}
+
+// ChatCompletionStream — SSE-вариант /chat/completions: дельты уходят в onDelta.
+func (c *Client) ChatCompletionStream(ctx context.Context, req *llm.ChatRequest, onDelta func(llm.StreamDelta)) (*llm.ChatResponse, error) {
+	return c.chat(ctx, req, true, onDelta)
+}
+
+func (c *Client) chat(ctx context.Context, req *llm.ChatRequest, stream bool, onDelta func(llm.StreamDelta)) (*llm.ChatResponse, error) {
 	if c.apiKey == "" {
 		return nil, fmt.Errorf("openrouter: api key is empty")
 	}
@@ -278,7 +288,7 @@ func (c *Client) ChatCompletion(ctx context.Context, req *llm.ChatRequest) (*llm
 		Messages:   req.Messages,
 		Tools:      req.Tools,
 		ToolChoice: req.ToolChoice,
-		Stream:     false, // stage-1: non-stream only (SSE later)
+		Stream:     stream,
 		MaxTokens:  req.MaxTokens,
 	}
 	if req.Temperature != nil {
@@ -297,6 +307,21 @@ func (c *Client) ChatCompletion(ctx context.Context, req *llm.ChatRequest) (*llm
 		return nil, err
 	}
 	c.setAppHeaders(httpReq)
+
+	if stream {
+		out, err := llm.StreamOpenAI(ctx, c.http, httpReq, onDelta)
+		if err != nil {
+			var status *llm.HTTPStatusError
+			if errors.As(err, &status) {
+				return nil, mapAPIError(status.Status, status.Body)
+			}
+			return nil, err
+		}
+		if out.Model == "" {
+			out.Model = model
+		}
+		return out, nil
+	}
 
 	res, err := c.http.Do(httpReq)
 	if err != nil {

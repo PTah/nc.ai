@@ -122,6 +122,7 @@ type apiRequest struct {
 	Tools           []llm.ToolSpec `json:"tools,omitempty"`
 	ToolChoice      any            `json:"tool_choice,omitempty"`
 	Stream          bool           `json:"stream"`
+	StreamOptions   *streamOptions `json:"stream_options,omitempty"`
 	Temperature     *float64       `json:"temperature,omitempty"`
 	MaxTokens       *int           `json:"max_tokens,omitempty"`
 	ReasoningEffort string         `json:"reasoning_effort,omitempty"`
@@ -340,13 +341,13 @@ func (c *Client) ChatCompletion(ctx context.Context, req *llm.ChatRequest) (*llm
 	// thinking не отправляем никогда, а reasoning_effort — только если профиль
 	// эндпоинта его включил (см. c.reasoning).
 	payload := apiRequest{
-		Model:      model,
-		Messages:   req.Messages,
-		Tools:      req.Tools,
-		ToolChoice: req.ToolChoice,
-		Stream:     false,
+		Model:           model,
+		Messages:        req.Messages,
+		Tools:           req.Tools,
+		ToolChoice:      req.ToolChoice,
+		Stream:          false,
 		ReasoningEffort: strings.TrimSpace(c.reasoning),
-		MaxTokens:  req.MaxTokens,
+		MaxTokens:       req.MaxTokens,
 	}
 	if req.Temperature != nil {
 		payload.Temperature = req.Temperature
