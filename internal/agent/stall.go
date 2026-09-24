@@ -44,6 +44,8 @@ type stallWatch struct {
 	st     stallState
 	dead   bool
 	reason string
+	// warned — предупреждение на половине лимита уже отправлено (один раз).
+	warned bool
 }
 
 func newStallWatch(limit time.Duration) *stallWatch {
@@ -125,6 +127,30 @@ func (s *stallWatch) toolsDone() int {
 	return s.st.tools
 }
 
+// warning — предупреждение, когда тишина дошла до половины лимита. Отправляется
+// один раз за прогон, чтобы ожидание не было сюрпризом: пользователь видит, что
+// именно молчит и сколько осталось до принудительного обрыва.
+func (s *stallWatch) warning(now time.Time) (string, bool) {
+	if s == nil || s.limit <= 0 {
+		return "", false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.dead || s.warned {
+		return "", false
+	}
+	quiet := now.Sub(s.st.lastAlive)
+	if quiet < s.limit/2 {
+		return "", false
+	}
+	s.warned = true
+	return fmt.Sprintf(
+		"⏳ Шаг %d молчит %s (фаза: %s · %s). Если ничего не изменится, прерву через %s.",
+		stepOr1(s.st.step), humanDuration(quiet), phaseHuman(s.st.phase), s.st.detail,
+		humanDuration(s.limit-quiet),
+	), true
+}
+
 // verdict возвращает текст разбора, если тишина превысила лимит.
 func (s *stallWatch) verdict(now time.Time) (string, bool) {
 	if s == nil || s.limit <= 0 {
@@ -142,6 +168,31 @@ func (s *stallWatch) verdict(now time.Time) (string, bool) {
 	s.dead = true
 	s.reason = s.explainLocked(now, quiet)
 	return s.reason, true
+}
+
+// snapshot — краткая сводка состояния для лога (шаг, фаза, тишина).
+func (s *stallWatch) snapshot(now time.Time) (int, string, time.Duration) {
+	if s == nil {
+		return 0, "", 0
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.st.step, s.st.phase, now.Sub(s.st.lastAlive)
+}
+
+// phaseHuman — фаза человеческим языком для предупреждений.
+func phaseHuman(phase string) string {
+	if phase == "tool" {
+		return "выполняю инструмент"
+	}
+	return "жду ответ модели"
+}
+
+func stepOr1(step int) int {
+	if step <= 0 {
+		return 1
+	}
+	return step
 }
 
 // stalledText возвращает разбор, если затык уже зафиксирован (иначе пусто).

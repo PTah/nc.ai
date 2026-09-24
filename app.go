@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	stdruntime "runtime"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -20,6 +21,7 @@ import (
 	"notcursor.ai/app/internal/config"
 	"notcursor.ai/app/internal/costing"
 	"notcursor.ai/app/internal/dockicon"
+	"notcursor.ai/app/internal/fsx"
 	"notcursor.ai/app/internal/llm"
 	"notcursor.ai/app/internal/llm/providers/anthropic"
 	"notcursor.ai/app/internal/llm/providers/deepseek"
@@ -51,6 +53,10 @@ type App struct {
 	rulesMu sync.RWMutex
 	cancels map[string]context.CancelFunc
 	runGens map[string]uint64
+	// activeRuns — сессии с идущими прогонами; зеркалится в running.json,
+	// чтобы build.sh не перезапускал клиент посреди работы.
+	runMarkerLock sync.Mutex
+	activeRuns    map[string]bool
 	// runActive is true while an agent run is in flight: the local health probe
 	// must not send its own generation and compete for the model slot.
 	runActive bool
@@ -127,6 +133,8 @@ func (a *App) clearSessionStickyModels() {
 
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+	// Прошлый процесс не оставил прогонов: маркер мог остаться только при падении.
+	a.clearStaleRunMarker()
 	_ = a.cfg.Load()
 	a.detectStartupNotice()
 	a.applyDeepSeekStartupDefaults()
@@ -531,6 +539,102 @@ func (a *App) refreshProvider() {
 		}
 		a.llm = deepseek.New(key, model)
 	}
+}
+
+// runMarkerPath — файл со списком активных прогонов (для build.sh и для
+// «сиротских» маркеров после падения приложения).
+func runMarkerPath() (string, error) {
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "NotCursor", "running.json"), nil
+}
+
+func (a *App) runMarkerMu() *sync.Mutex {
+	return &a.runMarkerLock
+}
+
+// markRunStart отмечает, что в сессии идёт прогон.
+func (a *App) markRunStart(sid string) {
+	a.runMarkerMu().Lock()
+	defer a.runMarkerMu().Unlock()
+	if a.activeRuns == nil {
+		a.activeRuns = map[string]bool{}
+	}
+	a.activeRuns[sid] = true
+	a.writeRunMarker()
+}
+
+// markRunEnd снимает отметку и удаляет файл, когда прогонов не осталось.
+func (a *App) markRunEnd(sid string) {
+	a.runMarkerMu().Lock()
+	defer a.runMarkerMu().Unlock()
+	delete(a.activeRuns, sid)
+	a.writeRunMarker()
+}
+
+// writeRunMarker вызывается под runMarkerLock.
+func (a *App) writeRunMarker() {
+	path, err := runMarkerPath()
+	if err != nil {
+		return
+	}
+	if len(a.activeRuns) == 0 {
+		_ = os.Remove(path)
+		return
+	}
+	ids := make([]string, 0, len(a.activeRuns))
+	for id := range a.activeRuns {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	raw, err := json.MarshalIndent(map[string]any{
+		"pid":      os.Getpid(),
+		"started":  time.Now().Format(time.RFC3339),
+		"sessions": ids,
+	}, "", "  ")
+	if err != nil {
+		return
+	}
+	_ = fsx.WriteFileAtomic(path, append(raw, '\n'), 0o600)
+}
+
+// clearStaleRunMarker убирает маркер прошлого процесса: при старте прогонов нет.
+func (a *App) clearStaleRunMarker() {
+	if path, err := runMarkerPath(); err == nil {
+		_ = os.Remove(path)
+	}
+	a.runMarkerLock.Lock()
+	a.activeRuns = map[string]bool{}
+	a.runMarkerLock.Unlock()
+}
+
+// ActiveRuns возвращает сессии с идущими прогонами (для внешних скриптов и UI).
+func (a *App) ActiveRuns() []string {
+	a.runMarkerLock.Lock()
+	defer a.runMarkerLock.Unlock()
+	ids := make([]string, 0, len(a.activeRuns))
+	for id := range a.activeRuns {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids
+}
+
+// firstLineOf — первая строка текста, усечённая до limit символов (для логов).
+func firstLineOf(s string, limit int) string {
+	if i := strings.IndexAny(s, "\r\n"); i >= 0 {
+		s = s[:i]
+	}
+	if limit <= 0 {
+		return s
+	}
+	r := []rune(s)
+	if len(r) <= limit {
+		return s
+	}
+	return string(r[:limit]) + "…"
 }
 
 func (a *App) logAgentLine(line string) {
@@ -2186,6 +2290,10 @@ func (a *App) RunAgentWithAttachments(userMessage string, attachments []agent.At
 	gen := a.runGens[sid]
 	hist := append([]llm.Message{}, a.history...)
 	a.mu.Unlock()
+	// Маркер активного прогона: build.sh читает его и не перезапускает клиент
+	// поверх работающего агента (перезапуск обрывает прогон без предупреждения).
+	a.markRunStart(sid)
+	defer a.markRunEnd(sid)
 
 	hasImages := false
 	attNames := make([]string, 0, len(attachments))
@@ -2256,6 +2364,7 @@ func (a *App) RunAgentWithAttachments(userMessage string, attachments []agent.At
 		MaxSteps:        a.cfg.MaxAgentSteps(),
 		WarnSteps:       a.cfg.AgentWarnSteps(),
 		StallLimit:      a.cfg.AgentStallLimit(),
+		Logf:            a.logAgentLine,
 		RulesText:       rulesText,
 		TurnRulesText:   turnRulesText,
 		StickyModel:     sticky,
@@ -2338,6 +2447,16 @@ func (a *App) RunAgentWithAttachments(userMessage string, attachments []agent.At
 
 		emit := func(evt agent.Event) {
 			if !stillCurrent() {
+				// Диагностику не глушим: если прогон устарел (запущен новый или
+				// пользователь нажал Stop), в логе должно остаться объяснение,
+				// иначе «тишина» в чате остаётся без причины.
+				switch evt.Type {
+				case "notice", "error", "reconnect":
+					a.logAgentLine(fmt.Sprintf(
+						"dropped %s (устаревший прогон) session=%s: %s",
+						evt.Type, sid, firstLineOf(evt.Content, 200),
+					))
+				}
 				return
 			}
 			if evt.Type == "model" && evt.Content != "" {

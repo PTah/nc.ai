@@ -6,6 +6,49 @@ import (
 	"time"
 )
 
+func TestStallWarningAtHalfLimit(t *testing.T) {
+	w := newStallWatch(10 * time.Minute)
+	start := time.Now()
+
+	// До половины лимита предупреждения нет.
+	if text, ok := w.warning(start.Add(4 * time.Minute)); ok {
+		t.Fatalf("слишком раннее предупреждение: %q", text)
+	}
+	// На половине — одно предупреждение с фазой и остатком времени.
+	text, ok := w.warning(start.Add(5 * time.Minute))
+	if !ok {
+		t.Fatal("ожидалось предупреждение на половине лимита")
+	}
+	for _, want := range []string{"Шаг 1", "жду ответ модели", "5 мин"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("в предупреждении нет %q: %q", want, text)
+		}
+	}
+	// Повторно не повторяем.
+	if _, again := w.warning(start.Add(6 * time.Minute)); again {
+		t.Fatal("предупреждение должно отправляться один раз")
+	}
+	// После срабатывания verdict предупреждений быть не должно.
+	if _, bad := w.verdict(start.Add(11 * time.Minute)); !bad {
+		t.Fatal("ожидался обрыв прогона после лимита")
+	}
+	if _, firedWarn := w.warning(start.Add(12 * time.Minute)); firedWarn {
+		t.Fatal("после обрыва предупреждения не отправляются")
+	}
+}
+
+func TestStallWarningPhaseHuman(t *testing.T) {
+	w := newStallWatch(time.Minute)
+	w.onPhase("tool", "Запускаю: go test ./…")
+	text, ok := w.warning(time.Now().Add(40 * time.Second))
+	if !ok {
+		t.Fatal("ожидалось предупреждение в фазе инструмента")
+	}
+	if !strings.Contains(text, "выполняю инструмент") {
+		t.Errorf("фаза не переведена: %q", text)
+	}
+}
+
 func TestHumanDuration(t *testing.T) {
 	cases := []struct {
 		in   time.Duration
