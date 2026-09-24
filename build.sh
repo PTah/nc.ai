@@ -21,6 +21,7 @@ LOG="$(mktemp -t nc-wails-build.XXXXXX)"
 STAGE_DIR=""
 
 NO_RESTART=0
+FORCE_RESTART=0
 UNIVERSAL=0
 COPY_TO=""
 INSTALL_DIR="${NC_INSTALL_DIR:-/Applications}"
@@ -29,6 +30,7 @@ DO_INSTALL=1
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --no-restart|-NoRestart) NO_RESTART=1; shift ;;
+    --force-restart|-ForceRestart) FORCE_RESTART=1; shift ;;
     --universal|-Universal) UNIVERSAL=1; shift ;;
     --copy-to|-CopyTo)
       if [[ $# -lt 2 || -z "${2:-}" ]]; then
@@ -57,7 +59,7 @@ while [[ $# -gt 0 ]]; do
     --no-install|-NoInstall) DO_INSTALL=0; shift ;;
     -h|--help)
       cat <<EOF
-Usage: ./build.sh [--no-restart] [--universal] [--install-to DIR] [--no-install] [--copy-to DIR]
+Usage: ./build.sh [--no-restart] [--force-restart] [--universal] [--install-to DIR] [--no-install] [--copy-to DIR]
 
   --no-restart     Build and sign only; do not quit/relaunch NotCursor.
   --universal      Build darwin/universal instead of host arch.
@@ -201,8 +203,33 @@ inside_app() {
   return 1
 }
 
+RUN_MARKER="${HOME}/Library/Application Support/NotCursor/running.json"
+
+# Приложение пишет running.json, пока идёт прогон агента. Перезапуск поверх
+# работающего прогона обрывает работу без предупреждения — это уже случалось
+# (см. docs/stall-2026-09-24.md), поэтому по умолчанию такой рестарт запрещён.
+active_runs() {
+  [[ -f "${RUN_MARKER}" ]] || return 0
+  # Сессии из маркера: строки вида "sessions": ["id", ...] — печатаем как есть.
+  sed -n 's/.*"sessions"[^[]*\[\(.*\)\].*/\1/p' "${RUN_MARKER}" | tr -d '"' | tr -s ' '
+}
+
+refuse_restart_if_busy() {
+  local runs
+  runs="$(active_runs)"
+  [[ -z "${runs}" ]] && return 0
+  if [[ "${FORCE_RESTART}" -eq 1 ]]; then
+    echo "Активные прогоны (${runs}), но задан --force-restart: перезапускаю" >&2
+    return 0
+  fi
+  echo "Прогон агента ещё идёт (сессии:${runs})." >&2
+  echo "Перезапуск оборвёт работу. Дождитесь окончания ответа или повторите с --force-restart." >&2
+  return 1
+}
+
 quit_app() {
   [[ -z "$(app_pids)" ]] && return 0
+  refuse_restart_if_busy || return 1
   echo "Stopping running NotCursor (pid: $(printf '%s ' $(app_pids)))..."
   # `osascript ... to quit` would launch the app if nothing is running, so it only runs here.
   osascript -e 'tell application "NotCursor" to quit' >/dev/null 2>&1 || true

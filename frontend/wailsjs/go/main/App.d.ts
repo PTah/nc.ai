@@ -13,6 +13,8 @@ import {agent} from '../models';
 
 export function AckWelcome():Promise<void>;
 
+export function ActiveRuns():Promise<Array<string>>;
+
 export function AppDataDir():Promise<string>;
 
 export function AppInfo():Promise<Record<string, string>>;

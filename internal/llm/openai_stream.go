@@ -120,13 +120,40 @@ type toolCallAcc struct {
 	arguments strings.Builder
 }
 
+// StreamIdleTimeout — сколько тишины в потоке терпим, прежде чем решить, что
+// провайдер молчит. Живое, но «замолчавшее» соединение (TCP не разорван, данных
+// нет) иначе висит до TCP-keepalive: именно так шаг «застывал» на 12 минут.
+const StreamIdleTimeout = 120 * time.Second
+
 // ConsumeOpenAISSE собирает финальное сообщение из SSE-делт Chat Completions:
 // текст, рассуждения (reasoning_content или reasoning) и tool_calls по индексам.
 func ConsumeOpenAISSE(r io.Reader, onDelta func(StreamDelta)) (*ChatResponse, error) {
-	sc := bufio.NewScanner(r)
-	// Аргументы tool_calls приходят крупными кусками — поднимаем лимит токена.
-	buf := make([]byte, 0, 64*1024)
-	sc.Buffer(buf, 4*1024*1024)
+	return consumeOpenAISSE(r, onDelta, StreamIdleTimeout)
+}
+
+// consumeOpenAISSE — тот же разбор с настраиваемым idle-лимитом (для тестов).
+func consumeOpenAISSE(r io.Reader, onDelta func(StreamDelta), idle time.Duration) (*ChatResponse, error) {
+	// Чтение идёт в отдельной горутине: так основной цикл может заметить тишину
+	// и вернуть ошибку, вместо того чтобы бесконечно ждать Scan().
+	lines := make(chan string, 64)
+	errs := make(chan error, 1)
+	done := make(chan struct{})
+	defer close(done)
+	go func() {
+		defer close(lines)
+		sc := bufio.NewScanner(r)
+		// Аргументы tool_calls приходят крупными кусками — поднимаем лимит токена.
+		buf := make([]byte, 0, 64*1024)
+		sc.Buffer(buf, 4*1024*1024)
+		for sc.Scan() {
+			select {
+			case lines <- sc.Text():
+			case <-done:
+				return
+			}
+		}
+		errs <- sc.Err()
+	}()
 
 	var (
 		id, model, finish string
@@ -136,8 +163,27 @@ func ConsumeOpenAISSE(r io.Reader, onDelta func(StreamDelta)) (*ChatResponse, er
 		usage             *Usage
 	)
 
-	for sc.Scan() {
-		line := sc.Text()
+	idleTimer := time.NewTimer(idle)
+	defer idleTimer.Stop()
+
+	for {
+		var line string
+		select {
+		case l, ok := <-lines:
+			if !ok {
+				if err := <-errs; err != nil {
+					return nil, fmt.Errorf("stream read: %w", err)
+				}
+				return finishOpenAIStream(id, model, finish, &content, &reasoning, tools, usage), nil
+			}
+			line = l
+			if idle > 0 {
+				idleTimer.Reset(idle)
+			}
+		case <-idleTimer.C:
+			return nil, fmt.Errorf("stream idle: провайдер молчит %s (нет данных в потоке)", humanShortDuration(idle))
+		}
+
 		if line == "" || strings.HasPrefix(line, ":") {
 			continue
 		}
@@ -207,10 +253,15 @@ func ConsumeOpenAISSE(r io.Reader, onDelta func(StreamDelta)) (*ChatResponse, er
 			}
 		}
 	}
-	if err := sc.Err(); err != nil {
-		return nil, fmt.Errorf("stream read: %w", err)
-	}
+}
 
+// finishOpenAIStream собирает итоговое сообщение из накопленных дельт.
+func finishOpenAIStream(
+	id, model, finish string,
+	content, reasoning *strings.Builder,
+	tools map[int]*toolCallAcc,
+	usage *Usage,
+) *ChatResponse {
 	msg := Message{
 		Role:             "assistant",
 		Content:          content.String(),
@@ -271,5 +322,13 @@ func ConsumeOpenAISSE(r io.Reader, onDelta func(StreamDelta)) (*ChatResponse, er
 			Message:      msg,
 		}},
 		Usage: usage,
-	}, nil
+	}
+}
+
+// humanShortDuration — «2 мин», «90 с» — для сообщения о тишине в потоке.
+func humanShortDuration(d time.Duration) string {
+	if d >= time.Minute {
+		return fmt.Sprintf("%d мин", int(d.Minutes()))
+	}
+	return fmt.Sprintf("%d с", int(d.Seconds()))
 }

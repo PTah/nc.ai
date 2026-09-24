@@ -6,6 +6,10 @@ export function AckWelcome() {
   return window['go']['main']['App']['AckWelcome']();
 }
 
+export function ActiveRuns() {
+  return window['go']['main']['App']['ActiveRuns']();
+}
+
 export function AppDataDir() {
   return window['go']['main']['App']['AppDataDir']();
 }

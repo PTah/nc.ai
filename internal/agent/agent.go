@@ -29,6 +29,11 @@ const unlimitedCeiling = 100000
 // не ждём: пользователю честнее показать ошибку сразу.
 const maxRateLimitWait = 60 * time.Second
 
+// retryBudget — сколько суммарно готовы ждать серию повторов после сетевых
+// ошибок. Сеть, которая рвёт каждую попытку, не должна растягивать прогон на
+// десятки минут: лучше честная ошибка, чем «тишина».
+const retryBudget = 3 * time.Minute
+
 const maxToolResultBytes = 12288
 
 const SystemPrompt = `You are NotCursor.ai, a coding agent like Cursor.
@@ -188,6 +193,9 @@ type Runner struct {
 	// инструменты не подают признаков жизни дольше этого времени, прогон
 	// принудительно обрывается с разбором (0 = не следить, отрицательное = тоже 0).
 	StallLimit time.Duration
+	// Logf пишет диагностику прогона (agent.log): выбор модели, срабатывание
+	// watchdog, отброшенные события. nil — безопасно, просто без логов.
+	Logf func(string)
 	// LocalNumCtx — окно контекста активного локального сервера в токенах
 	// (0 = не задано: предупреждения о заполнении контекста выключены).
 	LocalNumCtx int
@@ -513,8 +521,14 @@ func (r *Runner) retryBackoff() time.Duration {
 // streamed is true when content/reasoning deltas were already pushed via emit.
 func (r *Runner) chat(ctx context.Context, req *llm.ChatRequest, emit EmitFunc) (resp *llm.ChatResponse, streamed bool, err error) {
 	resp, streamed, err = r.chatOnce(ctx, req, emit)
+	// Суммарное время ожидания в серии ретраев ограничиваем: иначе сеть, которая
+	// рвёт каждую попытку, растягивает прогон на десятки минут без пользы.
+	var waited time.Duration
 	for attempt := 0; err != nil && isTransientError(err) && attempt < r.retryCount(); attempt++ {
 		wait := r.retryBackoff() * time.Duration(attempt+1)
+		if waited+wait > retryBudget {
+			return nil, false, fmt.Errorf("%w: сеть недоступна, повторов накопилось на %s", err, waited.Round(time.Second))
+		}
 		// Провайдер сам сказал, когда можно повторить (Free-тарифы: 5 RPM /
 		// 200 RPD). Суточный лимит не ждём — отдаём ошибку с подсказкой.
 		var rate *llm.RateLimitError
@@ -531,6 +545,8 @@ func (r *Runner) chat(ctx context.Context, req *llm.ChatRequest, emit EmitFunc) 
 				llm.FormatWait(wait), attempt+1, r.retryCount(),
 			)})
 		} else {
+			// Повтор — это признак жизни: прогон борется с сетью, а не завис.
+			r.stallTouch("повтор после сетевой ошибки")
 			emit(Event{Type: "reconnect", Content: fmt.Sprintf(
 				"Соединение с LLM потеряно (%v). Повторная попытка %d/%d через %.0f сек…",
 				err, attempt+1, r.retryCount(), wait.Seconds(),
@@ -541,6 +557,7 @@ func (r *Runner) chat(ctx context.Context, req *llm.ChatRequest, emit EmitFunc) 
 		case <-ctx.Done():
 			return nil, false, ctx.Err()
 		}
+		waited += wait
 		resp, streamed, err = r.chatOnce(ctx, req, emit)
 	}
 	return resp, streamed, err
@@ -611,15 +628,34 @@ func (r *Runner) watchStall(ctx context.Context, cancel context.CancelFunc, w *s
 	for {
 		select {
 		case <-ctx.Done():
+			r.logf("stall canceled (прогон завершился или отменён)")
 			return
 		case <-t.C:
-			if text, bad := w.verdict(time.Now()); bad {
+			now := time.Now()
+			if text, ok := w.warning(now); ok {
+				step, phase, quiet := w.snapshot(now)
+				r.logf("stall warn step=%d phase=%s quiet=%s limit=%s", step, phase, quiet.Round(time.Second), w.limit)
 				emit(Event{Type: "notice", Content: text})
+			}
+			if text, bad := w.verdict(now); bad {
+				step, phase, quiet := w.snapshot(now)
+				// Сначала обрываем прогон, потом рассказываем: если emit задержится
+				// (или событие отфильтруется как устаревшее), шаг всё равно прервётся.
 				cancel()
+				r.logf("stall fired step=%d phase=%s quiet=%s limit=%s", step, phase, quiet.Round(time.Second), w.limit)
+				emit(Event{Type: "notice", Content: text})
 				return
 			}
 		}
 	}
+}
+
+// logf пишет диагностику прогона (agent.log через app.go); nil-логгер безопасен.
+func (r *Runner) logf(format string, args ...any) {
+	if r.Logf == nil {
+		return
+	}
+	r.Logf(fmt.Sprintf(format, args...))
 }
 
 func isTransientError(err error) bool {
@@ -763,7 +799,10 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 	r.stall = watch
 	defer func() { r.stall = nil }()
 	if limit > 0 {
+		r.logf("stall start limit=%s", limit)
 		go r.watchStall(runCtx, cancelRun, watch, emit)
+	} else {
+		r.logf("stall disabled (лимит тишины выключен)")
 	}
 	stallErr := func() error {
 		if text := watch.stalledText(); text != "" {
