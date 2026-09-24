@@ -36,7 +36,8 @@ X-Title: NotCursor.ai   # legacy alias, still accepted
 2. `:floor` — выбрать самый дешёвый live-провайдер для модели.
 3. Prepaid: пополнение кредитов на openrouter.ai/credits (не monthly plan).
 4. В ответе `usage.cost` — фактическая стоимость в USD credits; NotCursor использует её в `costing.Cost` при наличии.
-5. Streaming SSE поддерживается API, но в агенте пока `stream: false` (как у DeepSeek/Z.ai).
+5. Streaming SSE: агент использует `stream: true` (`ChatCompletionStream`); `usage` (включая `cost`)
+   приходит последним чанком, поэтому стоимость шага считается и в потоке.
 6. Tools — OpenAI-shape; для agent loop нужны модели с `tools` в `supported_parameters`.
 
 ### Рекомендуемые coding-модели (tools)

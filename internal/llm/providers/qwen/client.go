@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -267,16 +268,28 @@ func FilterModels(items []ModelInfo, maxExtra int) []string {
 }
 
 type apiRequest struct {
-	Model       string         `json:"model"`
-	Messages    []llm.Message  `json:"messages"`
-	Tools       []llm.ToolSpec `json:"tools,omitempty"`
-	ToolChoice  any            `json:"tool_choice,omitempty"`
-	Stream      bool           `json:"stream"`
-	Temperature *float64       `json:"temperature,omitempty"`
-	MaxTokens   *int           `json:"max_tokens,omitempty"`
+	Model      string         `json:"model"`
+	Messages   []llm.Message  `json:"messages"`
+	Tools      []llm.ToolSpec `json:"tools,omitempty"`
+	ToolChoice any            `json:"tool_choice,omitempty"`
+	Stream     bool           `json:"stream"`
+	// include_usage просим только в потоке: DashScope отдаёт usage последним чанком.
+	StreamOptions *qwenStreamOptionsT `json:"stream_options,omitempty"`
+	Temperature   *float64            `json:"temperature,omitempty"`
+	MaxTokens     *int                `json:"max_tokens,omitempty"`
 }
 
 func (c *Client) ChatCompletion(ctx context.Context, req *llm.ChatRequest) (*llm.ChatResponse, error) {
+	return c.chat(ctx, req, false, nil)
+}
+
+// ChatCompletionStream — SSE-вариант: дельты уходят в onDelta, возвращается
+// собранное сообщение с tool_calls.
+func (c *Client) ChatCompletionStream(ctx context.Context, req *llm.ChatRequest, onDelta func(llm.StreamDelta)) (*llm.ChatResponse, error) {
+	return c.chat(ctx, req, true, onDelta)
+}
+
+func (c *Client) chat(ctx context.Context, req *llm.ChatRequest, stream bool, onDelta func(llm.StreamDelta)) (*llm.ChatResponse, error) {
 	if c.apiKey == "" {
 		return nil, fmt.Errorf("qwen: api key is empty")
 	}
@@ -294,12 +307,13 @@ func (c *Client) ChatCompletion(ctx context.Context, req *llm.ChatRequest) (*llm
 	}
 
 	payload := apiRequest{
-		Model:      model,
-		Messages:   req.Messages,
-		Tools:      req.Tools,
-		ToolChoice: req.ToolChoice,
-		Stream:     false, // stage-1: non-stream only (agent loop handles tools)
-		MaxTokens:  req.MaxTokens,
+		Model:         model,
+		Messages:      req.Messages,
+		Tools:         req.Tools,
+		ToolChoice:    req.ToolChoice,
+		Stream:        stream,
+		StreamOptions: qwenStreamOptions(stream),
+		MaxTokens:     req.MaxTokens,
 	}
 	if req.Temperature != nil {
 		payload.Temperature = req.Temperature
@@ -319,6 +333,25 @@ func (c *Client) ChatCompletion(ctx context.Context, req *llm.ChatRequest) (*llm
 	httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Accept", "application/json")
+
+	if stream {
+		out, err := llm.StreamOpenAI(ctx, c.http, httpReq, onDelta)
+		if err != nil {
+			var status *llm.HTTPStatusError
+			if errors.As(err, &status) {
+				// Эндпоинт не понял stream_options — отдаём обычный ответ.
+				if llm.StreamUnsupported(status.Status) {
+					return c.ChatCompletion(ctx, req)
+				}
+				return nil, mapAPIError(status.Status, status.Body)
+			}
+			return nil, err
+		}
+		if out.Model == "" {
+			out.Model = model
+		}
+		return out, nil
+	}
 
 	res, err := c.http.Do(httpReq)
 	if err != nil {
@@ -340,6 +373,18 @@ func (c *Client) ChatCompletion(ctx context.Context, req *llm.ChatRequest) (*llm
 		out.Model = model
 	}
 	return &out, nil
+}
+
+// qwenStreamOptions просит usage последним чанком (DashScope compatible-mode).
+func qwenStreamOptions(stream bool) *qwenStreamOptionsT {
+	if !stream {
+		return nil
+	}
+	return &qwenStreamOptionsT{IncludeUsage: true}
+}
+
+type qwenStreamOptionsT struct {
+	IncludeUsage bool `json:"include_usage"`
 }
 
 type apiErrorBody struct {

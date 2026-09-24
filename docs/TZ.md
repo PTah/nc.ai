@@ -1,9 +1,12 @@
 # Техническое задание: NotCursor.ai
 
-**Версия:** 0.1.0  
-**Дата:** 2026-09-06  
-**Репозиторий:** https://git.papatramp.ru/PapaTramp/nc.ai  
-**Статус:** этап 1 — фундамент (DeepSeek + shell/git/ssh)
+**Версия:** 0.1.0 (документ) · **состояние продукта:** 0.7.1
+**Дата:** 2026-09-06 · **обновлено:** 2026-09-25
+**Репозиторий:** https://git.papatramp.ru/PapaTramp/nc.ai
+**Статус:** этапы 1–4 закрыты (кроме подписей и macOS-артефактов), этап 5 не начат.
+Сводка «что сделано» — §4, актуальные планы — [`docs/roadmap.md`](roadmap.md).
+
+Легенда статусов: `[x]` сделано · `[~]` частично · `[ ]` не сделано.
 
 ---
 
@@ -71,58 +74,70 @@
 
 | Пакет | Назначение |
 |---|---|
-| `internal/app` | Wails App struct, lifecycle, bindings |
-| `internal/workspace` | проекты, пути, ignore, watch |
-| `internal/fsops` | чтение/запись/list/search (через `os`/`io`) |
-| `internal/shell` | PowerShell / bash / cmd через PTY (`os/exec`) |
-| `internal/gitx` | commit/diff/push/pull через **go-git** + опционально system git |
-| `internal/sshx` | SSH-сессии, ключи, known_hosts (`golang.org/x/crypto/ssh`) |
-| `internal/llm` | единый клиент chat/completions + streaming |
-| `internal/llm/providers` | DeepSeek (этап 1), далее OpenAI/OpenRouter/Anthropic/Ollama/Z.ai |
-| `internal/agent` | agent loop: messages ↔ tools ↔ provider |
-| `internal/tools` | tool registry: write_file, read_file, run_terminal, git_*, ssh_* |
-| `internal/config` | settings.json + encrypted secrets |
-| `internal/gitea` | remote helpers для Gitea (HTTP API / git remote) |
+| `app.go`, `main.go` | Wails App, lifecycle, bindings |
+| `internal/workspace` | проекты, дерево, поиск, иконки |
+| `internal/tools` | реестр инструментов, executor, фоновые jobs, patch, todos, lints |
+| `internal/shell` | PowerShell / bash / cmd через PTY |
+| `internal/gitx` | git через системный git CLI (hide-window на Windows) |
+| `internal/sshx` | SSH-сессии, ключи (`golang.org/x/crypto/ssh`) |
+| `internal/llm` | канон (OpenAI Chat Completions + tools), SSE-хелперы, лимиты |
+| `internal/llm/providers` | `deepseek`, `zai`, `openrouter`, `qwen`, `local` (OpenAI-совместимые), `anthropic` |
+| `internal/agent` | agent loop, авто-роутинг модели, compact, stall-watchdog, todo-nudge |
+| `internal/config` | settings.json, профили эндпоинтов (протокол, reasoning, num_ctx) |
+| `internal/secrets` | Credential Manager / Keychain + file fallback |
+| `internal/chatstore` | сессии чатов, архив, проектные бандлы, миграция |
+| `internal/costing` | каталог цен, refresh у провайдеров, peak info |
+| `internal/update` | автообновление с GitHub (exe + sha256) |
+| `internal/rules` | `.cursorrules` / `.cursor/rules`, turn-rules |
+| `internal/netx` | SSRF-защита, `fetch_url` |
+| `internal/appmeta`, `dockicon`, `chime`, `redact`, `fsx`, `providernews` | метаданные, иконка в доке, звук, редакция секретов, атомарная запись, новости провайдеров |
+
+Исходная таблица (этап 1) упоминала `internal/fsops`, `internal/gitea`, `go-git` — по факту
+файловые операции живут в `internal/tools`, git — через системный `git` в `internal/gitx`,
+а Gitea — как обычный git-remote (HTTP API не понадобился).
 
 ---
 
 ## 4. Этапы разработки
 
-### Этап 1 (текущий) — MVP «как Cursor» + DeepSeek
+### Этап 1 — MVP «как Cursor» + DeepSeek — **закрыт**
 
-- [ ] ТЗ и документация протоколов (`/docs`)
-- [ ] Каркас Wails (Go + React TS + Tailwind)
-- [ ] Layout: projects / file tree / chat / terminal
-- [ ] DeepSeek provider: `POST https://api.deepseek.com/chat/completions`
-- [ ] Streaming SSE в UI
-- [ ] Function calling / tools: read/write file, list dir, run shell
-- [ ] Локальный shell (PowerShell на Windows)
-- [ ] go-git: status, diff, commit, push в Gitea
-- [ ] SSH: connect, exec, generate keypair, known_hosts
-- [ ] Хранение API key DeepSeek локально
+- [x] ТЗ и документация протоколов (`/docs`)
+- [x] Каркас Wails (Go + React TS + Tailwind)
+- [x] Layout: projects / file tree / chat / terminal
+- [x] DeepSeek provider: `POST https://api.deepseek.com/chat/completions`
+- [x] Streaming SSE в UI — текстовые дельты и thinking идут в ленту; стримят все
+  провайдеры: DeepSeek, Z.ai, Qwen, OpenRouter, Anthropic и Local / custom
+- [x] Function calling / tools: read/write file, list dir, run shell
+- [x] Локальный shell (PowerShell на Windows)
+- [x] git: status, diff, commit, push (системный `git`, не go-git)
+- [x] SSH: connect, exec, keypair, known_hosts
+- [x] Хранение API key локально (Credential Manager / Keychain)
 
-### Этап 2 — Паритет агента
+### Этап 2 — Паритет агента — **закрыт**
 
-- [ ] Полный toolset (search, apply_patch, multi-file edit)
-- [ ] Diff preview + approve/reject
-- [ ] Контекст проекта (индексация, @file/@folder)
-- [ ] Несколько чатов / сессий
-- [ ] OpenRouter + OpenAI + Ollama
+- [x] Полный toolset (search, apply_patch, multi-file edit, glob/grep/find_files, run jobs, web)
+- [~] Diff preview + approve/reject — подтверждение вызовов (`toolConfirm`, allow/deny) есть,
+  отдельного diff-вьюера нет
+- [x] Контекст проекта (карта проекта, `@file`-хинты, поиск по дереву)
+- [x] Несколько чатов / сессий (сессии, архив, переименование)
+- [x] OpenRouter + OpenAI-совместимые + Ollama (профили Local / custom)
 
-### Этап 3 — Провайдеры и качество
+### Этап 3 — Провайдеры и качество — **закрыт**
 
-- [ ] Anthropic Messages API (адаптер из внутреннего формата)
-- [ ] Z.ai / GLM
-- [ ] Кэш контекста (DeepSeek prompt cache)
-- [ ] Политики безопасности tools (allowlist путей, confirm destructive)
+- [x] Anthropic Messages API (адаптер в `internal/llm/providers/anthropic`, профиль `protocol: anthropic`)
+- [x] Z.ai / GLM
+- [~] Кэш контекста DeepSeek — `prompt_cache_hit/miss` учитываются в usage и цене,
+  управление кэшем (стабильный префикс промпта) не делали
+- [x] Политики безопасности tools (sandbox путей, подтверждение разрушительных вызовов)
 
-### Этап 4 — Полировка продукта
+### Этап 4 — Полировка продукта — **закрыт, кроме подписей**
 
-- [ ] Автообновления, тема, шорткаты
+- [x] Автообновления (GitHub releases + sha256), тема и шрифты, шорткаты
 - [ ] macOS notarization / Windows code signing
-- [ ] Оптимизация размера бинарника
+- [x] Оптимизация размера бинарника (релизный exe ≈ 12 МБ, WebView системный)
 
-### Этап 5 — Субагенты (вложенные прогоны)
+### Этап 5 — Субагенты (вложенные прогоны) — **не начат**
 
 - [ ] Планировка — [`docs/roadmap.md`](roadmap.md)
 - [ ] Инструмент `task` + вложенный прогон (read-only, последовательно)
@@ -130,20 +145,29 @@
 - [ ] Конфигурация, лимиты шагов, отмена вместе с родителем
 - [ ] Выбор модели для подагента (Auto/Lite)
 
+### Что осталось за рамками этапов
+
+- **MCP** — [`docs/mcp.md`](mcp.md) пока черновик дизайна, кода нет.
+- **Провайдер и модель на каждый чат** — сейчас провайдер один на приложение.
+- **macOS-артефакты релиза** — 0.7.0 и 0.7.1 опубликованы без `macos-arm64` /
+  `macos-universal` (собираются только на macOS-хосте).
+- **diff viewer / LSP**, разбор `frontend/src/App.tsx` на хуки.
+
 ---
 
 ## 5. Провайдеры ИИ (сводка)
 
 Подробные контракты: [`docs/exchange-protocols/`](./exchange-protocols/).
 
-| Провайдер | Base URL | Endpoint | Формат |
-|---|---|---|---|
-| **DeepSeek** (этап 1) | `https://api.deepseek.com` | `POST /chat/completions` | OpenAI-совместимый |
-| OpenRouter | `https://openrouter.ai/api/v1` | `POST /chat/completions` | OpenAI + extensions |
-| OpenAI | `https://api.openai.com/v1` | `POST /chat/completions` | OpenAI |
-| Anthropic | `https://api.anthropic.com` | `POST /v1/messages` | **свой** Messages API |
-| Z.ai (GLM) | `https://open.bigmodel.cn/api/paas/v4` | `POST /chat/completions` | OpenAI-like |
-| Ollama | `http://localhost:11434/v1` | `POST /chat/completions` | OpenAI-совместимый |
+| Провайдер | Base URL | Endpoint | Формат | Статус |
+|---|---|---|---|---|
+| **DeepSeek** | `https://api.deepseek.com` | `POST /chat/completions` | OpenAI-совместимый | работает, стримит |
+| Z.ai (GLM) | `https://open.bigmodel.cn/api/paas/v4` | `POST /chat/completions` | OpenAI-like | работает, стримит |
+| OpenRouter | `https://openrouter.ai/api/v1` | `POST /chat/completions` | OpenAI + extensions | работает, стримит |
+| Qwen (DashScope) | `https://dashscope…/compatible-mode/v1` | `POST /chat/completions` | OpenAI-совместимый | работает, стримит |
+| Local / custom | любой OpenAI-совместимый хост (`http://127.0.0.1:11434/v1`, LAN, публичные роутеры бесплатных тарифов) | `POST /chat/completions` | OpenAI-совместимый | работает, стримит |
+| Anthropic | `https://api.anthropic.com` или роутер (Selora, Atria) | `POST /v1/messages` | **свой** Messages API (профиль `protocol: anthropic`) | работает, стримит |
+| OpenAI | `https://api.openai.com/v1` | `POST /chat/completions` | OpenAI | работает как профиль Local / custom |
 
 Внутренний канонический формат приложения — **OpenAI Chat Completions + tools**.  
 Anthropic и прочие отличия конвертируются адаптерами в `internal/llm/providers`.
@@ -164,22 +188,24 @@ Anthropic и прочие отличия конвертируются адапт
 
 ---
 
-## 7. Инструменты агента (этап 1)
+## 7. Инструменты агента (фактический состав)
 
 | Tool | Описание |
 |---|---|
-| `read_file` | Прочитать файл (path, optional offset/limit) |
-| `write_file` | Создать/перезаписать файл |
-| `list_dir` | Список каталога |
-| `run_terminal` | Выполнить команду в shell/PowerShell workspace |
-| `git_status` | Статус репозитория |
-| `git_diff` | Diff (staged/unstaged/path) |
-| `git_commit` | Commit через go-git |
-| `git_push` | Push в remote (Gitea и др.) |
-| `ssh_exec` | Команда на удалённом хосте |
-| `ssh_keygen` | Генерация ключевой пары |
+| `read_file` / `write_file` | чтение и запись файла (offset/limit при чтении) |
+| `list_dir` / `glob` / `find_files` / `grep` | навигация по дереву и поиск (по имени и по содержимому) |
+| `apply_patch` / `delete_file` / `move_file` | точечные правки, удаление, переименование |
+| `run_terminal` / `command_status` | команда в shell/PowerShell workspace; фоновые jobs и опрос |
+| `get_env_info` | ОС, arch, shell, версии go/node/python (запускается скрыто) |
+| `read_lints` | `go vet` / диагностика по изменённым файлам |
+| `todo_write` | план прогона (ToDo-панель в ленте) |
+| `ask_user` / `web_search` / `fetch_url` | вопрос пользователю, поиск в вебе, чтение URL (с SSRF-защитой) |
+| `git_status` / `git_diff` / `git_log` | состояние репозитория |
+| `git_commit` / `git_push` | коммит (только указанные файлы) и push в remote |
+| `ssh_exec` / `ssh_keygen` | команда на удалённом хосте, генерация ключа |
 
-Все пути — относительно workspace root, с запретом выхода за sandbox (кроме явного user-approved path).
+Все пути — относительно workspace root, с запретом выхода за sandbox; разрушительные вызовы
+можно подтверждать вручную (`toolConfirm` в настройках).
 
 ---
 
@@ -231,27 +257,30 @@ wails build -platform darwin/universal
 
 ## 11. Критерии приёмки этапа 1
 
-1. Приложение стартует на Windows через Wails.
-2. Можно добавить проект (папку) и видеть дерево файлов.
-3. В Settings сохраняется DeepSeek API key.
-4. Чат стримит ответ от DeepSeek.
-5. Агент через tools может изменить файл в проекте.
-6. Терминал выполняет PowerShell-команду в корне проекта.
-7. `git_commit` + `git_push` работают с Gitea remote.
-8. SSH: генерация ключа + `ssh_exec` на тестовый хост.
-9. Документация протоколов лежит в `/docs/exchange-protocols`.
+Этап 1 принят начиная с 0.6.x — все пункты ниже выполняются в 0.7.1:
+
+1. Приложение стартует на Windows через Wails. ✅
+2. Можно добавить проект (папку) и видеть дерево файлов. ✅
+3. В Settings сохраняется DeepSeek API key. ✅
+4. Чат стримит ответ от DeepSeek. ✅
+5. Агент через tools может изменить файл в проекте. ✅
+6. Терминал выполняет PowerShell-команду в корне проекта. ✅
+7. `git_commit` + `git_push` работают с Gitea remote. ✅
+8. SSH: генерация ключа + `ssh_exec` на тестовый хост. ✅
+9. Документация протоколов лежит в `/docs/exchange-protocols`. ✅
 
 ---
 
 ## 12. Риски и решения
 
-| Риск | Митигация |
-|---|---|
-| Anthropic ≠ OpenAI wire format | Внутренний OpenAI-канон + адаптер |
-| PTY на Windows сложнее | `conpty` / wrapper; fallback на pipes |
-| go-git ≠ 100% git CLI | Hybrid: go-git для обычных операций, shell git как fallback |
-| Утечка API key | secrets store, redaction в логах |
-| Размер сильно вырос | strip, без лишних CGO; UPX — осторожно |
+| Риск | Митигация | Состояние |
+|---|---|---|
+| Anthropic ≠ OpenAI wire format | Внутренний OpenAI-канон + адаптер | закрыто: `internal/llm/providers/anthropic` |
+| PTY на Windows сложнее | `conpty` / wrapper; fallback на pipes | закрыто (терминал работает) |
+| go-git ≠ 100% git CLI | Hybrid: go-git для обычных операций, shell git как fallback | закрыто иначе: везде системный `git` (`internal/gitx`) |
+| Утечка API key | secrets store, redaction в логах | закрыто (Credential Manager / Keychain, `internal/redact`) |
+| Размер сильно вырос | strip, без лишних CGO; UPX — осторожно | держим: релизный exe ≈ 12 МБ |
+| Лимиты бесплатных тарифов (5 RPM / 200 RPD) | собственный разбор `429` + ожидание | закрыто: `internal/llm/ratelimit.go` |
 
 ---
 

@@ -9,7 +9,7 @@ AI-агент для работы с кодом в отдельном окне: 
 Keychain / Windows Credential Manager), история чатов — локально. Наружу уходит только запрос к
 тому провайдеру LLM, которого вы выбрали сами.
 
-**Версия:** `0.7.1` · **На выходе:** `build/bin/NotCursor.exe` (Windows) и `build/bin/NotCursor.app` (macOS)
+**Версия:** `0.7.2` · **На выходе:** `build/bin/NotCursor.exe` (Windows) и `build/bin/NotCursor.app` (macOS)
 
 ## Быстрый старт
 
@@ -303,8 +303,7 @@ docs/                  # ТЗ, архитектура, протоколы
 
 ## Что дальше
 
-- стриминг ответа — пока только у профилей Local / custom (Chat Completions, `internal/llm/providers/local/stream.go`);
-  DeepSeek, Z.ai, Qwen, OpenRouter и профиль Anthropic отвечают целиком;
+- diff viewer + LSP-подсказки (сейчас правки показываются карточкой `apply_patch`);
 - diff viewer и LSP: пока простой редактор и `go vet` как инструмент;
 - разнести `frontend/src/App.tsx` на хуки;
 - провайдер и модель **на каждый чат**: сейчас провайдер выбирается глобально (Settings → Provider,
