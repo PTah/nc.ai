@@ -81,9 +81,14 @@ import {
   ResolveUserAsk,
   ResolveToolApproval,
   SaveAgentMaxSteps,
+  SaveAgentRetryBudgetSec,
+  SaveAgentRetryCount,
   SaveAgentWarnSteps,
   SaveAgentStallMin,
   SaveComposerHeight,
+  SaveHTTP2PingSec,
+  SaveHTTPProtocol,
+  ResetNetworkStats,
   SaveShowTerminal,
   GetEndSound,
   SaveEndSound,
@@ -1443,6 +1448,14 @@ export default function App() {
   const [warnSteps, setWarnSteps] = useState(120)
   const [stallMinutes, setStallMinutes] = useState(10)
   const [stallOff, setStallOff] = useState(false)
+  // Сеть (Settings → Network): протокол к провайдерам, повторы и диагностика.
+  const [httpProtocol, setHttpProtocol] = useState<'auto' | 'http11'>('auto')
+  const [http2PingSec, setHttp2PingSec] = useState(20)
+  const [retryCount, setRetryCount] = useState(3)
+  const [retryBudgetSec, setRetryBudgetSec] = useState(180)
+  const [netDrops, setNetDrops] = useState(0)
+  const [netLastDrop, setNetLastDrop] = useState('')
+  const [netLastDropAt, setNetLastDropAt] = useState('')
   const unlimitedSteps = maxSteps < 0
   const [deepseekKeySet, setDeepseekKeySet] = useState(false)
   const [zaiKeySet, setZaiKeySet] = useState(false)
@@ -2119,6 +2132,16 @@ export default function App() {
         setPlanMode(Boolean(s.planMode))
         if (typeof s.appDataDir === 'string' && s.appDataDir) setAppDataDir(s.appDataDir)
         if (typeof s.agentMaxSteps === 'number' && s.agentMaxSteps !== 0) setMaxSteps(s.agentMaxSteps)
+        {
+          const raw = s as Record<string, any>
+          setHttpProtocol(raw.httpProtocol === 'http11' ? 'http11' : 'auto')
+          const ping = Number(raw.http2PingSec)
+          setHttp2PingSec(Number.isFinite(ping) && ping !== 0 ? ping : 20)
+          const rc = Number(raw.agentRetryCount)
+          if (Number.isFinite(rc) && rc > 0) setRetryCount(rc)
+          const rb = Number(raw.agentRetryBudgetSec)
+          if (Number.isFinite(rb) && rb > 0) setRetryBudgetSec(rb)
+        }
         const stall = Number((s as Record<string, any>).agentStallMinutes)
         if (Number.isFinite(stall)) {
           if (stall > 0) {
@@ -2131,6 +2154,13 @@ export default function App() {
         if (typeof s.agentWarnSteps === 'number' && s.agentWarnSteps !== 0) {
           // negative in settings = warnings off; the field shows 0 for that
           setWarnSteps(s.agentWarnSteps < 0 ? 0 : s.agentWarnSteps)
+        }
+        {
+          const raw = s as Record<string, any>
+          const drop = Number(raw.netDrops)
+          setNetDrops(Number.isFinite(drop) && drop > 0 ? drop : 0)
+          setNetLastDrop(typeof raw.netLastDrop === 'string' ? raw.netLastDrop : '')
+          setNetLastDropAt(typeof raw.netLastDropAt === 'string' ? raw.netLastDropAt : '')
         }
         setShowTerm(Boolean(s.showTerminal))
         if (typeof s.showFiles === 'boolean') setShowTree(s.showFiles)
@@ -3507,6 +3537,10 @@ export default function App() {
     await SaveAgentMaxSteps(unlimitedSteps ? -1 : (Number(maxSteps) || 120))
     await SaveAgentWarnSteps(warnSteps > 0 ? Number(warnSteps) : -1)
     await SaveAgentStallMin(stallOff ? -1 : Math.min(240, Math.max(1, Number(stallMinutes) || 10)))
+    await SaveHTTPProtocol(httpProtocol)
+    await SaveHTTP2PingSec(Math.max(-1, Math.min(120, Number(http2PingSec) || 0)))
+    await SaveAgentRetryCount(Math.max(0, Math.min(10, Number(retryCount) || 0)))
+    await SaveAgentRetryBudgetSec(Math.max(0, Math.min(900, Number(retryBudgetSec) || 0)))
     await SaveShowTerminal(showTerm)
     await SaveTheme(theme)
     await SaveUiFont(uiFont)
@@ -5363,6 +5397,92 @@ export default function App() {
               шаге встали, в какой фазе (ждём модель или висит инструмент) и что делать. По умолчанию
               10 минут.
             </p>
+
+            <div className="nc-section-label">Network</div>
+            <label>
+              HTTP protocol (LLM)
+              <select
+                value={httpProtocol}
+                onChange={(e) => {
+                  const next = e.target.value === 'http11' ? 'http11' : 'auto'
+                  setHttpProtocol(next)
+                  void SaveHTTPProtocol(next)
+                }}
+              >
+                <option value="auto">Auto (HTTP/2, если сервер умеет)</option>
+                <option value="http11">HTTP/1.1 (HTTP/2 выключен)</option>
+              </select>
+            </label>
+            <label>
+              Reconnect attempts
+              <input
+                type="number"
+                min={0}
+                max={10}
+                value={retryCount}
+                placeholder="3"
+                onChange={(e) => setRetryCount(Number(e.target.value))}
+              />
+            </label>
+            <label>
+              Reconnect budget, sec
+              <input
+                type="number"
+                min={0}
+                max={900}
+                step={30}
+                value={retryBudgetSec}
+                placeholder="180"
+                onChange={(e) => setRetryBudgetSec(Number(e.target.value))}
+              />
+            </label>
+            <label>
+              HTTP/2 keepalive (PING), sec
+              <input
+                type="number"
+                min={-1}
+                max={120}
+                value={http2PingSec}
+                placeholder="20"
+                onChange={(e) => setHttp2PingSec(Number(e.target.value))}
+              />
+            </label>
+            <p className="nc-help">
+              «HTTP protocol» переключает протокол к провайдерам: «Auto» — HTTP/2, если сервер его
+              умеет (по умолчанию); «HTTP/1.1» выключает h2. Второе лечит обрывы длинных потоков
+              («Соединение с LLM потеряно … connection reset by peer»), когда CDN, роутер с обходом
+              блокировок или DPI рвут мультиплексированное h2-соединение: у api.deepseek.com
+              (CloudFront) такое бывает в середине рассуждения модели.
+            </p>
+            <p className="nc-help">
+              «HTTP/2 keepalive» шлёт PING через столько секунд полной тишины (ни одного кадра от
+              сервера) и обрывает соединение, если ответа на PING нет 10 сек — так путь
+              клиент↔edge не засыпает в NAT/DPI, а мёртвый поток виден сразу. 20 сек по умолчанию,
+              -1 — выключить. Это лечит участок клиент↔edge; если поток рвёт сам origin, поможет
+              короткий шаг (модель Flash для длинных прогонов) или смена маршрута, а не только ping.
+            </p>
+            <p className="nc-help">
+              «Reconnect attempts» — сколько раз переподключаемся к провайдеру после сетевого
+              обрыва внутри одного шага (0 = 3 по умолчанию, максимум 10). «Reconnect budget» —
+              сколько суммарно готовы ждать серию повторов (0 = 180 сек): сеть, которая рвёт
+              каждую попытку, не растянет прогон на десятки минут.
+            </p>
+            <p className="nc-help">
+              Диагностика: обрывов соединения с LLM за этот запуск — <strong>{netDrops}</strong>
+              {netLastDropAt ? ` (последний в ${netLastDropAt})` : ''}
+              {netLastDrop ? <><br /><span className="nc-net-last">{netLastDrop}</span></> : null}
+            </p>
+            <button
+              type="button"
+              className="nc-ghost"
+              onClick={() => void ResetNetworkStats().then(() => {
+                setNetDrops(0)
+                setNetLastDrop('')
+                setNetLastDropAt('')
+              })}
+            >
+              Reset counter
+            </button>
 
             <div className="nc-section-label">Interface</div>
             <label>

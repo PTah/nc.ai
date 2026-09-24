@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -35,35 +34,17 @@ func StreamUnsupported(status int) bool {
 	return false
 }
 
-// streamTransport — транспорт для SSE: общий Timeout снимаем (поток живёт
-// долго), но ждём заголовки ответа ограниченно, чтобы мёртвый хост отваливался
-// за ~90 секунд, а не висел до stall-watchdog.
-var streamTransport = &http.Transport{
-	Proxy: http.ProxyFromEnvironment,
-	DialContext: (&net.Dialer{
-		Timeout:   15 * time.Second,
-		KeepAlive: 30 * time.Second,
-	}).DialContext,
-	ForceAttemptHTTP2:     true,
-	MaxIdleConns:          10,
-	IdleConnTimeout:       90 * time.Second,
-	TLSHandshakeTimeout:   15 * time.Second,
-	ExpectContinueTimeout: time.Second,
-	ResponseHeaderTimeout: 90 * time.Second,
-}
-
 // StreamClient готовит HTTP-клиент под поток: без общего Timeout (иначе длинный
-// ответ обрывается), с транспортом по умолчанию и лимитом на заголовки ответа.
+// ответ обрывается), с общим потоковым транспортом (протокол — из Settings →
+// Network) и лимитом на заголовки ответа.
 func StreamClient(base *http.Client) *http.Client {
-	if base == nil {
-		return &http.Client{Transport: streamTransport}
+	client := http.Client{Transport: StreamTransport()}
+	if base != nil {
+		client = *base
+		client.Timeout = 0
+		client.Transport = StreamTransport()
 	}
-	clone := *base
-	clone.Timeout = 0
-	if clone.Transport == nil {
-		clone.Transport = streamTransport
-	}
-	return &clone
+	return &client
 }
 
 // StreamOpenAI выполняет уже подготовленный POST и разбирает SSE-поток

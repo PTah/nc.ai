@@ -137,6 +137,8 @@ export function ResolveToolApproval(arg1:string,arg2:string,arg3:boolean):Promis
 
 export function ResolveUserAsk(arg1:string,arg2:string,arg3:string):Promise<void>;
 
+export function ResetNetworkStats():Promise<void>;
+
 export function RunAgent(arg1:string):Promise<void>;
 
 export function RunAgentWithAttachments(arg1:string,arg2:Array<agent.Attachment>):Promise<void>;
@@ -150,6 +152,10 @@ export function SSHListKeys():Promise<Array<string>>;
 export function SaveActiveProvider(arg1:string):Promise<void>;
 
 export function SaveAgentMaxSteps(arg1:number):Promise<void>;
+
+export function SaveAgentRetryBudgetSec(arg1:number):Promise<void>;
+
+export function SaveAgentRetryCount(arg1:number):Promise<void>;
 
 export function SaveAgentStallMin(arg1:number):Promise<void>;
 
@@ -170,6 +176,10 @@ export function SaveDeepSeekModel(arg1:string):Promise<void>;
 export function SaveEndSound(arg1:boolean):Promise<void>;
 
 export function SaveGitAuth(arg1:string,arg2:string):Promise<void>;
+
+export function SaveHTTP2PingSec(arg1:number):Promise<void>;
+
+export function SaveHTTPProtocol(arg1:string):Promise<void>;
 
 export function SaveLayoutSizes(arg1:number,arg2:number,arg3:number,arg4:number,arg5:number):Promise<void>;
 

@@ -94,6 +94,12 @@ type App struct {
 
 	orBalMu sync.Mutex
 	orBal   openrouter.AccountBalance
+
+	// netMu guards the LLM connection-drop counters (Settings → Network).
+	netMu        sync.Mutex
+	netDrops     int
+	netLastDrop  string
+	netLastDropA time.Time
 }
 
 func NewApp() *App {
@@ -136,6 +142,7 @@ func (a *App) startup(ctx context.Context) {
 	// Прошлый процесс не оставил прогонов: маркер мог остаться только при падении.
 	a.clearStaleRunMarker()
 	_ = a.cfg.Load()
+	a.applyHTTPConfig()
 	a.detectStartupNotice()
 	a.applyDeepSeekStartupDefaults()
 	sshDir, err := a.cfg.SSHDir()
@@ -733,6 +740,7 @@ func (a *App) GetSettings() map[string]any {
 	s := a.cfg.Get()
 	provider := a.cfg.Provider()
 	appData, _ := a.cfg.AppDataDir()
+	netDrops, netLastDrop, netLastDropAt := a.networkStats()
 	localEps := make([]map[string]any, 0, len(s.LocalEndpoints))
 	for _, ep := range a.cfg.LocalEndpoints() {
 		localEps = append(localEps, map[string]any{
@@ -751,49 +759,56 @@ func (a *App) GetSettings() map[string]any {
 		localKeyProvider = config.MakeLocalProvider(config.DefaultLocalEndpointID)
 	}
 	return map[string]any{
-		"activeProvider":     provider,
-		"deepseekModel":      s.DeepSeekModel,
-		"deepseekProRetired": appmeta.DeepSeekProRetired(time.Now()),
-		"deepseekKeySet":     a.cfg.HasAPIKey(config.ProviderDeepSeek),
-		"zaiModel":           orDefault(s.ZaiModel, zai.DefaultModel),
-		"zaiKeySet":          a.cfg.HasAPIKey(config.ProviderZAI),
-		"zaiEndpoint":        a.cfg.ZaiEndpoint(),
-		"openrouterModel":    orDefault(s.OpenRouterModel, openrouter.DefaultModel),
-		"openrouterKeySet":   a.cfg.HasAPIKey(config.ProviderOpenRouter),
-		"qwenModel":          orDefault(s.QwenModel, qwen.DefaultModel),
-		"qwenKeySet":         a.cfg.HasAPIKey(config.ProviderQwen),
-		"qwenEndpoint":       a.cfg.QwenEndpoint(),
-		"localBaseUrl":       a.cfg.LocalBaseURL(),
-		"localModel":         a.cfg.LocalModel(),
-		"localKeySet":        a.cfg.HasAPIKey(localKeyProvider),
-		"localEndpoints":     localEps,
-		"secretsBackend":     a.cfg.SecretsBackendLabel(),
-		"shell":              s.Shell,
-		"shellResolved":      shell.ResolveShell(s.Shell),
-		"shellDetected":      shell.DetectDefaultShell(),
-		"recentProjects":     s.RecentProjects,
-		"showTerminal":       s.ShowTerminal,
-		"showFiles":          a.cfg.FilesVisible(),
-		"endSound":           a.cfg.EndSoundEnabled(),
-		"showSettings":       s.ShowSettings,
-		"theme":              a.cfg.Theme(),
-		"uiFont":             a.cfg.UiFont(),
-		"monoFont":           a.cfg.MonoFont(),
-		"agentMaxSteps":      a.cfg.MaxAgentSteps(),
-		"agentWarnSteps":     a.cfg.AgentWarnSteps(),
-		"agentStallMinutes":  int(a.cfg.AgentStallLimit().Minutes()),
-		"autoModels":         a.cfg.AutoModels(),
-		"localLite":          a.cfg.LocalLiteEnabled(),
-		"localSkipRules":     a.cfg.LocalSkipRulesEnabled(),
-		"toolConfirm":        a.cfg.ToolConfirmEnabled(),
-		"planMode":           a.cfg.PlanModeEnabled(),
-		"visionModel":        deepseek.VisionModel,
-		"appDataDir":         appData,
-		"layoutProjectsW":    nonzero(s.LayoutProjectsW, 200),
-		"layoutTreeW":        nonzero(s.LayoutTreeW, 220),
-		"layoutSettingsW":    nonzero(s.LayoutSettingsW, 230),
-		"layoutTerminalH":    nonzero(s.LayoutTerminalH, 160),
-		"layoutComposerH":    nonzero(s.LayoutComposerH, 150),
+		"activeProvider":      provider,
+		"deepseekModel":       s.DeepSeekModel,
+		"deepseekProRetired":  appmeta.DeepSeekProRetired(time.Now()),
+		"deepseekKeySet":      a.cfg.HasAPIKey(config.ProviderDeepSeek),
+		"zaiModel":            orDefault(s.ZaiModel, zai.DefaultModel),
+		"zaiKeySet":           a.cfg.HasAPIKey(config.ProviderZAI),
+		"zaiEndpoint":         a.cfg.ZaiEndpoint(),
+		"openrouterModel":     orDefault(s.OpenRouterModel, openrouter.DefaultModel),
+		"openrouterKeySet":    a.cfg.HasAPIKey(config.ProviderOpenRouter),
+		"qwenModel":           orDefault(s.QwenModel, qwen.DefaultModel),
+		"qwenKeySet":          a.cfg.HasAPIKey(config.ProviderQwen),
+		"qwenEndpoint":        a.cfg.QwenEndpoint(),
+		"localBaseUrl":        a.cfg.LocalBaseURL(),
+		"localModel":          a.cfg.LocalModel(),
+		"localKeySet":         a.cfg.HasAPIKey(localKeyProvider),
+		"localEndpoints":      localEps,
+		"secretsBackend":      a.cfg.SecretsBackendLabel(),
+		"shell":               s.Shell,
+		"shellResolved":       shell.ResolveShell(s.Shell),
+		"shellDetected":       shell.DetectDefaultShell(),
+		"recentProjects":      s.RecentProjects,
+		"showTerminal":        s.ShowTerminal,
+		"showFiles":           a.cfg.FilesVisible(),
+		"endSound":            a.cfg.EndSoundEnabled(),
+		"showSettings":        s.ShowSettings,
+		"theme":               a.cfg.Theme(),
+		"uiFont":              a.cfg.UiFont(),
+		"monoFont":            a.cfg.MonoFont(),
+		"agentMaxSteps":       a.cfg.MaxAgentSteps(),
+		"agentWarnSteps":      a.cfg.AgentWarnSteps(),
+		"agentStallMinutes":   int(a.cfg.AgentStallLimit().Minutes()),
+		"httpProtocol":        a.cfg.HTTPProtocolMode(),
+		"http2PingSec":        int(a.cfg.HTTP2Ping().Seconds()),
+		"agentRetryCount":     a.cfg.AgentRetryCount(),
+		"agentRetryBudgetSec": int(a.cfg.AgentRetryBudget().Seconds()),
+		"netDrops":            netDrops,
+		"netLastDrop":         netLastDrop,
+		"netLastDropAt":       netLastDropAt,
+		"autoModels":          a.cfg.AutoModels(),
+		"localLite":           a.cfg.LocalLiteEnabled(),
+		"localSkipRules":      a.cfg.LocalSkipRulesEnabled(),
+		"toolConfirm":         a.cfg.ToolConfirmEnabled(),
+		"planMode":            a.cfg.PlanModeEnabled(),
+		"visionModel":         deepseek.VisionModel,
+		"appDataDir":          appData,
+		"layoutProjectsW":     nonzero(s.LayoutProjectsW, 200),
+		"layoutTreeW":         nonzero(s.LayoutTreeW, 220),
+		"layoutSettingsW":     nonzero(s.LayoutSettingsW, 230),
+		"layoutTerminalH":     nonzero(s.LayoutTerminalH, 160),
+		"layoutComposerH":     nonzero(s.LayoutComposerH, 150),
 		// 0 = fill the whole chat pane (no artificial max-width).
 		"layoutChatMaxW": s.LayoutChatMaxW,
 	}
@@ -1808,6 +1823,84 @@ func (a *App) SaveAgentStallMin(min int) error {
 	return a.cfg.SetAgentStallMin(min)
 }
 
+// applyHTTPConfig применяет сетевые настройки провайдеров (Settings → Network):
+// протокол (h2 / http1.1) и h2 keepalive. Вызывается на старте и при сохранении.
+func (a *App) applyHTTPConfig() {
+	mode := llm.HTTPProtocol(a.cfg.HTTPProtocolMode())
+	llm.SetHTTPProtocol(mode)
+	ping := a.cfg.HTTP2Ping()
+	llm.SetHTTP2Keepalive(ping)
+	a.logAgentLine(fmt.Sprintf("llm http protocol=%s keepalive=%s", mode, ping))
+}
+
+// SaveHTTPProtocol выбирает протокол для запросов к провайдерам:
+// "auto" — HTTP/2, если сервер умеет; "http11" — только HTTP/1.1 (h2 выключен).
+// Второй режим помогает, когда CDN/DPI рвут длинные SSE-потоки:
+// «connection reset by peer» в середине ответа.
+func (a *App) SaveHTTPProtocol(mode string) error {
+	if err := a.cfg.SetHTTPProtocolMode(mode); err != nil {
+		return err
+	}
+	a.applyHTTPConfig()
+	return nil
+}
+
+// SaveHTTP2PingSec задаёт HTTP/2 keepalive: через сколько секунд тишины
+// отправлять PING (0 = по умолчанию, <0 = выключить). PING держит соединение
+// живым на стороне роутера/NAT/DPI и быстрее замечает мёртвый поток.
+func (a *App) SaveHTTP2PingSec(sec int) error {
+	if err := a.cfg.SetHTTP2Ping(sec); err != nil {
+		return err
+	}
+	a.applyHTTPConfig()
+	return nil
+}
+
+// SaveAgentRetryCount stores how many reconnect attempts one step makes after a
+// dropped stream (0 = default).
+func (a *App) SaveAgentRetryCount(n int) error {
+	return a.cfg.SetAgentRetryCount(n)
+}
+
+// SaveAgentRetryBudgetSec stores the total wait budget of one reconnect series.
+func (a *App) SaveAgentRetryBudgetSec(sec int) error {
+	return a.cfg.SetAgentRetryBudgetSec(sec)
+}
+
+// noteNetworkDrop считает обрывы соединения с LLM (переподключения) для
+// диагностики в Settings → Network и пишет строку в agent.log.
+func (a *App) noteNetworkDrop(_ int, err error) {
+	text := ""
+	if err != nil {
+		text = err.Error()
+	}
+	a.netMu.Lock()
+	a.netDrops++
+	a.netLastDrop = text
+	a.netLastDropA = time.Now()
+	a.netMu.Unlock()
+}
+
+// ResetNetworkStats обнуляет счётчик обрывов связи.
+func (a *App) ResetNetworkStats() {
+	a.netMu.Lock()
+	a.netDrops = 0
+	a.netLastDrop = ""
+	a.netLastDropA = time.Time{}
+	a.netMu.Unlock()
+}
+
+// networkStats отдаёт счётчик обрывов, последнюю ошибку и её время (для UI).
+func (a *App) networkStats() (int, string, string) {
+	a.netMu.Lock()
+	defer a.netMu.Unlock()
+	at := ""
+	if !a.netLastDropA.IsZero() {
+		at = a.netLastDropA.Format("15:04:05")
+	}
+	return a.netDrops, a.netLastDrop, at
+}
+
 // SaveGitAuth is deprecated: Git uses OS credential helpers / SSH keys.
 // Calling it clears any leftover in-app secrets.
 func (a *App) SaveGitAuth(_, _ string) error {
@@ -2416,6 +2509,9 @@ func (a *App) RunAgentWithAttachments(userMessage string, attachments []agent.At
 		MaxSteps:        a.cfg.MaxAgentSteps(),
 		WarnSteps:       a.cfg.AgentWarnSteps(),
 		StallLimit:      a.cfg.AgentStallLimit(),
+		RetryCount:      a.cfg.AgentRetryCount(),
+		RetryBudget:     a.cfg.AgentRetryBudget(),
+		OnNetworkRetry:  a.noteNetworkDrop,
 		Logf:            a.logAgentLine,
 		RulesText:       rulesText,
 		TurnRulesText:   turnRulesText,

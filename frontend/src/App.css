@@ -1412,6 +1412,16 @@ mark.nc-find-mark.nc-find-current {
   word-break: break-all;
 }
 
+/* Settings → Network: последняя ошибка обрыва соединения с LLM. */
+.nc-net-last {
+  display: inline-block;
+  margin-top: 0.15rem;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--muted);
+  word-break: break-all;
+}
+
 .nc-close-project h2 {
   margin: 0 0 0.45rem;
   font-size: 1.05rem;
