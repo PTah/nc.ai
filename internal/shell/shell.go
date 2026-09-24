@@ -4,16 +4,21 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 
 	gopty "github.com/aymanbagabas/go-pty"
 )
+
+// ErrTimeout — команда не уложилась в отведённое время; дерево процессов погашено.
+var ErrTimeout = errors.New("command timed out")
 
 // Result is the output of a one-shot shell command.
 type Result struct {
@@ -53,12 +58,32 @@ func Run(ctx context.Context, command, cwd, shellPath string, timeout time.Durat
 	env = append(env, "GIT_PAGER=cat", "PAGER=cat", "CI=1")
 	cmd.Env = env
 	ConfigureCmd(cmd)
+	prepareTree(cmd)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
+	// После Cancel не ждём потомков бесконечно: иначе таймаут «залипает»,
+	// пока держатся унаследованные пайпы.
+	cmd.WaitDelay = 5 * time.Second
+	watchDone := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			killTree(cmd)
+		case <-watchDone:
+		}
+	}()
 	err := cmd.Run()
+	close(watchDone)
 	code := 0
 	if err != nil {
+		switch {
+		case errors.Is(ctx.Err(), context.DeadlineExceeded):
+			return nil, fmt.Errorf("%w: %s — лимит %s. Для долгих команд запускайте с is_background=true или увеличьте timeout_sec",
+				ErrTimeout, shortCommand(command), formatTimeout(timeout))
+		case errors.Is(ctx.Err(), context.Canceled):
+			return nil, fmt.Errorf("команда отменена: %s", shortCommand(command))
+		}
 		if ee, ok := err.(*exec.ExitError); ok {
 			code = ee.ExitCode()
 		} else {
@@ -70,6 +95,45 @@ func Run(ctx context.Context, command, cwd, shellPath string, timeout time.Durat
 		Stderr:   decodeShellBytes(stderr.Bytes()),
 		ExitCode: code,
 	}, nil
+}
+
+// IsTimeout сообщает, что команда не уложилась в лимит времени.
+func IsTimeout(err error) bool {
+	return errors.Is(err, ErrTimeout)
+}
+
+// shortCommand — команда одной строкой и не длиннее двух строк вывода: так она
+// попадает в сообщение об ошибке, не раздувая контекст агента.
+func shortCommand(command string) string {
+	cmd := strings.TrimSpace(command)
+	if i := strings.IndexByte(cmd, '\n'); i >= 0 {
+		cmd = cmd[:i] + "…"
+	}
+	runes := []rune(cmd)
+	if len(runes) > 120 {
+		cmd = string(runes[:120]) + "…"
+	}
+	return cmd
+}
+
+// formatTimeout печатает лимит по-человечески: «45 сек», «5 мин», «1 ч 30 мин».
+func formatTimeout(d time.Duration) string {
+	if d < time.Minute {
+		return fmt.Sprintf("%d сек", int(d.Seconds()))
+	}
+	if d < time.Hour {
+		m := int(d.Minutes())
+		if s := int(d.Seconds()) % 60; s != 0 {
+			return fmt.Sprintf("%d мин %d сек", m, s)
+		}
+		return fmt.Sprintf("%d мин", m)
+	}
+	h := int(d.Hours())
+	m := int(d.Minutes()) % 60
+	if m == 0 {
+		return fmt.Sprintf("%d ч", h)
+	}
+	return fmt.Sprintf("%d ч %d мин", h, m)
 }
 
 // Session is a long-lived interactive shell for the Xterm panel (real PTY/ConPTY).

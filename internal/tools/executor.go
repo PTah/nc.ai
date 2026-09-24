@@ -72,11 +72,15 @@ func NewRegistry(ws *workspace.Manager, sshDir string) *Registry {
 		SSHDir:  sshDir,
 		Git:     gitx.New(ws),
 		SSH:     sshx.New(sshDir),
-		Timeout: 90 * time.Second,
+		Timeout: 120 * time.Second,
 		Jobs:    NewJobStore(),
 		Todos:   NewTodoStore(),
 	}
 }
+
+// maxCommandTimeout — верхняя граница для timeout_sec из аргументов агента:
+// защита от «запусти и забудь» на сутки.
+const maxCommandTimeout = 30 * time.Minute
 
 // DangerousTool reports tools that may mutate the system or leave the machine
 // when ToolConfirm is enabled.
@@ -294,6 +298,9 @@ func (r *Registry) Execute(ctx context.Context, call llm.ToolCall) (string, erro
 		if sec := intArg(args, "timeout_sec"); sec > 0 {
 			timeout = time.Duration(sec) * time.Second
 		}
+		if timeout > maxCommandTimeout {
+			timeout = maxCommandTimeout
+		}
 		bg, _ := args["is_background"].(bool)
 		if bg {
 			if r.Jobs == nil {
@@ -491,7 +498,9 @@ func (r *Registry) envInfo() string {
 }
 
 func toolVersion(bin string, args ...string) string {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	// На холодную npm/Node на Windows отвечают заметно дольше 2 секунд —
+	// с коротким лимитом get_env_info рапортовал «тулчейна нет».
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, bin, args...)
 	shell.ConfigureCmd(cmd)
@@ -660,8 +669,8 @@ func allToolSpecs() []llm.ToolSpec {
 			"properties": map[string]any{
 				"command":       map[string]any{"type": "string", "description": "Single line, no newlines; add -y/--yes; no pagers"},
 				"cwd":           map[string]any{"type": "string", "description": "Relative directory under the workspace root"},
-				"timeout_sec":   map[string]any{"type": "integer"},
-				"is_background": map[string]any{"type": "boolean"},
+				"timeout_sec":   map[string]any{"type": "integer", "description": "Time limit (default 120, max 1800). On timeout the whole process tree is killed — builds and installs that take longer should run with is_background=true"},
+				"is_background": map[string]any{"type": "boolean", "description": "Start as a background job (max 8, default limit 30 min) and poll it with command_status"},
 				"explanation":   map[string]any{"type": "string", "description": "Short why, shown in the approval dialog"},
 			},
 			"required": []string{"command"},

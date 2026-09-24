@@ -3,6 +3,7 @@ package tools
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os/exec"
 	"path/filepath"
@@ -63,7 +64,7 @@ func runGoVet(root, pkg string) (string, error) {
 	if _, err := exec.LookPath("go"); err != nil {
 		return "go is not on PATH — cannot run read_lints", nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 	arg := pkg
 	if pkg != "./..." {
@@ -80,6 +81,14 @@ func runGoVet(root, pkg string) (string, error) {
 	cmd.Stderr = &buf
 	err := cmd.Run()
 	out := strings.TrimSpace(buf.String())
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		// go vet компилирует пакеты: на холодном кэше сборки это минуты.
+		msg := "go vet не уложился в 2 мин (холодный кэш сборки) — повторите read_lints или один раз соберите проект (go build ./...)"
+		if out != "" {
+			msg += "\n" + out
+		}
+		return "", errors.New(msg)
+	}
 	if err != nil && out == "" {
 		return "", err
 	}
