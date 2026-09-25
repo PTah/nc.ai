@@ -998,6 +998,9 @@ type DisplayRow =
   | { key: string; kind: 'item'; item: ChatItem }
   | { key: string; kind: 'tool_group'; tools: Extract<ChatItem, {kind: 'tool'}>[]; summary: string }
   | { key: string; kind: 'process'; rows: DisplayRow[] }
+  // Весь виток между запросом пользователя и финальным ответом — под одним
+  // треугольником «Промежуточные результаты».
+  | { key: string; kind: 'turn_steps'; rows: DisplayRow[]; steps: number }
   // Синтетическая строка: завершённый план задач встаёт в поток как обычный блок.
   | { key: string; kind: 'todos' }
 
@@ -1158,7 +1161,7 @@ function TodoPanel({todos, expand, busy, onContext}: {todos: TodoItem[]; expand?
 }
 
 /** Collapse consecutive completed tools; when compact, even a single tool becomes a summary group. */
-function buildDisplayRows(items: ChatItem[], compact = false): DisplayRow[] {
+function buildDisplayRows(items: ChatItem[], compact = false, finalVisible = true): DisplayRow[] {
   const rows: DisplayRow[] = []
   let i = 0
   const list = asList(items)
@@ -1180,7 +1183,10 @@ function buildDisplayRows(items: ChatItem[], compact = false): DisplayRow[] {
     rows.push({key: `i-${i}`, kind: 'item', item: m})
     i++
   }
-  return collapseProcess(rows, compact)
+  const collapsed = collapseProcess(rows, compact)
+  // Свёрнутый виток нужен только у завершённого ответа: пока агент работает,
+  // шаги должны быть видны живьём.
+  return compact ? collapseTurnSteps(collapsed, finalVisible) : collapsed
 }
 
 /** Ключи строк-хвоста не должны совпадать с ключами головы того же списка. */
@@ -1211,6 +1217,152 @@ function collapseProcess(rows: DisplayRow[], compact: boolean): DisplayRow[] {
     i++
   }
   return out
+}
+
+function isUserRow(r: DisplayRow): boolean {
+  return r.kind === 'item' && r.item.kind === 'user'
+}
+
+/** Сколько «шагов» (инструментов и размышлений) в наборе строк. */
+function countTurnSteps(rows: DisplayRow[]): number {
+  let steps = 0
+  for (const r of rows) {
+    switch (r.kind) {
+      case 'tool_group':
+        steps += r.tools.length
+        break
+      case 'process':
+      case 'turn_steps':
+        steps += countTurnSteps(r.rows)
+        break
+      case 'item':
+        if (r.item.kind === 'tool' && r.item.phase === 'done') steps += 1
+        if (r.item.kind === 'reasoning') steps += 1
+        break
+    }
+  }
+  return steps
+}
+
+/**
+ * Свернуть промежуточные шаги витка под один треугольник. Виток — всё между
+ * сообщением пользователя и следующим его сообщением; финальный ответ агента
+ * (последний непустой assistant) остаётся на виду, если он в этом же куске
+ * (`finalVisible`). Вызов пользователя не сворачивается никогда.
+ */
+function collapseTurnSteps(rows: DisplayRow[], finalVisible: boolean): DisplayRow[] {
+  const out: DisplayRow[] = []
+  let i = 0
+  while (i < rows.length) {
+    if (!isUserRow(rows[i])) {
+      out.push(rows[i])
+      i++
+      continue
+    }
+    out.push(rows[i])
+    i++
+    const turn: DisplayRow[] = []
+    while (i < rows.length && !isUserRow(rows[i])) {
+      turn.push(rows[i])
+      i++
+    }
+    out.push(...splitTurnSteps(turn, finalVisible))
+  }
+  return out
+}
+
+function splitTurnSteps(turn: DisplayRow[], finalVisible: boolean): DisplayRow[] {
+  if (turn.length === 0) return turn
+  let answerAt = -1
+  if (finalVisible) {
+    for (let i = turn.length - 1; i >= 0; i--) {
+      const r = turn[i]
+      if (r.kind === 'item' && r.item.kind === 'assistant' && r.item.content.trim() !== '') {
+        answerAt = i
+        break
+      }
+    }
+  }
+  const head = answerAt >= 0 ? turn.slice(0, answerAt) : turn.slice()
+  const tail = answerAt >= 0 ? turn.slice(answerAt) : []
+  const steps = countTurnSteps(head)
+  // Сворачивать нечего: либо в витке только ответ, либо шагов не было.
+  if (head.length === 0 || steps === 0) return turn
+  return [{key: `steps-${head[0].key}`, kind: 'turn_steps', rows: head, steps}, ...tail]
+}
+
+/** Строка внутри свёрнутого витка: те же блоки, что и в ленте. */
+function IntermediateRow({row}: {row: DisplayRow}) {
+  // Группа «Исследовал…» уже свёрнута снаружи — её содержимое показываем ровно
+  // на один уровень, чтобы не плодить треугольники.
+  if (row.kind === 'process') {
+    return (
+      <>
+        {row.rows.map((r) => (
+          <IntermediateRow key={r.key} row={r} />
+        ))}
+      </>
+    )
+  }
+  if (row.kind === 'turn_steps') return <IntermediateGroup rows={row.rows} steps={row.steps} />
+  if (row.kind === 'tool_group') return <ToolGroup summary={row.summary} tools={row.tools} />
+  if (row.kind === 'todos') return null
+  const m = row.item
+  if (m.kind === 'tool') return <ToolCard item={m} />
+  if (m.kind === 'reasoning') {
+    return <ThinkingBlock content={m.content} seconds={m.seconds} collapsed />
+  }
+  if (m.kind === 'file') {
+    return (
+      <div className="nc-msg file">
+        <div className="nc-role">файл · {m.path}</div>
+        <pre className="nc-file-body">{m.content}</pre>
+      </div>
+    )
+  }
+  if (m.kind === 'progress') {
+    return (
+      <div className="nc-msg progress">
+        <div className="nc-role">этап</div>
+        <pre>{m.content}</pre>
+      </div>
+    )
+  }
+  return (
+    <div className={`nc-msg ${m.kind}`}>
+      <div className="nc-role">{m.kind === 'user' ? 'Вы' : m.kind === 'assistant' ? 'Агент' : 'Система'}</div>
+      {m.kind === 'assistant' ? <Markdown content={m.content} /> : <pre>{m.content}</pre>}
+    </div>
+  )
+}
+
+/** Один треугольник на весь виток: размышления, инструменты и черновики ответов. */
+function IntermediateGroup({rows, steps, expand}: {rows: DisplayRow[]; steps: number; expand?: ExpandSignal}) {
+  const [open, setOpen] = useExpandSignal(expand)
+  return (
+    <details
+      className="nc-msg process-group nc-inter"
+      open={open}
+      onToggle={(e) => {
+        setOpen(e.currentTarget.open)
+        revealOpenBlock(e)
+      }}
+    >
+      <summary
+        className="nc-tool-group-sum"
+        title="Промежуточные шаги: размышления, инструменты, черновики ответов"
+      >
+        <span className="nc-tool-icon">☰</span>
+        <span className="nc-tool-title">Промежуточные результаты</span>
+        <span className="nc-tool-name">{steps > 0 ? summarizeSteps(steps) : 'шаги'}</span>
+      </summary>
+      <div className="nc-process-body">
+        {rows.map((r) => (
+          <IntermediateRow key={r.key} row={r} />
+        ))}
+      </div>
+    </details>
+  )
 }
 
 function summarizeProcess(rows: DisplayRow[]): {title: string; steps: number} {
@@ -1681,11 +1833,13 @@ export default function App() {
   }
   const displayRows = typeof todoFlowAt === 'number'
     ? [
-        ...buildDisplayRows(items.slice(0, Math.min(todoFlowAt, items.length)), !busy),
+        // Голова витка: финального ответа здесь нет — сворачиваем всё, что было.
+        ...buildDisplayRows(items.slice(0, Math.min(todoFlowAt, items.length)), !busy, false),
         {key: '__todos', kind: 'todos'} as DisplayRow,
-        ...rekeyRows(buildDisplayRows(items.slice(Math.min(todoFlowAt, items.length)), !busy), 'tail-'),
+        // Хвост: последний ответ агента остаётся на виду.
+        ...rekeyRows(buildDisplayRows(items.slice(Math.min(todoFlowAt, items.length)), !busy, true), 'tail-'),
       ]
-    : buildDisplayRows(items, !busy)
+    : buildDisplayRows(items, !busy, true)
 
   const setInput = useCallback((value: string, sid = activeSessionRef.current) => {
     if (!sid) return
@@ -4524,6 +4678,9 @@ export default function App() {
                 />
                 {displayRows.map((row, idx, all) => {
                   const isLastRow = idx === all.length - 1
+                  if (row.kind === 'turn_steps') {
+                    return <IntermediateGroup key={row.key} rows={row.rows} steps={row.steps} expand={expandSignal} />
+                  }
                   if (row.kind === 'process') {
                     return <ProcessGroup key={row.key} rows={row.rows} expand={expandSignal} autoOpen={busy && isLastRow} />
                   }
