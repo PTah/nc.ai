@@ -384,6 +384,36 @@ textarea { resize: none; }
 .nc-brand-mark-frames img.is-active {
   opacity: 1;
 }
+
+/* Индикатор «идёт работа»: маленькое вращающееся кольцо в названии проекта и чата. */
+.nc-spin {
+  display: inline-block;
+  flex: 0 0 auto;
+  width: 9px;
+  height: 9px;
+  margin-right: 6px;
+  vertical-align: 0;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  opacity: 0.75;
+  animation: nc-spin 0.8s linear infinite;
+}
+@keyframes nc-spin {
+  to { transform: rotate(360deg); }
+}
+/* Галочка «работа завершена» в названии чата. */
+.nc-done {
+  display: inline-block;
+  flex: 0 0 auto;
+  margin-right: 5px;
+  color: #35c26a;
+  font-weight: 700;
+  font-size: 0.8rem;
+}
+@media (prefers-reduced-motion: reduce) {
+  .nc-spin { animation: none; border-top-color: currentColor; }
+}
 .nc-title { font-weight: 700; font-size: 0.95rem; }
 .nc-sub, .nc-muted { color: var(--muted); font-size: 0.75rem; }
 .nc-section-label {

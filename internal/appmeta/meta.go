@@ -5,7 +5,7 @@ import "time"
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "0.7.6"
+	Version = "0.7.7"
 )
 
 // DeepSeekProRetireRFC3339 is the announced V4 Pro retirement instant, empty
@@ -51,18 +51,18 @@ func retiredAt(at time.Time, now time.Time) bool {
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
-	"Все провайдеры стримят ответ: DeepSeek, Z.ai, Qwen, OpenRouter и Anthropic печатают по мере генерации",
-	"В Settings → Local есть API format: OpenAI-совместимый или Anthropic Messages — Claude напрямую",
-	"Размышления моделей (<think>…</think>) уходят в «Думал», а не в текст ответа",
-	"429 от провайдера: приложение само ждёт лимит и пишет «повтор через 42 сек»",
+	"Границы проекта: команды в чужих проектах и за пределами папки требуют подтверждения",
+	"Спиннер в названии проекта и чата, пока агент работает, и зелёная галочка по завершении",
+	"Иконка программы анимируется только во время прогона — в простое она статична",
+	"ToDo можно убрать вручную: ПКМ по блоку или пункту — убрать пункт, выполненные или весь план",
 	"В настройках — «Новости провайдеров»: что нового у DeepSeek, Z.AI, OpenRouter и Qwen",
 }
 
 var HighlightsEN = []string{
-	"Every provider streams now: DeepSeek, Z.ai, Qwen, OpenRouter and Anthropic type as they go",
-	"Settings → Local now has API format: OpenAI-compatible or Anthropic Messages — Claude directly",
-	"Model thinking (<think>…</think>) goes to the reasoning block, not into the answer",
-	"On 429 the app waits for the limit itself and says how long: \"retry in 42 sec\"",
+	"Project boundaries: commands touching other projects or outside the folder now ask for approval",
+	"A spinner in the project and chat title while the agent runs, and a green check when it finishes",
+	"The app icon animates only while a run is active — it stays static when idle",
+	"Todos can be removed by hand: right-click the block or a task to drop it (or clear completed)",
 	"Settings include provider news: what's new at DeepSeek, Z.AI, OpenRouter and Qwen",
 }
 

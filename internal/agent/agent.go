@@ -140,6 +140,9 @@ type Event struct {
 	OK        bool   `json:"ok,omitempty"`
 	SessionID string `json:"sessionId,omitempty"`
 	CallID    string `json:"callId,omitempty"`
+	// Reason — почему вызов требует подтверждения (например, команда заходит в
+	// другой проект). Пусто — обычное подтверждение опасного инструмента.
+	Reason string `json:"reason,omitempty"`
 }
 
 type EmitFunc func(Event)
@@ -193,9 +196,10 @@ type Runner struct {
 	IDEContext string
 	// PlanMode restricts mutating tools and appends PlanModePrompt.
 	PlanMode bool
-	// ApproveTool, when set, is called before dangerous tools. Return false to deny.
+	// ApproveTool, when set, is called before dangerous tools and before any call
+	// that leaves the project scope (reason explains which). Return false to deny.
 	// The callback is responsible for asking the user (emitting tool_ask).
-	ApproveTool func(ctx context.Context, callID, name, argsJSON string) (bool, error)
+	ApproveTool func(ctx context.Context, callID, name, argsJSON, reason string) (bool, error)
 	// RetryCount is the number of automatic reconnect attempts for transient network errors.
 	RetryCount int
 	// RetryBackoff is the base wait between reconnect attempts (grows linearly per attempt).
@@ -1211,8 +1215,17 @@ func (r *Runner) execOne(ctx context.Context, call llm.ToolCall, emit EmitFunc) 
 	if note := longStepNotice(name, call.Function.Arguments); note != "" {
 		emit(Event{Type: "notice", Content: note})
 	}
-	if tools.DangerousTool(name) && r.ApproveTool != nil {
-		allow, err := r.ApproveTool(ctx, call.ID, name, call.Function.Arguments)
+	// Границы проекта: команда, которая заходит в другой проект или за пределы
+	// рабочей папки, подтверждается всегда — независимо от того, включено ли
+	// автоподтверждение опасных инструментов.
+	scopeReason := ""
+	if r.Tools != nil {
+		if issue := r.Tools.CommandScopeIssue(name, call.Function.Arguments); issue != nil {
+			scopeReason = issue.Text()
+		}
+	}
+	if (tools.DangerousTool(name) || scopeReason != "") && r.ApproveTool != nil {
+		allow, err := r.ApproveTool(ctx, call.ID, name, call.Function.Arguments, scopeReason)
 		if err != nil {
 			result := redact.String(fmt.Sprintf("ERROR: approval failed: %v", err))
 			emit(Event{Type: "tool_end", Name: name, Content: truncate(result, 4000), OK: false, CallID: call.ID})
@@ -1220,6 +1233,9 @@ func (r *Runner) execOne(ctx context.Context, call llm.ToolCall, emit EmitFunc) 
 		}
 		if !allow {
 			result := "DENIED by user. Do not retry the same dangerous action unless the user explicitly asks; explain what you intended."
+			if scopeReason != "" {
+				result = "DENIED by user: " + scopeReason + ". Работай только внутри текущего проекта; если нужно иначе — спроси разрешение явно."
+			}
 			emit(Event{Type: "tool_end", Name: name, Content: result, OK: false, CallID: call.ID})
 			return llm.ToolResultMessage(call.ID, result)
 		}
