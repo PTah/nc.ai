@@ -1978,6 +1978,39 @@ func (a *App) CreateProject(parentDir, name string) (*workspace.Project, error) 
 	return a.OpenProject(p.Path)
 }
 
+// RemoveTodos убирает пункты плана вручную (ПКМ по пункту ToDo в чате).
+func (a *App) RemoveTodos(ids []string) ([]map[string]any, error) {
+	items := a.tools.Todos.Remove(ids)
+	a.emitTodos(items)
+	return todoRows(items), nil
+}
+
+// ClearTodos убирает выполненные пункты (completedOnly=true) или весь план.
+func (a *App) ClearTodos(completedOnly bool) ([]map[string]any, error) {
+	items := a.tools.Todos.Clear(completedOnly)
+	a.emitTodos(items)
+	return todoRows(items), nil
+}
+
+func (a *App) emitTodos(items []tools.Todo) {
+	data, err := json.Marshal(items)
+	if err != nil {
+		return
+	}
+	if items == nil {
+		data = []byte("[]")
+	}
+	a.emitFor(a.sessionID, agent.Event{Type: "todos", Content: string(data)})
+}
+
+func todoRows(items []tools.Todo) []map[string]any {
+	rows := make([]map[string]any, 0, len(items))
+	for _, t := range items {
+		rows = append(rows, map[string]any{"id": t.ID, "content": t.Content, "status": t.Status})
+	}
+	return rows
+}
+
 // CloneRepo клонирует репозиторий в выбранную папку и сразу открывает его как
 // проект. Способ доступа выбирается сам: SSH, если он настроен и хост отвечает,
 // иначе HTTPS. Если не сработало ни то, ни другое — возвращаем ошибку, в которой

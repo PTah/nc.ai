@@ -37,6 +37,8 @@ export function ClearOpenRouterKey():Promise<void>;
 
 export function ClearQwenKey():Promise<void>;
 
+export function ClearTodos(arg1:boolean):Promise<Array<Record<string, any>>>;
+
 export function ClearZaiKey():Promise<void>;
 
 export function CloneRepo(arg1:string,arg2:string):Promise<Record<string, any>>;
@@ -134,6 +136,8 @@ export function RefreshProviderPrices():Promise<Record<string, any>>;
 export function ReloadCursorRules():Promise<rules.Bundle>;
 
 export function RemoveLocalEndpoint(arg1:string):Promise<void>;
+
+export function RemoveTodos(arg1:Array<string>):Promise<Array<Record<string, any>>>;
 
 export function RenameChatSession(arg1:string,arg2:string):Promise<void>;
 

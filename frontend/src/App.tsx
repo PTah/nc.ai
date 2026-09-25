@@ -20,6 +20,8 @@ import {
   DeleteChatSession,
   CloneRepo,
   CloneTargetPath,
+  ClearTodos,
+  RemoveTodos,
   DetectDefaultShell,
   GetDeepSeekPeakInfo,
   GetSettings,
@@ -1098,7 +1100,21 @@ function ThinkingBlock({
  * collapses behind a triangle once every item is done or cancelled — like
  * "Thinking…" and tool groups.
  */
-function TodoPanel({todos, expand, busy}: {todos: TodoItem[]; expand?: ExpandSignal; busy?: boolean}) {
+// todoSetKey — «отпечаток» набора пунктов (без статусов): по нему понимаем, что
+// человек убрал из чата именно этот план, а не просто у пунктов поменялись галочки.
+function todoSetKey(todos: TodoItem[]): string {
+  return todos.map((t) => t.id).slice().sort().join('|')
+}
+
+function todoPanelFromRows(rows: unknown): TodoItem[] {
+  return asList(rows as {id?: string; content?: string; status?: string}[]).map((t) => ({
+    id: String(t?.id || ''),
+    content: String(t?.content || ''),
+    status: String(t?.status || 'pending'),
+  }))
+}
+
+function TodoPanel({todos, expand, busy, onContext}: {todos: TodoItem[]; expand?: ExpandSignal; busy?: boolean; onContext?: (e: ReactMouseEvent, id?: string) => void}) {
   const hasOpen = todos.some((t) => t.status !== 'completed' && t.status !== 'cancelled')
   const [open, setOpen] = useState(hasOpen)
   const prevOpen = useRef(hasOpen)
@@ -1122,13 +1138,14 @@ function TodoPanel({todos, expand, busy}: {todos: TodoItem[]; expand?: ExpandSig
       className="nc-msg todos"
       open={open}
       onToggle={(e) => { setOpen(e.currentTarget.open); revealOpenBlock(e) }}
+      onContextMenu={(e) => onContext?.(e)}
     >
-      <summary className="nc-think-sum" title="План задач агента (todo_write)">
+      <summary className="nc-think-sum" title="План задач агента (todo_write) — ПКМ: убрать блок или пункты">
         Todo · {done}/{todos.length}
       </summary>
       <ul className="nc-todos">
         {todos.map((t) => (
-          <li key={t.id} className={`nc-todo ${t.status}`}>
+          <li key={t.id} className={`nc-todo ${t.status}`} onContextMenu={(e) => onContext?.(e, t.id)}>
             <span className="nc-todo-st">{t.status === 'completed' ? '✓' : t.status === 'in_progress' ? '▶' : t.status === 'cancelled' ? '×' : '○'}</span>
             {t.content}
           </li>
@@ -1447,6 +1464,9 @@ export default function App() {
   const [toolConfirm, setToolConfirm] = useState(true)
   const [planMode, setPlanMode] = useState(false)
   const [todosBySession, setTodosBySession] = useState<Record<string, TodoItem[]>>({})
+  // Скрытые блоки ToDo: sessionId → набор id, который человек убрал из чата.
+  const [todosHidden, setTodosHidden] = useState<Record<string, string>>({})
+  const [todoCtx, setTodoCtx] = useState<{x: number; y: number; id?: string} | null>(null)
   // Место в ленте, куда «уезжает» завершённый план задач (индекс элемента чата).
   const [todosFlowAnchor, setTodosFlowAnchor] = useState<Record<string, number>>({})
   const [editor, setEditor] = useState<EditorState | null>(null)
@@ -1566,6 +1586,11 @@ export default function App() {
   const queue = asList(activeSessionId ? queues[activeSessionId] : undefined)
   const queueCount = queue.length
   const todos = asList(activeSessionId ? todosBySession[activeSessionId] : undefined)
+  // Скрытие ToDo: человек убрал блок из чата, запоминаем набор id. Пока набор
+  // тот же — не показываем (статусы могут меняться, блок не должен всплывать);
+  // новый план агента (другие id) показывается сам.
+  const todosVisible = todos.length > 0 && (!activeSessionId || todosHidden[activeSessionId] !== todoSetKey(todos))
+  const todoCtxItem = todoCtx?.id ? todos.find((t) => t.id === todoCtx.id) : undefined
   const statusText = busy
     ? queueCount > 0 ? `думает… · очередь ${queueCount}` : 'думает…'
     : queueCount > 0 ? `в очереди: ${queueCount}` : ''
@@ -1612,9 +1637,44 @@ export default function App() {
     if (wasBusy && !busy) pin(items.length)
   }, [busy, todosClosed, activeSessionId, items.length])
 
-  const todoFlowAt = todos.length > 0 && activeSessionId && (!busy || todosClosed)
+  const todoFlowAt = todosVisible && activeSessionId && (!busy || todosClosed)
     ? todosFlowAnchor[activeSessionId]
     : undefined
+
+  // ПКМ по блоку ToDo: убрать пункт, выполненные или весь план из чата.
+  function openTodoCtx(e: ReactMouseEvent, id?: string) {
+    e.preventDefault()
+    e.stopPropagation()
+    setTodoCtx({x: e.clientX, y: e.clientY, id})
+  }
+
+  function hideTodosFromChat() {
+    if (!activeSessionId) return
+    setTodosHidden((prev) => ({...prev, [activeSessionId]: todoSetKey(todos)}))
+  }
+
+  function setTodosForActive(rows: unknown) {
+    const sid = activeSessionRef.current
+    if (!sid) return
+    const list = todoPanelFromRows(rows)
+    setTodosBySession((prev) => ({...prev, [sid]: list}))
+  }
+
+  async function removeTodoItem(id: string) {
+    try {
+      setTodosForActive(await RemoveTodos([id]))
+    } catch {
+      /* список уже мог быть очищен агентом — молча оставляем как есть */
+    }
+  }
+
+  async function clearTodos(completedOnly: boolean) {
+    try {
+      setTodosForActive(await ClearTodos(completedOnly))
+    } catch {
+      /* ignore */
+    }
+  }
   const displayRows = typeof todoFlowAt === 'number'
     ? [
         ...buildDisplayRows(items.slice(0, Math.min(todoFlowAt, items.length)), !busy),
@@ -2981,15 +3041,19 @@ export default function App() {
   }, [showTerm, layout.terminalH])
 
   useEffect(() => {
-    if (!projectCtx) return
+    if (!projectCtx && !todoCtx) return
     const onDown = (e: MouseEvent) => {
       const t = e.target as Node | null
       const menu = document.querySelector('.nc-ctx-menu')
       if (menu && t && menu.contains(t)) return
       setProjectCtx(null)
+      setTodoCtx(null)
     }
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setProjectCtx(null)
+      if (e.key === 'Escape') {
+        setProjectCtx(null)
+        setTodoCtx(null)
+      }
     }
     window.addEventListener('mousedown', onDown)
     window.addEventListener('keydown', onKey)
@@ -2997,7 +3061,7 @@ export default function App() {
       window.removeEventListener('mousedown', onDown)
       window.removeEventListener('keydown', onKey)
     }
-  }, [projectCtx])
+  }, [projectCtx, todoCtx])
 
   useEffect(() => {
     if (!projectMenu) return
@@ -4452,7 +4516,7 @@ export default function App() {
                     return <ToolGroup key={row.key} summary={row.summary} tools={row.tools} expand={expandSignal} autoOpen={busy && isLastRow} />
                   }
                   if (row.kind === 'todos') {
-                    return <TodoPanel key={row.key} todos={todos} expand={expandSignal} busy={false} />
+                    return <TodoPanel key={row.key} todos={todos} expand={expandSignal} busy={false} onContext={openTodoCtx} />
                   }
                   const m = row.item
                   if (m.kind === 'tool') {
@@ -4522,7 +4586,7 @@ export default function App() {
                     <pre>думаю… {runStatusElapsed}</pre>
                   </div>
                 )}
-                {busy && todos.length > 0 && todoFlowAt === undefined && <TodoPanel todos={todos} expand={expandSignal} busy={busy} />}
+                {busy && todosVisible && todoFlowAt === undefined && <TodoPanel todos={todos} expand={expandSignal} busy={busy} onContext={openTodoCtx} />}
                 {(items.some((i) => i.kind === 'reasoning' || i.kind === 'tool') || todos.length > 0) && (
                   <div className="nc-thread-actions">
                     <button
@@ -5919,6 +5983,66 @@ export default function App() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {todoCtx && (
+        <div
+          className="nc-ctx-menu"
+          style={{left: todoCtx.x, top: todoCtx.y}}
+          role="menu"
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {todoCtx.id ? (
+            <button
+              type="button"
+              role="menuitem"
+              title={todoCtxItem?.content || ''}
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={() => {
+                const id = todoCtx.id as string
+                setTodoCtx(null)
+                void removeTodoItem(id)
+              }}
+            >
+              Убрать пункт{todoCtxItem ? ` «${todoCtxItem.content.slice(0, 40)}${todoCtxItem.content.length > 40 ? '…' : ''}»` : ''}
+            </button>
+          ) : null}
+          <button
+            type="button"
+            role="menuitem"
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={() => {
+              setTodoCtx(null)
+              void clearTodos(true)
+            }}
+          >
+            Убрать выполненные
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={() => {
+              setTodoCtx(null)
+              hideTodosFromChat()
+            }}
+          >
+            Скрыть блок в чате
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={() => {
+              setTodoCtx(null)
+              hideTodosFromChat()
+              void clearTodos(false)
+            }}
+          >
+            Убрать ToDo целиком (план агента тоже)
+          </button>
         </div>
       )}
 

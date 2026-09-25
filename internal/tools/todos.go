@@ -18,10 +18,67 @@ type Todo struct {
 type TodoStore struct {
 	mu    sync.Mutex
 	items []Todo
+	// dismissed — id, убранные пользователем вручную (ПКМ → Убрать). При
+	// merge-обновлении такие пункты не возвращаются: иначе следующий todo_write
+	// агента воскрешал бы всё, что человек только что вычистил.
+	dismissed map[string]bool
 }
 
 func NewTodoStore() *TodoStore {
 	return &TodoStore{}
+}
+
+// Remove убирает пункты по id — действие пользователя из интерфейса.
+func (s *TodoStore) Remove(ids []string) []Todo {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.dismissed == nil {
+		s.dismissed = map[string]bool{}
+	}
+	drop := map[string]bool{}
+	for _, id := range ids {
+		if id = strings.TrimSpace(id); id != "" {
+			drop[id] = true
+			s.dismissed[id] = true
+		}
+	}
+	if len(drop) == 0 {
+		return s.copyLocked()
+	}
+	kept := make([]Todo, 0, len(s.items))
+	for _, t := range s.items {
+		if !drop[t.ID] {
+			kept = append(kept, t)
+		}
+	}
+	s.items = kept
+	return s.copyLocked()
+}
+
+// Clear убирает выполненные и отменённые пункты, либо весь список целиком.
+func (s *TodoStore) Clear(completedOnly bool) []Todo {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.dismissed == nil {
+		s.dismissed = map[string]bool{}
+	}
+	if !completedOnly {
+		for _, t := range s.items {
+			s.dismissed[t.ID] = true
+		}
+		s.items = nil
+		return nil
+	}
+	kept := make([]Todo, 0, len(s.items))
+	for _, t := range s.items {
+		if t.Status == "completed" || t.Status == "cancelled" {
+			s.dismissed[t.ID] = true
+			continue
+		}
+		kept = append(kept, t)
+	}
+	s.items = kept
+	return s.copyLocked()
 }
 
 func (s *TodoStore) Snapshot() []Todo {
@@ -67,8 +124,20 @@ func (s *TodoStore) Apply(merge bool, incoming []Todo) ([]Todo, error) {
 		}
 	}
 	if !merge {
+		// Новый план агента: прежние «убрано пользователем» больше не действуют.
+		s.dismissed = nil
 		s.items = incoming
 		return s.copyLocked(), nil
+	}
+	if len(s.dismissed) > 0 {
+		kept := make([]Todo, 0, len(incoming))
+		for _, t := range incoming {
+			if s.dismissed[t.ID] {
+				continue
+			}
+			kept = append(kept, t)
+		}
+		incoming = kept
 	}
 	byID := map[string]int{}
 	for i, t := range s.items {

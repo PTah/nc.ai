@@ -54,6 +54,10 @@ export function ClearQwenKey() {
   return window['go']['main']['App']['ClearQwenKey']();
 }
 
+export function ClearTodos(arg1) {
+  return window['go']['main']['App']['ClearTodos'](arg1);
+}
+
 export function ClearZaiKey() {
   return window['go']['main']['App']['ClearZaiKey']();
 }
@@ -248,6 +252,10 @@ export function ReloadCursorRules() {
 
 export function RemoveLocalEndpoint(arg1) {
   return window['go']['main']['App']['RemoveLocalEndpoint'](arg1);
+}
+
+export function RemoveTodos(arg1) {
+  return window['go']['main']['App']['RemoveTodos'](arg1);
 }
 
 export function RenameChatSession(arg1, arg2) {
