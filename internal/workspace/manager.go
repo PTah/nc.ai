@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -44,6 +45,15 @@ func (m *Manager) List() []Project {
 	for i := range out {
 		out[i].IconURL = FindIconDataURL(out[i].Path)
 	}
+	// В панели проектов список должен идти по алфавиту, а не в порядке
+	// добавления. Порядок в настройках не меняем — сортируем только выдачу.
+	sort.SliceStable(out, func(i, j int) bool {
+		an, bn := strings.ToLower(strings.TrimSpace(out[i].Name)), strings.ToLower(strings.TrimSpace(out[j].Name))
+		if an == bn {
+			return strings.ToLower(out[i].Path) < strings.ToLower(out[j].Path)
+		}
+		return an < bn
+	})
 	return out
 }
 
