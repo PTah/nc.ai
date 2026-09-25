@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -65,12 +66,21 @@ Tools:
   have been working for more than two minutes without giving any result. Otherwise
   keep working silently: no status chatter, no "надо бы попробовать", no reasoning.
 - Use ask_user only when a real user decision is required — not for facts you can look up.
+- Warn BEFORE long work: if a step is known to take minutes (build, model download, indexing,
+  large test run, vector/image processing), say so in one line before starting — what you are doing
+  and roughly how long it may take ("сборка векторов ~20–40 минут, буду проверять прогресс").
+  Such steps run in the background (is_background=true) and are polled with command_status;
+  never emulate waiting with Start-Sleep in the foreground.
+- If a long step is already running, give an interim line at least every couple of minutes:
+  what is done, what is still running, what is expected next.
 - Prefer the API tool_calls channel. Do not paste tool JSON into message text when the API supports tools.
 
 Shell:
 - cwd is the workspace root unless you pass cwd (relative). Do not cd inside the command.
 - Non-interactive only: pass -y/--yes; never wait for a prompt.
 - No pagers. Long-running servers: is_background=true, then command_status.
+- Commands longer than ~2 minutes: is_background=true (or timeout_sec up to 1800) — and tell the
+  user up front how long the step may take.
 - Never include newlines in command.
 
 Git:
@@ -1071,6 +1081,50 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 	return messages, fmt.Errorf("max agent steps (%d) exceeded", max)
 }
 
+// longStepThreshold — с какого лимита шаг считаем долгим: всё, что может идти
+// больше двух минут, пользователь должен увидеть помеченным заранее.
+const longStepThreshold = 2 * time.Minute
+
+// longStepNotice — предупреждение о заведомо долгой команде (run_terminal с
+// большим timeout_sec или запуск в фоне). Пустая строка — шаг обычный.
+func longStepNotice(name, argsJSON string) string {
+	if name != "run_terminal" {
+		return ""
+	}
+	var args struct {
+		Command      string `json:"command"`
+		Explanation  string `json:"explanation"`
+		TimeoutSec   int    `json:"timeout_sec"`
+		IsBackground bool   `json:"is_background"`
+	}
+	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+		return ""
+	}
+	wait := time.Duration(args.TimeoutSec) * time.Second
+	if !args.IsBackground && wait < longStepThreshold {
+		return ""
+	}
+	if wait <= 0 {
+		// Фоновая задача по умолчанию живёт до 30 минут (tools/jobs.go).
+		wait = 30 * time.Minute
+	}
+	what := strings.TrimSpace(args.Explanation)
+	if what == "" {
+		what = strings.TrimSpace(args.Command)
+		if i := strings.IndexByte(what, '\n'); i >= 0 {
+			what = what[:i]
+		}
+		if len([]rune(what)) > 120 {
+			what = string([]rune(what)[:120]) + "…"
+		}
+	}
+	where := "в фоне"
+	if !args.IsBackground {
+		where = "в текущем шаге"
+	}
+	return fmt.Sprintf("Долгий шаг: %s — %s, лимит до %s. Промежуточные результаты покажу по ходу.", what, where, llm.FormatWait(wait))
+}
+
 func truncate(s string, n int) string {
 	if len(s) <= n {
 		return s
@@ -1119,6 +1173,11 @@ func (r *Runner) execTools(ctx context.Context, calls []llm.ToolCall, emit EmitF
 func (r *Runner) execOne(ctx context.Context, call llm.ToolCall, emit EmitFunc) llm.Message {
 	name := call.Function.Name
 	emit(Event{Type: "tool_start", Name: name, Content: call.Function.Arguments, CallID: call.ID})
+	// Долгий шаг предупреждаем до запуска: пользователь видит, что это минуты, а
+	// не секунды, даже если модель забыла сказать об этом сама.
+	if note := longStepNotice(name, call.Function.Arguments); note != "" {
+		emit(Event{Type: "notice", Content: note})
+	}
 	if tools.DangerousTool(name) && r.ApproveTool != nil {
 		allow, err := r.ApproveTool(ctx, call.ID, name, call.Function.Arguments)
 		if err != nil {
