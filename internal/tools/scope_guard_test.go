@@ -35,6 +35,12 @@ func TestCheckCommandScope(t *testing.T) {
 		{"профиль через переменную", `type $env:USERPROFILE\.gitconfig`, "вне проекта", ""},
 		{"временный каталог можно", `Expand-Archive $env:TEMP\x.zip`, "", ""},
 		{"системные пути можно", `Get-Content C:\Windows\System32\drivers\etc\hosts`, "", ""},
+		{"двойной вывод ошибок не запись", `Get-Content C:\Windows\System32\drivers\etc\hosts 2>&1`, "", ""},
+		{"запись в system32 требует подтверждения", `Set-Content C:\Windows\System32\drivers\etc\hosts "127.0.0.1 x"`, "вне проекта", ""},
+		{"удаление из Program Files", `Remove-Item 'C:\Program Files\SomeApp' -Recurse -Force`, "вне проекта", ""},
+		{"копирование в ProgramData", `Copy-Item .\x.dat C:\ProgramData\app\x.dat`, "вне проекта", ""},
+		{"перенаправление в файл вне проекта", `Get-Content x.txt > C:\Windows\Temp\log.txt`, "вне проекта", ""},
+		{"удаление во временном каталоге", `Remove-Item -Recurse ` + filepath.Join(os.TempDir(), "venv"), "вне проекта", ""},
 		{"не команда терминала", `нет-парсинга`, "", ""},
 	}
 	for _, c := range cases {
@@ -83,15 +89,47 @@ func TestCheckCommandScopeOwnSubdir(t *testing.T) {
 // Текст для диалога подтверждения должен объяснять, что случилось.
 func TestScopeIssueText(t *testing.T) {
 	issue := &ScopeIssue{Reason: "другой проект", What: `D:\Soft\Git\Pentest`}
-	if text := issue.Text(); !strings.Contains(text, "другой проект") || !strings.Contains(text, "Pentest") {
+	if text := issue.Text(); !strings.Contains(text, "заходит в другой проект") || !strings.Contains(text, "Pentest") {
 		t.Fatalf("text=%q", text)
 	}
-	issue = &ScopeIssue{Reason: "вне проекта", What: `D:\Downloads`}
+	issue = &ScopeIssue{Reason: "другой проект", What: `D:\Soft\Git\Pentest`, Mutating: true}
+	if text := issue.Text(); !strings.Contains(text, "изменяет другой проект") {
+		t.Fatalf("text=%q", text)
+	}
+	issue = &ScopeIssue{Reason: "вне проекта", What: `C:\ProgramData`}
 	if text := issue.Text(); !strings.Contains(text, "за пределы проекта") {
+		t.Fatalf("text=%q", text)
+	}
+	issue = &ScopeIssue{Reason: "вне проекта", What: `C:\Windows\System32`, Mutating: true}
+	if text := issue.Text(); !strings.Contains(text, "изменяет данные вне проекта") {
 		t.Fatalf("text=%q", text)
 	}
 	var nilIssue *ScopeIssue
 	if nilIssue.Text() != "" {
 		t.Fatal("nil-issue должен давать пустой текст")
+	}
+}
+
+// Изменяющие команды видим даже без путей, а чтение — нет.
+func TestLooksMutating(t *testing.T) {
+	mutating := []string{
+		`Set-Content hosts "x"`, `Remove-Item -Recurse x`, `Copy-Item a b`,
+		`git pull --ff-only`, `git push home master`, `pip install onnxruntime`,
+		`npm ci`, `robocopy D:\a D:\b /MIR`, `echo hi > out.txt`, `Select-String x >> log.txt`,
+	}
+	for _, c := range mutating {
+		if !looksMutating(c) {
+			t.Errorf("%q должно считаться изменяющей командой", c)
+		}
+	}
+	reading := []string{
+		`Get-Content README.md`, `git status`, `git log --oneline -5`, `git diff`,
+		`Select-String -Path src -Pattern x`, `Get-ChildItem`, `python -m venv venv`,
+		`go build ./...`, `Get-Content x 2>&1`,
+	}
+	for _, c := range reading {
+		if looksMutating(c) {
+			t.Errorf("%q не должно считаться изменяющей командой", c)
+		}
 	}
 }
