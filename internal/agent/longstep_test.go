@@ -5,26 +5,30 @@ import (
 	"testing"
 )
 
-// Долгие команды помечаем заранее: пользователь должен видеть «это минуты»,
-// даже если модель не сказала об этом в чате.
+// Предупреждение должно появляться для действительно долгих операций, а не для
+// любой команды с большим timeout_sec («на всякий случай» его ставят часто).
 func TestLongStepNotice(t *testing.T) {
 	cases := []struct {
 		name string
 		args string
 		want string
 	}{
-		{"короткая команда молчит", `{"command":"go build ./...","timeout_sec":60}`, ""},
-		{"без таймаута молчит", `{"command":"ls"}`, ""},
-		{"три минуты", `{"command":"go test ./...", "timeout_sec":180, "explanation":"прогон тестов"}`, "Долгий шаг: прогон тестов"},
-		{"ровно порог", `{"command":"npm ci", "timeout_sec":120}`, "Долгий шаг: npm ci"},
-		{"фон", `{"command":"python embed.py --all", "is_background":true, "explanation":"сборка векторов"}`, "сборка векторов"},
-		{"мусор в аргументах", `не json`, ""},
+		{"короткая команда с запасом по времени молчит", `{"command":"git status","timeout_sec":300}`, ""},
+		{"git push молчит", `{"command":"git push home master", "explanation":"Push в home-remote", "timeout_sec":300}`, ""},
+		{"уборка файлов молчит", `{"command":"Remove-Item -Recurse build\\tmp","timeout_sec":180}`, ""},
+		{"сборка с запасом", `{"command":"wails build -platform windows/amd64","timeout_sec":900,"explanation":"Сборка релиза"}`, "Сборка релиза"},
+		{"тесты", `{"command":"go test ./...","timeout_sec":600}`, "go test"},
+		{"установка зависимостей", `{"command":"npm ci","timeout_sec":300}`, "npm ci"},
+		{"сборка векторов по-русски", `{"command":"Start-Sleep -Seconds 290","explanation":"Ожидание сборки векторов","timeout_sec":330}`, "Ожидание сборки векторов"},
+		{"долгая операция, но лимит маленький", `{"command":"go test ./...","timeout_sec":30}`, ""},
+		{"фон всегда долгий", `{"command":"python server.py","is_background":true,"timeout_sec":60}`, "python server.py"},
+		{"мусор в аргументах молчит", `не json`, ""},
 	}
 	for _, c := range cases {
 		got := longStepNotice("run_terminal", c.args)
 		if c.want == "" {
 			if got != "" {
-				t.Errorf("%s: ожидали пусто, получили %q", c.name, got)
+				t.Errorf("%s: ожидали молчание, получили %q", c.name, got)
 			}
 			continue
 		}
@@ -37,11 +41,30 @@ func TestLongStepNotice(t *testing.T) {
 	}
 	// Фоновая задача без явного лимита — говорим про 30 минут по умолчанию.
 	got := longStepNotice("run_terminal", `{"command":"server", "is_background":true}`)
-	if !strings.Contains(got, "30 мин") {
+	if !strings.Contains(got, "30 мин") || !strings.Contains(got, "в фоне") {
 		t.Errorf("фон без лимита: %q", got)
 	}
 	// Не run_terminal — молчим.
 	if note := longStepNotice("read_file", `{"timeout_sec":600}`); note != "" {
 		t.Errorf("read_file не должен получать предупреждение: %q", note)
+	}
+}
+
+func TestLooksLikeLongWork(t *testing.T) {
+	long := []string{"go build ./...", "docker compose up -d", "pip install onnxruntime", "python embed.py --all", "cargo build --release", "Сборка индекса"}
+	for _, s := range long {
+		if !looksLikeLongWork(s, "") {
+			t.Errorf("%q должно считаться долгой операцией", s)
+		}
+	}
+	short := []string{"git push", "git commit -m x", "ls", "Get-Content README.md", "gh release upload v0.7.6 file.zip", "start chrome"}
+	for _, s := range short {
+		if looksLikeLongWork(s, "") {
+			t.Errorf("%q не должно считаться долгой операцией", s)
+		}
+	}
+	// Признак может быть в объяснении, а не в команде.
+	if !looksLikeLongWork("Start-Sleep -Seconds 290", "Ожидание сборки векторов") {
+		t.Error("объяснение должно учитываться")
 	}
 }
