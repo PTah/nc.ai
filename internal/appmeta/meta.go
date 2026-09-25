@@ -5,7 +5,7 @@ import "time"
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "0.7.7"
+	Version = "0.7.8"
 )
 
 // DeepSeekProRetireRFC3339 is the announced V4 Pro retirement instant, empty
@@ -51,7 +51,7 @@ func retiredAt(at time.Time, now time.Time) bool {
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
-	"Границы проекта: команды в чужих проектах и за пределами папки требуют подтверждения",
+	"Границы проекта: чтение в системных папках молча, а любое изменение вне проекта — с подтверждением",
 	"Спиннер в названии проекта и чата, пока агент работает, и зелёная галочка по завершении",
 	"Иконка программы анимируется только во время прогона — в простое она статична",
 	"ToDo можно убрать вручную: ПКМ по блоку или пункту — убрать пункт, выполненные или весь план",
@@ -59,7 +59,7 @@ var HighlightsRU = []string{
 }
 
 var HighlightsEN = []string{
-	"Project boundaries: commands touching other projects or outside the folder now ask for approval",
+	"Project boundaries: reads in system folders are silent, but any change outside the project asks approval",
 	"A spinner in the project and chat title while the agent runs, and a green check when it finishes",
 	"The app icon animates only while a run is active — it stays static when idle",
 	"Todos can be removed by hand: right-click the block or a task to drop it (or clear completed)",

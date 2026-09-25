@@ -19,6 +19,9 @@ type ScopeIssue struct {
 	Path   string `json:"path"`
 	Reason string `json:"reason"` // «другой проект» | «вне проекта»
 	What   string `json:"what"`   // путь, который сработал
+	// Mutating — команда не просто читает, а меняет данные (Set-Content,
+	// Remove-Item, git pull, перенаправление вывода и т. п.).
+	Mutating bool `json:"mutating,omitempty"`
 }
 
 // Text — человекочитаемое пояснение для диалога подтверждения.
@@ -26,10 +29,16 @@ func (i *ScopeIssue) Text() string {
 	if i == nil {
 		return ""
 	}
-	if i.Reason == "другой проект" {
+	switch {
+	case i.Reason == "другой проект" && i.Mutating:
+		return "команда изменяет другой проект: " + i.What
+	case i.Reason == "другой проект":
 		return "команда заходит в другой проект: " + i.What
+	case i.Mutating:
+		return "команда изменяет данные вне проекта: " + i.What
+	default:
+		return "команда выходит за пределы проекта: " + i.What
 	}
-	return "команда выходит за пределы проекта: " + i.What
 }
 
 // CommandScopeIssue проверяет аргументы инструмента на выход за границы проекта.
@@ -102,6 +111,7 @@ func checkCommandScope(root string, others []string, cwd, command string) *Scope
 	if command == "" {
 		return nil
 	}
+	mutating := looksMutating(command)
 	root = absClean(root)
 	if cwd = strings.TrimSpace(cwd); cwd == "" {
 		cwd = root
@@ -109,13 +119,13 @@ func checkCommandScope(root string, others []string, cwd, command string) *Scope
 	base := absClean(cwd)
 	// Рабочий каталог сам может быть вне проекта (например, агент передал cwd
 	// другого проекта) — это тоже повод спросить.
-	if root != "" && base != "" && !inside(base, root) && !allowedOutside(base) {
+	if root != "" && base != "" && !inside(base, root) && (mutating || !systemOrTemp(base)) {
 		for _, other := range others {
 			if other = absClean(other); other != "" && inside(base, other) {
-				return &ScopeIssue{Reason: "другой проект", What: other, Path: base}
+				return &ScopeIssue{Reason: "другой проект", What: other, Path: base, Mutating: mutating}
 			}
 		}
-		return &ScopeIssue{Reason: "вне проекта", What: base, Path: base}
+		return &ScopeIssue{Reason: "вне проекта", What: base, Path: base, Mutating: mutating}
 	}
 
 	var paths []string
@@ -146,23 +156,58 @@ func checkCommandScope(root string, others []string, cwd, command string) *Scope
 		}
 		for _, other := range others {
 			if other = absClean(other); other != "" && inside(resolved, other) {
-				return &ScopeIssue{Reason: "другой проект", What: other, Path: resolved}
+				return &ScopeIssue{Reason: "другой проект", What: other, Path: resolved, Mutating: mutating}
 			}
 		}
-		if allowedOutside(resolved) {
+		// Системные и временные каталоги можно читать, но не менять.
+		if systemOrTemp(resolved) && !mutating {
 			continue
 		}
 		if outside == nil {
-			outside = &ScopeIssue{Reason: "вне проекта", What: resolved, Path: resolved}
+			outside = &ScopeIssue{Reason: "вне проекта", What: resolved, Path: resolved, Mutating: mutating}
 		}
 	}
 	return outside
 }
 
-// allowedOutside — системные и временные каталоги: команды вида `python -m venv
-// $env:TEMP\venv` или обращение к установленному инструменту не должны требовать
-// подтверждения на каждом шаге.
-func allowedOutside(p string) bool {
+// mutatingPatterns — признаки того, что команда меняет данные: файловые
+// командлеты, реестр/сервисы/планировщик, установка пакетов, git-мутации и
+// перенаправление вывода в файл.
+var mutatingPatterns = []string{
+	// PowerShell / файлы
+	"set-content", "add-content", "clear-content", "out-file", "new-item", "remove-item",
+	"move-item", "copy-item", "rename-item", "set-item", "set-itemproperty", "new-itemproperty",
+	"remove-itemproperty", "set-acl", "icacls", "takeown", "attrib", "expand-archive",
+	"compress-archive", "tee-object", "robocopy", "xcopy", "mklink", "chmod", "chown",
+	// cmd
+	"del ", "erase ", "rmdir", "rd /s", "copy ", "move ", "mkdir", "md /", "ren ",
+	// реестр, службы, планировщик, пакеты
+	"reg add", "reg delete", "reg import", "sc create", "sc delete", "sc config",
+	"schtasks", "netsh", "diskpart", "format ", "winget install", "choco install",
+	"scoop install", "pip install", "pip3 install", "npm install", "npm ci", "npm i ",
+	// git-мутации (чтение — status/log/diff/show — сюда не входит)
+	"git pull", "git fetch", "git checkout", "git reset", "git clean", "git merge",
+	"git rebase", "git stash", "git apply", "git commit", "git push", "git clone",
+	"git rm", "git mv", "git switch",
+}
+
+// redirectRe — перенаправление вывода в файл. `2>&1` и `>&` — не запись в файл.
+var redirectRe = regexp.MustCompile(`(^|[^0-9&])>>?(?:[^&=>]|$)`)
+
+// looksMutating — меняет ли команда данные (а не только читает).
+func looksMutating(command string) bool {
+	text := strings.ToLower(command)
+	for _, p := range mutatingPatterns {
+		if strings.Contains(text, p) {
+			return true
+		}
+	}
+	return redirectRe.MatchString(command)
+}
+
+// systemOrTemp — системные и временные каталоги: их можно читать без
+// подтверждения, а менять — нет.
+func systemOrTemp(p string) bool {
 	for _, dir := range []string{os.TempDir(), os.Getenv("TEMP"), os.Getenv("TMP")} {
 		if dir != "" && inside(p, dir) {
 			return true
