@@ -1081,12 +1081,44 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 	return messages, fmt.Errorf("max agent steps (%d) exceeded", max)
 }
 
-// longStepThreshold — с какого лимита шаг считаем долгим: всё, что может идти
-// больше двух минут, пользователь должен увидеть помеченным заранее.
+// longStepThreshold — с какого лимита шаг может считаться долгим. Сам по себе
+// большой timeout_sec ничего не значит (его ставят «на всякий случай»: git push
+// с лимитом 5 минут идёт секунды), поэтому лимит проверяем вместе с признаками
+// долгой операции — или с явным запуском в фоне.
 const longStepThreshold = 2 * time.Minute
 
-// longStepNotice — предупреждение о заведомо долгой команде (run_terminal с
-// большим timeout_sec или запуск в фоне). Пустая строка — шаг обычный.
+// longStepPhrases — признаки заведомо долгих операций. Именно фразы, а не
+// отдельные слова: «build» в пути файла (Remove-Item build\tmp) ничего не значит,
+// а «wails build» / «go test» — значит.
+var longStepPhrases = []string{
+	// сборка
+	"go build", "wails build", "npm run build", "vite build", "cargo build",
+	"docker build", "dotnet build", "msbuild", "make -j",
+	// тесты и проверки
+	"go test", "npm test", "yarn test", "pytest", "cargo test", "go vet",
+	// установка и скачивание
+	"npm ci", "npm install", "yarn install", "pip install", "pip3 install",
+	"cargo install", "go mod download", "docker compose up", "docker pull",
+	// индексация, вектора, обучение, миграции (по-русски — по корням)
+	"embed.py", "embedding", "onnxruntime", "build_vectors",
+	"сборк", "прогон", "тест", "индексац", "вектор", "обучен", "скачив",
+	"установ", "миграц", "бэкап", "резервн", "компил",
+}
+
+// looksLikeLongWork — похоже ли, что команда действительно идёт минутами.
+func looksLikeLongWork(command, explanation string) bool {
+	text := strings.ToLower(command + " " + explanation)
+	for _, phrase := range longStepPhrases {
+		if strings.Contains(text, phrase) {
+			return true
+		}
+	}
+	return false
+}
+
+// longStepNotice — предупреждение о заведомо долгой команде: фоновый запуск либо
+// долгая операция (сборка, тесты, скачивание, индексация) с запасом по времени.
+// Пустая строка — шаг обычный.
 func longStepNotice(name, argsJSON string) string {
 	if name != "run_terminal" {
 		return ""
@@ -1101,7 +1133,8 @@ func longStepNotice(name, argsJSON string) string {
 		return ""
 	}
 	wait := time.Duration(args.TimeoutSec) * time.Second
-	if !args.IsBackground && wait < longStepThreshold {
+	longOp := looksLikeLongWork(args.Command, args.Explanation)
+	if !args.IsBackground && (wait < longStepThreshold || !longOp) {
 		return ""
 	}
 	if wait <= 0 {
@@ -1118,11 +1151,11 @@ func longStepNotice(name, argsJSON string) string {
 			what = string([]rune(what)[:120]) + "…"
 		}
 	}
-	where := "в фоне"
-	if !args.IsBackground {
-		where = "в текущем шаге"
+	if args.IsBackground {
+		return fmt.Sprintf("Долгий шаг: %s — запускаю в фоне, лимит до %s. Промежуточные результаты покажу по ходу.",
+			what, llm.FormatWait(wait))
 	}
-	return fmt.Sprintf("Долгий шаг: %s — %s, лимит до %s. Промежуточные результаты покажу по ходу.", what, where, llm.FormatWait(wait))
+	return fmt.Sprintf("Возможен долгий шаг: %s — лимит до %s. Если пойдёт дольше, сообщу.", what, llm.FormatWait(wait))
 }
 
 func truncate(s string, n int) string {
