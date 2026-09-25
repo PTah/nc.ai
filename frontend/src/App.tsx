@@ -243,6 +243,8 @@ type AgentEvent = {
   ok?: boolean
   sessionId?: string
   callId?: string
+  /** Почему вызов требует подтверждения (например, команда заходит в другой проект). */
+  reason?: string
 }
 
 type UsageSnapshot = {
@@ -1334,7 +1336,7 @@ export default function App() {
   const [info, setInfo] = useState({name: 'NotCursor.ai', version: '0.6.3'})
   const [usage, setUsage] = useState<UsageSnapshot>(emptyUsage)
   const [welcome, setWelcome] = useState<WelcomeState | null>(null)
-  const [toolAsk, setToolAsk] = useState<{sessionId: string; callId: string; name: string; args: string} | null>(null)
+  const [toolAsk, setToolAsk] = useState<{sessionId: string; callId: string; name: string; args: string; reason?: string} | null>(null)
   const [showPrices, setShowPrices] = useState(false)
   const [showArchives, setShowArchives] = useState(false)
   const [archives, setArchives] = useState<ArchiveChat[]>([])
@@ -1578,6 +1580,8 @@ export default function App() {
 
   const items = asList(activeSessionId ? itemsBySession[activeSessionId] : undefined)
   const busy = Boolean(activeSessionId && busyBySession[activeSessionId])
+  // Иконка программы: анимируем, пока в приложении идёт хоть один прогон.
+  const anyRunActive = Object.values(busyBySession).some(Boolean)
   // Everything the composer shows is bound to the active chat session: question
   // text, attachments, queue and todo list never leak into another project.
   const draft = activeSessionId ? drafts[activeSessionId] : undefined
@@ -2351,6 +2355,7 @@ export default function App() {
               callId: String(ev.callId || ''),
               name: ev.name || 'tool',
               args: ev.content || '',
+              reason: ev.reason || '',
             })
             return
           }
@@ -3943,7 +3948,7 @@ export default function App() {
     <div className="nc-app" data-theme={theme}>
       <header className="nc-topbar">
         <div className="nc-top-brand">
-          <BrandMark size={34} />
+          <BrandMark size={34} animated={anyRunActive} />
           <strong>{info.name}</strong>
           <span className="nc-sub">v{info.version}</span>
         </div>
@@ -4162,7 +4167,12 @@ export default function App() {
                   title={p.path}
                 >
                   <ProjectIcon src={p.iconUrl} name={p.name} />
-                  <span className="nc-project-name">{p.name}</span>
+                  <span className="nc-project-name">
+                    {busy && active?.path === p.path ? (
+                      <span className="nc-spin" title="Идёт работа" aria-label="Идёт работа" />
+                    ) : null}
+                    {p.name}
+                  </span>
                 </button>
               </li>
             ))}
@@ -4271,6 +4281,11 @@ export default function App() {
                       onDoubleClick={() => startRename(s.id, s.title)}
                       title={`${s.title || 'Chat'} (двойной клик — переименовать)`}
                     >
+                      {busyBySession[s.id] ? (
+                        <span className="nc-spin" title="Идёт работа" aria-label="Идёт работа" />
+                      ) : itemsBySession[s.id]?.length ? (
+                        <span className="nc-done" title="Работа завершена" aria-label="Работа завершена">✓</span>
+                      ) : null}
                       <span className="nc-tab-title">{s.title || 'Chat'}</span>
                       {(queues[s.id]?.length ?? 0) > 0 && (
                         <span className="nc-tab-queue" title={`Отложенных вопросов: ${queues[s.id].length}`}>
@@ -6109,7 +6124,14 @@ export default function App() {
               <>
                 <p className="nc-confirm-app">{info.name || 'NotCursor.ai'}</p>
                 <h2 id="nc-tool-ask-title">Разрешить «{toolAsk.name}»?</h2>
-                <p className="nc-help">Агент хочет выполнить потенциально опасное действие.</p>
+                {toolAsk.reason ? (
+                  <p className="nc-rule-edit-err" style={{fontWeight: 600}}>{toolAsk.reason}</p>
+                ) : null}
+                <p className="nc-help">
+                  {toolAsk.reason
+                    ? 'Команда затрагивает не текущий проект. Разрешайте, только если это действительно нужно.'
+                    : 'Агент хочет выполнить потенциально опасное действие.'}
+                </p>
                 <pre className="nc-tool-ask-args">{toolAsk.args || '(no args)'}</pre>
                 <div className="nc-close-project-actions">
                   <button

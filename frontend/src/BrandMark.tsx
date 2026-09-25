@@ -8,29 +8,41 @@ type Props = {
   size?: number
   title?: string
   className?: string
+  /** Показывать анимацию кадров. Без активных процессов иконка статична. */
+  animated?: boolean
 }
 
-/** In-app animated brand mark from sequential icon frames 1–6. */
+/**
+ * In-app brand mark: кадры 1–6 крутятся, пока идёт работа агента. Когда процессов
+ * нет — показываем первый кадр статично (анимация не жжёт CPU в фоне).
+ */
 export default function BrandMark({
   size = 34,
   title = 'NotCursor.ai',
   className = '',
+  animated = false,
 }: Props) {
   const [idx, setIdx] = useState(0)
 
   useEffect(() => {
+    if (!animated) {
+      setIdx(0)
+      return
+    }
     const id = window.setInterval(() => {
       setIdx((v) => (v + 1) % FRAMES.length)
     }, FRAME_MS)
     return () => window.clearInterval(id)
-  }, [])
+  }, [animated])
+
+  const shown = animated ? idx : 0
 
   return (
     <span
-      className={`nc-brand-mark nc-brand-mark-frames ${className}`.trim()}
-      title={title}
+      className={`nc-brand-mark nc-brand-mark-frames ${animated ? '' : 'is-static'} ${className}`.trim()}
+      title={animated ? `${title} — идёт работа` : title}
       style={{width: size, height: size}}
-      aria-label={title}
+      aria-label={animated ? `${title} — идёт работа` : title}
       role="img"
     >
       {FRAMES.map((src, i) => (
@@ -40,7 +52,7 @@ export default function BrandMark({
           alt=""
           aria-hidden
           draggable={false}
-          className={i === idx ? 'is-active' : undefined}
+          className={i === shown ? 'is-active' : undefined}
         />
       ))}
     </span>

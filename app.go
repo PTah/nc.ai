@@ -2607,11 +2607,14 @@ func (a *App) RunAgentWithAttachments(userMessage string, attachments []agent.At
 	}
 	// ApproveTool is always wired; it decides per call whether a prompt is
 	// needed, so toggling "Confirm dangerous tools" applies immediately.
-	runner.ApproveTool = func(ctx context.Context, callID, name, argsJSON string) (bool, error) {
-		if !a.cfg.ToolConfirmEnabled() {
+	runner.ApproveTool = func(ctx context.Context, callID, name, argsJSON, reason string) (bool, error) {
+		// Выход за границы проекта подтверждаем всегда: это то же самое, что
+		// трогать чужой репозиторий, и не должно зависеть от настройки
+		// «Подтверждать опасные инструменты».
+		if reason == "" && !a.cfg.ToolConfirmEnabled() {
 			return true, nil
 		}
-		a.emit(agent.Event{Type: "tool_ask", Name: name, Content: argsJSON, CallID: callID})
+		a.emit(agent.Event{Type: "tool_ask", Name: name, Content: argsJSON, CallID: callID, Reason: reason})
 		return a.waitToolApproval(ctx, sid, callID, name, argsJSON)
 	}
 	if runTools != nil {
