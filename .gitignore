@@ -1,5 +1,7 @@
 build/bin
 build/dist
+# Локальные исходники бренда (не публикуются: см. scripts/build_brand_assets.py)
+assets/brand-src
 node_modules
 frontend/dist
 frontend/package.json.md5

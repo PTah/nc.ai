@@ -1,32 +1,32 @@
-"""Build desktop AppIcon + in-app animated brand mark from source frames."""
+"""Build desktop AppIcon + in-app animated brand mark from source frames.
+
+Исходные кадры лежат внутри проекта: `assets/brand-src/` (в .gitignore, чтобы
+локальные картинки не уезжали в публичное зеркало). Другую папку можно указать
+через переменную окружения NC_BRAND_SRC. Никаких абсолютных путей и личных
+каталогов в скрипте нет — только пути от корня репозитория.
+"""
 
 from __future__ import annotations
 
+import os
 import struct
 from io import BytesIO
 from pathlib import Path
 
 from PIL import Image
 
-ASSETS = Path(r"C:\Users\papat\.cursor\projects\e-Soft-Git-nc-ai\assets")
+ROOT = Path(__file__).resolve().parents[1]
+SRC_DIR = Path(os.environ.get("NC_BRAND_SRC") or ROOT / "assets" / "brand-src")
 SRC = {
-    "appicon": ASSETS
-    / "c__Users_papat_AppData_Roaming_Cursor_User_workspaceStorage_empty-window_images_AppIcon-6a5df677-81dd-4336-a437-7a9a4982383d.png",
-    1: ASSETS
-    / "c__Users_papat_AppData_Roaming_Cursor_User_workspaceStorage_empty-window_images_1-3971cbe1-d95a-45c3-9441-d04342638991.png",
-    2: ASSETS
-    / "c__Users_papat_AppData_Roaming_Cursor_User_workspaceStorage_empty-window_images_2-95886c82-28b8-41f6-a0a9-4bdd082ec581.png",
-    3: ASSETS
-    / "c__Users_papat_AppData_Roaming_Cursor_User_workspaceStorage_empty-window_images_3-9780ea86-1add-41d2-b016-e59d8eb88e69.png",
-    4: ASSETS
-    / "c__Users_papat_AppData_Roaming_Cursor_User_workspaceStorage_empty-window_images_4-e187759a-abfe-4ce5-a1cf-66773e1d0be3.png",
-    5: ASSETS
-    / "c__Users_papat_AppData_Roaming_Cursor_User_workspaceStorage_empty-window_images_5-97fd1ac0-07f8-499d-8ee3-2e2e150fdcdc.png",
-    6: ASSETS
-    / "c__Users_papat_AppData_Roaming_Cursor_User_workspaceStorage_empty-window_images_6-866213d8-6a27-4870-81db-ddabca6d992b.png",
+    "appicon": SRC_DIR / "appicon.png",
+    1: SRC_DIR / "frame-1.png",
+    2: SRC_DIR / "frame-2.png",
+    3: SRC_DIR / "frame-3.png",
+    4: SRC_DIR / "frame-4.png",
+    5: SRC_DIR / "frame-5.png",
+    6: SRC_DIR / "frame-6.png",
 }
 
-ROOT = Path(__file__).resolve().parents[1]
 BRAND = ROOT / "frontend" / "src" / "assets" / "brand"
 DOCK = ROOT / "internal" / "dockicon" / "frames"
 BUILD = ROOT / "build"
@@ -78,6 +78,15 @@ def save_multi_size_ico(im: Image.Image, path: Path, sizes: tuple[int, ...] = IC
 
 
 def main() -> None:
+    missing = [p for p in SRC.values() if not p.is_file()]
+    if missing:
+        raise SystemExit(
+            "no source frames: "
+            + ", ".join(str(p) for p in missing)
+            + "\nput appicon.png and frame-1..6.png into assets/brand-src/ "
+            "or set NC_BRAND_SRC to another folder"
+        )
+
     BRAND.mkdir(parents=True, exist_ok=True)
 
     app = center_square(Image.open(SRC["appicon"]))

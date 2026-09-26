@@ -4,7 +4,7 @@ import "testing"
 
 // Так выглядел реальный ответ: русский текст с китайскими вставками.
 const mixedAnswer = "已完成，版本仍为 0.6.33。" +
-	"已推送到 origin、kalinamall、github 三个仓库；标签 v0.6.33 已移动到同一提交。" +
+	"已推送到 origin、mirror、github 三个仓库；标签 v0.6.33 已移动到同一提交。" +
 	"已重新构建并重新上传到 GitHub 上的 v0.6.33 发布。"
 
 func TestWrongLanguageMixedAnswer(t *testing.T) {

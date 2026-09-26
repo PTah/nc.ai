@@ -27,9 +27,9 @@ func TestParseRemote(t *testing.T) {
 		port                  int
 		name                  string
 	}{
-		{"https://git.papatramp.ru/PapaTramp/Pentest", "https", "git.papatramp.ru", "", 0, "Pentest"},
-		{"https://git.papatramp.ru/PapaTramp/Pentest.git", "https", "git.papatramp.ru", "", 0, "Pentest"},
-		{"ssh://git@git.papatramp.ru:2222/PapaTramp/Pentest.git", "ssh", "git.papatramp.ru", "git", 2222, "Pentest"},
+		{"https://git.example.com/team/Pentest", "https", "git.example.com", "", 0, "Pentest"},
+		{"https://git.example.com/team/Pentest.git", "https", "git.example.com", "", 0, "Pentest"},
+		{"ssh://git@git.example.com:2222/team/Pentest.git", "ssh", "git.example.com", "git", 2222, "Pentest"},
 		{"git@github.com:PTah/nc.ai.git", "ssh", "github.com", "git", 0, "nc.ai"},
 		{"http://host/team/repo", "https", "host", "", 0, "repo"},
 		{"file:///D:/repos/origin", "other", "", "", 0, "origin"},
@@ -46,7 +46,7 @@ func TestParseRemote(t *testing.T) {
 				c.raw, info, info.repoName(), c.kind, c.host, c.user, c.port, c.name)
 		}
 	}
-	for _, bad := range []string{"", "просто текст", "https://git.papatramp.ru/"} {
+	for _, bad := range []string{"", "просто текст", "https://git.example.com/"} {
 		if _, err := parseRemote(bad); err == nil {
 			t.Errorf("parseRemote(%q) должен был вернуть ошибку", bad)
 		}
@@ -55,30 +55,30 @@ func TestParseRemote(t *testing.T) {
 
 // Порт SSH для web-ссылки берём из ~/.ssh/config — иначе push/pull ушли бы на 22.
 func TestRemoteDerivedURLs(t *testing.T) {
-	writeSSHConfig(t, "Host git.papatramp.ru\n  HostName git.papatramp.ru\n  Port 2222\n  User git\n")
+	writeSSHConfig(t, "Host git.example.com\n  HostName git.example.com\n  Port 2222\n  User git\n")
 
-	web, err := parseRemote("https://git.papatramp.ru/PapaTramp/Pentest")
+	web, err := parseRemote("https://git.example.com/team/Pentest")
 	if err != nil {
 		t.Fatalf("parse https: %v", err)
 	}
-	if got := web.sshURL(); got != "ssh://git@git.papatramp.ru:2222/PapaTramp/Pentest.git" {
+	if got := web.sshURL(); got != "ssh://git@git.example.com:2222/team/Pentest.git" {
 		t.Errorf("sshURL=%q", got)
 	}
-	if got := web.httpsURL(); got != "https://git.papatramp.ru/PapaTramp/Pentest.git" {
+	if got := web.httpsURL(); got != "https://git.example.com/team/Pentest.git" {
 		t.Errorf("httpsURL=%q", got)
 	}
 
-	ssh, err := parseRemote("ssh://git@git.papatramp.ru:2222/PapaTramp/Pentest.git")
+	ssh, err := parseRemote("ssh://git@git.example.com:2222/team/Pentest.git")
 	if err != nil {
 		t.Fatalf("parse ssh: %v", err)
 	}
-	if got := ssh.httpsURL(); got != "https://git.papatramp.ru/PapaTramp/Pentest.git" {
+	if got := ssh.httpsURL(); got != "https://git.example.com/team/Pentest.git" {
 		t.Errorf("httpsURL из ssh=%q", got)
 	}
 }
 
 func TestCandidatesOrder(t *testing.T) {
-	web, _ := parseRemote("https://git.papatramp.ru/PapaTramp/Pentest")
+	web, _ := parseRemote("https://git.example.com/team/Pentest")
 	webFirst := web.candidates(false)
 	if webFirst[0].kind != "https" || webFirst[1].kind != "ssh" {
 		t.Fatalf("без рабочего SSH первым должен идти https: %+v", webFirst)
@@ -99,8 +99,8 @@ func TestCandidatesOrder(t *testing.T) {
 }
 
 func TestLookupSSHConfig(t *testing.T) {
-	writeSSHConfig(t, "# comment\nHost other\n  Port 1234\n\nHost git.papatramp.ru\n  Port 2222\n  User git\n")
-	cfg, ok := lookupSSHConfig("git.papatramp.ru")
+	writeSSHConfig(t, "# comment\nHost other\n  Port 1234\n\nHost git.example.com\n  Port 2222\n  User git\n")
+	cfg, ok := lookupSSHConfig("git.example.com")
 	if !ok || cfg.port != 2222 || cfg.user != "git" {
 		t.Fatalf("cfg=%+v ok=%v", cfg, ok)
 	}
@@ -155,7 +155,7 @@ func TestCloneLocalRepository(t *testing.T) {
 		t.Fatalf("ожидали ошибку про существующую папку, получили %v", err)
 	}
 
-	target, err := s.CloneTarget("https://git.papatramp.ru/PapaTramp/Pentest", "D:/Soft/Git")
+	target, err := s.CloneTarget("https://git.example.com/team/Pentest", "D:/repos")
 	if err != nil {
 		t.Fatalf("CloneTarget: %v", err)
 	}
@@ -165,10 +165,10 @@ func TestCloneLocalRepository(t *testing.T) {
 }
 
 func TestCloneFailureText(t *testing.T) {
-	remote, _ := parseRemote("https://git.papatramp.ru/PapaTramp/Pentest")
+	remote, _ := parseRemote("https://git.example.com/team/Pentest")
 	text := cloneFailureText(remote, []CloneAttempt{
-		{Kind: "ssh", URL: "ssh://git@git.papatramp.ru:2222/PapaTramp/Pentest.git", Err: "Permission denied (publickey)"},
-		{Kind: "https", URL: "https://git.papatramp.ru/PapaTramp/Pentest.git", Err: "Authentication failed"},
+		{Kind: "ssh", URL: "ssh://git@git.example.com:2222/team/Pentest.git", Err: "Permission denied (publickey)"},
+		{Kind: "https", URL: "https://git.example.com/team/Pentest.git", Err: "Authentication failed"},
 	})
 	for _, want := range []string{"Pentest", "SSH", "HTTPS", "Permission denied", "Authentication failed", "SSH keys"} {
 		if !strings.Contains(text, want) {

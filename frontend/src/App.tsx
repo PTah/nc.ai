@@ -6443,7 +6443,7 @@ export default function App() {
               <input
                 autoFocus
                 value={cloneDlg.url}
-                placeholder="git@git.papatramp.ru:PapaTramp/Pentest.git или https://…"
+                placeholder="git@example.com:user/repo.git или https://example.com/user/repo.git"
                 spellCheck={false}
                 onChange={(e) => {
                   const value = e.target.value
