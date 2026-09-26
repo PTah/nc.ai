@@ -108,7 +108,7 @@ import {
   SaveMonoFont,
   SaveChat,
   SaveChatSession,
-  LoadChat,
+  LoadChatTranscript,
   StartTerminal,
   StartupNotice,
   StopAgentSession,
@@ -1682,6 +1682,20 @@ export default function App() {
   const busyBySessionRef = useRef<Record<string, boolean>>({})
   const queuesRef = useRef<Record<string, QueuedMsg[]>>({})
   const itemsBySessionRef = useRef<Record<string, ChatItem[]>>({})
+
+  /**
+   * Сохраняет транскрипт чата на диск. Элементы берём только по ключу сессии из
+   * itemsBySessionRef: пара «сессия → её элементы» всегда из одного источника.
+   * Если передавать элементы «со стороны» (как делал restoreChat, смешивая
+   * ListChatSessions одного проекта с LoadChat другого), транскрипт одного проекта
+   * уезжает в чат другого и при автосохранении затирает его.
+   */
+  const persistSession = useCallback((sessionId: string) => {
+    if (!sessionId) return Promise.resolve()
+    const list = itemsBySessionRef.current[sessionId]
+    if (!list || list.length === 0) return Promise.resolve()
+    return SaveChatSession(sessionId, JSON.stringify(list)).catch(() => undefined)
+  }, [])
   const progressAskedRef = useRef<Record<string, boolean>>({})
   // lastOutputAt: when this session last produced a visible answer (delta/done).
   // silentNoticeRef: one "still working" card per silent stretch.
@@ -1939,10 +1953,8 @@ export default function App() {
       return next
     })
     if (sid !== activeSessionRef.current) {
-      window.setTimeout(() => {
-        const list = itemsBySessionRef.current[sid]
-        if (list && list.length > 0) SaveChatSession(sid, JSON.stringify(list)).catch(() => undefined)
-      }, 700)
+      // Прогон чужого (фонового) чата: сохраняем именно его транскрипт.
+      window.setTimeout(() => { void persistSession(sid) }, 700)
     }
   }, [])
 
@@ -2008,14 +2020,14 @@ export default function App() {
   }, [items])
   useEffect(() => {
     if (prevBusyRef.current && !busy) {
-      if (activeSessionId) SaveChatSession(activeSessionId, JSON.stringify(items)).catch(() => undefined)
+      if (activeSessionId) void persistSession(activeSessionId)
     }
     prevBusyRef.current = busy
-  }, [busy, items, activeSessionId])
+  }, [busy, items, activeSessionId, persistSession])
   useEffect(() => {
     const flush = () => {
       if (activeSessionRef.current) {
-        SaveChatSession(activeSessionRef.current, JSON.stringify(itemsRef.current)).catch(() => undefined)
+        void persistSession(activeSessionRef.current)
       }
     }
     window.addEventListener('beforeunload', flush)
@@ -2436,7 +2448,7 @@ export default function App() {
         // the recent list instead of always activating the first entry.
         let target: (typeof list)[number] | undefined
         try {
-          const b = await ListChatSessions()
+          const b = await ListChatSessions('')
           const projPath = String((b as any)?.project || '')
           if (projPath) target = list.find((p: any) => p.path === projPath)
         } catch {
@@ -2801,14 +2813,15 @@ export default function App() {
     if (!active || !activeSessionId || items.length === 0) return
     if (!sessions.some((s) => s.id === activeSessionId)) return
     const t = window.setTimeout(() => {
-      SaveChatSession(activeSessionId, JSON.stringify(items)).catch(() => undefined)
+      void persistSession(activeSessionId)
     }, 300)
     return () => window.clearTimeout(t)
-  }, [items, active, activeSessionId, sessions])
+  }, [items, active, activeSessionId, sessions, persistSession])
 
-  async function refreshSessions() {
+  async function refreshSessions(projectPath?: string) {
     try {
-      const bundle = await ListChatSessions()
+      const path = projectPath || activeProjectRef.current?.path || ''
+      const bundle = await ListChatSessions(path)
       const list = asList(bundle?.sessions).map((s) => ({
         id: String(s.id),
         title: String(s.title || 'Chat'),
@@ -2827,14 +2840,18 @@ export default function App() {
       // Load sessions and transcript first, then commit all state in one batch.
       // (refreshSessions() would set activeSessionId mid-way and the debounced
       // persist effect could then save an empty transcript over real history.)
-      const bundle = await ListChatSessions()
+      // Список вкладок и сам транскрипт должны прийти из ОДНОГО проекта: раньше
+      // здесь стояли ListChatSessions() (активный проект бэкенда) и
+      // LoadChat(projectPath) (запрашиваемый проект) — при рассинхроне транскрипт
+      // одного проекта записывался в чат другого и затирал его автосохранением.
+      const bundle = await ListChatSessions(projectPath)
       const list = asList((bundle as any)?.sessions).map((s: any) => ({
         id: String(s.id || ''),
         title: String(s.title || ''),
       }))
-      const activeId = String((bundle as any)?.activeId || list[0]?.id || '')
-      const raw = await LoadChat(projectPath)
-      const parsed = JSON.parse(raw || '[]')
+      const transcript = await LoadChatTranscript(projectPath)
+      const activeId = String(transcript?.sessionId || (bundle as any)?.activeId || list[0]?.id || '')
+      const parsed = JSON.parse(transcript?.itemsJson || '[]')
       const loaded: ChatItem[] = Array.isArray(parsed) && parsed.length > 0
         ? parsed as ChatItem[]
         : [{kind: 'system', content: 'Чат с агентом. История пуста — задайте задачу. Можно вставить скриншот (Ctrl+V) или перетащить файл.'}]
@@ -2866,7 +2883,7 @@ export default function App() {
     stickToBottomRef.current = true // в другом чате показываем актуальный низ
     if (activeSessionId) {
       try {
-        await SaveChatSession(activeSessionId, JSON.stringify(items))
+        await persistSession(activeSessionId)
       } catch { /* ignore */ }
     }
     try {
@@ -2894,7 +2911,7 @@ export default function App() {
 
   async function createSession() {
     if (activeSessionId) {
-      try { await SaveChatSession(activeSessionId, JSON.stringify(items)) } catch { /* ignore */ }
+      try { await persistSession(activeSessionId) } catch { /* ignore */ }
     }
     const sess = await NewChatSession('')
     const id = String(sess.id)
@@ -3375,7 +3392,7 @@ export default function App() {
 
   async function openProject(path: string) {
     if (active && activeSessionId) {
-      try { await SaveChatSession(activeSessionId, JSON.stringify(items)) } catch { /* ignore */ }
+      try { await persistSession(activeSessionId) } catch { /* ignore */ }
     }
     const p = await OpenProject(path)
     setActive(p)
@@ -3392,7 +3409,7 @@ export default function App() {
   async function finishCloseProject(path: string, chatAction: '' | 'delete' | 'archive') {
     const wasActive = active?.path === path
     if (wasActive && activeSessionId) {
-      try { await SaveChatSession(activeSessionId, JSON.stringify(items)) } catch { /* ignore */ }
+      try { await persistSession(activeSessionId) } catch { /* ignore */ }
     }
     const next = await CloseProject(path, chatAction)
     setProjects(asList(await ListProjects()))
