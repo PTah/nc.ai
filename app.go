@@ -1,4 +1,4 @@
-package main
+﻿package main
 
 import (
 	"context"
@@ -29,6 +29,7 @@ import (
 	"notcursor.ai/app/internal/llm/providers/local"
 	"notcursor.ai/app/internal/llm/providers/openrouter"
 	"notcursor.ai/app/internal/llm/providers/qwen"
+	"notcursor.ai/app/internal/llm/providers/yandex"
 	"notcursor.ai/app/internal/llm/providers/zai"
 	"notcursor.ai/app/internal/providernews"
 	"notcursor.ai/app/internal/redact"
@@ -538,6 +539,11 @@ func (a *App) refreshProvider() {
 			model = qwen.DefaultModel
 		}
 		a.llm = qwen.NewWithBaseURL(key, model, a.cfg.QwenBaseURL())
+	case provider == config.ProviderYandex:
+		if model == "" {
+			model = yandex.DefaultModel
+		}
+		a.llm = yandex.New(key, a.cfg.YandexFolderID(), model)
 	case config.IsLocalProvider(provider):
 		epID := config.LocalEndpointID(provider)
 		ep, ok := a.cfg.LocalEndpointByID(epID)
@@ -784,6 +790,9 @@ func (a *App) GetSettings() map[string]any {
 		"qwenModel":           orDefault(s.QwenModel, qwen.DefaultModel),
 		"qwenKeySet":          a.cfg.HasAPIKey(config.ProviderQwen),
 		"qwenEndpoint":        a.cfg.QwenEndpoint(),
+		"yandexModel":         orDefault(s.YandexModel, yandex.DefaultModel),
+		"yandexKeySet":        a.cfg.HasAPIKey(config.ProviderYandex),
+		"yandexFolderId":      a.cfg.YandexFolderID(),
 		"localBaseUrl":        a.cfg.LocalBaseURL(),
 		"localModel":          a.cfg.LocalModel(),
 		"localKeySet":         a.cfg.HasAPIKey(localKeyProvider),
@@ -1228,6 +1237,39 @@ func (a *App) SaveQwenEndpoint(endpoint string) error {
 	return nil
 }
 
+func (a *App) SaveYandexKey(apiKey string) error {
+	if err := a.cfg.SetYandexAPIKey(apiKey); err != nil {
+		return err
+	}
+	a.refreshProvider()
+	return nil
+}
+
+func (a *App) ClearYandexKey() error {
+	if err := a.cfg.ClearAPIKey(config.ProviderYandex); err != nil {
+		return err
+	}
+	a.refreshProvider()
+	return nil
+}
+
+func (a *App) SaveYandexModel(model string) error {
+	if err := a.cfg.SetYandexModel(model); err != nil {
+		return err
+	}
+	a.clearSessionStickyModels()
+	a.refreshProvider()
+	return nil
+}
+
+func (a *App) SaveYandexFolderID(folderID string) error {
+	if err := a.cfg.SetYandexFolderID(folderID); err != nil {
+		return err
+	}
+	a.refreshProvider()
+	return nil
+}
+
 func (a *App) SaveLocalKey(apiKey string) error {
 	if err := a.cfg.SetLocalAPIKey(apiKey); err != nil {
 		return err
@@ -1642,6 +1684,31 @@ func (a *App) ListQwenModels() []string {
 // PreferQwenModel keeps the saved model when still available; else qwen-plus.
 func (a *App) PreferQwenModel(available []string) string {
 	return qwen.PreferModel(available, a.cfg.Get().QwenModel)
+}
+
+// ListYandexModels fetches AI Studio /models (curated fallback on error).
+func (a *App) ListYandexModels() []string {
+	key := a.cfg.APIKey(config.ProviderYandex)
+	if key == "" {
+		return yandex.OrderModels(yandex.FallbackModels())
+	}
+	client := yandex.New(key, a.cfg.YandexFolderID(), a.cfg.Get().YandexModel)
+	ctx := a.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(ctx, 25*time.Second)
+	defer cancel()
+	items, err := client.ListModels(ctx)
+	if err != nil || len(items) == 0 {
+		return yandex.OrderModels(yandex.FallbackModels())
+	}
+	return yandex.OrderModels(yandex.MergeCurated(yandex.FilterModels(items, 60)))
+}
+
+// PreferYandexModel keeps the saved model when still available; else yandexgpt.
+func (a *App) PreferYandexModel(available []string) string {
+	return yandex.PreferModel(available, a.cfg.Get().YandexModel)
 }
 
 // GetOpenRouterBalance best-effort remaining prepaid credits for the saved key.
@@ -3030,6 +3097,13 @@ func (a *App) requireProviderReady() error {
 	case a.cfg.Provider() == config.ProviderQwen:
 		if a.cfg.ActiveAPIKey() == "" {
 			return fmt.Errorf("Qwen (DashScope) API key is not set")
+		}
+	case a.cfg.Provider() == config.ProviderYandex:
+		if a.cfg.ActiveAPIKey() == "" {
+			return fmt.Errorf("Yandex AI Studio API key is not set")
+		}
+		if a.cfg.YandexFolderID() == "" {
+			return fmt.Errorf("Yandex folder id is not set")
 		}
 	default:
 		if a.cfg.ActiveAPIKey() == "" {

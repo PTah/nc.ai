@@ -1,4 +1,4 @@
-package secrets
+﻿package secrets
 
 import (
 	"errors"
@@ -14,6 +14,7 @@ const (
 	IDZai        = "zai"
 	IDOpenRouter = "openrouter"
 	IDQwen       = "qwen"
+	IDYandex     = "yandex"
 	IDLocal      = "local"
 )
 
@@ -59,6 +60,8 @@ func NormalizeID(id string) string {
 		return IDOpenRouter
 	case IDQwen:
 		return IDQwen
+	case IDYandex:
+		return IDYandex
 	case IDLocal:
 		return IDLocal
 	default:

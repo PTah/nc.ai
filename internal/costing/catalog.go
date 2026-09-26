@@ -1,4 +1,4 @@
-package costing
+﻿package costing
 
 import (
 	"fmt"
@@ -77,6 +77,11 @@ func Catalog() []ModelPrice {
 		{Provider: "Qwen (DashScope)", Model: "qwen-max", InputUSD: 1.60, OutputUSD: 6.40, CacheHitUSD: 0.64, Strength: 48, Note: "flagship reasoning"},
 		{Provider: "Qwen (DashScope)", Model: "qwen-vl-plus", InputUSD: 0.40, OutputUSD: 1.20, CacheHitUSD: 0.16, Strength: 24, Note: "vision"},
 		{Provider: "Qwen (DashScope)", Model: "qwen-vl-max", InputUSD: 1.60, OutputUSD: 6.40, CacheHitUSD: 0.64, Strength: 46, Note: "vision flagship"},
+
+		{Provider: "Yandex AI Studio", Model: "yandexgpt-lite", InputUSD: 0.20, OutputUSD: 0.20, Strength: 14, Note: "fast/cheap"},
+		{Provider: "Yandex AI Studio", Model: "yandexgpt", InputUSD: 1.20, OutputUSD: 1.20, Strength: 28, Note: "Auto default · approx USD"},
+		{Provider: "Yandex AI Studio", Model: "qwen3-235b-a22b-fp8", InputUSD: 0.50, OutputUSD: 1.50, Strength: 40, Note: "coding / Auto complex"},
+		{Provider: "Yandex AI Studio", Model: "gpt-oss-120b", InputUSD: 0.40, OutputUSD: 1.20, Strength: 36},
 	}
 	if appmeta.DeepSeekProRetired(time.Now()) {
 		kept := rows[:0]

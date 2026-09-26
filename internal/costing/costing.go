@@ -1,4 +1,4 @@
-package costing
+﻿package costing
 
 import (
 	"strings"
@@ -75,8 +75,20 @@ var builtinQwenSheet = map[string]Prices{
 	"qwen-vl-max":       {InputMiss: 1.60, InputHit: 0.64, Completion: 6.40},
 }
 
+// builtinYandexSheet — приблизительный тариф Yandex AI Studio в USD / 1M
+// токенов (ориентир по публичному прайсу YandexGPT; биллинг в рублях).
+var builtinYandexSheet = map[string]Prices{
+	"yandexgpt-lite":      {InputMiss: 0.20, InputHit: 0.20, Completion: 0.20},
+	"yandexgpt":           {InputMiss: 1.20, InputHit: 1.20, Completion: 1.20},
+	"qwen3-235b-a22b-fp8": {InputMiss: 0.50, InputHit: 0.50, Completion: 1.50},
+	"gpt-oss-120b":        {InputMiss: 0.40, InputHit: 0.40, Completion: 1.20},
+}
+
 // qwenFallbackKey is used for unknown Qwen models so new models are not billed $0.
 var qwenFallbackKey = "qwen-plus"
+
+// yandexFallbackKey is used for unknown Yandex models so new models are not billed $0.
+var yandexFallbackKey = "yandexgpt"
 
 // NormalizeModel maps response/request model ids onto rate-card keys.
 // Unknown models return "".
@@ -84,6 +96,20 @@ func NormalizeModel(model string) string {
 	m := strings.ToLower(strings.TrimSpace(model))
 	m = strings.TrimPrefix(m, "deepseek/")
 	m = strings.TrimPrefix(m, "zai/")
+	// Yandex gpt://folder/name[/latest] → name
+	if strings.HasPrefix(m, "gpt://") {
+		rest := m[len("gpt://"):]
+		parts := strings.Split(rest, "/")
+		if len(parts) >= 2 {
+			name := parts[1]
+			if len(parts) > 2 && parts[len(parts)-1] == "latest" {
+				name = strings.Join(parts[1:len(parts)-1], "/")
+			} else if len(parts) > 2 {
+				name = strings.Join(parts[1:], "/")
+			}
+			m = name
+		}
+	}
 	// OpenRouter routing suffixes (:floor, :nitro, :exacto, …).
 	if i := strings.IndexByte(m, ':'); i > 0 {
 		m = m[:i]
@@ -149,6 +175,15 @@ func NormalizeModel(model string) string {
 		return "qwen-vl-max"
 	case strings.HasPrefix(m, "qwen-vl-plus"):
 		return "qwen-vl-plus"
+	// Yandex AI Studio short ids / third-party models in the folder.
+	case m == "yandexgpt-lite" || strings.HasPrefix(m, "yandexgpt-lite"):
+		return "yandexgpt-lite"
+	case m == "yandexgpt" || strings.HasPrefix(m, "yandexgpt-"):
+		return "yandexgpt"
+	case strings.HasPrefix(m, "qwen3-235b"):
+		return "qwen3-235b-a22b-fp8"
+	case strings.HasPrefix(m, "gpt-oss-120b"):
+		return "gpt-oss-120b"
 	default:
 		return ""
 	}
@@ -210,6 +245,8 @@ func Price(model string, at time.Time) Prices {
 		} else if strings.HasPrefix(m, "qwen") {
 			// Unknown DashScope Qwen model: bill as the balanced tier, not $0.
 			return builtinQwenSheet[qwenFallbackKey]
+		} else if strings.HasPrefix(m, "yandexgpt") || strings.Contains(m, "gpt://") {
+			return builtinYandexSheet[yandexFallbackKey]
 		} else {
 			return Prices{}
 		}
@@ -221,6 +258,9 @@ func Price(model string, at time.Time) Prices {
 		return p
 	}
 	if p, ok := builtinQwenSheet[key]; ok {
+		return p
+	}
+	if p, ok := builtinYandexSheet[key]; ok {
 		return p
 	}
 	peak, ok := dsPeak[key]

@@ -1,4 +1,4 @@
-package agent
+﻿package agent
 
 import (
 	"strings"
@@ -7,6 +7,7 @@ import (
 	"notcursor.ai/app/internal/llm/providers/deepseek"
 	"notcursor.ai/app/internal/llm/providers/openrouter"
 	"notcursor.ai/app/internal/llm/providers/qwen"
+	"notcursor.ai/app/internal/llm/providers/yandex"
 	"notcursor.ai/app/internal/llm/providers/zai"
 )
 
@@ -37,6 +38,13 @@ const (
 	ModelQwenFast   = qwen.FastModel    // qwen-turbo (cheapest)
 	ModelQwenStrong = qwen.StrongModel  // qwen-max (flagship)
 	ModelQwenVision = qwen.VisionModel  // qwen-vl-max (multimodal)
+)
+
+// Auto model ids (Yandex AI Studio).
+const (
+	ModelYandexDefault = yandex.DefaultModel // yandexgpt
+	ModelYandexFast    = yandex.FastModel    // yandexgpt-lite
+	ModelYandexStrong  = yandex.CoderModel   // qwen3-235b (coding / complex)
 )
 
 // RouteInput feeds the Auto-models picker.
@@ -138,6 +146,24 @@ func PickQwenModel(in RouteInput) RouteDecision {
 		return RouteDecision{Model: ModelQwenStrong, Reason: "complex"}
 	}
 	return RouteDecision{Model: ModelQwenPlus, Reason: "default"}
+}
+
+// PickYandexModel chooses yandexgpt / lite / qwen3 for Yandex AI Studio Auto-models.
+//
+// Priority:
+//  1. Long tool run / complex prompt / many paths / images → qwen3-235b (no native vision)
+//  2. Otherwise → yandexgpt (balanced default)
+func PickYandexModel(in RouteInput) RouteDecision {
+	if in.HasImages {
+		return RouteDecision{Model: ModelYandexStrong, Reason: "image"}
+	}
+	if in.Step >= 8 {
+		return RouteDecision{Model: ModelYandexStrong, Reason: "long-run"}
+	}
+	if in.HintPathCount >= 4 || isComplexTask(in.UserText) {
+		return RouteDecision{Model: ModelYandexStrong, Reason: "complex"}
+	}
+	return RouteDecision{Model: ModelYandexDefault, Reason: "default"}
 }
 
 func isComplexTask(text string) bool {

@@ -1,4 +1,4 @@
-# NotCursor.ai
+﻿# NotCursor.ai
 
 AI-агент для работы с кодом в отдельном окне: чат, дерево проекта, редактор и настоящий терминал.
 Написан на **Wails v2 (Go) + React/TypeScript** — то есть поверх системного WebView, без Electron и
@@ -9,7 +9,7 @@ AI-агент для работы с кодом в отдельном окне: 
 Keychain / Windows Credential Manager), история чатов — локально. Наружу уходит только запрос к
 тому провайдеру LLM, которого вы выбрали сами.
 
-**Версия:** `0.7.11` · **На выходе:** `build/bin/NotCursor.exe` (Windows) и `build/bin/NotCursor.app` (macOS)
+**Версия:** `0.7.12` · **На выходе:** `build/bin/NotCursor.exe` (Windows) и `build/bin/NotCursor.app` (macOS)
 
 ## Быстрый старт
 
@@ -80,6 +80,7 @@ macOS (собирается только на macOS-хосте; скрипт с�
 | Z.ai | `glm-4.5…5.3` (flash / pro / vision) | список моделей и баланс показываются прямо в Settings |
 | OpenRouter | любой `openrouter/…` | свой ключ и endpoint |
 | Qwen (DashScope) | `qwen-max` / `qwen-plus` / `qwen-turbo`, `qwen3-coder-*`, `qwen-vl-*` | Alibaba Cloud Model Studio, OpenAI-compatible; регион intl / cn |
+| Yandex AI Studio | `yandexgpt` / `yandexgpt-lite`, `qwen3-235b-a22b-fp8`, `gpt-oss-120b` | API-ключ + folder id; URI `gpt://<folder>/<model>/latest` |
 | Local | всё, что вернёт `/models` — Ollama, LM Studio, vLLM, llama.cpp | по умолчанию `http://127.0.0.1:11434/v1`, ключ не обязателен |
 
 - Авто-выбор модели идёт по цепочке flash → legacy `deepseek-v4-pro` (пока он жив) → мультимодальная
@@ -289,7 +290,7 @@ UI читает картинку из файла или буфера обмен�
 
 ## Settings
 
-- **Provider** — DeepSeek / Z.ai / OpenRouter / Qwen (DashScope) / Local (несколько LAN-серверов): ключ, модель, base URL.
+- **Provider** — DeepSeek / Z.ai / OpenRouter / Qwen (DashScope) / Yandex AI Studio / Local (несколько LAN-серверов): ключ, модель, base URL / folder id.
   Для Custom: режим Lite, Auto-models, индикатор скорости рядом с Rules — см. [docs/local-models-ru.md](docs/local-models-ru.md).
 - **Agent** — лимит шагов, Plan mode, подтверждение опасных инструментов.
 - **Interface** — тема (Dark / Light), показ терминала, дерева и панели настроек.
