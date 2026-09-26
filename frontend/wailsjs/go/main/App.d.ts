@@ -151,6 +151,8 @@ export function ResolveUserAsk(arg1:string,arg2:string,arg3:string):Promise<void
 
 export function RunAgent(arg1:string):Promise<void>;
 
+export function RunAgentInSession(arg1:string,arg2:string,arg3:Array<agent.Attachment>):Promise<void>;
+
 export function RunAgentWithAttachments(arg1:string,arg2:Array<agent.Attachment>):Promise<void>;
 
 export function RunShell(arg1:string):Promise<Record<string, any>>;

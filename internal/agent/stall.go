@@ -182,10 +182,14 @@ func (s *stallWatch) snapshot(now time.Time) (int, string, time.Duration) {
 
 // phaseHuman — фаза человеческим языком для предупреждений.
 func phaseHuman(phase string) string {
-	if phase == "tool" {
+	switch phase {
+	case "tool":
 		return "выполняю инструмент"
+	case "approval":
+		return "жду подтверждения"
+	default:
+		return "жду ответ модели"
 	}
-	return "жду ответ модели"
 }
 
 func stepOr1(step int) int {

@@ -655,6 +655,14 @@ func (r *Runner) stallDone() {
 	}
 }
 
+// stallPhase переключает фазу watchdog'а: ожидание модели, выполнение
+// инструмента или ответ пользователя на диалог подтверждения.
+func (r *Runner) stallPhase(phase, detail string) {
+	if r.stall != nil {
+		r.stall.onPhase(phase, detail)
+	}
+}
+
 // watchStall ждёт тишины дольше лимита и обрывает прогон с разбором.
 func (r *Runner) watchStall(ctx context.Context, cancel context.CancelFunc, w *stallWatch, emit EmitFunc) {
 	t := time.NewTicker(stallTick)
@@ -1225,7 +1233,11 @@ func (r *Runner) execOne(ctx context.Context, call llm.ToolCall, emit EmitFunc) 
 		}
 	}
 	if (tools.DangerousTool(name) || scopeReason != "") && r.ApproveTool != nil {
+		// Пока висит диалог, шаг ждёт пользователя, а не «завис»: это должно
+		// быть видно в предупреждении watchdog'а и в разборе.
+		r.stallPhase("approval", "Жду подтверждения: "+name)
 		allow, err := r.ApproveTool(ctx, call.ID, name, call.Function.Arguments, scopeReason)
+		r.stallPhase("tool", toolAction(name, call.Function.Arguments))
 		if err != nil {
 			result := redact.String(fmt.Sprintf("ERROR: approval failed: %v", err))
 			emit(Event{Type: "tool_end", Name: name, Content: truncate(result, 4000), OK: false, CallID: call.ID})

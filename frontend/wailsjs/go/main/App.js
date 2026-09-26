@@ -282,6 +282,10 @@ export function RunAgent(arg1) {
   return window['go']['main']['App']['RunAgent'](arg1);
 }
 
+export function RunAgentInSession(arg1, arg2, arg3) {
+  return window['go']['main']['App']['RunAgentInSession'](arg1, arg2, arg3);
+}
+
 export function RunAgentWithAttachments(arg1, arg2) {
   return window['go']['main']['App']['RunAgentWithAttachments'](arg1, arg2);
 }
