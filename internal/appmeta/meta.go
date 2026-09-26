@@ -5,7 +5,7 @@ import "time"
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "0.7.8"
+	Version = "0.7.9"
 )
 
 // DeepSeekProRetireRFC3339 is the announced V4 Pro retirement instant, empty
@@ -51,17 +51,17 @@ func retiredAt(at time.Time, now time.Time) bool {
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
-	"Границы проекта: чтение в системных папках молча, а любое изменение вне проекта — с подтверждением",
-	"Спиннер в названии проекта и чата, пока агент работает, и зелёная галочка по завершении",
-	"Иконка программы анимируется только во время прогона — в простое она статична",
+	"Спиннер у проекта виден, даже когда открыт другой проект: прогон не теряется",
+	"Чтение вне проекта больше не просит подтверждения — диалог остался на изменения",
+	"В подтверждении есть «Разрешить и не спрашивать»: один ответ для инструмента в этом чате",
 	"ToDo можно убрать вручную: ПКМ по блоку или пункту — убрать пункт, выполненные или весь план",
 	"В настройках — «Новости провайдеров»: что нового у DeepSeek, Z.AI, OpenRouter и Qwen",
 }
 
 var HighlightsEN = []string{
-	"Project boundaries: reads in system folders are silent, but any change outside the project asks approval",
-	"A spinner in the project and chat title while the agent runs, and a green check when it finishes",
-	"The app icon animates only while a run is active — it stays static when idle",
+	"The project spinner stays visible while another project is open — a run is never lost",
+	"Reads outside the project no longer ask for approval — the dialog is left for changes",
+	"Approvals have \"Allow and stop asking\": one answer for a tool in this chat",
 	"Todos can be removed by hand: right-click the block or a task to drop it (or clear completed)",
 	"Settings include provider news: what's new at DeepSeek, Z.AI, OpenRouter and Qwen",
 }
