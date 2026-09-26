@@ -1,4 +1,4 @@
-package agent
+﻿package agent
 
 import (
 	"context"
@@ -174,7 +174,7 @@ type Runner struct {
 	LocalLite bool
 	// LocalModels feeds PickLocalModel when AutoModels is on.
 	LocalModels []LocalModelInfo
-	// ProviderID is "deepseek", "zai", "openrouter", "local", or "local:<id>".
+	// ProviderID is "deepseek", "zai", "openrouter", "qwen", "yandex", "local", or "local:<id>".
 	ProviderID string
 	// Route context for AutoModels (filled by the app before Run*).
 	UserText      string
@@ -253,6 +253,10 @@ func (r *Runner) isOpenRouter() bool {
 
 func (r *Runner) isQwen() bool {
 	return strings.EqualFold(strings.TrimSpace(r.ProviderID), "qwen")
+}
+
+func (r *Runner) isYandex() bool {
+	return strings.EqualFold(strings.TrimSpace(r.ProviderID), "yandex")
 }
 
 func (r *Runner) isLocal() bool {
@@ -370,6 +374,13 @@ func (r *Runner) resolveModel(step int, emit EmitFunc) string {
 					HintPathCount: r.HintPathCount,
 					Step:          step,
 				})
+			case r.isYandex():
+				d = PickYandexModel(RouteInput{
+					UserText:      r.UserText,
+					HasImages:     r.HasImages,
+					HintPathCount: r.HintPathCount,
+					Step:          step,
+				})
 			default:
 				d = PickModel(RouteInput{
 					UserText:      r.UserText,
@@ -398,6 +409,8 @@ func (r *Runner) resolveModel(step int, emit EmitFunc) string {
 			model = ModelORFlash
 		case r.isQwen():
 			model = ModelQwenPlus
+		case r.isYandex():
+			model = ModelYandexDefault
 		default:
 			model = ModelFlash
 		}
@@ -428,6 +441,8 @@ func (r *Runner) visionModel() (model, reason string) {
 		return ModelORVision, "image"
 	case r.isQwen():
 		return ModelQwenVision, "image"
+	case r.isYandex():
+		return ModelYandexStrong, "image"
 	default:
 		return ModelVision, "image"
 	}

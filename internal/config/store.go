@@ -1,4 +1,4 @@
-package config
+﻿package config
 
 import (
 	"encoding/json"
@@ -21,6 +21,7 @@ const (
 	ProviderZAI        = "zai"
 	ProviderOpenRouter = "openrouter"
 	ProviderQwen       = "qwen"
+	ProviderYandex     = "yandex"
 	ProviderLocal      = "local"
 )
 
@@ -111,6 +112,11 @@ type Settings struct {
 	QwenModel  string `json:"qwenModel,omitempty"`
 	// QwenEndpoint: "intl" (international, default) or "cn" (mainland China).
 	QwenEndpoint string `json:"qwenEndpoint,omitempty"`
+
+	YandexAPIKey string `json:"yandexApiKey,omitempty"`
+	YandexModel  string `json:"yandexModel,omitempty"`
+	// YandexFolderID is the Yandex Cloud catalog (folder) id for AI Studio.
+	YandexFolderID string `json:"yandexFolderId,omitempty"`
 
 	// LocalBaseURL / LocalModel are legacy flat fields kept in sync with the
 	// active (or first) entry in LocalEndpoints for older settings.json readers.
@@ -249,6 +255,12 @@ type Settings struct {
 	QwenCacheHitTokens  int     `json:"qwenCacheHitTokens,omitempty"`
 	QwenCacheMissTokens int     `json:"qwenCacheMissTokens,omitempty"`
 
+	YandexCostUSD         float64 `json:"yandexCostUsd,omitempty"`
+	YandexInputTokens     int     `json:"yandexInputTokens,omitempty"`
+	YandexOutputTokens    int     `json:"yandexOutputTokens,omitempty"`
+	YandexCacheHitTokens  int     `json:"yandexCacheHitTokens,omitempty"`
+	YandexCacheMissTokens int     `json:"yandexCacheMissTokens,omitempty"`
+
 	LocalCostUSD         float64 `json:"localCostUsd,omitempty"`
 	LocalInputTokens     int     `json:"localInputTokens,omitempty"`
 	LocalOutputTokens    int     `json:"localOutputTokens,omitempty"`
@@ -279,6 +291,7 @@ func (s Settings) MarshalJSON() ([]byte, error) {
 	p.ZaiAPIKey = ""
 	p.OpenRouterAPIKey = ""
 	p.QwenAPIKey = ""
+	p.YandexAPIKey = ""
 	p.LocalAPIKey = ""
 	p.GitPassword = ""
 	return json.Marshal(p)
@@ -304,6 +317,7 @@ func NewStore() *Store {
 			OpenRouterModel: "qwen/qwen3-coder-flash:floor",
 			QwenModel:       "qwen-plus",
 			QwenEndpoint:    QwenEndpointIntl,
+			YandexModel:     "yandexgpt",
 			LocalBaseURL:    DefaultLocalBaseURL,
 			Shell:           "",
 			AgentMaxSteps:   DefaultAgentMaxSteps,
@@ -509,6 +523,31 @@ func (s *Store) SetQwenEndpoint(endpoint string) error {
 	return s.Save()
 }
 
+func (s *Store) SetYandexAPIKey(key string) error {
+	return s.setAPIKey(ProviderYandex, key)
+}
+
+func (s *Store) SetYandexModel(model string) error {
+	s.mu.Lock()
+	s.settings.YandexModel = model
+	s.mu.Unlock()
+	return s.Save()
+}
+
+func (s *Store) SetYandexFolderID(folderID string) error {
+	s.mu.Lock()
+	s.settings.YandexFolderID = strings.TrimSpace(folderID)
+	s.mu.Unlock()
+	return s.Save()
+}
+
+// YandexFolderID returns the stored Yandex Cloud folder id.
+func (s *Store) YandexFolderID() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return strings.TrimSpace(s.settings.YandexFolderID)
+}
+
 // QwenEndpoint returns the normalized stored DashScope region.
 func (s *Store) QwenEndpoint() string {
 	s.mu.RLock()
@@ -675,7 +714,7 @@ func (s *Store) ClearAPIKey(provider string) error {
 
 func (s *Store) ClearAllAPIKeys() error {
 	var first error
-	for _, id := range []string{ProviderDeepSeek, ProviderZAI, ProviderOpenRouter, ProviderQwen} {
+	for _, id := range []string{ProviderDeepSeek, ProviderZAI, ProviderOpenRouter, ProviderQwen, ProviderYandex} {
 		if err := s.setAPIKey(id, ""); err != nil && first == nil {
 			first = err
 		}
@@ -701,6 +740,8 @@ func secretID(provider string) string {
 		return secrets.IDOpenRouter
 	case p == ProviderQwen:
 		return secrets.IDQwen
+	case p == ProviderYandex:
+		return secrets.IDYandex
 	case IsLocalProvider(p):
 		return LocalSecretID(LocalEndpointID(p))
 	default:
@@ -748,12 +789,13 @@ func (s *Store) migrateLegacyKeysLocked() bool {
 	move(secrets.IDZai, s.settings.ZaiAPIKey, func() { s.settings.ZaiAPIKey = "" })
 	move(secrets.IDOpenRouter, s.settings.OpenRouterAPIKey, func() { s.settings.OpenRouterAPIKey = "" })
 	move(secrets.IDQwen, s.settings.QwenAPIKey, func() { s.settings.QwenAPIKey = "" })
+	move(secrets.IDYandex, s.settings.YandexAPIKey, func() { s.settings.YandexAPIKey = "" })
 	move(secrets.IDLocal, s.settings.LocalAPIKey, func() { s.settings.LocalAPIKey = "" })
 	if strings.TrimSpace(s.settings.GitPassword) != "" {
 		s.settings.GitPassword = ""
 		changed = true
 	}
-	for _, id := range []string{secrets.IDDeepSeek, secrets.IDZai, secrets.IDOpenRouter, secrets.IDQwen, secrets.IDLocal} {
+	for _, id := range []string{secrets.IDDeepSeek, secrets.IDZai, secrets.IDOpenRouter, secrets.IDQwen, secrets.IDYandex, secrets.IDLocal} {
 		if s.keys[id] != "" {
 			continue
 		}
@@ -786,6 +828,7 @@ func (s *Store) setAPIKey(provider, key string) error {
 	s.settings.ZaiAPIKey = ""
 	s.settings.OpenRouterAPIKey = ""
 	s.settings.QwenAPIKey = ""
+	s.settings.YandexAPIKey = ""
 	s.settings.LocalAPIKey = ""
 	s.mu.Unlock()
 	if err != nil {
@@ -809,6 +852,11 @@ func (s *Store) ActiveModel() string {
 			return "qwen-plus"
 		}
 		return s.settings.QwenModel
+	case p == ProviderYandex:
+		if s.settings.YandexModel == "" {
+			return "yandexgpt"
+		}
+		return s.settings.YandexModel
 	case IsLocalProvider(p):
 		if ep := s.activeLocalEndpointLocked(); ep != nil {
 			return strings.TrimSpace(ep.Model)
@@ -830,6 +878,8 @@ func (s *Store) SetActiveModel(model string) error {
 		s.settings.OpenRouterModel = model
 	case p == ProviderQwen:
 		s.settings.QwenModel = model
+	case p == ProviderYandex:
+		s.settings.YandexModel = model
 	case IsLocalProvider(p):
 		model = strings.TrimSpace(model)
 		if ep := s.activeLocalEndpointLocked(); ep != nil {
@@ -852,6 +902,8 @@ func normalizeProvider(p string) string {
 		return ProviderOpenRouter
 	case p == ProviderQwen:
 		return ProviderQwen
+	case p == ProviderYandex:
+		return ProviderYandex
 	case IsLocalProvider(p):
 		return MakeLocalProvider(LocalEndpointID(p))
 	default:
@@ -1573,6 +1625,12 @@ func (s *Store) AddUsage(provider string, costUSD float64, inputTokens, outputTo
 		s.settings.QwenOutputTokens += outputTokens
 		s.settings.QwenCacheHitTokens += cacheHit
 		s.settings.QwenCacheMissTokens += cacheMiss
+	case normalizeProvider(provider) == ProviderYandex:
+		s.settings.YandexCostUSD += costUSD
+		s.settings.YandexInputTokens += inputTokens
+		s.settings.YandexOutputTokens += outputTokens
+		s.settings.YandexCacheHitTokens += cacheHit
+		s.settings.YandexCacheMissTokens += cacheMiss
 	case IsLocalProvider(provider):
 		s.settings.LocalCostUSD += costUSD
 		s.settings.LocalInputTokens += inputTokens
@@ -1604,6 +1662,9 @@ func (s *Store) ProviderUsage(provider string) (cost float64, in, out, cacheHit,
 	case normalizeProvider(provider) == ProviderQwen:
 		return s.settings.QwenCostUSD, s.settings.QwenInputTokens, s.settings.QwenOutputTokens,
 			s.settings.QwenCacheHitTokens, s.settings.QwenCacheMissTokens
+	case normalizeProvider(provider) == ProviderYandex:
+		return s.settings.YandexCostUSD, s.settings.YandexInputTokens, s.settings.YandexOutputTokens,
+			s.settings.YandexCacheHitTokens, s.settings.YandexCacheMissTokens
 	case IsLocalProvider(provider):
 		return s.settings.LocalCostUSD, s.settings.LocalInputTokens, s.settings.LocalOutputTokens,
 			s.settings.LocalCacheHitTokens, s.settings.LocalCacheMissTokens

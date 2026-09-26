@@ -1,4 +1,4 @@
-package agent
+﻿package agent
 
 import "testing"
 
@@ -97,5 +97,20 @@ func TestPickQwenModel_ComplexAndVision(t *testing.T) {
 	d = PickQwenModel(RouteInput{UserText: "скрин", HasImages: true})
 	if d.Model != ModelQwenVision {
 		t.Fatalf("vision: got %s want %s", d.Model, ModelQwenVision)
+	}
+}
+
+func TestPickYandexModel_DefaultAndComplex(t *testing.T) {
+	d := PickYandexModel(RouteInput{UserText: "поправь опечатку в README"})
+	if d.Model != ModelYandexDefault {
+		t.Fatalf("default: got %s want %s", d.Model, ModelYandexDefault)
+	}
+	d = PickYandexModel(RouteInput{UserText: "сделай рефакторинг auth"})
+	if d.Model != ModelYandexStrong {
+		t.Fatalf("complex: got %s want %s", d.Model, ModelYandexStrong)
+	}
+	d = PickYandexModel(RouteInput{UserText: "hi", Step: 8})
+	if d.Model != ModelYandexStrong {
+		t.Fatalf("long-run: got %s want %s", d.Model, ModelYandexStrong)
 	}
 }

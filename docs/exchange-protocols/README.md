@@ -1,4 +1,4 @@
-# Протоколы обмена с AI-провайдерами
+﻿# Протоколы обмена с AI-провайдерами
 
 Каталог описывает **wire-format** запросов/ответов, которые использует NotCursor.ai.
 
@@ -15,7 +15,7 @@ type Provider interface {
 }
 ```
 
-`ChatCompletionStream` — **реализовано у всех провайдеров**: DeepSeek, Z.ai, Qwen, OpenRouter и Local / custom разбираются общим кодом (`internal/llm/openai_stream.go`), Anthropic Messages — своим SSE-парсером (`internal/llm/providers/anthropic/stream.go`). Агент стримит дельты, собирает финальное сообщение и продолжает loop по `tool_calls`. Если эндпоинт не принимает `stream_options`, запрос автоматически откатывается на non-stream.
+`ChatCompletionStream` — **реализовано у всех провайдеров**: DeepSeek, Z.ai, Qwen, Yandex, OpenRouter и Local / custom разбираются общим кодом (`internal/llm/openai_stream.go`), Anthropic Messages — своим SSE-парсером (`internal/llm/providers/anthropic/stream.go`). Агент стримит дельты, собирает финальное сообщение и продолжает loop по `tool_calls`. Если эндпоинт не принимает `stream_options`, запрос автоматически откатывается на non-stream.
 
 Общие правила поверх любого провайдера:
 
@@ -32,6 +32,7 @@ type Provider interface {
 | [deepseek.md](./deepseek.md) | DeepSeek | **этап 1 — первый endpoint** |
 | [openrouter.md](./openrouter.md) | OpenRouter | **реализовано** |
 | [qwen.md](./qwen.md) | Qwen (Alibaba Cloud / DashScope) | **реализовано** |
+| [yandex.md](./yandex.md) | Yandex AI Studio | **реализовано** |
 | [anthropic.md](./anthropic.md) | Anthropic Claude | **реализовано** (профиль `protocol: anthropic`) |
 | [zai-glm.md](./zai-glm.md) | Z.ai / BigModel GLM | спецификация |
 | [ollama.md](./ollama.md) | Local / Ollama / LM Studio (OpenAI-compat) | **реализовано** |
@@ -45,6 +46,7 @@ type Provider interface {
 | OpenAI | `https://api.openai.com/v1` | `POST /chat/completions` | `Authorization: Bearer <key>` |
 | OpenRouter | `https://openrouter.ai/api/v1` | `POST /chat/completions` | `Authorization: Bearer <key>` |
 | Qwen (DashScope) | `https://dashscope-intl.aliyuncs.com/compatible-mode/v1` | `POST /chat/completions` | `Authorization: Bearer <key>` |
+| Yandex AI Studio | `https://ai.api.cloud.yandex.net/v1` | `POST /chat/completions` | `Authorization: Api-Key <key>` + `x-folder-id` |
 | Anthropic | `https://api.anthropic.com` | `POST /v1/messages` | `x-api-key` + `anthropic-version` |
 | Z.ai | `https://open.bigmodel.cn/api/paas/v4` | `POST /chat/completions` | `Authorization: Bearer <key>` |
 | Local | `http://127.0.0.1:11434/v1` (настраивается) | `POST /chat/completions` | опциональный Bearer |
@@ -61,6 +63,7 @@ type Provider interface {
 - OpenAI: https://platform.openai.com/docs/api-reference/chat
 - OpenRouter: https://openrouter.ai/docs/api-reference/overview
 - Qwen (DashScope): https://www.alibabacloud.com/help/en/model-studio/compatibility-of-openai-with-dashscope
+- Yandex AI Studio: https://yandex.cloud/docs/ai-studio/concepts/openai-compatibility
 - Anthropic: https://docs.anthropic.com/en/api/messages
 - Z.ai / BigModel: https://docs.bigmodel.cn/
 - Ollama: https://github.com/ollama/ollama/blob/main/docs/openai.md

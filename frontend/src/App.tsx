@@ -1,4 +1,4 @@
-import {FormEvent, MouseEvent as ReactMouseEvent, useCallback, useEffect, useRef, useState} from 'react'
+﻿import {FormEvent, MouseEvent as ReactMouseEvent, useCallback, useEffect, useRef, useState} from 'react'
 import {Terminal} from '@xterm/xterm'
 import {FitAddon} from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
@@ -71,6 +71,12 @@ import {
   SaveQwenEndpoint,
   ListQwenModels,
   PreferQwenModel,
+  SaveYandexKey,
+  ClearYandexKey,
+  SaveYandexModel,
+  SaveYandexFolderID,
+  ListYandexModels,
+  PreferYandexModel,
   CheckUpdate,
   InstallUpdate,
   LocalBuildHash,
@@ -376,6 +382,13 @@ const QWEN_MODELS_FALLBACK = [
   'qwen-vl-plus',
 ] as const
 
+const YANDEX_MODELS_FALLBACK = [
+  'yandexgpt-lite',
+  'yandexgpt',
+  'qwen3-235b-a22b-fp8',
+  'gpt-oss-120b',
+] as const
+
 type ZaiEndpointId = 'coding' | 'paas'
 
 function isLocalProvider(id: string): boolean {
@@ -386,13 +399,14 @@ function providerLabelOf(id: ProviderId): string {
   if (id === 'zai') return 'Z.ai'
   if (id === 'openrouter') return 'OpenRouter'
   if (id === 'qwen') return 'Qwen'
+  if (id === 'yandex') return 'Yandex'
   if (isLocalProvider(id)) return 'Custom'
   return 'DeepSeek'
 }
 
 function parseProvider(v: unknown): ProviderId {
   const s = String(v ?? '').trim()
-  if (s === 'zai' || s === 'openrouter' || s === 'qwen') return s
+  if (s === 'zai' || s === 'openrouter' || s === 'qwen' || s === 'yandex') return s
   if (isLocalProvider(s)) return s === 'local' ? 'local:default' : s
   return 'deepseek'
 }
@@ -1585,6 +1599,7 @@ export default function App() {
   const [zaiKey, setZaiKey] = useState('')
   const [openrouterKey, setOpenrouterKey] = useState('')
   const [qwenKey, setQwenKey] = useState('')
+  const [yandexKey, setYandexKey] = useState('')
   const [localKey, setLocalKey] = useState('')
   const [deepseekModel, setDeepseekModel] = useState('deepseek-flash')
   const [deepseekModels, setDeepseekModels] = useState<string[]>([...DEEPSEEK_MODELS])
@@ -1592,6 +1607,8 @@ export default function App() {
   const [openrouterModel, setOpenrouterModel] = useState('qwen/qwen3-coder-flash:floor')
   const [qwenModel, setQwenModel] = useState('qwen-plus')
   const [qwenEndpoint, setQwenEndpoint] = useState<'intl' | 'cn'>('intl')
+  const [yandexModel, setYandexModel] = useState('yandexgpt')
+  const [yandexFolderId, setYandexFolderId] = useState('')
   const [localModel, setLocalModel] = useState('')
   const [localBaseUrl, setLocalBaseUrl] = useState(LOCAL_BASE_DEFAULT)
   const [localModels, setLocalModels] = useState<string[]>([])
@@ -1608,6 +1625,7 @@ export default function App() {
   const [zaiModels, setZaiModels] = useState<string[]>([...ZAI_MODELS_FALLBACK])
   const [openrouterModels, setOpenrouterModels] = useState<string[]>([...OPENROUTER_MODELS_FALLBACK])
   const [qwenModels, setQwenModels] = useState<string[]>([...QWEN_MODELS_FALLBACK])
+  const [yandexModels, setYandexModels] = useState<string[]>([...YANDEX_MODELS_FALLBACK])
   const [zaiBalance, setZaiBalance] = useState<{ok: boolean; availableUsd: number; detail: string; source: string} | null>(null)
   const [orBalance, setOrBalance] = useState<{ok: boolean; availableUsd: number; detail: string; source: string} | null>(null)
   const [autoModels, setAutoModels] = useState(true)
@@ -1649,6 +1667,7 @@ export default function App() {
   const [zaiKeySet, setZaiKeySet] = useState(false)
   const [openrouterKeySet, setOpenrouterKeySet] = useState(false)
   const [qwenKeySet, setQwenKeySet] = useState(false)
+  const [yandexKeySet, setYandexKeySet] = useState(false)
   const [localKeySet, setLocalKeySet] = useState(false)
   const [theme, setTheme] = useState<'dark' | 'light'>('dark')
   const [uiFont, setUiFont] = useState('default')
@@ -1724,9 +1743,11 @@ export default function App() {
         ? openrouterModel
         : activeProvider === 'qwen'
           ? qwenModel
-          : isLocalProvider(activeProvider)
-            ? localModel
-            : deepseekModel
+          : activeProvider === 'yandex'
+            ? yandexModel
+            : isLocalProvider(activeProvider)
+              ? localModel
+              : deepseekModel
   const keySet =
     activeProvider === 'zai'
       ? zaiKeySet
@@ -1734,9 +1755,11 @@ export default function App() {
         ? openrouterKeySet
         : activeProvider === 'qwen'
           ? qwenKeySet
-          : isLocalProvider(activeProvider)
-            ? Boolean(localBaseUrl.trim() && localModel.trim())
-            : deepseekKeySet
+          : activeProvider === 'yandex'
+            ? Boolean(yandexKeySet && yandexFolderId.trim())
+            : isLocalProvider(activeProvider)
+              ? Boolean(localBaseUrl.trim() && localModel.trim())
+              : deepseekKeySet
   const providerLabel = providerLabelOf(activeProvider)
   const showBalance = activeProvider === 'zai' || activeProvider === 'openrouter'
   const providerReadyLabel =
@@ -1746,9 +1769,15 @@ export default function App() {
         : localModel.trim()
           ? 'Custom: set Base URL'
           : 'Custom: set model'
-      : keySet
-        ? `${providerLabel} key OK`
-        : `no ${providerLabel} key`
+      : activeProvider === 'yandex'
+        ? yandexKeySet && yandexFolderId.trim()
+          ? 'Yandex ready'
+          : yandexKeySet
+            ? 'Yandex: set folder id'
+            : 'no Yandex key'
+        : keySet
+          ? `${providerLabel} key OK`
+          : `no ${providerLabel} key`
 
   const items = asList(activeSessionId ? itemsBySession[activeSessionId] : undefined)
   const busy = Boolean(activeSessionId && busyBySession[activeSessionId])
@@ -2332,6 +2361,7 @@ export default function App() {
         setZaiKeySet(Boolean(s.zaiKeySet))
         setOpenrouterKeySet(Boolean(s.openrouterKeySet))
         setQwenKeySet(Boolean(s.qwenKeySet))
+        setYandexKeySet(Boolean(s.yandexKeySet))
         setLocalKeySet(Boolean(s.localKeySet))
         if (typeof s.secretsBackend === 'string' && s.secretsBackend) setSecretsBackend(s.secretsBackend)
         if (typeof s.deepseekModel === 'string' && s.deepseekModel) setDeepseekModel(s.deepseekModel)
@@ -2339,6 +2369,8 @@ export default function App() {
         if (typeof s.openrouterModel === 'string' && s.openrouterModel) setOpenrouterModel(s.openrouterModel)
         if (typeof s.qwenModel === 'string' && s.qwenModel) setQwenModel(s.qwenModel)
         if (s.qwenEndpoint === 'cn' || s.qwenEndpoint === 'intl') setQwenEndpoint(s.qwenEndpoint)
+        if (typeof s.yandexModel === 'string' && s.yandexModel) setYandexModel(s.yandexModel)
+        if (typeof s.yandexFolderId === 'string') setYandexFolderId(s.yandexFolderId)
         if (typeof s.localModel === 'string') setLocalModel(s.localModel)
         if (typeof s.localBaseUrl === 'string' && s.localBaseUrl) setLocalBaseUrl(s.localBaseUrl)
         {
@@ -2366,6 +2398,7 @@ export default function App() {
         if (provider === 'zai' && s.zaiKeySet) void refreshZaiBalance()
         if (s.openrouterKeySet || provider === 'openrouter') void refreshOpenRouterModels()
         if (s.qwenKeySet || provider === 'qwen') void refreshQwenModels()
+        if (s.yandexKeySet || provider === 'yandex') void refreshYandexModels()
         if (provider === 'openrouter' && s.openrouterKeySet) void refreshOpenRouterBalance()
         if (isLocalProvider(provider)) void refreshLocalModels({applyPreferred: true})
         setAutoModels(Boolean(s.autoModels))
@@ -2505,6 +2538,7 @@ export default function App() {
               if (isLocalProvider(prov)) setLocalModel(nextModel)
               else if (prov === 'zai' || nextModel.startsWith('glm')) setZaiModel(nextModel)
               else if (prov === 'qwen' || nextModel.startsWith('qwen-')) setQwenModel(nextModel)
+              else if (prov === 'yandex' || nextModel.startsWith('yandexgpt') || nextModel.includes('gpt://')) setYandexModel(nextModel)
               else if (prov === 'openrouter' || nextModel.includes('/')) setOpenrouterModel(nextModel)
               else setDeepseekModel(nextModel)
               const prev = lastModelRef.current[sid]
@@ -3616,6 +3650,29 @@ export default function App() {
     }
   }
 
+  async function refreshYandexModels(opts?: {applyPreferred?: boolean}) {
+    try {
+      const list = asList(await ListYandexModels()).map(String).filter(Boolean)
+      if (list.length === 0) return list
+      setYandexModels(list)
+      if (opts?.applyPreferred) {
+        let next = ''
+        try {
+          next = String(await PreferYandexModel(list) || '').trim()
+        } catch {
+          next = list[0] || ''
+        }
+        if (next && next !== yandexModel) {
+          setYandexModel(next)
+          await SaveYandexModel(next)
+        }
+      }
+      return list
+    } catch {
+      return [] as string[]
+    }
+  }
+
   async function refreshLocalModels(opts?: {applyPreferred?: boolean}) {
     try {
       const list = asList(await ListLocalModels()).map(String).filter(Boolean)
@@ -3709,6 +3766,8 @@ export default function App() {
         list = await refreshOpenRouterModels({applyPreferred: true})
       } else if (activeProvider === 'qwen') {
         list = await refreshQwenModels({applyPreferred: true})
+      } else if (activeProvider === 'yandex') {
+        list = await refreshYandexModels({applyPreferred: true})
       } else {
         list = await refreshLocalModels({applyPreferred: true})
       }
@@ -3750,6 +3809,10 @@ export default function App() {
       } else if (next === 'qwen') {
         setLocalHealth(null)
         void refreshQwenModels({applyPreferred: true})
+        void applyUsageStats()
+      } else if (next === 'yandex') {
+        setLocalHealth(null)
+        void refreshYandexModels({applyPreferred: true})
         void applyUsageStats()
       } else {
         setLocalHealth(null)
@@ -3798,6 +3861,15 @@ export default function App() {
       void SaveQwenModel(next)
       return
     }
+    if (activeProvider === 'yandex') {
+      setYandexModel(next)
+      if (autoModels) {
+        setAutoModels(false)
+        void SaveAutoModels(false)
+      }
+      void SaveYandexModel(next)
+      return
+    }
     setDeepseekModel(next)
     if (autoModels) {
       setAutoModels(false)
@@ -3827,6 +3899,11 @@ export default function App() {
       setQwenKey('')
       setQwenKeySet(true)
     }
+    if (yandexKey.trim()) {
+      await SaveYandexKey(yandexKey.trim())
+      setYandexKey('')
+      setYandexKeySet(true)
+    }
     if (localKey.trim()) {
       await SaveLocalKey(localKey.trim())
       setLocalKey('')
@@ -3839,6 +3916,8 @@ export default function App() {
     await SaveOpenRouterModel(openrouterModel.trim() || 'qwen/qwen3-coder-flash:floor')
     await SaveQwenModel(qwenModel.trim() || 'qwen-plus')
     await SaveQwenEndpoint(qwenEndpoint)
+    await SaveYandexModel(yandexModel.trim() || 'yandexgpt')
+    await SaveYandexFolderID(yandexFolderId.trim())
     await SaveLocalBaseURL(localBaseUrl.trim() || LOCAL_BASE_DEFAULT)
     await SaveLocalModel(localModel.trim())
     if (activeProvider === 'zai' || zaiKeySet) {
@@ -3851,6 +3930,9 @@ export default function App() {
     }
     if (activeProvider === 'qwen' || qwenKeySet) {
       await refreshQwenModels()
+    }
+    if (activeProvider === 'yandex' || yandexKeySet) {
+      await refreshYandexModels()
     }
     if (isLocalProvider(activeProvider)) {
       await refreshLocalModels()
@@ -3887,6 +3969,10 @@ export default function App() {
         await ClearQwenKey()
         setQwenKey('')
         setQwenKeySet(false)
+      } else if (which === 'yandex') {
+        await ClearYandexKey()
+        setYandexKey('')
+        setYandexKeySet(false)
       } else if (isLocalProvider(which)) {
         await ClearLocalKey()
         setLocalKey('')
@@ -3911,10 +3997,14 @@ export default function App() {
       setDeepseekKey('')
       setZaiKey('')
       setOpenrouterKey('')
+      setQwenKey('')
+      setYandexKey('')
       setLocalKey('')
       setDeepseekKeySet(false)
       setZaiKeySet(false)
       setOpenrouterKeySet(false)
+      setQwenKeySet(false)
+      setYandexKeySet(false)
       setLocalKeySet(false)
       if (activeSessionId) setSessionItems(activeSessionId, (m) => [...m, {kind: 'system', content: 'Все API-ключи удалены. При необходимости смените ключ у провайдера.'}])
     } catch (e) {
@@ -4181,6 +4271,10 @@ export default function App() {
                   ? modelOptions(qwenModels, qwenModel).map((m) => (
                       <option key={m} value={m}>{m}</option>
                     ))
+                : activeProvider === 'yandex'
+                  ? modelOptions(yandexModels, yandexModel).map((m) => (
+                      <option key={m} value={m}>{m}</option>
+                    ))
                 : isLocalProvider(activeProvider)
                   ? modelOptions(localModels, localModel).map((m) => (
                       <option key={m} value={m}>{m}</option>
@@ -4213,6 +4307,8 @@ export default function App() {
                   ? 'Автовыбор: qwen3-coder-flash:floor → qwen3-coder:floor; картинки → qwen3-vl'
                   : activeProvider === 'qwen'
                   ? 'Автовыбор: qwen-plus → qwen-max на сложных задачах; картинки → qwen-vl-max'
+                  : activeProvider === 'yandex'
+                  ? 'Автовыбор: yandexgpt → qwen3-235b на сложных задачах'
                 : 'Автовыбор flash / pro / vision по задаче и длине прогона'
             }
           >
@@ -4277,6 +4373,10 @@ export default function App() {
                 }
                 if (activeProvider === 'qwen') {
                   return `Провайдер Qwen · чат: ${usage.chatInputTokens} in / ${usage.chatOutputTokens} out (${fmtUsd(usage.chatCostUsd)}) · total Qwen: ${usage.inputTokens} in / ${usage.outputTokens} out (${fmtUsd(usage.costUsd)})` +
+                    cacheLine
+                }
+                if (activeProvider === 'yandex') {
+                  return `Провайдер Yandex · чат: ${usage.chatInputTokens} in / ${usage.chatOutputTokens} out (${fmtUsd(usage.chatCostUsd)}) · total Yandex: ${usage.inputTokens} in / ${usage.outputTokens} out (${fmtUsd(usage.costUsd)})` +
                     cacheLine
                 }
                 if (isLocalProvider(activeProvider)) {
@@ -5033,6 +5133,7 @@ export default function App() {
                 <option value="zai">Z.ai (GLM)</option>
                 <option value="openrouter">OpenRouter</option>
                 <option value="qwen">Qwen (DashScope)</option>
+                <option value="yandex">Yandex AI Studio</option>
                 {localEndpoints.map((ep) => (
                   <option key={ep.id} value={`local:${ep.id}`}>
                     Custom: {ep.name}
@@ -5052,6 +5153,8 @@ export default function App() {
                     ? 'OpenRouter: flash:floor → coder:floor'
                     : activeProvider === 'qwen'
                     ? 'Qwen: qwen-plus → qwen-max на сложных задачах'
+                    : activeProvider === 'yandex'
+                    ? 'Yandex: yandexgpt → qwen3-235b на сложных задачах'
                   : 'DeepSeek: flash / pro / vision'
               }
             >
@@ -5073,6 +5176,8 @@ export default function App() {
                   ? 'flash → coder'
                   : activeProvider === 'qwen'
                   ? 'plus → max'
+                  : activeProvider === 'yandex'
+                  ? 'gpt → qwen3'
                   : 'flash / pro / vision'}
               )
             </label>
@@ -5293,6 +5398,73 @@ export default function App() {
                 <p className="nc-help">
                   Ключ хранится в {secretsBackend || 'системном хранилище'}.
                   {qwenKeySet ? <button type="button" className="nc-ghost" onClick={() => void clearProviderKey('qwen')}>Clear key</button> : null}
+                </p>
+              </>
+            ) : activeProvider === 'yandex' ? (
+              <>
+                <div className="nc-section-label">Yandex AI Studio</div>
+                <p className="nc-help">
+                  OpenAI-совместимый API: <code>https://ai.api.cloud.yandex.net/v1</code>.
+                  Нужны API-ключ сервисного аккаунта (scope <code>yc.ai.languageModels.execute</code>)
+                  и ID каталога (folder). Модель уходит как{' '}
+                  <code>gpt://&lt;folder&gt;/&lt;model&gt;/latest</code>.
+                </p>
+                <label>
+                  Folder ID
+                  <input
+                    type="text"
+                    value={yandexFolderId}
+                    onChange={(e) => setYandexFolderId(e.target.value)}
+                    onBlur={(e) => {
+                      const next = e.target.value.trim()
+                      setYandexFolderId(next)
+                      void SaveYandexFolderID(next)
+                    }}
+                    placeholder="b1g…"
+                  />
+                </label>
+                <label>
+                  Model
+                  <select
+                    value={yandexModels.includes(yandexModel) ? yandexModel : yandexModel}
+                    onChange={(e) => void applyModel(e.target.value)}
+                  >
+                    {modelOptions(yandexModels, yandexModel).map((m) => (
+                      <option key={m} value={m}>{m}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Custom model id
+                  <input
+                    type="text"
+                    value={yandexModel}
+                    onChange={(e) => setYandexModel(e.target.value)}
+                    onBlur={(e) => {
+                      const next = e.target.value.trim()
+                      if (next) void SaveYandexModel(next)
+                    }}
+                    placeholder="yandexgpt"
+                  />
+                </label>
+                <button type="button" className="nc-ghost" onClick={() => void refreshYandexModels()}>Refresh models</button>
+                <p className="nc-help">
+                  Для агента удобны <code>yandexgpt</code> и <code>qwen3-235b-a22b-fp8</code> (tools).
+                  Баланса через API нет — смотрите биллинг Yandex Cloud. Стоимость считаем
+                  приблизительно в USD (usage.cost gateway не отдаёт).
+                </p>
+                <label>
+                  API key
+                  <input
+                    type="password"
+                    value={yandexKey}
+                    onChange={(e) => setYandexKey(e.target.value)}
+                    placeholder={yandexKeySet ? '•••• set' : 'AQVN…'}
+                  />
+                </label>
+                <p className="nc-help">
+                  Ключ хранится в {secretsBackend || 'системном хранилище'}.
+                  {yandexKeySet ? <button type="button" className="nc-ghost" onClick={() => void clearProviderKey('yandex')}>Clear key</button> : null}
                 </p>
               </>
             ) : isLocalProvider(activeProvider) ? (

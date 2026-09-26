@@ -1,4 +1,4 @@
-package chatstore
+﻿package chatstore
 
 import (
 	"crypto/sha1"
@@ -45,6 +45,18 @@ type Session struct {
 	OpenRouterOutputTokens int     `json:"openrouterOutputTokens,omitempty"`
 	OpenRouterCacheHitTokens  int `json:"openrouterCacheHitTokens,omitempty"`
 	OpenRouterCacheMissTokens int `json:"openrouterCacheMissTokens,omitempty"`
+
+	QwenCostUSD         float64 `json:"qwenCostUsd,omitempty"`
+	QwenInputTokens     int     `json:"qwenInputTokens,omitempty"`
+	QwenOutputTokens    int     `json:"qwenOutputTokens,omitempty"`
+	QwenCacheHitTokens  int     `json:"qwenCacheHitTokens,omitempty"`
+	QwenCacheMissTokens int     `json:"qwenCacheMissTokens,omitempty"`
+
+	YandexCostUSD         float64 `json:"yandexCostUsd,omitempty"`
+	YandexInputTokens     int     `json:"yandexInputTokens,omitempty"`
+	YandexOutputTokens    int     `json:"yandexOutputTokens,omitempty"`
+	YandexCacheHitTokens  int     `json:"yandexCacheHitTokens,omitempty"`
+	YandexCacheMissTokens int     `json:"yandexCacheMissTokens,omitempty"`
 
 	LocalCostUSD         float64 `json:"localCostUsd,omitempty"`
 	LocalInputTokens     int     `json:"localInputTokens,omitempty"`
@@ -736,6 +748,16 @@ func (s *Store) Clear(project string) error {
 	sess.OpenRouterOutputTokens = 0
 	sess.OpenRouterCacheHitTokens = 0
 	sess.OpenRouterCacheMissTokens = 0
+	sess.QwenCostUSD = 0
+	sess.QwenInputTokens = 0
+	sess.QwenOutputTokens = 0
+	sess.QwenCacheHitTokens = 0
+	sess.QwenCacheMissTokens = 0
+	sess.YandexCostUSD = 0
+	sess.YandexInputTokens = 0
+	sess.YandexOutputTokens = 0
+	sess.YandexCacheHitTokens = 0
+	sess.YandexCacheMissTokens = 0
 	sess.LocalCostUSD = 0
 	sess.LocalInputTokens = 0
 	sess.LocalOutputTokens = 0
@@ -758,6 +780,12 @@ func (sess *Session) ProviderUsage(provider string) (cost float64, in, out, cach
 	case p == "openrouter":
 		return sess.OpenRouterCostUSD, sess.OpenRouterInputTokens, sess.OpenRouterOutputTokens,
 			sess.OpenRouterCacheHitTokens, sess.OpenRouterCacheMissTokens
+	case p == "qwen":
+		return sess.QwenCostUSD, sess.QwenInputTokens, sess.QwenOutputTokens,
+			sess.QwenCacheHitTokens, sess.QwenCacheMissTokens
+	case p == "yandex":
+		return sess.YandexCostUSD, sess.YandexInputTokens, sess.YandexOutputTokens,
+			sess.YandexCacheHitTokens, sess.YandexCacheMissTokens
 	case p == "local" || strings.HasPrefix(p, "local:"):
 		return sess.LocalCostUSD, sess.LocalInputTokens, sess.LocalOutputTokens,
 			sess.LocalCacheHitTokens, sess.LocalCacheMissTokens
@@ -765,6 +793,8 @@ func (sess *Session) ProviderUsage(provider string) (cost float64, in, out, cach
 		if sess.DeepSeekCostUSD == 0 && sess.DeepSeekInputTokens == 0 && sess.DeepSeekOutputTokens == 0 &&
 			sess.ZaiCostUSD == 0 && sess.ZaiInputTokens == 0 && sess.ZaiOutputTokens == 0 &&
 			sess.OpenRouterCostUSD == 0 && sess.OpenRouterInputTokens == 0 && sess.OpenRouterOutputTokens == 0 &&
+			sess.QwenCostUSD == 0 && sess.QwenInputTokens == 0 && sess.QwenOutputTokens == 0 &&
+			sess.YandexCostUSD == 0 && sess.YandexInputTokens == 0 && sess.YandexOutputTokens == 0 &&
 			sess.LocalCostUSD == 0 && sess.LocalInputTokens == 0 && sess.LocalOutputTokens == 0 &&
 			(sess.CostUSD != 0 || sess.InputTokens != 0 || sess.OutputTokens != 0) {
 			return sess.CostUSD, sess.InputTokens, sess.OutputTokens, 0, 0
@@ -804,6 +834,18 @@ func (s *Store) AddUsage(project, sessionID, provider string, costUSD float64, i
 				b.Sessions[i].OpenRouterOutputTokens += outputTokens
 				b.Sessions[i].OpenRouterCacheHitTokens += cacheHit
 				b.Sessions[i].OpenRouterCacheMissTokens += cacheMiss
+			case p == "qwen":
+				b.Sessions[i].QwenCostUSD += costUSD
+				b.Sessions[i].QwenInputTokens += inputTokens
+				b.Sessions[i].QwenOutputTokens += outputTokens
+				b.Sessions[i].QwenCacheHitTokens += cacheHit
+				b.Sessions[i].QwenCacheMissTokens += cacheMiss
+			case p == "yandex":
+				b.Sessions[i].YandexCostUSD += costUSD
+				b.Sessions[i].YandexInputTokens += inputTokens
+				b.Sessions[i].YandexOutputTokens += outputTokens
+				b.Sessions[i].YandexCacheHitTokens += cacheHit
+				b.Sessions[i].YandexCacheMissTokens += cacheMiss
 			case p == "local" || strings.HasPrefix(p, "local:"):
 				b.Sessions[i].LocalCostUSD += costUSD
 				b.Sessions[i].LocalInputTokens += inputTokens

@@ -44,6 +44,7 @@
 - [ ] DeepSeek: стабильный префикс промпта для prompt cache (сейчас `prompt_cache_hit/miss` только учитываются).
 - [ ] macOS-артефакты релиза (`macos-arm64`, `macos-universal`) — нужен macOS-хост; в 0.7.0–0.7.2 их нет.
 - [ ] diff viewer и LSP-подсказки; разнести `frontend/src/App.tsx` на хуки.
+- [ ] (опц.) Диагностика стрима «тишина N сек → RST»: при `stream read` / `connection reset` писать, сколько секунд не было данных в SSE до обрыва (чат + `agent.log`). HTTP/2 keepalive и счётчик обрывов уже есть (0.7.5+); это только понятнее сообщение, CDN idle не лечит.
 
 ---
 

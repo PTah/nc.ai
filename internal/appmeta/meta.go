@@ -1,11 +1,11 @@
-package appmeta
+﻿package appmeta
 
 import "time"
 
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "0.7.11"
+	Version = "0.7.12"
 )
 
 // DeepSeekProRetireRFC3339 is the announced V4 Pro retirement instant, empty
@@ -51,20 +51,21 @@ func retiredAt(at time.Time, now time.Time) bool {
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
+	"Провайдер Yandex AI Studio: API-ключ + folder id, модели yandexgpt / qwen3 в настройках",
 	"Транскрипт чата привязан к своей сессии: при переключении проектов чаты больше не перепутываются",
-	"Прогон привязан к чату: можно держать 2–3 проекта сразу — ответы не уезжают в чужой чат и не теряются",
-	"Запрос подтверждения больше не теряется: видно, какой проект и чат спрашивает, ответ всегда доходит",
+	"Прогон привязан к чату: можно держать 2–3 проекта сразу — ответы не уезжают в чужой чат",
+	"Запрос подтверждения больше не теряется: видно, какой проект и чат спрашивает",
 	"Чтение вне проекта больше не просит подтверждения — диалог остался на изменения",
-	"В настройках — «Новости провайдеров»: что нового у DeepSeek, Z.AI, OpenRouter и Qwen",
 }
 
 var HighlightsEN = []string{
+	"Yandex AI Studio provider: API key + folder id, yandexgpt / qwen3 models in Settings",
 	"A transcript is bound to its own session: switching projects no longer mixes chats up",
-	"A run is bound to its chat: two or three projects at once keep their answers where they belong",
-	"Approval requests are no longer lost: the dialog names the project and chat, the answer always lands",
+	"A run is bound to its chat: two or three projects at once keep answers where they belong",
+	"Approval requests are no longer lost: the dialog names the project and chat",
 	"Reads outside the project no longer ask for approval — the dialog is left for changes",
-	"Settings include provider news: what's new at DeepSeek, Z.AI, OpenRouter and Qwen",
 }
+
 
 // UICopy is localized chrome for the Welcome splash.
 type UICopy struct {
