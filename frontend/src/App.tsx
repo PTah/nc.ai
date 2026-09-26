@@ -39,7 +39,7 @@ import {
   ReadFile,
   ReloadCursorRules,
   RenameChatSession,
-  RunAgentWithAttachments,
+  RunAgentInSession,
   RunShell,
   SaveDeepSeekKey,
   SaveDeepSeekModel,
@@ -111,7 +111,7 @@ import {
   LoadChat,
   StartTerminal,
   StartupNotice,
-  StopAgent,
+  StopAgentSession,
   StopTerminal,
   SwitchChatSession,
   TerminalResize,
@@ -3972,7 +3972,9 @@ export default function App() {
     const runPath = activeProjectRef.current?.path || ''
     if (runPath) setRunProjectBySession((p) => (p[sid] === runPath ? p : {...p, [sid]: runPath}))
     try {
-      await RunAgentWithAttachments(text, atts.map((a) => ({
+      // Прогон привязываем к чату: бэкенд больше не угадывает сессию по своему
+      // «активному» состоянию, поэтому ответ не может уехать в другой проект.
+      await RunAgentInSession(sid, text, atts.map((a) => ({
         name: a.name,
         mime: a.mime || '',
         dataUrl: a.dataUrl || '',
@@ -4060,7 +4062,7 @@ export default function App() {
     if (!msg) return
     setQueue((q) => q.filter((x) => x.id !== id), sid)
     if (busyBySessionRef.current[sid]) {
-      StopAgent()
+      StopAgentSession(sid)
       // Give the backend a moment to release the session before restarting it.
       await new Promise((resolve) => window.setTimeout(resolve, 150))
     }
@@ -4097,6 +4099,20 @@ export default function App() {
   function isProjectRunning(path: string): boolean {
     if (!path) return false
     return Object.keys(busyBySession).some((sid) => busyBySession[sid] && runProjectBySession[sid] === path)
+  }
+
+  /**
+   * Откуда прилетел запрос подтверждения: прогон знает свой проект и чат, даже
+   * если сейчас открыт совсем другой проект. Раньше диалог молча приписывался
+   * активному чату — и ответ уходил не туда.
+   */
+  function askContextLabel(sid: string): string {
+    const path = runProjectBySession[sid] || active?.path || ''
+    const proj = asList(projects).find((p) => p.path === path)
+    const projectName = proj?.name || info.name || 'NotCursor.ai'
+    const chat = asList(sessions).find((s) => s.id === sid)
+    if (chat) return `Проект: ${projectName} · чат: ${chat.title || 'без имени'}`
+    return `Проект: ${projectName} · другой чат`
   }
 
   function renderTree(entries: FileEntry[], depth = 0) {
@@ -4522,7 +4538,7 @@ export default function App() {
                 {retryVisible && !busy && (
                   <button type="button" className="nc-ghost" onClick={() => void retryLast()} title="Повторить последний запрос">Reconnect</button>
                 )}
-                <button type="button" className="nc-ghost" disabled={!busy} onClick={() => StopAgent()} title="Остановить текущий запуск агента">Stop</button>
+                <button type="button" className="nc-ghost" disabled={!busy} onClick={() => StopAgentSession(activeSessionId)} title="Остановить запуск агента в этом чате">Stop</button>
                 <button
                   type="button"
                   className={`nc-ghost ${chatFindOpen ? 'on' : ''}`}
@@ -6300,7 +6316,7 @@ export default function App() {
               />
             ) : (
               <>
-                <p className="nc-confirm-app">{info.name || 'NotCursor.ai'}</p>
+                <p className="nc-confirm-app">{askContextLabel(toolAsk.sessionId)}</p>
                 <h2 id="nc-tool-ask-title">Разрешить «{toolAsk.name}»?</h2>
                 {toolAsk.reason ? (
                   <p className="nc-rule-edit-err" style={{fontWeight: 600}}>{toolAsk.reason}</p>

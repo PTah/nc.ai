@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -1805,6 +1806,15 @@ func scopeMutations(runTools *tools.Registry, name, argsJSON string) bool {
 	return issue != nil && issue.Mutating
 }
 
+// Approval waiting: сколько ждём ответа в диалоге «Разрешить инструмент?».
+// Раньше ждали до watchdog'а (10 мин) и получали невнятное «инструмент не
+// завершился» — хотя на самом деле ждали пользователя.
+const (
+	approvalWaitLimit = 5 * time.Minute
+	approvalWaitHuman = "5 мин"
+)
+
+// waitToolApproval waits for the user's answer to a tool_ask dialog.
 func (a *App) waitToolApproval(ctx context.Context, sessionID, callID, name, argsJSON string) (bool, error) {
 	key := strings.TrimSpace(sessionID) + "/" + strings.TrimSpace(callID)
 	ch := make(chan bool, 1)
@@ -2531,34 +2541,77 @@ func (a *App) StopAgentSession(sessionID string) {
 	denyPending(sessionID)
 }
 
-// RunAgent starts the DeepSeek tool-using agent loop. Progress via event "agent:event".
+// RunAgent starts the agent loop for the currently open chat (legacy entry point).
 func (a *App) RunAgent(userMessage string) error {
 	return a.RunAgentWithAttachments(userMessage, nil)
 }
 
 // RunAgentWithAttachments accepts pasted/dropped images and files (multimodal + text inline).
 func (a *App) RunAgentWithAttachments(userMessage string, attachments []agent.Attachment) error {
+	a.mu.Lock()
+	sid := a.sessionID
+	a.mu.Unlock()
+	if sid == "" {
+		return fmt.Errorf("чат не открыт: некуда отправлять запрос")
+	}
+	return a.RunAgentInSession(sid, userMessage, attachments)
+}
+
+// RunAgentInSession запускает агента для конкретного чата. Прогон привязан к
+// паре (проект, сессия): свои события, свои инструменты, своё дерево файлов и
+// своя сохранённая история — даже если пользователь уже смотрит другой проект.
+//
+// Раньше прогон брал «активную» сессию и её историю из глобального состояния
+// (a.sessionID / a.history): при двух открытых проектах ответ мог уехать в
+// чужой чат и вовсе не попасть в транскрипт (сохранялась только история
+// модели). Теперь проект определяется по самой сессии, а запуск без открытого
+// чата падает с внятной ошибкой вместо молчаливой подмены.
+func (a *App) RunAgentInSession(sessionID, userMessage string, attachments []agent.Attachment) error {
 	if err := a.requireProviderReady(); err != nil {
 		return err
 	}
 	if a.llm == nil {
 		return fmt.Errorf("LLM provider is not configured")
 	}
-	_, _ = a.ws.ActiveRoot()
+	sid := strings.TrimSpace(sessionID)
+	if sid == "" {
+		return fmt.Errorf("чат не открыт: запуск агента требует сессию")
+	}
+	a.mu.Lock()
+	activeSid := a.sessionID
+	activeHist := append([]llm.Message{}, a.history...)
+	a.mu.Unlock()
+
 	// Pin the project for the whole run: the user may switch projects while the
 	// agent works, and a late save must never land in the other project's file.
-	projKey := a.projectKey()
+	projKey := ""
+	hist := []llm.Message(nil)
+	if a.chats != nil {
+		if key, err := a.chats.FindProject(sid); err == nil {
+			projKey = key
+		}
+		if projKey != "" {
+			sess, err := a.chats.Get(projKey, sid)
+			if err != nil || sess == nil {
+				return fmt.Errorf("чат %s не найден в проекте %s", sid, projKey)
+			}
+			hist = append([]llm.Message{}, sess.History...)
+		}
+	}
+	if projKey == "" {
+		// Чат ещё не успел попасть в стор, но это активный чат — берём память.
+		if activeSid != sid {
+			return fmt.Errorf("чат %s не найден ни в одном проекте", sid)
+		}
+		projKey = a.projectKey()
+		hist = activeHist
+	}
+	if projKey == "" {
+		return fmt.Errorf("проект не выбран: некуда запускать агента")
+	}
+	_, _ = a.ws.ActiveRoot()
 
 	a.mu.Lock()
-	sid := a.sessionID
-	if sid == "" && a.chats != nil {
-		_ = a.loadActiveIntoMemoryUnlocked()
-		sid = a.sessionID
-	}
-	if sid == "" {
-		sid = "default"
-		a.sessionID = sid
-	}
 	if old := a.cancels[sid]; old != nil {
 		old()
 	}
@@ -2566,7 +2619,6 @@ func (a *App) RunAgentWithAttachments(userMessage string, attachments []agent.At
 	a.cancels[sid] = cancel
 	a.runGens[sid]++
 	gen := a.runGens[sid]
-	hist := append([]llm.Message{}, a.history...)
 	a.mu.Unlock()
 	// Маркер активного прогона: build.sh читает его и не перезапускает клиент
 	// поверх работающего агента (перезапуск обрывает прогон без предупреждения).
@@ -2685,8 +2737,19 @@ func (a *App) RunAgentWithAttachments(userMessage string, attachments []agent.At
 				return true, nil
 			}
 		}
-		a.emit(agent.Event{Type: "tool_ask", Name: name, Content: argsJSON, CallID: callID, Reason: reason})
-		return a.waitToolApproval(ctx, sid, callID, name, argsJSON)
+		// Запрос подтверждения обязан нести свой sessionID: без него фронтенд
+		// приписывал запрос активному чату (или выбрасывал, если активного нет),
+		// ответ уходил не туда, и прогон молча висел до watchdog'а.
+		a.emitFor(sid, agent.Event{Type: "tool_ask", Name: name, Content: argsJSON, CallID: callID, Reason: reason})
+		// Диалог может «потеряться» (свернутое окно, другой проект, закрытый чат) —
+		// не держим шаг до watchdog'а: ждём ограниченное время и говорим внятно.
+		askCtx, cancelAsk := context.WithTimeout(ctx, approvalWaitLimit)
+		defer cancelAsk()
+		allow, err := a.waitToolApproval(askCtx, sid, callID, name, argsJSON)
+		if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
+			return false, fmt.Errorf("подтверждение не получено за %s — «%s» не запускался", approvalWaitHuman, name)
+		}
+		return allow, err
 	}
 	if runTools != nil {
 		runTools.AskUser = func(ctx context.Context, callID, question string, options []string) (string, error) {
