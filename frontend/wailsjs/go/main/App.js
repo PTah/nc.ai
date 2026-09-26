@@ -142,8 +142,8 @@ export function ListArchivedChats() {
   return window['go']['main']['App']['ListArchivedChats']();
 }
 
-export function ListChatSessions() {
-  return window['go']['main']['App']['ListChatSessions']();
+export function ListChatSessions(arg1) {
+  return window['go']['main']['App']['ListChatSessions'](arg1);
 }
 
 export function ListDeepSeekModels() {
@@ -184,6 +184,10 @@ export function ListZaiModels() {
 
 export function LoadChat(arg1) {
   return window['go']['main']['App']['LoadChat'](arg1);
+}
+
+export function LoadChatTranscript(arg1) {
+  return window['go']['main']['App']['LoadChatTranscript'](arg1);
 }
 
 export function LocalBuildHash() {

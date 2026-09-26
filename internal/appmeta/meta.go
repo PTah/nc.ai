@@ -5,7 +5,7 @@ import "time"
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "0.7.10"
+	Version = "0.7.11"
 )
 
 // DeepSeekProRetireRFC3339 is the announced V4 Pro retirement instant, empty
@@ -51,18 +51,18 @@ func retiredAt(at time.Time, now time.Time) bool {
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
+	"Транскрипт чата привязан к своей сессии: при переключении проектов чаты больше не перепутываются",
 	"Прогон привязан к чату: можно держать 2–3 проекта сразу — ответы не уезжают в чужой чат и не теряются",
 	"Запрос подтверждения больше не теряется: видно, какой проект и чат спрашивает, ответ всегда доходит",
 	"Чтение вне проекта больше не просит подтверждения — диалог остался на изменения",
-	"В подтверждении есть «Разрешить и не спрашивать»: один ответ для инструмента в этом чате",
 	"В настройках — «Новости провайдеров»: что нового у DeepSeek, Z.AI, OpenRouter и Qwen",
 }
 
 var HighlightsEN = []string{
+	"A transcript is bound to its own session: switching projects no longer mixes chats up",
 	"A run is bound to its chat: two or three projects at once keep their answers where they belong",
 	"Approval requests are no longer lost: the dialog names the project and chat, the answer always lands",
 	"Reads outside the project no longer ask for approval — the dialog is left for changes",
-	"Approvals have \"Allow and stop asking\": one answer for a tool in this chat",
 	"Settings include provider news: what's new at DeepSeek, Z.AI, OpenRouter and Qwen",
 }
 

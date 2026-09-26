@@ -2233,12 +2233,54 @@ func (a *App) loadActiveIntoMemory() error {
 	return nil
 }
 
-// ListChatSessions returns all chat tabs for the active project.
-func (a *App) ListChatSessions() (*chatstore.ProjectBundle, error) {
+// ChatTranscript — транскрипт чата вместе с идентификатором его сессии. Пара
+// «сессия + транскрипт» обязана приходить одним вызовом: если id брать из одного
+// источника, а элементы из другого, транскрипт чужого проекта уедет в этот чат
+// (и потом перезапишет его при автосохранении).
+type ChatTranscript struct {
+	SessionID string `json:"sessionId"`
+	Project   string `json:"project"`
+	ItemsJSON string `json:"itemsJson"`
+}
+
+// LoadChatTranscript возвращает активный чат указанного проекта (пусто — текущий)
+// вместе с id сессии, к которой этот транскрипт принадлежит. Используйте его
+// вместо пары ListChatSessions + LoadChat.
+func (a *App) LoadChatTranscript(projectPath string) (*ChatTranscript, error) {
+	if a.chats == nil {
+		return &ChatTranscript{ItemsJSON: "[]"}, nil
+	}
+	if strings.TrimSpace(projectPath) == "" {
+		projectPath = a.projectKey()
+	}
+	b, err := a.chats.List(projectPath)
+	if err != nil {
+		return nil, err
+	}
+	sess, err := a.chats.Get(projectPath, b.ActiveID)
+	if err != nil {
+		return nil, err
+	}
+	a.mu.Lock()
+	a.sessionID = sess.ID
+	a.history = append([]llm.Message{}, sess.History...)
+	a.mu.Unlock()
+	items := sess.ItemsJSON
+	if strings.TrimSpace(items) == "" {
+		items = "[]"
+	}
+	return &ChatTranscript{SessionID: sess.ID, Project: projectPath, ItemsJSON: items}, nil
+}
+
+// ListChatSessions returns all chat tabs for the given project (empty — the open one).
+func (a *App) ListChatSessions(projectPath string) (*chatstore.ProjectBundle, error) {
 	if a.chats == nil {
 		return &chatstore.ProjectBundle{Sessions: nil}, nil
 	}
-	b, err := a.chats.List(a.projectKey())
+	if strings.TrimSpace(projectPath) == "" {
+		projectPath = a.projectKey()
+	}
+	b, err := a.chats.List(projectPath)
 	if err != nil {
 		return nil, err
 	}
@@ -2452,6 +2494,12 @@ func (a *App) SaveChatSession(sessionID, itemsJSON string) error {
 	if !isMeaningfulItemsJSON(itemsJSON) && isMeaningfulItemsJSON(sess.ItemsJSON) {
 		return nil
 	}
+	// Диагностика перекрёстной записи: если входящий транскрипт говорит о
+	// вопросах, которых нет в истории этой сессии, — кто-то сохраняет чужой чат.
+	// Не блокируем (история могла ужаться при компактификации), но пишем в лог.
+	if lastUser := lastUserTextFromItemsJSON(itemsJSON); lastUser != "" && !historyHasUserText(sess.History, lastUser) {
+		a.logAgentLine(fmt.Sprintf("chat save: transcript of session %s mentions a question that is not in its history (%q) — cross-project write?", sessionID, truncateRunes(lastUser, 60)))
+	}
 	sess.ItemsJSON = itemsJSON
 	a.mu.Lock()
 	if a.sessionID == sessionID {
@@ -2467,6 +2515,47 @@ func (a *App) SaveChatSession(sessionID, itemsJSON string) error {
 func isMeaningfulItemsJSON(s string) bool {
 	t := strings.TrimSpace(s)
 	return t != "" && t != "[]" && t != "null"
+}
+
+// lastUserTextFromItemsJSON — последний вопрос пользователя в транскрипте чата.
+func lastUserTextFromItemsJSON(itemsJSON string) string {
+	type peek struct {
+		Kind    string `json:"kind"`
+		Content string `json:"content"`
+	}
+	var items []peek
+	if err := json.Unmarshal([]byte(itemsJSON), &items); err != nil {
+		return ""
+	}
+	for i := len(items) - 1; i >= 0; i-- {
+		if items[i].Kind == "user" && strings.TrimSpace(items[i].Content) != "" {
+			return strings.TrimSpace(items[i].Content)
+		}
+	}
+	return ""
+}
+
+// historyHasUserText проверяет, что вопрос из транскрипта действительно был в
+// истории модели у этой сессии.
+func historyHasUserText(hist []llm.Message, text string) bool {
+	want := strings.TrimSpace(text)
+	for _, m := range hist {
+		if m.Role != "user" {
+			continue
+		}
+		if strings.Contains(strings.TrimSpace(m.Content), want) {
+			return true
+		}
+	}
+	return false
+}
+
+func truncateRunes(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n]) + "…"
 }
 
 func titleFromItemsJSON(itemsJSON string) string {

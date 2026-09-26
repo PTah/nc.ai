@@ -81,7 +81,7 @@ export function InstallUpdate():Promise<void>;
 
 export function ListArchivedChats():Promise<Array<chatstore.ArchivedChat>>;
 
-export function ListChatSessions():Promise<chatstore.ProjectBundle>;
+export function ListChatSessions(arg1:string):Promise<chatstore.ProjectBundle>;
 
 export function ListDeepSeekModels():Promise<Array<string>>;
 
@@ -102,6 +102,8 @@ export function ListQwenModels():Promise<Array<string>>;
 export function ListZaiModels():Promise<Array<string>>;
 
 export function LoadChat(arg1:string):Promise<string>;
+
+export function LoadChatTranscript(arg1:string):Promise<main.ChatTranscript>;
 
 export function LocalBuildHash():Promise<string>;
 

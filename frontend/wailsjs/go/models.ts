@@ -393,6 +393,22 @@ export namespace llm {
 
 export namespace main {
 	
+	export class ChatTranscript {
+	    sessionId: string;
+	    project: string;
+	    itemsJson: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ChatTranscript(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.sessionId = source["sessionId"];
+	        this.project = source["project"];
+	        this.itemsJson = source["itemsJson"];
+	    }
+	}
 	export class UsageStats {
 	    provider: string;
 	    costUsd: number;
