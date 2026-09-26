@@ -78,6 +78,10 @@ type App struct {
 	approveMu          sync.Mutex
 	pendingApprove     map[string]chan bool // key: sessionID+"/"+callID
 	pendingAsk         map[string]chan string
+	// allowTools — «разрешить и не спрашивать» для одного инструмента в одном
+	// чате (key: sessionID+"/"+tool). Сбрасывается, когда подтверждения снова
+	// включают в Settings, и живёт только до закрытия приложения.
+	allowTools map[string]bool
 	sessionID          string
 	history            []llm.Message
 	term               *shell.Session
@@ -112,6 +116,7 @@ func NewApp() *App {
 		sessionStickyModel: map[string]string{},
 		pendingApprove:     map[string]chan bool{},
 		pendingAsk:         map[string]chan string{},
+		allowTools:         map[string]bool{},
 	}
 }
 
@@ -1671,6 +1676,11 @@ func (a *App) SaveAutoModels(on bool) error {
 }
 
 func (a *App) SaveToolConfirm(on bool) error {
+	if on {
+		// Подтверждения снова включены — забываем все «не спрашивать», чтобы
+		// диалог действительно появлялся.
+		a.clearAllowedTools()
+	}
 	return a.cfg.SetToolConfirm(on)
 }
 
@@ -1739,6 +1749,60 @@ func (a *App) ResolveUserAsk(sessionID, callID, answer string) {
 	case ch <- answer:
 	default:
 	}
+}
+
+// AllowToolForSession запоминает «разрешить и не спрашивать» для одного
+// инструмента в одном чате: диалог подтверждения больше не повторяется для
+// него до закрытия приложения (или до повторного включения подтверждений).
+func (a *App) AllowToolForSession(sessionID, name string) {
+	key := toolAllowKey(sessionID, name)
+	if key == "" {
+		return
+	}
+	a.approveMu.Lock()
+	if a.allowTools == nil {
+		a.allowTools = map[string]bool{}
+	}
+	a.allowTools[key] = true
+	a.approveMu.Unlock()
+}
+
+// toolAllowed — пользователь уже разрешил этот инструмент в этом чате.
+func (a *App) toolAllowed(sessionID, name string) bool {
+	key := toolAllowKey(sessionID, name)
+	if key == "" {
+		return false
+	}
+	a.approveMu.Lock()
+	defer a.approveMu.Unlock()
+	return a.allowTools[key]
+}
+
+// clearAllowedTools забывает все ответы «разрешить и не спрашивать».
+func (a *App) clearAllowedTools() {
+	a.approveMu.Lock()
+	a.allowTools = map[string]bool{}
+	a.approveMu.Unlock()
+}
+
+func toolAllowKey(sessionID, name string) string {
+	sid := strings.TrimSpace(sessionID)
+	tool := strings.TrimSpace(name)
+	if sid == "" || tool == "" {
+		return ""
+	}
+	return sid + "/" + tool
+}
+
+// scopeMutations сообщает, меняет ли вызов данные за границами проекта
+// (Set-Content в чужой папке, Remove-Item вне проекта и т. п.). Читающие
+// команды вне проекта возвращают false — их подтверждать не нужно.
+func scopeMutations(runTools *tools.Registry, name, argsJSON string) bool {
+	if runTools == nil {
+		return false
+	}
+	issue := runTools.CommandScopeIssue(name, argsJSON)
+	return issue != nil && issue.Mutating
 }
 
 func (a *App) waitToolApproval(ctx context.Context, sessionID, callID, name, argsJSON string) (bool, error) {
@@ -2608,11 +2672,18 @@ func (a *App) RunAgentWithAttachments(userMessage string, attachments []agent.At
 	// ApproveTool is always wired; it decides per call whether a prompt is
 	// needed, so toggling "Confirm dangerous tools" applies immediately.
 	runner.ApproveTool = func(ctx context.Context, callID, name, argsJSON, reason string) (bool, error) {
-		// Выход за границы проекта подтверждаем всегда: это то же самое, что
-		// трогать чужой репозиторий, и не должно зависеть от настройки
-		// «Подтверждать опасные инструменты».
-		if reason == "" && !a.cfg.ToolConfirmEnabled() {
+		if a.toolAllowed(sid, name) {
+			// Пользователь уже сказал «разрешить и не спрашивать» для этого
+			// инструмента в этом чате.
 			return true, nil
+		}
+		if !a.cfg.ToolConfirmEnabled() {
+			// Галочка выключена: спрашиваем только за реальные изменения вне
+			// проекта. Чтение (Get-Content, dir, git log) за его пределами —
+			// не повод дёргать пользователя диалогом.
+			if reason == "" || !scopeMutations(runTools, name, argsJSON) {
+				return true, nil
+			}
 		}
 		a.emit(agent.Event{Type: "tool_ask", Name: name, Content: argsJSON, CallID: callID, Reason: reason})
 		return a.waitToolApproval(ctx, sid, callID, name, argsJSON)

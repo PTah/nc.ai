@@ -84,6 +84,7 @@ import {
   SetIDEContext,
   ResolveUserAsk,
   ResolveToolApproval,
+  AllowToolForSession,
   SaveAgentMaxSteps,
   SaveAgentRetryBudgetSec,
   SaveAgentRetryCount,
@@ -1547,6 +1548,9 @@ export default function App() {
   const [activeSessionId, setActiveSessionId] = useState('')
   const [itemsBySession, setItemsBySession] = useState<Record<string, ChatItem[]>>({})
   const [busyBySession, setBusyBySession] = useState<Record<string, boolean>>({})
+  // Чей прогон: сессия → путь проекта. Нужен, чтобы спиннер у проекта не пропадал,
+  // когда открыт другой проект (прогон на бэке продолжается).
+  const [runProjectBySession, setRunProjectBySession] = useState<Record<string, string>>({})
   // Drafts, pending attachments and queued messages are per chat session, so a
   // question typed in project A can never be sent from project B.
   const [drafts, setDrafts] = useState<Record<string, {text: string; atts: PendingAtt[]}>>({})
@@ -1575,6 +1579,8 @@ export default function App() {
   const [activeProvider, setActiveProvider] = useState<ProviderId>('deepseek')
   const activeProviderRef = useRef<ProviderId>('deepseek')
   activeProviderRef.current = activeProvider
+  const activeProjectRef = useRef<Project | null>(null)
+  activeProjectRef.current = active
   const [deepseekKey, setDeepseekKey] = useState('')
   const [zaiKey, setZaiKey] = useState('')
   const [openrouterKey, setOpenrouterKey] = useState('')
@@ -3963,6 +3969,8 @@ export default function App() {
       return next
     })
     setBusyBySession((b) => ({...b, [sid]: true}))
+    const runPath = activeProjectRef.current?.path || ''
+    if (runPath) setRunProjectBySession((p) => (p[sid] === runPath ? p : {...p, [sid]: runPath}))
     try {
       await RunAgentWithAttachments(text, atts.map((a) => ({
         name: a.name,
@@ -4079,6 +4087,16 @@ export default function App() {
     if (res.stderr) xtermRef.current?.writeln(String(res.stderr))
     xtermRef.current?.writeln(`[exit ${res.exitCode}]`)
     setTermCmd('')
+  }
+
+  /**
+   * Работает ли агент в этом проекте прямо сейчас. Прогон живёт на бэке и не
+   * прерывается при переключении проекта, поэтому спиннер у проекта должен
+   * опираться на все его сессии, а не на активную (см. runProjectBySession).
+   */
+  function isProjectRunning(path: string): boolean {
+    if (!path) return false
+    return Object.keys(busyBySession).some((sid) => busyBySession[sid] && runProjectBySession[sid] === path)
   }
 
   function renderTree(entries: FileEntry[], depth = 0) {
@@ -4307,29 +4325,32 @@ export default function App() {
             {asList(projects).length === 0 && (
               <li className="nc-empty">Нет проектов — «Project» → Open project / Create project / Clone repository</li>
             )}
-            {asList(projects).map((p) => (
+            {asList(projects).map((p) => {
+              const running = isProjectRunning(p.path)
+              return (
               <li key={p.path} className={active?.path === p.path ? 'active' : ''}>
                 <button
                   type="button"
-                  className="nc-project-btn"
+                  className={`nc-project-btn ${running ? 'busy' : ''}`}
                   onClick={() => openProject(p.path)}
                   onContextMenu={(e) => {
                     e.preventDefault()
                     e.stopPropagation()
                     setProjectCtx({x: e.clientX, y: e.clientY, path: p.path, name: p.name})
                   }}
-                  title={p.path}
+                  title={running ? `${p.path} — идёт работа` : p.path}
                 >
                   <ProjectIcon src={p.iconUrl} name={p.name} />
                   <span className="nc-project-name">
-                    {busy && active?.path === p.path ? (
+                    {running ? (
                       <span className="nc-spin" title="Идёт работа" aria-label="Идёт работа" />
                     ) : null}
                     {p.name}
                   </span>
                 </button>
               </li>
-            ))}
+              )
+            })}
           </ul>
           <div className="nc-projects-foot">
             <button
@@ -6290,6 +6311,11 @@ export default function App() {
                     : 'Агент хочет выполнить потенциально опасное действие.'}
                 </p>
                 <pre className="nc-tool-ask-args">{toolAsk.args || '(no args)'}</pre>
+                <p className="nc-help">
+                  «Разрешить и не спрашивать» — только для этого инструмента и этого чата, до
+                  закрытия приложения. Совсем без подтверждений — Settings → Agent → «Confirm
+                  dangerous tools».
+                </p>
                 <div className="nc-close-project-actions">
                   <button
                     type="button"
@@ -6300,6 +6326,19 @@ export default function App() {
                     }}
                   >
                     Разрешить
+                  </button>
+                  <button
+                    type="button"
+                    className="nc-ghost"
+                    title={`Больше не спрашивать про ${toolAsk.name} в этом чате`}
+                    onClick={() => {
+                      const ask = toolAsk
+                      setToolAsk(null)
+                      AllowToolForSession(ask.sessionId, ask.name)
+                      ResolveToolApproval(ask.sessionId, ask.callId, true)
+                    }}
+                  >
+                    Разрешить и не спрашивать
                   </button>
                   <button
                     type="button"

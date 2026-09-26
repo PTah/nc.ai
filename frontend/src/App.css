@@ -1141,6 +1141,11 @@ mark.nc-find-mark.nc-find-current {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Проект, в котором агент работает прямо сейчас: акцентная рамка строки, чтобы
+   «думающий» проект было видно и с открытым другим проектом (см. isProjectRunning). */
+.nc-list li .nc-project-btn.busy {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
 .nc-projects-foot {
   display: flex;
   flex-direction: column;

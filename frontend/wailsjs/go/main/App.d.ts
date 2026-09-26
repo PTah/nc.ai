@@ -15,6 +15,8 @@ export function AckWelcome():Promise<void>;
 
 export function ActiveRuns():Promise<Array<string>>;
 
+export function AllowToolForSession(arg1:string,arg2:string):Promise<void>;
+
 export function AppDataDir():Promise<string>;
 
 export function AppInfo():Promise<Record<string, string>>;
