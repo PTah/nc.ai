@@ -1,4 +1,4 @@
-﻿# Архитектура NotCursor.ai
+# Архитектура NotCursor.ai
 
 См. также [ТЗ](../TZ.md) и [протоколы](../exchange-protocols/README.md).
 

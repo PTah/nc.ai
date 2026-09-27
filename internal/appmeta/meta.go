@@ -1,4 +1,4 @@
-﻿package appmeta
+package appmeta
 
 import "time"
 

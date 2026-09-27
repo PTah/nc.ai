@@ -1,4 +1,4 @@
-﻿package chatstore
+package chatstore
 
 import (
 	"crypto/sha1"

@@ -1,4 +1,4 @@
-﻿package costing
+package costing
 
 import (
 	"fmt"
