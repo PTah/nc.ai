@@ -214,6 +214,8 @@ type QueuedMsg = {
   atts: PendingAtt[]
 }
 
+type RunStartResult = 'started' | 'busy' | 'invalid' | 'error'
+
 function formatArchiveAt(raw: unknown): string {
   if (!raw) return ''
   return fmtDateTime(raw)
@@ -1730,7 +1732,7 @@ export default function App() {
     atts: PendingAtt[],
     skipUserMessage?: boolean,
     force?: boolean,
-  ) => Promise<boolean>>(async () => false)
+  ) => Promise<RunStartResult>>(async () => 'invalid')
   const [statusTick, setStatusTick] = useState(0)
   // "Развернуть всё / Свернуть всё" applies to every activity block at once.
   const [expandSignal, setExpandSignal] = useState<ExpandSignal>({open: false, n: 0})
@@ -1922,17 +1924,32 @@ export default function App() {
   // it is never fired into whatever project happens to be in front.
   const flushQueue = useCallback(async (sid: string) => {
     if (!sid || sid !== activeSessionRef.current) return false
-    if (busyBySessionRef.current[sid]) return false
     const first = asList(queuesRef.current[sid])[0]
     if (!first) return false
-    const started = await runAgentRef.current(sid, first.text, first.atts)
-    if (started) {
+    // The busy ref can lag the React state for one render after a run finishes.
+    // Wait it out briefly instead of abandoning the queued question forever.
+    for (let i = 0; i < 10 && busyBySessionRef.current[sid]; i++) {
+      await new Promise((resolve) => window.setTimeout(resolve, 200))
+      if (sid !== activeSessionRef.current) return false
+    }
+    if (busyBySessionRef.current[sid]) return false
+    const res = await runAgentRef.current(sid, first.text, first.atts)
+    if (res === 'started') {
       setQueues((prev) => ({
         ...prev,
         [sid]: asList(prev[sid]).filter((q) => q.id !== first.id),
       }))
+      return true
     }
-    return started
+    if (res === 'busy') return false
+    // 'error'/'invalid': the question is already visible in the transcript with
+    // an error and a Retry button, so consume it from the pending queue instead
+    // of retrying it in a loop.
+    setQueues((prev) => ({
+      ...prev,
+      [sid]: asList(prev[sid]).filter((q) => q.id !== first.id),
+    }))
+    return true
   }, [])
 
   // Plays the embedded end-of-run chime (settings item "Звук в конце работы").
@@ -2818,13 +2835,31 @@ export default function App() {
   }, [chatFindOpen, chatFindIndex])
 
   // Drain this session's queue when its own agent is idle. The message is only
-  // removed after the run actually started, so a race (project switch, session
-  // still finishing) can never swallow a question.
+  // removed after the run actually started (or was surfaced as an error with a
+  // Retry button), so a race (project switch, session still finishing) can never
+  // swallow a question — and a transient busy/refusal is retried instead of
+  // leaving the queue stuck.
   useEffect(() => {
     if (!activeSessionId || busy) return
     if (queue.length === 0) return
-    const t = window.setTimeout(() => { void flushQueue(activeSessionId) }, 150)
-    return () => window.clearTimeout(t)
+    let cancelled = false
+    let timer: number | undefined
+    const tick = () => {
+      if (cancelled) return
+      void flushQueue(activeSessionId).then((ok) => {
+        if (cancelled) return
+        const idle = !busyBySessionRef.current[activeSessionId]
+        const left = asList(queuesRef.current[activeSessionId]).length > 0
+        if (idle && left) {
+          timer = window.setTimeout(tick, ok ? 120 : 300)
+        }
+      })
+    }
+    timer = window.setTimeout(tick, 150)
+    return () => {
+      cancelled = true
+      if (timer) window.clearTimeout(timer)
+    }
   }, [activeSessionId, busy, queue, flushQueue])
 
   async function refreshArchives() {
@@ -4045,18 +4080,20 @@ export default function App() {
     }
   }
 
-  // Starts an agent run for one chat session. Returns true only when the run
-  // actually started, so callers can keep queued messages they could not send.
+  // Starts an agent run for one chat session. Returns 'started' only when the
+  // run actually started; 'busy' when the session is still running; 'invalid'
+  // when there is nothing to send; 'error' when the backend rejected the run
+  // (the question and error are already visible in the transcript).
   async function runAgent(
     sid: string,
     text: string,
     atts: PendingAtt[],
     skipUserMessage = false,
     force = false,
-  ): Promise<boolean> {
-    if (!sid || sid !== activeSessionRef.current) return false
-    if (!text && atts.length === 0) return false
-    if (busyBySessionRef.current[sid] && !force) return false
+  ): Promise<RunStartResult> {
+    if (!sid || sid !== activeSessionRef.current) return 'invalid'
+    if (!text && atts.length === 0) return 'invalid'
+    if (busyBySessionRef.current[sid] && !force) return 'busy'
     lastRequestRef.current = {text, atts}
     setRetryVisible(false)
     assistantBuf.current[sid] = ''
@@ -4092,9 +4129,9 @@ export default function App() {
       setBusyBySession((b) => ({...b, [sid]: false}))
       setSessionItems(sid, (m) => [...m, {kind: 'system', content: String(err)}])
       setRetryVisible(true)
-      return false
+      return 'error'
     }
-    return true
+    return 'started'
   }
   runAgentRef.current = runAgent
 
@@ -4149,14 +4186,16 @@ export default function App() {
     if (!text && atts.length === 0) return
     setInput('', sid)
     setPendingAtts([], sid)
-    if (busyBySessionRef.current[sid]) {
+    if (busyBySessionRef.current[sid] || busy) {
       const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
       setQueue((q) => [...q, {id, text, atts}], sid)
       return
     }
-    const started = await runAgent(sid, text, atts)
-    if (!started) {
-      // Never lose the question: keep it queued for this chat instead.
+    const res = await runAgent(sid, text, atts)
+    if (res === 'busy' || res === 'invalid') {
+      // Never lose the question: keep it queued for this chat instead. On
+      // 'error' the question is already in the transcript with a Retry button,
+      // so re-queueing it would just auto-retry in a loop.
       const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
       setQueue((q) => [...q, {id, text, atts}], sid)
     }
@@ -4173,8 +4212,8 @@ export default function App() {
       // Give the backend a moment to release the session before restarting it.
       await new Promise((resolve) => window.setTimeout(resolve, 150))
     }
-    const started = await runAgent(sid, msg.text, msg.atts, false, true)
-    if (!started) setQueue((q) => [...q, msg], sid)
+    const res = await runAgent(sid, msg.text, msg.atts, false, true)
+    if (res === 'busy' || res === 'invalid') setQueue((q) => [...q, msg], sid)
   }
 
   function dismissQueued(id: string) {
