@@ -390,7 +390,7 @@ func (r *Runner) resolveModel(step int, emit EmitFunc) string {
 				})
 			}
 			if d.Model == ModelPro && appmeta.DeepSeekProRetired(time.Now()) {
-				// V4 Pro retired by the provider: route complex work to V4 Flash.
+				// Only if appmeta.DeepSeekProRetireRFC3339 is set again (Pro currently alive).
 				d = RouteDecision{Model: ModelFlash, Reason: d.Reason + "-pro-retired"}
 			}
 			model, reason = d.Model, d.Reason

@@ -1138,7 +1138,7 @@ func (a *App) ClearDeepSeekKey() error {
 
 func (a *App) SaveDeepSeekModel(model string) error {
 	if appmeta.DeepSeekProRetired(time.Now()) && strings.EqualFold(strings.TrimSpace(model), "deepseek-v4-pro") {
-		// V4 Pro is retired: keep the user on V4.1 Flash.
+		// Only when retirement date is set in appmeta (Pro currently remains on the API).
 		model = "deepseek-flash"
 	}
 	if err := a.cfg.SetDeepSeekModel(model); err != nil {

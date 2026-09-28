@@ -39,13 +39,13 @@ Content-Type: application/json
 
 | Model ID | Назначение |
 |---|---|
-| `deepseek-flash` | **Основная**: V4.1 Flash — быстрый/дешёвый кодинг + нативное мультимодальное понимание |
-| `deepseek-v4-pro` | Legacy: выводится из эксплуатации; с 14.09.2026 (04:00 UTC) роутится на V4.1 Flash по тарифам Flash |
+| `deepseek-flash` | **Основная / Auto default**: V4.1 Flash — быстрый/дешёвый кодинг + нативное мультимодальное понимание |
+| `deepseek-v4-pro` | **V4 Pro** — отдельная более сильная модель; API и биллинг продолжают работать (анонс о снятии с 14.09.2026 отменён) |
 | ~~`deepseek-v4-flash`~~, ~~`…-vision-exp`~~ | Retired: ID сохранены для совместимости, временно роутятся на V4.1 Flash |
 
 > Устаревшие алиасы вроде `deepseek-chat` / `deepseek-reasoner` не использовать в новом коде.
 
-Default в NotCursor (этап 1): `deepseek-flash` (V4.1 Flash: скорость + мультимодальность) с возможностью выбрать `deepseek-v4-pro` до его вывода из эксплуатации.
+Default в NotCursor: `deepseek-flash`. Auto-models на сложных / длинных прогонах может выбрать `deepseek-v4-pro`.
 
 ---
 

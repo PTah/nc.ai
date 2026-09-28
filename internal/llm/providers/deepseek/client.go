@@ -281,9 +281,9 @@ func (c *Client) ListModels(ctx context.Context) ([]ModelInfo, error) {
 }
 
 // FallbackModels is used only when GET /models is unavailable (no key / network).
-// V4.1 Flash is the only current DeepSeek model; legacy ids keep working as aliases.
+// Flash + Pro are the current catalog; retired flash aliases are not listed here.
 func FallbackModels() []string {
-	return []string{DefaultModel}
+	return []string{DefaultModel, LegacyProModel}
 }
 
 // MergeKnownModels returns the API catalog as the single source of truth:
