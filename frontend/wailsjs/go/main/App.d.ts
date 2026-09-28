@@ -4,6 +4,7 @@ import {update} from '../models';
 import {workspace} from '../models';
 import {rules} from '../models';
 import {costing} from '../models';
+import {deepseek} from '../models';
 import {openrouter} from '../models';
 import {providernews} from '../models';
 import {main} from '../models';
@@ -62,6 +63,8 @@ export function DetectDefaultShell():Promise<string>;
 export function DuplicateLocalEndpoint(arg1:string):Promise<Record<string, any>>;
 
 export function GetCursorRules():Promise<rules.Bundle>;
+
+export function GetDeepSeekBalance():Promise<deepseek.AccountBalance>;
 
 export function GetDeepSeekPeakInfo(arg1:string):Promise<costing.PeakInfo>;
 

@@ -51,19 +51,19 @@ func retiredAt(at time.Time, now time.Time) bool {
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
+	"DeepSeek: в шапке остаток баланса, грант и пополнения (GET /user/balance)",
 	"Провайдер Yandex AI Studio: API-ключ + folder id, модели yandexgpt / qwen3 в настройках",
 	"Транскрипт чата привязан к своей сессии: при переключении проектов чаты больше не перепутываются",
 	"Прогон привязан к чату: можно держать 2–3 проекта сразу — ответы не уезжают в чужой чат",
 	"Запрос подтверждения больше не теряется: видно, какой проект и чат спрашивает",
-	"Чтение вне проекта больше не просит подтверждения — диалог остался на изменения",
 }
 
 var HighlightsEN = []string{
+	"DeepSeek: header shows balance, grant, and topped-up funds (GET /user/balance)",
 	"Yandex AI Studio provider: API key + folder id, yandexgpt / qwen3 models in Settings",
 	"A transcript is bound to its own session: switching projects no longer mixes chats up",
 	"A run is bound to its chat: two or three projects at once keep answers where they belong",
 	"Approval requests are no longer lost: the dialog names the project and chat",
-	"Reads outside the project no longer ask for approval — the dialog is left for changes",
 }
 
 

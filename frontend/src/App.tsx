@@ -23,6 +23,7 @@ import {
   ClearTodos,
   RemoveTodos,
   DetectDefaultShell,
+  GetDeepSeekBalance,
   GetDeepSeekPeakInfo,
   GetSettings,
   GetUsageStats,
@@ -1630,6 +1631,15 @@ export default function App() {
   const [yandexModels, setYandexModels] = useState<string[]>([...YANDEX_MODELS_FALLBACK])
   const [zaiBalance, setZaiBalance] = useState<{ok: boolean; availableUsd: number; detail: string; source: string} | null>(null)
   const [orBalance, setOrBalance] = useState<{ok: boolean; availableUsd: number; detail: string; source: string} | null>(null)
+  const [dsBalance, setDsBalance] = useState<{
+    ok: boolean
+    availableUsd: number
+    grantedUsd: number
+    toppedUpUsd: number
+    currency: string
+    detail: string
+    source: string
+  } | null>(null)
   const [autoModels, setAutoModels] = useState(true)
   // End-of-run chime: on by default, the clip is embedded in the binary.
   const [endSound, setEndSound] = useState(true)
@@ -1763,7 +1773,7 @@ export default function App() {
               ? Boolean(localBaseUrl.trim() && localModel.trim())
               : deepseekKeySet
   const providerLabel = providerLabelOf(activeProvider)
-  const showBalance = activeProvider === 'zai' || activeProvider === 'openrouter'
+  const showBalance = activeProvider === 'zai' || activeProvider === 'openrouter' || activeProvider === 'deepseek'
   const providerReadyLabel =
     isLocalProvider(activeProvider)
       ? keySet
@@ -2411,6 +2421,7 @@ export default function App() {
         }
         setZaiEndpoint(s.zaiEndpoint === 'coding' ? 'coding' : 'paas')
         if (s.deepseekKeySet || provider === 'deepseek') void refreshDeepSeekModels()
+        if (provider === 'deepseek' && s.deepseekKeySet) void refreshDeepSeekBalance()
         if (s.zaiKeySet || provider === 'zai') void refreshZaiModels()
         if (provider === 'zai' && s.zaiKeySet) void refreshZaiBalance()
         if (s.openrouterKeySet || provider === 'openrouter') void refreshOpenRouterModels()
@@ -3593,6 +3604,45 @@ export default function App() {
     }
   }
 
+  async function refreshDeepSeekBalance() {
+    try {
+      const b = await GetDeepSeekBalance()
+      if (!b || typeof b !== 'object') {
+        setDsBalance(null)
+        return
+      }
+      const row = b as {
+        ok?: boolean
+        availableUsd?: number
+        grantedUsd?: number
+        toppedUpUsd?: number
+        currency?: string
+        detail?: string
+        source?: string
+      }
+      setDsBalance({
+        ok: Boolean(row.ok),
+        availableUsd: Number(row.availableUsd) || 0,
+        grantedUsd: Number(row.grantedUsd) || 0,
+        toppedUpUsd: Number(row.toppedUpUsd) || 0,
+        currency: String(row.currency || ''),
+        detail: String(row.detail || ''),
+        source: String(row.source || ''),
+      })
+      void applyUsageStats()
+    } catch {
+      setDsBalance({
+        ok: false,
+        availableUsd: 0,
+        grantedUsd: 0,
+        toppedUpUsd: 0,
+        currency: '',
+        detail: 'Не удалось запросить баланс',
+        source: 'none',
+      })
+    }
+  }
+
   async function refreshDeepSeekModels(opts?: {applyPreferred?: boolean}) {
     try {
       const list = asList(await ListDeepSeekModels()).map(String).filter(Boolean)
@@ -3852,7 +3902,7 @@ export default function App() {
       } else {
         setLocalHealth(null)
         void refreshDeepSeekModels({applyPreferred: true})
-        void applyUsageStats()
+        void refreshDeepSeekBalance().then(() => applyUsageStats())
       }
     } catch {
       /* ignore */
@@ -3974,6 +4024,7 @@ export default function App() {
     }
     if (activeProvider === 'deepseek' || deepseekKeySet) {
       await refreshDeepSeekModels()
+      await refreshDeepSeekBalance()
     }
     await SaveAutoModels(autoModels)
     await SaveAgentMaxSteps(unlimitedSteps ? -1 : (Number(maxSteps) || 120))
@@ -4061,6 +4112,7 @@ export default function App() {
       const r = await ChatOnce('ping')
       if (activeProvider === 'deepseek') {
         await refreshDeepSeekModels({applyPreferred: true})
+        await refreshDeepSeekBalance()
       }
       if (activeProvider === 'zai') {
         await refreshZaiModels({applyPreferred: true})
@@ -4424,7 +4476,8 @@ export default function App() {
                     ' · стоимость $0 (свой сервер)'
                 }
                 return `Провайдер DeepSeek · чат: ${usage.chatInputTokens} in / ${usage.chatOutputTokens} out (${fmtUsd(usage.chatCostUsd)}) · total DeepSeek: ${usage.inputTokens} in / ${usage.outputTokens} out (${fmtUsd(usage.costUsd)})` +
-                  cacheLine
+                  cacheLine +
+                  (usage.balanceDetail ? ` · ${usage.balanceDetail}` : '')
               })()
             }
           >
@@ -4449,7 +4502,11 @@ export default function App() {
               <>
                 <span className="nc-cost-sep">·</span>
                 <span className="nc-cost-bal" title={usage.balanceDetail || 'Refresh balance в Settings'}>
-                  {usage.balanceOk ? `bal ${fmtUsd(usage.balanceUsd)}` : 'bal —'}
+                  {usage.balanceOk
+                    ? (activeProvider === 'deepseek' && usage.balanceDetail
+                      ? usage.balanceDetail
+                      : `bal ${fmtUsd(usage.balanceUsd)}`)
+                    : 'bal —'}
                 </span>
               </>
             )}
@@ -5291,6 +5348,16 @@ export default function App() {
                 <button type="button" className="nc-ghost" onClick={() => void refreshDeepSeekModels({applyPreferred: true})}>
                   Refresh models
                 </button>
+                <button type="button" className="nc-ghost" onClick={() => void refreshDeepSeekBalance()}>Refresh balance</button>
+                {dsBalance && (
+                  <p className="nc-help">
+                    {dsBalance.ok
+                      ? `Баланс: ${dsBalance.detail || `total ${fmtUsd(dsBalance.availableUsd)} · grant ${fmtUsd(dsBalance.grantedUsd)} · topup ${fmtUsd(dsBalance.toppedUpUsd)}`}`
+                      : dsBalance.detail || 'Баланс недоступен через API'}
+                    {' '}
+                    <span title="platform.deepseek.com/usage">GET /user/balance</span>
+                  </p>
+                )}
                 <label>
                   API key
                   <input

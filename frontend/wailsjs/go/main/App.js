@@ -106,6 +106,10 @@ export function GetCursorRules() {
   return window['go']['main']['App']['GetCursorRules']();
 }
 
+export function GetDeepSeekBalance() {
+  return window['go']['main']['App']['GetDeepSeekBalance']();
+}
+
 export function GetDeepSeekPeakInfo(arg1) {
   return window['go']['main']['App']['GetDeepSeekPeakInfo'](arg1);
 }
