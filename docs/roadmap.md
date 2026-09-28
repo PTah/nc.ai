@@ -39,7 +39,7 @@
 
 ### 4. Добивки (по одной, между крупными задачами)
 
-- [ ] **Auto-models EscalationGate на остальных провайдерах** (сейчас MVP только DeepSeek, 0.7.13): mid-run Flash→strong при дублях/провалах tools, пустом ответе, битом JSON; префикс `/pro`|`[pro]`; bypass слабого session-sticky на сложных ходах. Маппинг strong: Z.ai → `glm-5.3`, OpenRouter → `qwen3-coder:floor`, Qwen → `qwen-max`, Yandex → `qwen3-235b-a22b-fp8` (Local — по желанию later). Точка входа: `internal/agent/escalate.go` (`escalateEnabled` / `strongModel`).
+- [ ] **Auto-models EscalationGate на остальных провайдерах** (сейчас MVP только DeepSeek, 0.7.12): mid-run Flash→strong при дублях/провалах tools, пустом ответе, битом JSON; префикс `/pro`|`[pro]`; bypass слабого session-sticky на сложных ходах. Маппинг strong: Z.ai → `glm-5.3`, OpenRouter → `qwen3-coder:floor`, Qwen → `qwen-max`, Yandex → `qwen3-235b-a22b-fp8` (Local — по желанию later). Точка входа: `internal/agent/escalate.go` (`escalateEnabled` / `strongModel`).
 - [ ] Anthropic: сохранять `signature` thinking-блока и отправлять его обратно — тогда extended thinking + tools заработает на прямом API.
 - [ ] Показывать в ответе реальную модель, если провайдер подменил роут (ShareLLM и подобные): имя из `resp.Model` вместо конфига.
 - [ ] DeepSeek: стабильный префикс промпта для prompt cache (сейчас `prompt_cache_hit/miss` только учитываются).
