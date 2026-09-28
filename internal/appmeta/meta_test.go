@@ -58,14 +58,14 @@ func TestDeepSeekProRetired(t *testing.T) {
 	}
 }
 
-func TestHighlightsMentionProviderNews(t *testing.T) {
+func TestHighlightsMentionDeepSeekBalance(t *testing.T) {
 	found := false
 	for _, line := range HighlightsRU {
-		if strings.Contains(line, "Новости провайдеров") {
+		if strings.Contains(line, "баланса") || strings.Contains(line, "/user/balance") {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatal("в списке «что нового» нет упоминания новостей провайдеров")
+		t.Fatal("в списке «что нового» нет упоминания баланса DeepSeek")
 	}
 }

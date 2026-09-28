@@ -498,6 +498,37 @@ export namespace main {
 
 }
 
+export namespace deepseek {
+	
+	export class AccountBalance {
+	    ok: boolean;
+	    availableUsd: number;
+	    grantedUsd: number;
+	    toppedUpUsd: number;
+	    currency: string;
+	    isAvailable: boolean;
+	    source: string;
+	    detail: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new AccountBalance(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ok = source["ok"];
+	        this.availableUsd = source["availableUsd"];
+	        this.grantedUsd = source["grantedUsd"];
+	        this.toppedUpUsd = source["toppedUpUsd"];
+	        this.currency = source["currency"];
+	        this.isAvailable = source["isAvailable"];
+	        this.source = source["source"];
+	        this.detail = source["detail"];
+	    }
+	}
+
+}
+
 export namespace openrouter {
 	
 	export class AccountBalance {

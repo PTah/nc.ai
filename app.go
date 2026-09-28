@@ -101,6 +101,9 @@ type App struct {
 	orBalMu sync.Mutex
 	orBal   openrouter.AccountBalance
 
+	dsBalMu sync.Mutex
+	dsBal   deepseek.AccountBalance
+
 	// netMu guards the LLM connection-drop counters (Settings → Network).
 	netMu        sync.Mutex
 	netDrops     int
@@ -998,6 +1001,14 @@ func (a *App) GetUsageStats() UsageStats {
 		outStats.BalanceUsd = bal.AvailableUSD
 		outStats.BalanceDetail = bal.Detail
 	}
+	if provider == config.ProviderDeepSeek {
+		a.dsBalMu.Lock()
+		bal := a.dsBal
+		a.dsBalMu.Unlock()
+		outStats.BalanceOk = bal.OK
+		outStats.BalanceUsd = bal.AvailableUSD
+		outStats.BalanceDetail = bal.Detail
+	}
 	if a.chats == nil {
 		return outStats
 	}
@@ -1722,6 +1733,20 @@ func (a *App) GetOpenRouterBalance() openrouter.AccountBalance {
 	a.orBalMu.Lock()
 	a.orBal = bal
 	a.orBalMu.Unlock()
+	return bal
+}
+
+// GetDeepSeekBalance returns GET /user/balance for the saved DeepSeek key.
+func (a *App) GetDeepSeekBalance() deepseek.AccountBalance {
+	key := a.cfg.APIKey(config.ProviderDeepSeek)
+	ctx := a.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	bal := deepseek.FetchBalance(ctx, key)
+	a.dsBalMu.Lock()
+	a.dsBal = bal
+	a.dsBalMu.Unlock()
 	return bal
 }
 
@@ -3069,6 +3094,11 @@ func (a *App) usageBalanceSnapshot(provider string) (ok bool, usd float64, detai
 		a.orBalMu.Lock()
 		bal := a.orBal
 		a.orBalMu.Unlock()
+		return bal.OK, bal.AvailableUSD, bal.Detail
+	case config.ProviderDeepSeek:
+		a.dsBalMu.Lock()
+		bal := a.dsBal
+		a.dsBalMu.Unlock()
 		return bal.OK, bal.AvailableUSD, bal.Detail
 	default:
 		return false, 0, ""
