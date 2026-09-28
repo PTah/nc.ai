@@ -14,7 +14,7 @@ import (
 // Auto model ids (DeepSeek).
 const (
 	ModelFlash  = deepseek.DefaultModel // deepseek-flash (V4.1 Flash, multimodal)
-	ModelPro    = "deepseek-v4-pro"     // legacy id, routed to V4.1 Flash
+	ModelPro    = "deepseek-v4-pro"     // V4 Pro — отдельная модель (API продолжает обслуживать)
 	ModelVision = deepseek.VisionModel  // deepseek-flash (native image input)
 )
 

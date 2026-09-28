@@ -223,7 +223,7 @@ var zaiFallbackKey = "glm-4.7"
 func Price(model string, at time.Time) Prices {
 	key := NormalizeModel(model)
 	if key == "deepseek-v4-pro" && appmeta.DeepSeekProRetired(at) {
-		// V4 Pro is retired: provider routes it to V4.1 Flash and bills as Flash.
+		// Fallback only when retirement date is set in appmeta (currently empty = Pro alive).
 		key = "deepseek-flash"
 	}
 	zai := currentZaiSheet()

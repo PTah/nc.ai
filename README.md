@@ -76,15 +76,15 @@ macOS (собирается только на macOS-хосте; скрипт с�
 
 | Провайдер | Модели | Что стоит знать |
 |---|---|---|
-| DeepSeek | `deepseek-flash`; legacy `deepseek-v4-flash`, `…-vision-exp` и `deepseek-v4-pro` роутятся на неё | OpenAI-compatible API, авто-выбор модели |
+| DeepSeek | `deepseek-flash` (default), `deepseek-v4-pro`; legacy `deepseek-v4-flash` / `…-vision-exp` → Flash | OpenAI-compatible API, авто-выбор модели |
 | Z.ai | `glm-4.5…5.3` (flash / pro / vision) | список моделей и баланс показываются прямо в Settings |
 | OpenRouter | любой `openrouter/…` | свой ключ и endpoint |
 | Qwen (DashScope) | `qwen-max` / `qwen-plus` / `qwen-turbo`, `qwen3-coder-*`, `qwen-vl-*` | Alibaba Cloud Model Studio, OpenAI-compatible; регион intl / cn |
 | Yandex AI Studio | `yandexgpt` / `yandexgpt-lite`, `qwen3-235b-a22b-fp8`, `gpt-oss-120b` | API-ключ + folder id; URI `gpt://<folder>/<model>/latest` |
 | Local | всё, что вернёт `/models` — Ollama, LM Studio, vLLM, llama.cpp | по умолчанию `http://127.0.0.1:11434/v1`, ключ не обязателен |
 
-- Авто-выбор модели идёт по цепочке flash → legacy `deepseek-v4-pro` (пока он жив) → мультимодальная
-  flash. После 14.09.2026 12:00 Beijing `v4-pro` уезжает из списка, и расчёт идёт по `deepseek-flash`.
+- Авто-выбор DeepSeek: по умолчанию `deepseek-flash`; на сложных запросах / длинных прогонах —
+  `deepseek-v4-pro` (отдельная модель, API продолжает обслуживать). Мультимодальность — тот же Flash.
 - Ошибки провайдеров переводятся в понятный текст: `402` → «Пополните баланс…», `429` → «лимит
   запросов…» — вместо голого JSON.
 - Кнопка **↻ Models** перечитывает список моделей у активного провайдера. DeepSeek тоже ходит в
