@@ -1,6 +1,6 @@
 build/bin
 build/dist
-# Локальные исходники бренда (не публикуются: см. scripts/build_brand_assets.py)
+# Local brand sources (not published; see scripts/build_brand_assets.py)
 assets/brand-src
 node_modules
 frontend/dist
@@ -15,3 +15,9 @@ frontend/package.json.md5
 secrets.enc
 .cursor/
 .cursorignore
+
+# Local ops (not mirrored): kalinamall+home push, GitHub release publish
+/push-private.ps1
+/push-private.sh
+/publish-release.ps1
+/publish-release.sh
