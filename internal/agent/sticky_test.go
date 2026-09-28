@@ -33,6 +33,19 @@ func TestResolveModel_SessionSticky(t *testing.T) {
 	}
 }
 
+func TestResolveModel_SessionStickyFlashSimple(t *testing.T) {
+	r := &Runner{
+		AutoModels:  true,
+		ProviderID:  "deepseek",
+		StickyModel: ModelFlash,
+		UserText:    "поправь опечатку",
+	}
+	emit := func(Event) {}
+	if got := r.resolveModel(0, emit); got != ModelFlash {
+		t.Fatalf("got %s want sticky flash on simple turn", got)
+	}
+}
+
 func TestResolveModel_VisionUpgrade(t *testing.T) {
 	r := &Runner{
 		AutoModels: true,
