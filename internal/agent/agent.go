@@ -189,6 +189,8 @@ type Runner struct {
 	// StickyModel, when AutoModels is on, reuses the session's last non-vision
 	// model so consecutive turns stay on one cache namespace.
 	StickyModel string
+	// ForcePro (DeepSeek Auto): /pro or [pro] in the user turn — skip Flash sticky.
+	ForcePro bool
 	// ProjectMap is a compact directory tree injected after the system prompt
 	// (cache-friendly warm context; see docs/TODO-cache-phase5.md).
 	ProjectMap string
@@ -300,7 +302,7 @@ func (r *Runner) localContextNotice(u *llm.Usage) string {
 
 // resolveModel picks the model for this step and emits a "model" event when it changes.
 // After the first pick in a run the choice is sticky (cache-friendly), except a
-// one-way upgrade to the provider's vision model when the turn has images.
+// one-way upgrade to vision (images) or to Pro via EscalationGate / /pro.
 func (r *Runner) resolveModel(step int, emit EmitFunc) string {
 	if locked := strings.TrimSpace(r.runModel); locked != "" {
 		if r.HasImages && !r.isLocal() && !IsVisionModel(locked) {
@@ -346,9 +348,11 @@ func (r *Runner) resolveModel(step int, emit EmitFunc) string {
 			model = strings.TrimSpace(r.PreferredModel)
 		}
 		reason = "local"
+	case r.AutoModels && r.ForcePro && r.escalateEnabled():
+		model, reason = r.strongModel(), "user-pro"
 	case r.AutoModels:
 		sticky := strings.TrimSpace(r.StickyModel)
-		if sticky != "" && !r.HasImages && !IsVisionModel(sticky) {
+		if sticky != "" && !r.HasImages && !IsVisionModel(sticky) && !r.shouldBypassSticky(sticky) {
 			model, reason = sticky, "session-sticky"
 		} else {
 			var d RouteDecision
@@ -394,6 +398,9 @@ func (r *Runner) resolveModel(step int, emit EmitFunc) string {
 				d = RouteDecision{Model: ModelFlash, Reason: d.Reason + "-pro-retired"}
 			}
 			model, reason = d.Model, d.Reason
+			if sticky != "" && reason != "session-sticky" && r.shouldBypassSticky(sticky) {
+				reason = d.Reason + "-sticky-bypass"
+			}
 		}
 	case r.HasImages:
 		model, reason = r.visionModel()
@@ -825,6 +832,7 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 		prior = NeutralizeToollessAssistants(prior)
 	}
 
+	r.applyProDirective(&userMsg)
 	messages := r.buildMessages(prior, userMsg)
 
 	if r.Tools != nil {
@@ -840,6 +848,9 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 	defer prog.stopRun()
 	go prog.heartbeat(ctx, emit)
 	emit(Event{Type: "progress", Content: prog.payload("start")})
+	if r.ForcePro && r.escalateEnabled() {
+		emit(Event{Type: "notice", Content: escalateNotice("user-pro")})
+	}
 
 	// Watchdog «затыка»: шаг без признаков жизни дольше StallLimit обрывается,
 	// чтобы пользователь не ждал впустую десятки минут (см. stall.go).
@@ -872,6 +883,8 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 	emptyRetryDone := false
 	langRetryDone := false
 	exploreToolsOnly := false
+	escalateEmptyDone := false
+	var esc escalateTracker
 	for step := 0; step < max; step++ {
 		if runCtx.Err() != nil {
 			if serr := stallErr(); serr != nil {
@@ -944,10 +957,24 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 			finish = "tool_calls"
 		}
 		brokenToolJSON := false
-		if r.isLocal() && !promoted && len(msg.ToolCalls) == 0 && llm.LooksLikeBrokenToolJSON(msg.Content) {
-			brokenToolJSON = true
-			msg.Content = "[invalid tool JSON omitted]"
-			msg.ReasoningContent = ""
+		if !promoted && len(msg.ToolCalls) == 0 && llm.LooksLikeBrokenToolJSON(msg.Content) {
+			if r.isLocal() || r.escalateEnabled() {
+				brokenToolJSON = true
+				msg.Content = "[invalid tool JSON omitted]"
+				msg.ReasoningContent = ""
+			}
+		}
+		if brokenToolJSON && r.escalateEnabled() && r.isWeakAutoModel(model) {
+			if r.bumpToStrong(emit, "escalate-invalid-tool", escalateNotice("escalate-invalid-tool")) {
+				if streamed {
+					emit(Event{Type: "delta_clear"})
+				}
+				messages = append(messages, msg)
+				messages = append(messages, llm.UserText(
+					"Previous attempt produced invalid tool JSON. Call tools via the tools API only, with valid JSON arguments.",
+				))
+				continue
+			}
 		}
 		if (promoted || brokenToolJSON) && streamed {
 			emit(Event{Type: "delta_clear"})
@@ -981,6 +1008,9 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 				}
 				watch.onPhase("tool", detail)
 			}
+			if esc.noteToolCalls(msg.ToolCalls) {
+				_ = r.bumpToStrong(emit, "escalate-dup-tool", escalateNotice("escalate-dup-tool"))
+			}
 			outs, err := r.execTools(runCtx, msg.ToolCalls, emit)
 			if err != nil {
 				if serr := stallErr(); serr != nil {
@@ -988,6 +1018,9 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 				}
 				emit(Event{Type: "error", Content: err.Error()})
 				return messages, err
+			}
+			if esc.noteToolResults(outs) {
+				_ = r.bumpToStrong(emit, "escalate-tool-fail", escalateNotice("escalate-tool-fail"))
 			}
 			messages = append(messages, outs...)
 			if rem := r.todoStaleReminder(msg.ToolCalls); rem != "" {
@@ -1049,6 +1082,18 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 						emptyAnswerNudge(r.LocalNumCtx, strings.TrimSpace(msg.ReasoningContent) != ""),
 					))
 					continue
+				}
+				if !escalateEmptyDone && r.escalateEnabled() && r.isWeakAutoModel(model) {
+					if r.bumpToStrong(emit, "escalate-empty", escalateNotice("escalate-empty")) {
+						escalateEmptyDone = true
+						if streamed {
+							emit(Event{Type: "delta_clear"})
+						}
+						messages = append(messages, llm.UserText(
+							"Previous model reply was empty. Answer the user clearly; use tools if needed.",
+						))
+						continue
+					}
 				}
 				emit(Event{Type: "error", Content: emptyAnswerError(
 					finish, r.LocalNumCtx, r.LocalServerKind, strings.TrimSpace(msg.ReasoningContent) != "", usagePromptTokens(resp.Usage),

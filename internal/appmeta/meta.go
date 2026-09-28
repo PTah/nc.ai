@@ -5,7 +5,7 @@ import "time"
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "0.7.12"
+	Version = "0.7.13"
 )
 
 // DeepSeekProRetireRFC3339 is the announced V4 Pro retirement instant, empty
@@ -51,19 +51,19 @@ func retiredAt(at time.Time, now time.Time) bool {
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
+	"DeepSeek Auto: эскалация на Pro при тупике tools / пустом ответе; префикс /pro",
 	"DeepSeek: в шапке остаток баланса, грант и пополнения (GET /user/balance)",
 	"Провайдер Yandex AI Studio: API-ключ + folder id, модели yandexgpt / qwen3 в настройках",
 	"Транскрипт чата привязан к своей сессии: при переключении проектов чаты больше не перепутываются",
 	"Прогон привязан к чату: можно держать 2–3 проекта сразу — ответы не уезжают в чужой чат",
-	"Запрос подтверждения больше не теряется: видно, какой проект и чат спрашивает",
 }
 
 var HighlightsEN = []string{
+	"DeepSeek Auto: escalate to Pro on tool loops / empty replies; /pro prefix",
 	"DeepSeek: header shows balance, grant, and topped-up funds (GET /user/balance)",
 	"Yandex AI Studio provider: API key + folder id, yandexgpt / qwen3 models in Settings",
 	"A transcript is bound to its own session: switching projects no longer mixes chats up",
 	"A run is bound to its chat: two or three projects at once keep answers where they belong",
-	"Approval requests are no longer lost: the dialog names the project and chat",
 }
 
 
