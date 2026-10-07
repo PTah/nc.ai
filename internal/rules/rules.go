@@ -110,9 +110,6 @@ func (b Bundle) SelectTurnRules(hintPaths []string) string {
 			continue
 		}
 		seen[key] = true
-		if skipForNotCursorAgent(r) {
-			continue
-		}
 		if isStableFullRule(r) {
 			continue
 		}
@@ -146,9 +143,6 @@ func (b Bundle) SelectForPrompt(hintPaths []string) string {
 			continue
 		}
 		seen[key] = true
-		if skipForNotCursorAgent(r) {
-			continue
-		}
 		switch {
 		case shouldApplyFull(r, hintPaths):
 			applied = append(applied, r)
@@ -213,9 +207,6 @@ func (b Bundle) Statuses(hintPaths []string) []Status {
 			Description: r.Description, Globs: r.Globs, AlwaysApply: r.AlwaysApply,
 		}
 		switch {
-		case skipForNotCursorAgent(r):
-			st.State = "skipped"
-			st.Reason = "мета-правило Cursor — модели не отдаём"
 		case isStableFullRule(r):
 			st.State = "always"
 			switch {
@@ -223,6 +214,8 @@ func (b Bundle) Statuses(hintPaths []string) []Status {
 				st.Reason = "alwaysApply: true"
 			case strings.EqualFold(r.Name, "AGENTS.md"), strings.EqualFold(r.Name, ".cursorrules"):
 				st.Reason = "AGENTS.md / .cursorrules — всегда включено"
+			case strings.TrimSpace(r.Globs) == "*":
+				st.Reason = "globs: * — подходит к любому файлу, по сути всегда"
 			default:
 				st.Reason = "нет frontmatter (description/globs) — считаем всегда включённым"
 			}
@@ -279,31 +272,6 @@ var (
 	backtickPathRe = regexp.MustCompile("`([^`\\n]{1,260})`")
 )
 
-// skipForNotCursorAgent excludes Cursor-IDE meta rules from the LLM prompt.
-// Those instructions (propose ops files, bootstrap SSH, rename the assistant…)
-// belong in Cursor itself; local models otherwise spam ask_user in a loop
-// instead of reading the code.
-func skipForNotCursorAgent(r Rule) bool {
-	name := strings.ToLower(strings.TrimSpace(r.Name))
-	name = strings.TrimSuffix(name, ".mdc")
-	name = strings.TrimSuffix(name, ".md")
-	switch name {
-	case "propose-project-ops",
-		"00-always-read-rules",
-		"assistant-name-umnik",
-		"deepseek-provider",
-		"machine-connectivity-bootstrap",
-		"gitea-home-api",
-		"remotes-mirror-and-sanitize",
-		"agent-monitors-version-bump":
-		return true
-	}
-	if strings.HasPrefix(name, "propose-") && strings.Contains(name, "ops") {
-		return true
-	}
-	return false
-}
-
 // isStableFullRule is true for rules that belong in the stable system prefix
 // (independent of per-turn hint paths).
 func isStableFullRule(r Rule) bool {
@@ -312,6 +280,10 @@ func isStableFullRule(r Rule) bool {
 	}
 	name := strings.ToLower(r.Name)
 	if name == "agents.md" || name == ".cursorrules" {
+		return true
+	}
+	// globs "*" означает «любой файл» — это по сути всегда включённое правило.
+	if strings.TrimSpace(r.Globs) == "*" {
 		return true
 	}
 	hasDesc := strings.TrimSpace(r.Description) != ""
@@ -339,6 +311,9 @@ func matchGlobs(globs string, paths []string) bool {
 		pat := strings.TrimSpace(raw)
 		if pat == "" {
 			continue
+		}
+		if pat == "*" {
+			return true
 		}
 		for _, p := range paths {
 			if matchOneGlob(pat, p) {
