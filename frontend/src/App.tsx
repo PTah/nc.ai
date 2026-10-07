@@ -23,6 +23,7 @@ import {
   ClearTodos,
   RemoveTodos,
   SetSessionModel,
+  CursorRulesStatus,
   DetectDefaultShell,
   GetDeepSeekBalance,
   GetDeepSeekPeakInfo,
@@ -196,6 +197,18 @@ type ChatSessionMeta = {
   id: string
   title: string
   model?: string
+}
+
+// RuleStatus — как правило попадёт в промпт (см. internal/rules.Status).
+type RuleStatus = {
+  name: string
+  source: string
+  path: string
+  description?: string
+  globs?: string
+  alwaysApply?: boolean
+  state: 'always' | 'turn' | 'catalog' | 'skipped' | string
+  reason: string
 }
 
 type ArchiveChat = {
@@ -1526,6 +1539,8 @@ export default function App() {
   const [modelPrices, setModelPrices] = useState<ModelPriceRow[]>([])
   const [pricesLoading, setPricesLoading] = useState(false)
   const [rulesInfo, setRulesInfo] = useState<RulesBundle>({globalDir: '', projectDir: '', global: [], project: []})
+  const [rulesDlg, setRulesDlg] = useState<RuleStatus[] | null>(null)
+  const [rulesStatusRows, setRulesStatusRows] = useState<RuleStatus[]>([])
   const [shellPath, setShellPath] = useState('')
   const [shellDetected, setShellDetected] = useState('')
   const [shellSaving, setShellSaving] = useState(false)
@@ -1904,6 +1919,18 @@ export default function App() {
 
   // Своя модель чата: сохраняется в сессии и действует только на этот чат.
   const activeChatModel = asList(sessions).find((s) => s.id === activeSessionId)?.model || ''
+  // Разбивка правил: что применено всегда, что подключилось к этому запросу,
+  // что лежит в каталоге, а что не отдаём модели.
+  async function openRulesBreakdown() {
+    try {
+      const list = await CursorRulesStatus(lastUserHint())
+      setRulesDlg(asList(list as RuleStatus[]))
+      setRulesStatusRows(asList(list as RuleStatus[]))
+    } catch {
+      setRulesDlg([])
+    }
+  }
+
   async function saveChatModel(next: string) {
     const sid = activeSessionRef.current
     if (!sid) return
@@ -2203,6 +2230,7 @@ export default function App() {
     try {
       const b = await ReloadCursorRules()
       setRulesInfo(normalizeRules(b))
+      void refreshRuleStatuses()
       if (notify && activeSessionId) {
         const g = Array.isArray(b?.global) ? b.global.length : 0
         const p = Array.isArray(b?.project) ? b.project.length : 0
@@ -2213,6 +2241,22 @@ export default function App() {
       }
     } catch {
       setRulesInfo(normalizeRules(null))
+      setRulesStatusRows([])
+    }
+  }
+
+  // Правда о правилах: какие тела реально уходят в промпт (always + подошедшие по
+  // globs), а какие не отдаём вовсе. Счётчик в шапке считал «applied» по
+  // frontmatter и включал в него мета-правила Cursor — отсюда расхождение.
+  const lastUserHint = () => {
+    const lastUser = [...items].reverse().find((it) => it.kind === 'user')
+    return lastUser ? String((lastUser as {content?: string}).content || '') : ''
+  }
+  async function refreshRuleStatuses() {
+    try {
+      setRulesStatusRows(asList((await CursorRulesStatus(lastUserHint())) as RuleStatus[]))
+    } catch {
+      setRulesStatusRows([])
     }
   }
 
@@ -2545,7 +2589,7 @@ export default function App() {
         setActive(target)
         void refreshFiles('.')
       }).catch(() => undefined)
-      ReloadCursorRules().then((b) => setRulesInfo(normalizeRules(b))).catch(() => undefined)
+      ReloadCursorRules().then((b) => { setRulesInfo(normalizeRules(b)); void refreshRuleStatuses() }).catch(() => undefined)
     } catch {
       // window.go / runtime may be missing until Wails injects bindings
     }
@@ -4751,9 +4795,13 @@ export default function App() {
                 ) : null}
                 <span
                   className="nc-pill"
-                  title="Всего найденных Cursor/AGENTS правил · сколько всегда применяются к проекту (alwaysApply / AGENTS.md / без globs)"
+                  style={{cursor: 'pointer'}}
+                  onClick={() => void openRulesBreakdown()}
+                  title="Сколько правил реально отдаём модели (тело в промпте) из всех найденных. Клик — разбивка: применены всегда, подключены к запросу, только каталог, не отдаём вовсе"
                 >
-                  Rules Total/Applied: {rulesTotal}/{rulesApplied}
+                  Rules Applied/Total: {rulesStatusRows.length > 0
+                    ? `${rulesStatusRows.filter((r) => r.state === 'always' || r.state === 'turn').length}/${rulesStatusRows.length}`
+                    : `${rulesApplied}/${rulesTotal}`}
                 </span>
                 {statusText ? <span className="nc-pill">{statusText}</span> : null}
                 <button
@@ -6841,6 +6889,63 @@ export default function App() {
                 onClick={() => void runClone()}
               >
                 {cloneBusy ? 'Клонирую…' : 'Клонировать'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {rulesDlg && (
+        <div className="nc-modal-backdrop" role="presentation" onClick={() => setRulesDlg(null)}>
+          <div
+            className="nc-modal nc-rules-dlg"
+            role="dialog"
+            aria-labelledby="nc-rules-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 id="nc-rules-title">Правила: что применено, а что нет</h2>
+            {(() => {
+              const groups: {state: string; title: string; hint: string}[] = [
+                {state: 'always', title: 'Применяются всегда', hint: 'тело правила целиком в системном промпте, каждый запрос'},
+                {state: 'turn', title: 'Подключены к этому запросу', hint: 'тело добавлено, потому что путь из запроса подошёл под globs'},
+                {state: 'catalog', title: 'Только в каталоге', hint: 'в промпте лишь имя и описание — агент может запросить правило сам'},
+                {state: 'skipped', title: 'Не отдаём модели', hint: 'мета-правила Cursor/IDE — они не про код проекта'},
+              ]
+              return (
+                <>
+                  <p className="nc-help">
+                    Модели уходят <b>{rulesDlg.filter((r) => r.state === 'always' || r.state === 'turn').length}</b> правил
+                    из {rulesDlg.length}: <b>{rulesDlg.filter((r) => r.state === 'always').length}</b> всегда
+                    {rulesDlg.some((r) => r.state === 'turn') ? <> и <b>{rulesDlg.filter((r) => r.state === 'turn').length}</b> к этому запросу</> : null}.
+                    Остальные либо лежат в каталоге (агент может запросить сам), либо это мета-правила Cursor/IDE,
+                    которые приложение не передаёт.
+                  </p>
+                  {groups.map((g) => {
+                    const list = rulesDlg.filter((r) => r.state === g.state)
+                    if (list.length === 0) return null
+                    return (
+                      <div key={g.state} className="nc-rules-group">
+                        <div className="nc-rules-group-title">
+                          {g.title} · {list.length}
+                          <span className="nc-help" style={{display: 'inline', marginLeft: 8}}>{g.hint}</span>
+                        </div>
+                        <ul className="nc-rules-list">
+                          {list.map((r) => (
+                            <li key={r.path || r.name}>
+                              <b>{r.name}</b>
+                              <span className="nc-help" style={{display: 'inline'}}> — {r.reason}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )
+                  })}
+                </>
+              )
+            })()}
+            <div className="nc-close-project-actions">
+              <button type="button" className="nc-ghost" onClick={() => setRulesDlg(null)}>
+                Закрыть
               </button>
             </div>
           </div>

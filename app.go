@@ -864,6 +864,13 @@ func (a *App) loadRules() rules.Bundle {
 }
 
 // GetCursorRules returns the cached Cursor rules bundle for the UI.
+// CursorRulesStatus — как каждое правило попадёт в промпт текущего запроса.
+// hintText — текст запроса/вложений: по нему подбираются правила с globs.
+func (a *App) CursorRulesStatus(hintText string) ([]rules.Status, error) {
+	b := a.loadRules()
+	return b.Statuses(rules.ExtractHintPaths(strings.TrimSpace(hintText))), nil
+}
+
 func (a *App) GetCursorRules() rules.Bundle {
 	a.rulesMu.RLock()
 	defer a.rulesMu.RUnlock()

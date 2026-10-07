@@ -86,6 +86,10 @@ export function CreateProject(arg1, arg2) {
   return window['go']['main']['App']['CreateProject'](arg1, arg2);
 }
 
+export function CursorRulesStatus(arg1) {
+  return window['go']['main']['App']['CursorRulesStatus'](arg1);
+}
+
 export function DefaultProjectParentDir() {
   return window['go']['main']['App']['DefaultProjectParentDir']();
 }

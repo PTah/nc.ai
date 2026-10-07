@@ -425,6 +425,30 @@ textarea { resize: none; }
   padding: 2px 6px;
   max-width: 220px;
 }
+/* Окно «Правила: что применено, а что нет». */
+.nc-rules-dlg {
+  max-width: 720px;
+  max-height: 78vh;
+  overflow-y: auto;
+}
+.nc-rules-group {
+  margin: 10px 0;
+}
+.nc-rules-group-title {
+  font-weight: 600;
+  font-size: 0.82rem;
+  margin-bottom: 4px;
+}
+.nc-rules-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 10px;
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+.nc-rules-list li {
+  margin: 2px 0;
+}
 @media (prefers-reduced-motion: reduce) {
   .nc-spin { animation: none; border-top-color: currentColor; }
 }

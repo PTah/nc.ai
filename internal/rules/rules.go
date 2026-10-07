@@ -179,6 +179,72 @@ func (b Bundle) SelectForPrompt(hintPaths []string) string {
 	return strings.Join(parts, "\n\n")
 }
 
+// Status — состояние правила для текущего контекста: попадает ли оно в промпт.
+type Status struct {
+	Name        string `json:"name"`
+	Source      string `json:"source"`
+	Path        string `json:"path"`
+	Description string `json:"description"`
+	Globs       string `json:"globs"`
+	AlwaysApply bool   `json:"alwaysApply"`
+	// State: always — тело всегда в системном промпте; turn — тело подключено к
+	// текущему запросу по globs; catalog — в промпте только имя/описание;
+	// skipped — правило не отдаём модели вовсе.
+	State  string `json:"state"`
+	Reason string `json:"reason"`
+}
+
+// Statuses описывает, как каждое правило попадёт в промпт при данных подсказках
+// о путях (см. ExtractHintPaths). Порядок — как в Bundle.
+func (b Bundle) Statuses(hintPaths []string) []Status {
+	out := make([]Status, 0, len(b.Global)+len(b.Project))
+	seen := map[string]bool{}
+	for _, r := range append(append([]Rule{}, b.Global...), b.Project...) {
+		key := r.Path
+		if key == "" {
+			key = r.Source + "/" + r.Name
+		}
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		st := Status{
+			Name: r.Name, Source: r.Source, Path: r.Path,
+			Description: r.Description, Globs: r.Globs, AlwaysApply: r.AlwaysApply,
+		}
+		switch {
+		case skipForNotCursorAgent(r):
+			st.State = "skipped"
+			st.Reason = "мета-правило Cursor — модели не отдаём"
+		case isStableFullRule(r):
+			st.State = "always"
+			switch {
+			case r.AlwaysApply:
+				st.Reason = "alwaysApply: true"
+			case strings.EqualFold(r.Name, "AGENTS.md"), strings.EqualFold(r.Name, ".cursorrules"):
+				st.Reason = "AGENTS.md / .cursorrules — всегда включено"
+			default:
+				st.Reason = "нет frontmatter (description/globs) — считаем всегда включённым"
+			}
+		case strings.TrimSpace(r.Globs) != "" && matchGlobs(r.Globs, hintPaths):
+			st.State = "turn"
+			st.Reason = "подходит под globs этого запроса: " + strings.TrimSpace(r.Globs)
+		case strings.TrimSpace(r.Description) != "":
+			st.State = "catalog"
+			if strings.TrimSpace(r.Globs) != "" {
+				st.Reason = "globs не совпали с текущим запросом (" + strings.TrimSpace(r.Globs) + ") — в промпте только строка каталога"
+			} else {
+				st.Reason = "в промпте только строка каталога — тело агент запрашивает сам"
+			}
+		default:
+			st.State = "catalog"
+			st.Reason = "без description/globs — в промпте только имя"
+		}
+		out = append(out, st)
+	}
+	return out
+}
+
 // ExtractHintPaths finds likely file paths in free text and attachment names
 // so glob-scoped rules can attach for the current turn.
 func ExtractHintPaths(text string, attachmentNames ...string) []string {
@@ -209,7 +275,7 @@ func ExtractHintPaths(text string, attachmentNames ...string) []string {
 
 var (
 	// path-like tokens with an extension (src/foo.go, .\bar\baz.ts)
-	pathHintRe = regexp.MustCompile(`(?i)(?:[A-Za-z]:)?(?:[\w.-]+[/\\])+[\w.-]+\.[A-Za-z0-9]{1,12}|[\w.-]+\.[A-Za-z0-9]{1,12}`)
+	pathHintRe     = regexp.MustCompile(`(?i)(?:[A-Za-z]:)?(?:[\w.-]+[/\\])+[\w.-]+\.[A-Za-z0-9]{1,12}|[\w.-]+\.[A-Za-z0-9]{1,12}`)
 	backtickPathRe = regexp.MustCompile("`([^`\\n]{1,260})`")
 )
 
