@@ -55,6 +55,20 @@ func (s *TodoStore) Remove(ids []string) []Todo {
 	return s.copyLocked()
 }
 
+// Close помечает открытые пункты выполненными: прогон закончился ответом, план
+// не должен висеть «в работе». Пункты вызываются пользователем вручную (ПКМ) —
+// так список не выглядит недоделанным.
+func (s *TodoStore) Close() []Todo {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.items {
+		if s.items[i].Status == "pending" || s.items[i].Status == "in_progress" {
+			s.items[i].Status = "completed"
+		}
+	}
+	return s.copyLocked()
+}
+
 // Clear убирает выполненные и отменённые пункты, либо весь список целиком.
 func (s *TodoStore) Clear(completedOnly bool) []Todo {
 	s.mu.Lock()

@@ -86,6 +86,36 @@ func TestTodoClear(t *testing.T) {
 	}
 }
 
+// Прогон закончился ответом — оставшиеся пункты закрываются, чтобы ToDo не
+// показывал «3/4» и не выглядел недоделанным.
+func TestTodoClose(t *testing.T) {
+	s := NewTodoStore()
+	if _, err := s.Apply(false, []Todo{
+		{ID: "1", Content: "готово", Status: "completed"},
+		{ID: "2", Content: "в работе", Status: "in_progress"},
+		{ID: "3", Content: "ждёт", Status: "pending"},
+	}); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	items := s.Close()
+	if len(items) != 3 {
+		t.Fatalf("пунктов %d, ожидали 3", len(items))
+	}
+	for _, it := range items {
+		if it.Status != "completed" {
+			t.Fatalf("пункт %q остался в статусе %q", it.ID, it.Status)
+		}
+	}
+	// Повторный Close ничего не ломает.
+	if again := s.Close(); len(again) != 3 {
+		t.Fatalf("повторный Close: %d", len(again))
+	}
+	// Пустой список — пустой ответ.
+	if empty := NewTodoStore().Close(); len(empty) != 0 {
+		t.Fatalf("пустой список: %+v", empty)
+	}
+}
+
 func TestTodoRemoveUnknownID(t *testing.T) {
 	s := NewTodoStore()
 	if _, err := s.Apply(false, []Todo{{ID: "1", Content: "a", Status: "pending"}}); err != nil {

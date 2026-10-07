@@ -1273,6 +1273,12 @@ function countTurnSteps(rows: DisplayRow[]): number {
 function collapseTurnSteps(rows: DisplayRow[], finalVisible: boolean): DisplayRow[] {
   const out: DisplayRow[] = []
   let i = 0
+  // Кусок может начинаться не с сообщения пользователя: якорь ToDo разрезает
+  // виток, поэтому в хвосте витка первые строки — те же промежуточные шаги.
+  while (i < rows.length && !isUserRow(rows[i])) i++
+  if (i > 0) {
+    out.push(...splitTurnSteps(rows.slice(0, i), finalVisible))
+  }
   while (i < rows.length) {
     if (!isUserRow(rows[i])) {
       out.push(rows[i])
