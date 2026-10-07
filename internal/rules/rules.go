@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -221,11 +222,11 @@ func (b Bundle) Statuses(hintPaths []string) []Status {
 			}
 		case strings.TrimSpace(r.Globs) != "" && matchGlobs(r.Globs, hintPaths):
 			st.State = "turn"
-			st.Reason = "подходит под globs этого запроса: " + strings.TrimSpace(r.Globs)
+			st.Reason = "подключено к этому запросу: путь из сообщения (или вложения) совпал с globs " + shortGlobs(r.Globs)
 		case strings.TrimSpace(r.Description) != "":
 			st.State = "catalog"
 			if strings.TrimSpace(r.Globs) != "" {
-				st.Reason = "globs не совпали с текущим запросом (" + strings.TrimSpace(r.Globs) + ") — в промпте только строка каталога"
+				st.Reason = "тело подключится, когда в запросе будет путь под globs " + shortGlobs(r.Globs) + "; сейчас в промпте только строка каталога"
 			} else {
 				st.Reason = "в промпте только строка каталога — тело агент запрашивает сам"
 			}
@@ -236,6 +237,22 @@ func (b Bundle) Statuses(hintPaths []string) []Status {
 		out = append(out, st)
 	}
 	return out
+}
+
+// shortGlobs печатает список globs компактно: длинные перечисления (у
+// agent-monitors-version-bump их десять) не должны растягивать строку причины.
+func shortGlobs(globs string) string {
+	parts := strings.Split(globs, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	if len(out) <= 3 {
+		return strings.Join(out, ", ")
+	}
+	return strings.Join(out[:3], ", ") + fmt.Sprintf(" … ещё %d", len(out)-3)
 }
 
 // ExtractHintPaths finds likely file paths in free text and attachment names
