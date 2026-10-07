@@ -79,6 +79,7 @@ export namespace chatstore {
 	    history: llm.Message[];
 	    // Go type: time
 	    updatedAt: any;
+	    model?: string;
 	    costUsd?: number;
 	    inputTokens?: number;
 	    outputTokens?: number;
@@ -124,6 +125,7 @@ export namespace chatstore {
 	        this.itemsJson = source["itemsJson"];
 	        this.history = this.convertValues(source["history"], llm.Message);
 	        this.updatedAt = this.convertValues(source["updatedAt"], null);
+	        this.model = source["model"];
 	        this.costUsd = source["costUsd"];
 	        this.inputTokens = source["inputTokens"];
 	        this.outputTokens = source["outputTokens"];

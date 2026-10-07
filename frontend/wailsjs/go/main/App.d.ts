@@ -260,6 +260,8 @@ export function SaveZaiModel(arg1:string):Promise<void>;
 
 export function SetIDEContext(arg1:string,arg2:number):Promise<void>;
 
+export function SetSessionModel(arg1:string,arg2:string):Promise<void>;
+
 export function StartTerminal():Promise<void>;
 
 export function StartupNotice():Promise<Record<string, any>>;

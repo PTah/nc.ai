@@ -22,6 +22,7 @@ import {
   CloneTargetPath,
   ClearTodos,
   RemoveTodos,
+  SetSessionModel,
   DetectDefaultShell,
   GetDeepSeekBalance,
   GetDeepSeekPeakInfo,
@@ -194,6 +195,7 @@ type PendingAtt = ChatAttPreview & {
 type ChatSessionMeta = {
   id: string
   title: string
+  model?: string
 }
 
 type ArchiveChat = {
@@ -1892,6 +1894,19 @@ export default function App() {
       /* ignore */
     }
   }
+
+  // Своя модель чата: сохраняется в сессии и действует только на этот чат.
+  const activeChatModel = asList(sessions).find((s) => s.id === activeSessionId)?.model || ''
+  async function saveChatModel(next: string) {
+    const sid = activeSessionRef.current
+    if (!sid) return
+    try {
+      await SetSessionModel(sid, next)
+      setSessions((prev) => prev.map((s) => (s.id === sid ? {...s, model: next} : s)))
+    } catch {
+      /* ignore */
+    }
+  }
   const displayRows = typeof todoFlowAt === 'number'
     ? [
         // Голова витка: финального ответа здесь нет — сворачиваем всё, что было.
@@ -2905,6 +2920,7 @@ export default function App() {
       const list = asList(bundle?.sessions).map((s) => ({
         id: String(s.id),
         title: String(s.title || 'Chat'),
+        model: String((s as {model?: string}).model || ''),
       }))
       setSessions(list)
       const aid = String(bundle?.activeId || list[0]?.id || '')
@@ -2928,6 +2944,7 @@ export default function App() {
       const list = asList((bundle as any)?.sessions).map((s: any) => ({
         id: String(s.id || ''),
         title: String(s.title || ''),
+        model: String(s.model || ''),
       }))
       const transcript = await LoadChatTranscript(projectPath)
       const activeId = String(transcript?.sessionId || (bundle as any)?.activeId || list[0]?.id || '')
@@ -2996,7 +3013,7 @@ export default function App() {
     const sess = await NewChatSession('')
     const id = String(sess.id)
     const empty: ChatItem[] = [{kind: 'system', content: 'Новый чат. Можно вести параллельные задачи в разных вкладках.'}]
-    setSessions((prev) => [...prev, {id, title: String(sess.title || 'Chat')}])
+    setSessions((prev) => [...prev, {id, title: String(sess.title || 'Chat'), model: ''}])
     setItemsBySession((prev) => ({...prev, [id]: empty}))
     setActiveSessionId(id)
     await refreshSessions()
@@ -5011,6 +5028,26 @@ export default function App() {
                 {busy && todosVisible && todoFlowAt === undefined && <TodoPanel todos={todos} expand={expandSignal} busy={busy} onContext={openTodoCtx} />}
                 {(items.some((i) => i.kind === 'reasoning' || i.kind === 'tool') || todos.length > 0) && (
                   <div className="nc-thread-actions">
+                    <label className="nc-chat-model" title="Модель этого чата: пусто — Auto/по настройкам. Эскалация во время работы на другие чаты не распространяется.">
+                      <select
+                        value={activeChatModel}
+                        disabled={busy}
+                        onChange={(e) => void saveChatModel(e.target.value)}
+                      >
+                        <option value="">Auto (по настройкам)</option>
+                        {activeProvider === 'zai'
+                          ? modelOptions(zaiModels, zaiModel).map((m) => (<option key={m} value={m}>{m}</option>))
+                          : activeProvider === 'openrouter'
+                            ? modelOptions(openrouterModels, openrouterModel).map((m) => (<option key={m} value={m}>{m}</option>))
+                            : activeProvider === 'qwen'
+                              ? modelOptions(qwenModels, qwenModel).map((m) => (<option key={m} value={m}>{m}</option>))
+                              : activeProvider === 'yandex'
+                                ? modelOptions(yandexModels, yandexModel).map((m) => (<option key={m} value={m}>{m}</option>))
+                                : isLocalProvider(activeProvider)
+                                  ? modelOptions(localModels, localModel).map((m) => (<option key={m} value={m}>{m}</option>))
+                                  : modelOptions(deepseekModels, deepseekModel).map((m) => (<option key={m} value={m}>{m}</option>))}
+                      </select>
+                    </label>
                     <button
                       type="button"
                       className="nc-expand-all"
