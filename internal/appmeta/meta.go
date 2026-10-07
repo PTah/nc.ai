@@ -5,7 +5,7 @@ import "time"
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "0.7.13"
+	Version = "0.7.14"
 )
 
 // DeepSeekProRetireRFC3339 is the announced V4 Pro retirement instant, empty
@@ -51,17 +51,17 @@ func retiredAt(at time.Time, now time.Time) bool {
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
-	"⏱ Итог после ответа: сколько времени заняла работа",
+	"DeepSeek V4.1 Flash показан по имени, а не служебным id (deepseek-flash)",
+	"Refresh models у всех провайдеров сообщает об ошибке, а не молчит",
 	"Своя модель у каждого чата — выбор в шапке чата, переживает перезапуск",
-	"Эскалация DeepSeek на Pro — только на время прогона: в настройки и другие чаты не утекает",
 	"Долгая работа отчитывается каждые 30 секунд: этап, шаги, что делает сейчас",
 	"DeepSeek: в шапке остаток баланса, грант и пополнения (GET /user/balance)",
 }
 
 var HighlightsEN = []string{
-	"⏱ After each answer: how long the work took",
+	"DeepSeek V4.1 Flash is shown by name, not by its service id (deepseek-flash)",
+	"Refresh models reports an error for every provider instead of staying silent",
 	"Each chat has its own model — picked in the chat header, survives restart",
-	"DeepSeek Pro escalation is run-only: it no longer leaks into settings or other chats",
 	"Long work reports every 30 seconds: stage, steps, and what it is doing now",
 	"DeepSeek: header shows balance, grant, and topped-up funds (GET /user/balance)",
 }

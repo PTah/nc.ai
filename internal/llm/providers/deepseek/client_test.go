@@ -118,3 +118,21 @@ func TestPreferAndOrderModels(t *testing.T) {
 		t.Fatal("PreferModel should fall back to flash")
 	}
 }
+
+func TestDisplayName(t *testing.T) {
+	cases := map[string]string{
+		"deepseek-flash":               "DeepSeek V4.1 Flash",
+		" DeepSeek-Flash ":             "DeepSeek V4.1 Flash",
+		"deepseek-v4-pro":              "DeepSeek V4 Pro",
+		"deepseek-v4-flash":            "DeepSeek V4 Flash (routed to V4.1 Flash)",
+		"deepseek-v4-flash-vision-exp": "DeepSeek V4 Flash Vision Exp",
+		"deepseek-chat":                "DeepSeek Chat (legacy alias)",
+		"deepseek-reasoner":            "DeepSeek Reasoner (legacy alias)",
+		"deepseek-something-new":       "deepseek-something-new",
+	}
+	for id, want := range cases {
+		if got := DisplayName(id); got != want {
+			t.Errorf("DisplayName(%q) = %q, want %q", id, got, want)
+		}
+	}
+}

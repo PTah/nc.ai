@@ -84,10 +84,10 @@ type App struct {
 	// чате (key: sessionID+"/"+tool). Сбрасывается, когда подтверждения снова
 	// включают в Settings, и живёт только до закрытия приложения.
 	allowTools map[string]bool
-	sessionID          string
-	history            []llm.Message
-	term               *shell.Session
-	sshDir             string
+	sessionID  string
+	history    []llm.Message
+	term       *shell.Session
+	sshDir     string
 
 	ideMu   sync.Mutex
 	ideFile string
@@ -1367,17 +1367,23 @@ func (a *App) DuplicateLocalEndpoint(id string) (map[string]any, error) {
 	}, nil
 }
 
-// ListLocalModels fetches model ids from the active local endpoint.
-func (a *App) ListLocalModels() ([]string, error) {
+// ListLocalModels fetches model ids from the active local endpoint. Unlike the
+// cloud providers there is no built-in fallback: an unreachable LAN server comes
+// back as Source "error" with the reason, and the UI shows an empty list.
+func (a *App) ListLocalModels() ModelCatalog {
 	infos, err := a.listLocalModelInfos()
 	if err != nil {
-		return nil, err
+		return modelCatalog(nil, "error", err.Error(), nil)
 	}
 	out := make([]string, 0, len(infos))
 	for _, m := range infos {
 		out = append(out, m.ID)
 	}
-	return out, nil
+	source, errMsg := "api", ""
+	if len(out) == 0 {
+		source, errMsg = "error", "сервер ответил без моделей"
+	}
+	return modelCatalog(out, source, errMsg, nil)
 }
 
 // ListLocalModelsFor fetches models for a specific local endpoint id.
@@ -1532,15 +1538,80 @@ func (a *App) ProbeLocalHealth() map[string]any {
 	return out(client.ProbeHealth(ctx))
 }
 
-// ListDeepSeekModels returns model ids from GET /models for the saved DeepSeek key.
-// Known fallback ids are always merged (API may omit experimental vision).
-// After V4 Pro retirement the pro id is dropped from the selectable list.
-func (a *App) ListDeepSeekModels() []string {
+// ModelLabel is one selectable model: the id goes to the API, the label goes to
+// the UI (DeepSeek ids are opaque — "deepseek-flash" is V4.1 Flash).
+type ModelLabel struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+}
+
+// ModelCatalog is what Settings → "Refresh models" gets back: the selectable
+// models with UI labels, where the list came from, and the fetch error (if any),
+// so a failed refresh never looks like a silent success.
+//
+// Source is one of "api" (GET /models answered), "no-key" (nothing to ask with)
+// or "error" (the request failed and the built-in catalog is shown instead).
+type ModelCatalog struct {
+	Models []ModelLabel `json:"models"`
+	Source string       `json:"source"`
+	Error  string       `json:"error"`
+}
+
+// modelCatalog builds the UI answer for a provider. display maps an API id to a
+// human label; pass nil when the ids are readable as they are.
+func modelCatalog(ids []string, source, errMsg string, display func(string) string) ModelCatalog {
+	models := make([]ModelLabel, 0, len(ids))
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		label := id
+		if display != nil {
+			if l := strings.TrimSpace(display(id)); l != "" {
+				label = l
+			}
+		}
+		models = append(models, ModelLabel{ID: id, Label: label})
+	}
+	return ModelCatalog{Models: models, Source: source, Error: errMsg}
+}
+
+// catalogSource reports where a provider catalog came from and what went wrong.
+// msg is the human reason for a failed request (already including the status).
+func catalogSource(err error, count int) (string, string) {
+	if err != nil {
+		return "error", err.Error()
+	}
+	if count == 0 {
+		return "error", "API вернул пустой список моделей"
+	}
+	return "api", ""
+}
+
+// modelNames renders ids as "DeepSeek V4.1 Flash (deepseek-flash)" for chat notices.
+func modelNames(ids []string) string {
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if label := deepseek.DisplayName(id); label != id {
+			out = append(out, label+" ("+id+")")
+			continue
+		}
+		out = append(out, id)
+	}
+	return strings.Join(out, ", ")
+}
+
+// ListDeepSeekModels returns the model catalog from GET /models for the saved
+// DeepSeek key, plus the source and the error, so the UI can tell a real refresh
+// from the built-in fallback. After V4 Pro retirement the pro id is dropped.
+func (a *App) ListDeepSeekModels() ModelCatalog {
 	key := a.cfg.APIKey(config.ProviderDeepSeek)
-	var out []string
-	if key == "" {
-		out = append([]string{}, deepseek.FallbackModels()...)
-	} else {
+	var (
+		ids []string
+		err error
+	)
+	if key != "" {
 		client := deepseek.New(key, a.cfg.Get().DeepSeekModel)
 		ctx := a.ctx
 		if ctx == nil {
@@ -1548,49 +1619,49 @@ func (a *App) ListDeepSeekModels() []string {
 		}
 		ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 		defer cancel()
-		items, err := client.ListModels(ctx)
-		if err != nil || len(items) == 0 {
-			out = append([]string{}, deepseek.FallbackModels()...)
-		} else {
-			seen := map[string]bool{}
-			for _, m := range items {
-				id := strings.TrimSpace(m.ID)
-				if id == "" || seen[id] {
-					continue
-				}
-				seen[id] = true
-				out = append(out, id)
-			}
-			if len(out) == 0 {
-				out = append([]string{}, deepseek.FallbackModels()...)
-			}
+		items, listErr := client.ListModels(ctx)
+		err = listErr
+		ids = make([]string, 0, len(items))
+		for _, m := range items {
+			ids = append(ids, m.ID)
 		}
 	}
-	out = deepseek.OrderModels(deepseek.MergeKnownModels(out))
+	source, errMsg := "no-key", ""
+	if key != "" {
+		source, errMsg = catalogSource(err, len(ids))
+	}
+	if source != "api" {
+		ids = append([]string{}, deepseek.FallbackModels()...)
+	}
+	ids = deepseek.OrderModels(deepseek.MergeKnownModels(ids))
 	if appmeta.DeepSeekProRetired(time.Now()) {
-		filtered := make([]string, 0, len(out))
-		for _, id := range out {
+		filtered := make([]string, 0, len(ids))
+		for _, id := range ids {
 			if strings.EqualFold(id, "deepseek-v4-pro") {
 				continue
 			}
 			filtered = append(filtered, id)
 		}
-		out = filtered
+		ids = filtered
 	}
 	// Track the provider catalog: new/retired models surface as a chat notice.
-	added, removed := deepseek.ModelDiff(a.cfg.DeepSeekModelsSeen(), out)
-	if len(added) > 0 || len(removed) > 0 {
-		parts := make([]string, 0, 2)
-		if len(added) > 0 {
-			parts = append(parts, "новые: "+strings.Join(added, ", "))
+	// Only a real API answer updates the snapshot — a fallback list must not
+	// mark the catalog as "seen", otherwise a later real change goes unnoticed.
+	if source == "api" {
+		added, removed := deepseek.ModelDiff(a.cfg.DeepSeekModelsSeen(), ids)
+		if len(added) > 0 || len(removed) > 0 {
+			parts := make([]string, 0, 2)
+			if len(added) > 0 {
+				parts = append(parts, "новые: "+modelNames(added))
+			}
+			if len(removed) > 0 {
+				parts = append(parts, "больше не доступны: "+modelNames(removed))
+			}
+			a.emit(agent.Event{Type: "notice", Content: "Система: список моделей DeepSeek изменился — " + strings.Join(parts, "; ")})
+			_ = a.cfg.SetDeepSeekModelsSeen(ids)
 		}
-		if len(removed) > 0 {
-			parts = append(parts, "больше не доступны: "+strings.Join(removed, ", "))
-		}
-		a.emit(agent.Event{Type: "notice", Content: "Система: список моделей DeepSeek изменился — " + strings.Join(parts, "; ")})
-		_ = a.cfg.SetDeepSeekModelsSeen(out)
 	}
-	return out
+	return modelCatalog(ids, source, errMsg, deepseek.DisplayName)
 }
 
 // PreferDeepSeekModel keeps the saved model when still listed; otherwise flash / first.
@@ -1600,9 +1671,13 @@ func (a *App) PreferDeepSeekModel(available []string) string {
 
 // ListZaiModels returns model ids from GET {base}/models for the saved Z.ai key.
 // Official free-tier ids are always merged in (API catalog often omits them).
-func (a *App) ListZaiModels() []string {
+// Source/Error tell the UI whether the answer really came from the API.
+func (a *App) ListZaiModels() ModelCatalog {
 	key := a.cfg.APIKey(config.ProviderZAI)
-	var out []string
+	var (
+		out []string
+		err error
+	)
 	if key == "" {
 		out = append([]string{}, zai.FallbackModels()...)
 	} else {
@@ -1613,25 +1688,21 @@ func (a *App) ListZaiModels() []string {
 		}
 		ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 		defer cancel()
-		items, err := client.ListModels(ctx)
-		if err != nil || len(items) == 0 {
-			out = append([]string{}, zai.FallbackModels()...)
-		} else {
-			seen := map[string]bool{}
-			for _, m := range items {
-				id := strings.TrimSpace(m.ID)
-				if id == "" || seen[id] {
-					continue
-				}
-				seen[id] = true
-				out = append(out, id)
-			}
-			if len(out) == 0 {
-				out = append([]string{}, zai.FallbackModels()...)
-			}
+		items, listErr := client.ListModels(ctx)
+		err = listErr
+		out = make([]string, 0, len(items))
+		for _, m := range items {
+			out = append(out, m.ID)
 		}
 	}
-	return zai.OrderModels(zai.MergeFreeModels(out))
+	source, errMsg := "no-key", ""
+	if key != "" {
+		source, errMsg = catalogSource(err, len(out))
+	}
+	if source != "api" {
+		out = append([]string{}, zai.FallbackModels()...)
+	}
+	return modelCatalog(zai.OrderModels(zai.MergeFreeModels(out)), source, errMsg, nil)
 }
 
 // PreferZaiModel keeps the saved model when it is still available; otherwise
@@ -1655,10 +1726,10 @@ func (a *App) GetZaiBalance() zai.AccountBalance {
 }
 
 // ListOpenRouterModels returns curated + coding tool models from OpenRouter.
-func (a *App) ListOpenRouterModels() []string {
+func (a *App) ListOpenRouterModels() ModelCatalog {
 	key := a.cfg.APIKey(config.ProviderOpenRouter)
 	if key == "" {
-		return openrouter.OrderModels(openrouter.FallbackModels())
+		return modelCatalog(openrouter.OrderModels(openrouter.FallbackModels()), "no-key", "", nil)
 	}
 	client := openrouter.New(key, a.cfg.Get().OpenRouterModel)
 	ctx := a.ctx
@@ -1668,10 +1739,11 @@ func (a *App) ListOpenRouterModels() []string {
 	ctx, cancel := context.WithTimeout(ctx, 25*time.Second)
 	defer cancel()
 	items, err := client.ListModels(ctx)
-	if err != nil || len(items) == 0 {
-		return openrouter.OrderModels(openrouter.FallbackModels())
+	source, errMsg := catalogSource(err, len(items))
+	if source != "api" {
+		return modelCatalog(openrouter.OrderModels(openrouter.FallbackModels()), source, errMsg, nil)
 	}
-	return openrouter.OrderModels(openrouter.MergeCurated(openrouter.FilterCodingModels(items, 40)))
+	return modelCatalog(openrouter.OrderModels(openrouter.MergeCurated(openrouter.FilterCodingModels(items, 40))), source, "", nil)
 }
 
 // PreferOpenRouterModel keeps the saved model when still available; else default flash.
@@ -1680,10 +1752,10 @@ func (a *App) PreferOpenRouterModel(available []string) string {
 }
 
 // ListQwenModels fetches DashScope /models (curated fallback on error).
-func (a *App) ListQwenModels() []string {
+func (a *App) ListQwenModels() ModelCatalog {
 	key := a.cfg.APIKey(config.ProviderQwen)
 	if key == "" {
-		return qwen.OrderModels(qwen.FallbackModels())
+		return modelCatalog(qwen.OrderModels(qwen.FallbackModels()), "no-key", "", nil)
 	}
 	client := qwen.NewWithBaseURL(key, a.cfg.Get().QwenModel, a.cfg.QwenBaseURL())
 	ctx := a.ctx
@@ -1693,10 +1765,11 @@ func (a *App) ListQwenModels() []string {
 	ctx, cancel := context.WithTimeout(ctx, 25*time.Second)
 	defer cancel()
 	items, err := client.ListModels(ctx)
-	if err != nil || len(items) == 0 {
-		return qwen.OrderModels(qwen.FallbackModels())
+	source, errMsg := catalogSource(err, len(items))
+	if source != "api" {
+		return modelCatalog(qwen.OrderModels(qwen.FallbackModels()), source, errMsg, nil)
 	}
-	return qwen.OrderModels(qwen.MergeCurated(qwen.FilterModels(items, 60)))
+	return modelCatalog(qwen.OrderModels(qwen.MergeCurated(qwen.FilterModels(items, 60))), source, "", nil)
 }
 
 // PreferQwenModel keeps the saved model when still available; else qwen-plus.
@@ -1705,10 +1778,10 @@ func (a *App) PreferQwenModel(available []string) string {
 }
 
 // ListYandexModels fetches AI Studio /models (curated fallback on error).
-func (a *App) ListYandexModels() []string {
+func (a *App) ListYandexModels() ModelCatalog {
 	key := a.cfg.APIKey(config.ProviderYandex)
 	if key == "" {
-		return yandex.OrderModels(yandex.FallbackModels())
+		return modelCatalog(yandex.OrderModels(yandex.FallbackModels()), "no-key", "", nil)
 	}
 	client := yandex.New(key, a.cfg.YandexFolderID(), a.cfg.Get().YandexModel)
 	ctx := a.ctx
@@ -1718,10 +1791,11 @@ func (a *App) ListYandexModels() []string {
 	ctx, cancel := context.WithTimeout(ctx, 25*time.Second)
 	defer cancel()
 	items, err := client.ListModels(ctx)
-	if err != nil || len(items) == 0 {
-		return yandex.OrderModels(yandex.FallbackModels())
+	source, errMsg := catalogSource(err, len(items))
+	if source != "api" {
+		return modelCatalog(yandex.OrderModels(yandex.FallbackModels()), source, errMsg, nil)
 	}
-	return yandex.OrderModels(yandex.MergeCurated(yandex.FilterModels(items, 60)))
+	return modelCatalog(yandex.OrderModels(yandex.MergeCurated(yandex.FilterModels(items, 60))), source, "", nil)
 }
 
 // PreferYandexModel keeps the saved model when still available; else yandexgpt.
