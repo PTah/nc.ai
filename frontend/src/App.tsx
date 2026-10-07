@@ -6909,7 +6909,6 @@ export default function App() {
                 {state: 'always', title: 'Применяются всегда', hint: 'тело правила целиком в системном промпте, каждый запрос'},
                 {state: 'turn', title: 'Подключены к этому запросу', hint: 'тело добавлено, потому что путь из запроса подошёл под globs'},
                 {state: 'catalog', title: 'Только в каталоге', hint: 'в промпте лишь имя и описание — агент может запросить правило сам'},
-                {state: 'skipped', title: 'Не отдаём модели', hint: 'мета-правила Cursor/IDE — они не про код проекта'},
               ]
               return (
                 <>
@@ -6917,8 +6916,8 @@ export default function App() {
                     Модели уходят <b>{rulesDlg.filter((r) => r.state === 'always' || r.state === 'turn').length}</b> правил
                     из {rulesDlg.length}: <b>{rulesDlg.filter((r) => r.state === 'always').length}</b> всегда
                     {rulesDlg.some((r) => r.state === 'turn') ? <> и <b>{rulesDlg.filter((r) => r.state === 'turn').length}</b> к этому запросу</> : null}.
-                    Остальные либо лежат в каталоге (агент может запросить сам), либо это мета-правила Cursor/IDE,
-                    которые приложение не передаёт.
+                    Остальные лежат в каталоге (имя и описание) — тело правило отдаёт, когда агент сам запрашивает его
+                    или когда путь из сообщения подходит под его globs.
                   </p>
                   {groups.map((g) => {
                     const list = rulesDlg.filter((r) => r.state === g.state)

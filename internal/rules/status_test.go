@@ -53,7 +53,7 @@ func TestStatuses(t *testing.T) {
 	check("AGENTS.md", "always", "AGENTS.md")
 	check("glob-go.mdc", "turn", "**/*.go")
 	check("glob-ts.mdc", "catalog", "**/*.ts")
-	check("propose-project-ops.mdc", "skipped", "мета-правило")
+	check("propose-project-ops.mdc", "catalog", "в промпте только строка каталога")
 
 	// Без подсказок glob-правила не подключаются — но остаются в каталоге.
 	statuses = b.Statuses(nil)

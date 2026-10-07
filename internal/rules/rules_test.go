@@ -72,7 +72,7 @@ func TestSelectForPrompt_AlwaysApplyAndCatalog(t *testing.T) {
 	}
 }
 
-func TestSkipForNotCursorAgent_ProposeOps(t *testing.T) {
+func TestProposeOpsReachesPrompt(t *testing.T) {
 	b := Bundle{
 		Project: []Rule{
 			{
@@ -90,8 +90,9 @@ func TestSkipForNotCursorAgent_ProposeOps(t *testing.T) {
 		},
 	}
 	out := b.SelectStableForPrompt()
-	if strings.Contains(out, "ещё нет локального ops-правила") {
-		t.Fatalf("propose-project-ops must not reach the LLM prompt:\n%s", out)
+	// Правила пользователя применяются все: мета-фильтра больше нет.
+	if !strings.Contains(out, "ещё нет локального ops-правила") {
+		t.Fatalf("propose-project-ops должен доходить до промпта:\n%s", out)
 	}
 	if !strings.Contains(out, "Deploy: none") {
 		t.Fatalf("real project ops rule must remain:\n%s", out)
