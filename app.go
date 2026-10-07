@@ -2426,6 +2426,14 @@ func (a *App) RenameChatSession(sessionID, title string) error {
 	return a.chats.RenameSession(a.projectKey(), sessionID, title)
 }
 
+// SetSessionModel сохраняет модель, выбранную для этого чата ("" — как в настройках/Auto).
+func (a *App) SetSessionModel(sessionID, model string) error {
+	if a.chats == nil {
+		return fmt.Errorf("chat store unavailable")
+	}
+	return a.chats.SetSessionModel(a.projectKey(), sessionID, model)
+}
+
 // ArchiveChatSession moves a chat tab into the archive folder and returns the
 // transcript JSON of the new active session.
 func (a *App) ArchiveChatSession(sessionID, title string) (string, error) {
@@ -2838,6 +2846,23 @@ func (a *App) RunAgentInSession(sessionID, userMessage string, attachments []age
 	sticky := a.sessionStickyModel[sid]
 	a.mu.Unlock()
 
+	// Своя модель чата: если пользователь выбрал её вручную и она сохранена в
+	// сессии, она блокирует автовыбор (и Vision-эскалацию не отменяет — картинки
+	// по-прежнему уходят в vision-модель).
+	sessModel := ""
+	if a.chats != nil {
+		if s, gerr := a.chats.Get(projKey, sid); gerr == nil && s != nil {
+			sessModel = strings.TrimSpace(s.Model)
+		}
+	}
+	if sessModel != "" {
+		sticky = sessModel
+	}
+	prefModel := a.cfg.ActiveModel()
+	if sessModel != "" {
+		prefModel = sessModel
+	}
+
 	projectMap := ""
 	treeLimit := 350
 	if localLite {
@@ -2891,7 +2916,7 @@ func (a *App) RunAgentInSession(sessionID, userMessage string, attachments []age
 		LocalNumCtx:     a.cfg.LocalNumCtx(),
 		LocalServerKind: localServerKind,
 		ProviderID:      provider,
-		PreferredModel:  a.cfg.ActiveModel(),
+		PreferredModel:  prefModel,
 		UserText:        userMessage,
 		HasImages:       hasImages,
 		HintPathCount:   len(hints),
@@ -2995,18 +3020,17 @@ func (a *App) RunAgentInSession(sessionID, userMessage string, attachments []age
 				return
 			}
 			if evt.Type == "model" && evt.Content != "" {
-				// session-sticky must not overwrite the user's PreferredModel in settings
-				// (that made "I changed the model" appear to do nothing).
-				if evt.Name != "session-sticky" {
-					_ = a.cfg.SetActiveModel(evt.Content)
-					a.refreshProvider()
-				}
+				// Автовыбор модели — транзиентный: он относится только к текущему
+				// прогону. В настройки (ActiveModel) и в глобальный провайдер его
+				// не пишем — иначе «агент в соседнем чате выбрал Pro» утекает в
+				// другие чаты и проекты.
 				a.logAgentLine(fmt.Sprintf("model=%s session=%s reason=%q", evt.Content, sid, evt.Name))
 			}
 			a.emitFor(sid, evt)
 		}
 		var newHist []llm.Message
 		var err error
+		runStart := time.Now()
 		if len(attachments) > 0 {
 			newHist, err = runner.RunWithAttachments(ctx, hist, userMessage, attachments, emit)
 		} else {
@@ -3025,6 +3049,15 @@ func (a *App) RunAgentInSession(sessionID, userMessage string, attachments []age
 			return
 		}
 
+		// Итог: сколько времени занял запрос. Строка появляется после ответа и
+		// не сворачивается вместе с промежуточными шагами.
+		if err == nil {
+			a.emitFor(sid, agent.Event{
+				Type:    "notice",
+				Content: "⏱ Работа заняла " + agent.FormatElapsed(time.Since(runStart)),
+			})
+		}
+
 		// Persist LLM history only on success; on error keep the previous state
 		// so a retry does not duplicate the failed user message.
 		if a.chats != nil && err == nil {
@@ -3040,9 +3073,9 @@ func (a *App) RunAgentInSession(sessionID, userMessage string, attachments []age
 			}
 		}
 		if locked := runner.LockedModel(); locked != "" && !agent.IsVisionModel(locked) {
-			a.mu.Lock()
-			a.sessionStickyModel[sid] = locked
-			a.mu.Unlock()
+			// Автовыбор не сохраняем: после прогона чат снова стартует со своей
+			// (или дефолтной) модели, а не с той, на которую эскалировал агент.
+			_ = locked
 		}
 		totCost, totIn, totOut, totHit, totMiss := a.cfg.ProviderUsage(provider)
 		chatCost, chatIn, chatOut, chatHit, chatMiss := 0.0, 0, 0, 0, 0

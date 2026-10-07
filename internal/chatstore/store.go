@@ -24,6 +24,9 @@ type Session struct {
 	ItemsJSON string        `json:"itemsJson"`
 	History   []llm.Message `json:"history"`
 	UpdatedAt time.Time     `json:"updatedAt"`
+	// Model — своя модель этого чата (выбранная вручную). Пусто — «как в
+	// настройках»/Auto. Провайдер чата пока совпадает с провайдером проекта.
+	Model string `json:"model,omitempty"`
 	// Per-chat API spend (survives restarts with the session JSON).
 	// Legacy combined fields kept for migration; prefer per-provider buckets.
 	CostUSD       float64 `json:"costUsd,omitempty"`
@@ -565,6 +568,24 @@ func (s *Store) RenameSession(project, sessionID, title string) error {
 	for i := range b.Sessions {
 		if b.Sessions[i].ID == sessionID {
 			b.Sessions[i].Title = title
+			b.Sessions[i].UpdatedAt = time.Now()
+			return s.saveBundle(b)
+		}
+	}
+	return fmt.Errorf("session not found")
+}
+
+// SetSessionModel запоминает выбранную модель этого чата ("" — «как в настройках»).
+func (s *Store) SetSessionModel(project, sessionID, model string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	b, err := s.loadBundle(project)
+	if err != nil {
+		return err
+	}
+	for i := range b.Sessions {
+		if b.Sessions[i].ID == sessionID {
+			b.Sessions[i].Model = strings.TrimSpace(model)
 			b.Sessions[i].UpdatedAt = time.Now()
 			return s.saveBundle(b)
 		}

@@ -91,6 +91,11 @@ func fmtElapsed(d time.Duration) string {
 	return fmt.Sprintf("%d:%02d", m, s)
 }
 
+// FormatElapsed — человекочитаемая длительность «1:23» или «1:02:05» (для UI).
+func FormatElapsed(d time.Duration) string {
+	return fmtElapsed(d)
+}
+
 func (p *runProgress) beginStep(step int) {
 	p.mu.Lock()
 	p.step = step
