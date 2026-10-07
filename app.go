@@ -3052,6 +3052,13 @@ func (a *App) RunAgentInSession(sessionID, userMessage string, attachments []age
 		// Итог: сколько времени занял запрос. Строка появляется после ответа и
 		// не сворачивается вместе с промежуточными шагами.
 		if err == nil {
+			// Прогон закончился ответом — план не должен висеть «в работе»:
+			// закрываем оставшиеся пункты, иначе ToDo показывает «3/4».
+			if a.tools != nil && a.tools.Todos != nil {
+				if items := a.tools.Todos.Close(); len(items) > 0 {
+					a.emitTodos(items)
+				}
+			}
 			a.emitFor(sid, agent.Event{
 				Type:    "notice",
 				Content: "⏱ Работа заняла " + agent.FormatElapsed(time.Since(runStart)),
