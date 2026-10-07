@@ -1294,13 +1294,14 @@ function collapseTurnSteps(rows: DisplayRow[], finalVisible: boolean): DisplayRo
 function splitTurnSteps(turn: DisplayRow[], finalVisible: boolean): DisplayRow[] {
   if (turn.length === 0) return turn
   let answerAt = -1
-  if (finalVisible) {
-    for (let i = turn.length - 1; i >= 0; i--) {
-      const r = turn[i]
-      if (r.kind === 'item' && r.item.kind === 'assistant' && r.item.content.trim() !== '') {
-        answerAt = i
-        break
-      }
+  for (let i = turn.length - 1; i >= 0; i--) {
+    const r = turn[i]
+    if (r.kind === 'item' && r.item.kind === 'assistant' && r.item.content.trim() !== '') {
+      // В хвостовом куске финальный ответ остаётся на виду; в головном тоже, если
+      // он оказался последней строкой куска. Прятать ответ агента нельзя ни при
+      // каком раскладе — лучше показать лишнюю черновую реплику.
+      if (finalVisible || i === turn.length - 1) answerAt = i
+      break
     }
   }
   const head = answerAt >= 0 ? turn.slice(0, answerAt) : turn.slice()
@@ -1907,13 +1908,17 @@ export default function App() {
       /* ignore */
     }
   }
-  const displayRows = typeof todoFlowAt === 'number'
+  // Якорь ToDo может стоять в самом конце витка (план закрылся последним шагом,
+  // а то и после ответа). Тогда финальный ответ оказывается в «голове», и его
+  // нельзя прятать в «Промежуточные результаты» — иначе ответа в ленте не видно.
+  const todoAt = typeof todoFlowAt === 'number' ? Math.min(todoFlowAt, items.length) : -1
+  const tailItems = todoAt >= 0 ? items.slice(todoAt) : []
+  const tailHasAnswer = tailItems.some((it) => it.kind === 'assistant' && String(it.content || '').trim() !== '')
+  const displayRows = todoAt >= 0
     ? [
-        // Голова витка: финального ответа здесь нет — сворачиваем всё, что было.
-        ...buildDisplayRows(items.slice(0, Math.min(todoFlowAt, items.length)), !busy, false),
+        ...buildDisplayRows(items.slice(0, todoAt), !busy, !tailHasAnswer),
         {key: '__todos', kind: 'todos'} as DisplayRow,
-        // Хвост: последний ответ агента остаётся на виду.
-        ...rekeyRows(buildDisplayRows(items.slice(Math.min(todoFlowAt, items.length)), !busy, true), 'tail-'),
+        ...rekeyRows(buildDisplayRows(tailItems, !busy, true), 'tail-'),
       ]
     : buildDisplayRows(items, !busy, true)
 
