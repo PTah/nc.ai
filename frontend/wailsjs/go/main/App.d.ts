@@ -54,6 +54,8 @@ export function CloseProject(arg1:string,arg2:string):Promise<workspace.Project>
 
 export function CreateProject(arg1:string,arg2:string):Promise<workspace.Project>;
 
+export function CursorRulesStatus(arg1:string):Promise<Array<rules.Status>>;
+
 export function DefaultProjectParentDir():Promise<string>;
 
 export function DeleteChatSession(arg1:string):Promise<string>;

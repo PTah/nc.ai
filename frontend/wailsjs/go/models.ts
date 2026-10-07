@@ -697,6 +697,33 @@ export namespace rules {
 		    return a;
 		}
 	}
+	
+	export class Status {
+	    name: string;
+	    source: string;
+	    path: string;
+	    description: string;
+	    globs: string;
+	    alwaysApply: boolean;
+	    state: string;
+	    reason: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Status(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.source = source["source"];
+	        this.path = source["path"];
+	        this.description = source["description"];
+	        this.globs = source["globs"];
+	        this.alwaysApply = source["alwaysApply"];
+	        this.state = source["state"];
+	        this.reason = source["reason"];
+	    }
+	}
 
 }
 
