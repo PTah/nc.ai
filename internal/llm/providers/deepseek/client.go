@@ -16,9 +16,9 @@ import (
 
 const (
 	DefaultBaseURL = "https://api.deepseek.com"
-	DefaultModel   = "deepseek-flash"     // V4.1 Flash (native multimodal)
-	VisionModel    = "deepseek-flash"     // V4.1 Flash handles images natively
-	LegacyModel    = "deepseek-v4-flash"  // retired id, still routed to V4.1 Flash
+	DefaultModel   = "deepseek-flash"    // V4.1 Flash (native multimodal)
+	VisionModel    = "deepseek-flash"    // V4.1 Flash handles images natively
+	LegacyModel    = "deepseek-v4-flash" // retired id, still routed to V4.1 Flash
 	LegacyVision   = "deepseek-v4-flash-vision-exp"
 	LegacyProModel = "deepseek-v4-pro"
 )
@@ -284,6 +284,27 @@ func (c *Client) ListModels(ctx context.Context) ([]ModelInfo, error) {
 // Flash + Pro are the current catalog; retired flash aliases are not listed here.
 func FallbackModels() []string {
 	return []string{DefaultModel, LegacyProModel}
+}
+
+// DisplayName maps an API model id to the marketing name DeepSeek uses in its
+// changelog (https://api-docs.deepseek.com/updates). Unknown ids are returned
+// unchanged: a brand-new model still shows up, just without a pretty name.
+func DisplayName(id string) string {
+	switch strings.ToLower(strings.TrimSpace(id)) {
+	case DefaultModel:
+		return "DeepSeek V4.1 Flash"
+	case LegacyProModel:
+		return "DeepSeek V4 Pro"
+	case LegacyModel:
+		return "DeepSeek V4 Flash (routed to V4.1 Flash)"
+	case LegacyVision:
+		return "DeepSeek V4 Flash Vision Exp"
+	case "deepseek-chat":
+		return "DeepSeek Chat (legacy alias)"
+	case "deepseek-reasoner":
+		return "DeepSeek Reasoner (legacy alias)"
+	}
+	return strings.TrimSpace(id)
 }
 
 // MergeKnownModels returns the API catalog as the single source of truth:

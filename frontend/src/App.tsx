@@ -556,6 +556,47 @@ function asList<T>(v: T[] | null | undefined): T[] {
   return Array.isArray(v) ? v : []
 }
 
+/**
+ * Settings → Refresh models must never look like a silent success: every
+ * provider catalog comes back with a source, and this turns it into one line.
+ * fallback=false for Custom — a LAN server has no built-in model list to fall
+ * back to, so the note must not promise one.
+ */
+function catalogNote(providerId: string, source: string, err: string, count: number, fallback: boolean): string {
+  const label = providerLabelOf(providerId)
+  if (source === 'no-key') return `Ключ ${label} не задан — показан встроенный список моделей.`
+  if (source === 'error') {
+    return `Не удалось получить список моделей: ${err || 'нет ответа от API'}.${fallback ? ' Показан встроенный список.' : ''}`
+  }
+  if (count === 0) return `${label}: API вернул пустой список моделей.`
+  return `Список из API — моделей: ${count}.`
+}
+
+/** Catalog answers are keyed by provider; every local endpoint shares one key. */
+function catalogNoteKey(providerId: string): string {
+  return isLocalProvider(providerId) ? 'local' : providerId
+}
+
+/** One provider /models answer: ids for logic, labels for the UI, source + error. */
+type ProviderCatalog = {
+  ids: string[]
+  labels: Record<string, string>
+  source: string
+  error: string
+}
+
+function readCatalog(res: {models?: {id?: string; label?: string}[] | null; source?: string; error?: string} | null | undefined): ProviderCatalog {
+  const ids: string[] = []
+  const labels: Record<string, string> = {}
+  for (const row of asList(res?.models)) {
+    const id = String(row?.id || '').trim()
+    if (!id || ids.includes(id)) continue
+    ids.push(id)
+    labels[id] = String(row?.label || '').trim() || id
+  }
+  return {ids, labels, source: String(res?.source || ''), error: String(res?.error || '')}
+}
+
 // joinProjectPath renders "parent/name" for the create-project preview, using
 // the separator of the parent path (backslash on Windows).
 function joinProjectPath(parent: string, name: string): string {
@@ -1630,6 +1671,11 @@ export default function App() {
   const [localKey, setLocalKey] = useState('')
   const [deepseekModel, setDeepseekModel] = useState('deepseek-flash')
   const [deepseekModels, setDeepseekModels] = useState<string[]>([...DEEPSEEK_MODELS])
+  const [deepseekModelLabels, setDeepseekModelLabels] = useState<Record<string, string>>({})
+  // Per-provider "Refresh models" outcome (provider key → one readable line).
+  // The ref mirrors the state so the header hint can read it in the same tick.
+  const [modelsNotes, setModelsNotes] = useState<Record<string, string>>({})
+  const modelsNotesRef = useRef<Record<string, string>>({})
   const [zaiModel, setZaiModel] = useState('glm-4.7-flash')
   const [openrouterModel, setOpenrouterModel] = useState('qwen/qwen3-coder-flash:floor')
   const [qwenModel, setQwenModel] = useState('qwen-plus')
@@ -3715,131 +3761,160 @@ export default function App() {
     }
   }
 
+  function noteModels(providerId: string, note: string) {
+    const key = catalogNoteKey(providerId)
+    modelsNotesRef.current = {...modelsNotesRef.current, [key]: note}
+    setModelsNotes(modelsNotesRef.current)
+  }
+
   async function refreshDeepSeekModels(opts?: {applyPreferred?: boolean}) {
     try {
-      const list = asList(await ListDeepSeekModels()).map(String).filter(Boolean)
-      if (list.length === 0) return list
-      setDeepseekModels(list)
+      const cat = readCatalog(await ListDeepSeekModels())
+      noteModels('deepseek', catalogNote('deepseek', cat.source, cat.error, cat.ids.length, true))
+      if (cat.ids.length === 0) return cat.ids
+      setDeepseekModels(cat.ids)
+      setDeepseekModelLabels(cat.labels)
       if (opts?.applyPreferred) {
         let next = ''
         try {
-          next = String(await PreferDeepSeekModel(list) || '').trim()
+          next = String(await PreferDeepSeekModel(cat.ids) || '').trim()
         } catch {
-          next = list[0] || ''
+          next = cat.ids[0] || ''
         }
         if (next && next !== deepseekModel) {
           setDeepseekModel(next)
           await SaveDeepSeekModel(next)
         }
       }
-      return list
-    } catch {
+      return cat.ids
+    } catch (e) {
+      noteModels('deepseek', `Не удалось запросить список моделей ${providerLabelOf('deepseek')}: ${formatConnectError(e)}`)
       return [] as string[]
     }
   }
 
   async function refreshZaiModels(opts?: {applyPreferred?: boolean}) {
     try {
-      const list = asList(await ListZaiModels()).map(String).filter(Boolean)
-      if (list.length === 0) return list
-      setZaiModels(list)
+      const cat = readCatalog(await ListZaiModels())
+      noteModels('zai', catalogNote('zai', cat.source, cat.error, cat.ids.length, true))
+      if (cat.ids.length === 0) return cat.ids
+      setZaiModels(cat.ids)
       if (opts?.applyPreferred) {
         let next = ''
         try {
-          next = String(await PreferZaiModel(list) || '').trim()
+          next = String(await PreferZaiModel(cat.ids) || '').trim()
         } catch {
-          next = list[0] || ''
+          next = cat.ids[0] || ''
         }
         if (next && next !== zaiModel) {
           setZaiModel(next)
           await SaveZaiModel(next)
         }
       }
-      return list
-    } catch {
+      return cat.ids
+    } catch (e) {
+      noteModels('zai', `Не удалось запросить список моделей ${providerLabelOf('zai')}: ${formatConnectError(e)}`)
       return [] as string[]
     }
   }
 
   async function refreshOpenRouterModels(opts?: {applyPreferred?: boolean}) {
     try {
-      const list = asList(await ListOpenRouterModels()).map(String).filter(Boolean)
-      if (list.length === 0) return list
-      setOpenrouterModels(list)
+      const cat = readCatalog(await ListOpenRouterModels())
+      noteModels('openrouter', catalogNote('openrouter', cat.source, cat.error, cat.ids.length, true))
+      if (cat.ids.length === 0) return cat.ids
+      setOpenrouterModels(cat.ids)
       if (opts?.applyPreferred) {
         let next = ''
         try {
-          next = String(await PreferOpenRouterModel(list) || '').trim()
+          next = String(await PreferOpenRouterModel(cat.ids) || '').trim()
         } catch {
-          next = list[0] || ''
+          next = cat.ids[0] || ''
         }
         if (next && next !== openrouterModel) {
           setOpenrouterModel(next)
           await SaveOpenRouterModel(next)
         }
       }
-      return list
-    } catch {
+      return cat.ids
+    } catch (e) {
+      noteModels('openrouter', `Не удалось запросить список моделей ${providerLabelOf('openrouter')}: ${formatConnectError(e)}`)
       return [] as string[]
     }
   }
 
   async function refreshQwenModels(opts?: {applyPreferred?: boolean}) {
     try {
-      const list = asList(await ListQwenModels()).map(String).filter(Boolean)
-      if (list.length === 0) return list
-      setQwenModels(list)
+      const cat = readCatalog(await ListQwenModels())
+      noteModels('qwen', catalogNote('qwen', cat.source, cat.error, cat.ids.length, true))
+      if (cat.ids.length === 0) return cat.ids
+      setQwenModels(cat.ids)
       if (opts?.applyPreferred) {
         let next = ''
         try {
-          next = String(await PreferQwenModel(list) || '').trim()
+          next = String(await PreferQwenModel(cat.ids) || '').trim()
         } catch {
-          next = list[0] || ''
+          next = cat.ids[0] || ''
         }
         if (next && next !== qwenModel) {
           setQwenModel(next)
           await SaveQwenModel(next)
         }
       }
-      return list
-    } catch {
+      return cat.ids
+    } catch (e) {
+      noteModels('qwen', `Не удалось запросить список моделей ${providerLabelOf('qwen')}: ${formatConnectError(e)}`)
       return [] as string[]
     }
   }
 
   async function refreshYandexModels(opts?: {applyPreferred?: boolean}) {
     try {
-      const list = asList(await ListYandexModels()).map(String).filter(Boolean)
-      if (list.length === 0) return list
-      setYandexModels(list)
+      const cat = readCatalog(await ListYandexModels())
+      noteModels('yandex', catalogNote('yandex', cat.source, cat.error, cat.ids.length, true))
+      if (cat.ids.length === 0) return cat.ids
+      setYandexModels(cat.ids)
       if (opts?.applyPreferred) {
         let next = ''
         try {
-          next = String(await PreferYandexModel(list) || '').trim()
+          next = String(await PreferYandexModel(cat.ids) || '').trim()
         } catch {
-          next = list[0] || ''
+          next = cat.ids[0] || ''
         }
         if (next && next !== yandexModel) {
           setYandexModel(next)
           await SaveYandexModel(next)
         }
       }
-      return list
-    } catch {
+      return cat.ids
+    } catch (e) {
+      noteModels('yandex', `Не удалось запросить список моделей ${providerLabelOf('yandex')}: ${formatConnectError(e)}`)
       return [] as string[]
     }
   }
 
   async function refreshLocalModels(opts?: {applyPreferred?: boolean}) {
     try {
-      const list = asList(await ListLocalModels()).map(String).filter(Boolean)
-      setLocalModels(list)
-      if (opts?.applyPreferred && list.length > 0) {
+      const cat = readCatalog(await ListLocalModels())
+      noteModels('local', catalogNote('local', cat.source, cat.error, cat.ids.length, false))
+      if (cat.source === 'error') {
+        if (cat.error && activeSessionId) {
+          setSessionItems(activeSessionId, (m) => [
+            ...m,
+            {kind: 'system', content: `Custom models: ${cat.error}`},
+          ])
+        }
+        void refreshLocalHealth()
+        return cat.ids
+      }
+      if (cat.ids.length === 0) return cat.ids
+      setLocalModels(cat.ids)
+      if (opts?.applyPreferred) {
         let next = ''
         try {
-          next = String(await PreferLocalModel(list) || '').trim()
+          next = String(await PreferLocalModel(cat.ids) || '').trim()
         } catch {
-          next = list[0] || ''
+          next = cat.ids[0] || ''
         }
         if (next && next !== localModel) {
           setLocalModel(next)
@@ -3847,8 +3922,9 @@ export default function App() {
         }
       }
       void refreshLocalHealth()
-      return list
+      return cat.ids
     } catch (e) {
+      noteModels('local', `Не удалось запросить список моделей Custom: ${formatConnectError(e)}`)
       if (activeSessionId) {
         setSessionItems(activeSessionId, (m) => [
           ...m,
@@ -3928,10 +4004,13 @@ export default function App() {
       } else {
         list = await refreshLocalModels({applyPreferred: true})
       }
+      const note = modelsNotesRef.current[catalogNoteKey(activeProvider)]
       setModelsRefreshHint(
-        list.length > 0
-          ? `${providerLabel}: ${list.length} моделей`
-          : `${providerLabel}: список пуст / ошибка`,
+        note
+          ? `${providerLabel}: ${note}`
+          : list.length > 0
+            ? `${providerLabel}: ${list.length} моделей`
+            : `${providerLabel}: список пуст / ошибка`,
       )
     } finally {
       setModelsRefreshing(false)
@@ -4443,7 +4522,7 @@ export default function App() {
                       <option key={m} value={m}>{m}</option>
                     ))
                 : modelOptions(deepseekModels, deepseekModel).map((m) => (
-                    <option key={m} value={m}>{m}</option>
+                    <option key={m} value={m}>{deepseekModelLabels[m] || m}</option>
                   ))}
             </select>
           </label>
@@ -5104,7 +5183,7 @@ export default function App() {
                                 ? modelOptions(yandexModels, yandexModel).map((m) => (<option key={m} value={m}>{m}</option>))
                                 : isLocalProvider(activeProvider)
                                   ? modelOptions(localModels, localModel).map((m) => (<option key={m} value={m}>{m}</option>))
-                                  : modelOptions(deepseekModels, deepseekModel).map((m) => (<option key={m} value={m}>{m}</option>))}
+                                  : modelOptions(deepseekModels, deepseekModel).map((m) => (<option key={m} value={m}>{deepseekModelLabels[m] || m}</option>))}
                       </select>
                     </label>
                     <button
@@ -5437,7 +5516,7 @@ export default function App() {
                     }}
                   >
                     {modelOptions(deepseekModels, deepseekModel).map((m) => (
-                      <option key={m} value={m}>{m}</option>
+                      <option key={m} value={m}>{deepseekModelLabels[m] || m}</option>
                     ))}
                   </select>
                 </label>
@@ -5445,6 +5524,7 @@ export default function App() {
                   Refresh models
                 </button>
                 <button type="button" className="nc-ghost" onClick={() => void refreshDeepSeekBalance()}>Refresh balance</button>
+                {modelsNotes.deepseek ? <p className="nc-help">{modelsNotes.deepseek}</p> : null}
                 {dsBalance && (
                   <p className="nc-help">
                     {dsBalance.ok
@@ -5510,6 +5590,7 @@ export default function App() {
                   />
                 </label>
                 <button type="button" className="nc-ghost" onClick={() => void refreshOpenRouterModels()}>Refresh models</button>
+                {modelsNotes.openrouter ? <p className="nc-help">{modelsNotes.openrouter}</p> : null}
                 <button type="button" className="nc-ghost" onClick={() => void refreshOpenRouterBalance()}>Refresh balance</button>
                 {orBalance && (
                   <p className="nc-help">
@@ -5583,6 +5664,7 @@ export default function App() {
                   />
                 </label>
                 <button type="button" className="nc-ghost" onClick={() => void refreshQwenModels()}>Refresh models</button>
+                {modelsNotes.qwen ? <p className="nc-help">{modelsNotes.qwen}</p> : null}
                 <p className="nc-help">
                   Для агента нужны модели с tool calling (<code>qwen-max</code>, <code>qwen-plus</code>,{' '}
                   <code>qwen-turbo</code>, <code>qwen3-coder-*</code>). Баланса через API нет — смотрите
@@ -5650,6 +5732,7 @@ export default function App() {
                   />
                 </label>
                 <button type="button" className="nc-ghost" onClick={() => void refreshYandexModels()}>Refresh models</button>
+                {modelsNotes.yandex ? <p className="nc-help">{modelsNotes.yandex}</p> : null}
                 <p className="nc-help">
                   Для агента удобны <code>yandexgpt</code> и <code>qwen3-235b-a22b-fp8</code> (tools).
                   Баланса через API нет — смотрите биллинг Yandex Cloud. Стоимость считаем
@@ -5980,6 +6063,7 @@ export default function App() {
                 <button type="button" className="nc-ghost" onClick={() => void refreshLocalModels({applyPreferred: true})}>
                   Refresh models
                 </button>
+                {modelsNotes.local ? <p className="nc-help">{modelsNotes.local}</p> : null}
                 <label>
                   API token (optional)
                   <input
@@ -6053,6 +6137,7 @@ export default function App() {
                 </label>
                 <button type="button" className="nc-ghost" onClick={() => void refreshZaiModels()}>Refresh models</button>
                 <button type="button" className="nc-ghost" onClick={() => void refreshZaiBalance()}>Refresh balance</button>
+                {modelsNotes.zai ? <p className="nc-help">{modelsNotes.zai}</p> : null}
                 {zaiBalance && (
                   <p className="nc-help">
                     {zaiBalance.ok && zaiBalance.source === 'credit_grants'

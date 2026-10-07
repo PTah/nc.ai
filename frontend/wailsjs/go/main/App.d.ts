@@ -90,25 +90,25 @@ export function ListArchivedChats():Promise<Array<chatstore.ArchivedChat>>;
 
 export function ListChatSessions(arg1:string):Promise<chatstore.ProjectBundle>;
 
-export function ListDeepSeekModels():Promise<Array<string>>;
+export function ListDeepSeekModels():Promise<main.ModelCatalog>;
 
 export function ListDir(arg1:string):Promise<Array<workspace.Entry>>;
 
-export function ListLocalModels():Promise<Array<string>>;
+export function ListLocalModels():Promise<main.ModelCatalog>;
 
 export function ListLocalModelsFor(arg1:string):Promise<Array<string>>;
 
 export function ListModelPrices():Promise<Array<costing.ModelPrice>>;
 
-export function ListOpenRouterModels():Promise<Array<string>>;
+export function ListOpenRouterModels():Promise<main.ModelCatalog>;
 
 export function ListProjects():Promise<Array<workspace.Project>>;
 
-export function ListQwenModels():Promise<Array<string>>;
+export function ListQwenModels():Promise<main.ModelCatalog>;
 
-export function ListYandexModels():Promise<Array<string>>;
+export function ListYandexModels():Promise<main.ModelCatalog>;
 
-export function ListZaiModels():Promise<Array<string>>;
+export function ListZaiModels():Promise<main.ModelCatalog>;
 
 export function LoadChat(arg1:string):Promise<string>;
 
