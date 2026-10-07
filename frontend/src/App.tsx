@@ -5390,7 +5390,7 @@ export default function App() {
             </label>
             <label
               className="nc-top-check"
-              title="Спрашивать перед write_file, run_terminal, git_push, ssh_exec"
+              title="Спрашивать перед write_file, run_terminal, git_push, ssh_exec. Выключено — спрашиваем только про изменения вне текущего проекта (другие папки, ~/.cursor, C:\Windows и т. п.): их всегда подтверждают, читать вне проекта можно молча"
             >
               <input
                 type="checkbox"
@@ -6714,14 +6714,15 @@ export default function App() {
                 ) : null}
                 <p className="nc-help">
                   {toolAsk.reason
-                    ? 'Команда затрагивает не текущий проект. Разрешайте, только если это действительно нужно.'
+                    ? `Команда меняет данные вне текущего проекта. Такие изменения подтверждаются всегда — даже когда галочка «Confirm dangerous tools» выключена. Чтение вне проекта (Get-Content, git log, dir) разрешено молча.`
                     : 'Агент хочет выполнить потенциально опасное действие.'}
                 </p>
                 <pre className="nc-tool-ask-args">{toolAsk.args || '(no args)'}</pre>
                 <p className="nc-help">
                   «Разрешить и не спрашивать» — только для этого инструмента и этого чата, до
-                  закрытия приложения. Совсем без подтверждений — Settings → Agent → «Confirm
-                  dangerous tools».
+                  закрытия приложения (для run_terminal это отключает и проверку выхода за проект).
+                  Совсем без подтверждений внутри проекта — Settings → Agent → «Confirm dangerous
+                  tools».
                 </p>
                 <div className="nc-close-project-actions">
                   <button
