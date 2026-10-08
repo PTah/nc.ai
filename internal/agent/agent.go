@@ -38,6 +38,14 @@ const retryBudget = 3 * time.Minute
 
 const maxToolResultBytes = 12288
 
+// maxLengthContinues — сколько раз можно авто-дописывать ответ, оборвавшийся по
+// finish_reason=length, прежде чем сдаться и показать частичный текст как есть.
+const maxLengthContinues = 3
+
+const lengthContinueNudge = "Continue exactly where you stopped. " +
+	"Do not repeat anything already written and do not start over. " +
+	"Finish only the remaining part of your previous answer, in the same language and format."
+
 const SystemPrompt = `You are NotCursor.ai, a coding agent like Cursor.
 You work inside the user's local workspace.
 
@@ -885,6 +893,7 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 	langRetryDone := false
 	exploreToolsOnly := false
 	escalateEmptyDone := false
+	lengthContinues := 0
 	var esc escalateTracker
 	for step := 0; step < max; step++ {
 		if runCtx.Err() != nil {
@@ -1100,7 +1109,24 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 					finish, r.LocalNumCtx, r.LocalServerKind, strings.TrimSpace(msg.ReasoningContent) != "", usagePromptTokens(resp.Usage),
 				)})
 			} else if finish == "length" {
-				emit(Event{Type: "error", Content: "ответ обрезан (finish=length)"})
+				// Ответ упёрся в max output tokens. Вместо обрыва на полуслове
+				// просим модель дописать хвост с того же места. Лимит попыток
+				// защищает от зацикливания, если модель всегда упирается в лимит.
+				if lengthContinues >= maxLengthContinues {
+					emit(Event{Type: "notice", Content: fmt.Sprintf(
+						"Ответ не помещается в лимит длины даже после %d продолжений — показываю как есть (скажите «продолжи», и я допишу).",
+						maxLengthContinues,
+					)})
+					emit(Event{Type: "done", Content: finish})
+					return messages, nil
+				}
+				lengthContinues++
+				emit(Event{Type: "notice", Content: fmt.Sprintf(
+					"Ответ упёрся в лимит длины — дописываю с места обрыва (%d/%d).",
+					lengthContinues, maxLengthContinues,
+				)})
+				messages = append(messages, llm.UserText(lengthContinueNudge))
+				continue
 			}
 			emit(Event{Type: "done", Content: finish})
 			return messages, nil
