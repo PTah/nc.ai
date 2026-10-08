@@ -139,6 +139,7 @@ type Event struct {
 	Name      string `json:"name,omitempty"`
 	OK        bool   `json:"ok,omitempty"`
 	SessionID string `json:"sessionId,omitempty"`
+	RunID     string `json:"runId,omitempty"`
 	CallID    string `json:"callId,omitempty"`
 	// Reason — почему вызов требует подтверждения (например, команда заходит в
 	// другой проект). Пусто — обычное подтверждение опасного инструмента.

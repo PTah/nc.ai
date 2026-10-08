@@ -20,6 +20,9 @@ import {
   DeleteChatSession,
   CloneRepo,
   CloneTargetPath,
+  AddProjectRoot,
+  RemoveProjectRoot,
+  PickProjectRootDir,
   ClearTodos,
   RemoveTodos,
   SetSessionModel,
@@ -129,14 +132,14 @@ import {
   WriteFile,
   ListProjects,
 } from '../wailsjs/go/main/App'
-import {EventsOn, EventsOff, ClipboardSetText, BrowserOpenURL} from '../wailsjs/runtime/runtime'
+import {EventsOn, EventsOff, ClipboardSetText, BrowserOpenURL, Quit} from '../wailsjs/runtime/runtime'
 import BrandMark from './BrandMark'
 import Markdown from './Markdown'
 import ProjectIcon from './ProjectIcon'
 import {applyChatFindMarks, clearChatFindMarks, focusChatFindHit, type ChatFindHit} from './chatFind'
 import {fmtDate, fmtDateTime} from './datetime'
 
-type Project = { name: string; path: string; opened?: string; iconUrl?: string }
+type Project = { name: string; path: string; opened?: string; iconUrl?: string; roots?: string[] }
 type FileEntry = { name: string; path: string; isDir: boolean }
 type ChatItem =
   | { kind: 'user' | 'assistant' | 'system'; content: string; attachments?: ChatAttPreview[]; at?: number }
@@ -268,6 +271,7 @@ type AgentEvent = {
   ok?: boolean
   sessionId?: string
   callId?: string
+  runId?: string
   /** Почему вызов требует подтверждения (например, команда заходит в другой проект). */
   reason?: string
 }
@@ -1521,6 +1525,8 @@ function parseAgentEvent(...args: unknown[]): AgentEvent | null {
       ok: Boolean(inner.ok ?? inner.OK),
       sessionId: eventText(inner.sessionId ?? inner.SessionID ?? inner.SessionId),
       callId: eventText(inner.callId ?? inner.CallID ?? inner.CallId),
+      runId: eventText(inner.runId ?? inner.RunID ?? inner.RunId),
+      reason: eventText(inner.reason ?? inner.Reason),
     }
   }
   return null
@@ -1566,12 +1572,13 @@ function monoFontStack(id: string): string {
 }
 
 export default function App() {
-  const [info, setInfo] = useState({name: 'NotCursor.ai', version: '0.6.3'})
+  const [info, setInfo] = useState({name: 'NotCursor.ai', version: '0.6.3', stage: ''})
   const [usage, setUsage] = useState<UsageSnapshot>(emptyUsage)
   const [welcome, setWelcome] = useState<WelcomeState | null>(null)
   const [toolAsk, setToolAsk] = useState<{sessionId: string; callId: string; name: string; args: string; reason?: string} | null>(null)
   const [showPrices, setShowPrices] = useState(false)
   const [showArchives, setShowArchives] = useState(false)
+  const [showAbout, setShowAbout] = useState(false)
   const [archives, setArchives] = useState<ArchiveChat[]>([])
   const [archiveProjectFilter, setArchiveProjectFilter] = useState('')
   const [archiveView, setArchiveView] = useState<ArchiveChat | null>(null)
@@ -1596,6 +1603,7 @@ export default function App() {
   const [projectCtx, setProjectCtx] = useState<{x: number; y: number; path: string; name: string} | null>(null)
   const [closeProjectDlg, setCloseProjectDlg] = useState<{path: string; name: string} | null>(null)
   const [projectMenu, setProjectMenu] = useState(false)
+  const [menuPos, setMenuPos] = useState<{left: number; top: number} | null>(null)
   const [newProject, setNewProject] = useState<{name: string; parent: string} | null>(null)
   const [newProjectErr, setNewProjectErr] = useState('')
   const [newProjectBusy, setNewProjectBusy] = useState(false)
@@ -1633,6 +1641,12 @@ export default function App() {
   // Чей прогон: сессия → путь проекта. Нужен, чтобы спиннер у проекта не пропадал,
   // когда открыт другой проект (прогон на бэке продолжается).
   const [runProjectBySession, setRunProjectBySession] = useState<Record<string, string>>({})
+  // Parallel runs inside one chat session: each run gets a client-generated
+  // runId and its own transcript lane. The lane merges into the session
+  // transcript when that run finishes.
+  const [runLanes, setRunLanes] = useState<Record<string, Record<string, ChatItem[]>>>({})
+  const [runOrder, setRunOrder] = useState<Record<string, string[]>>({})
+  const [runCountBySession, setRunCountBySession] = useState<Record<string, number>>({})
   // Drafts, pending attachments and queued messages are per chat session, so a
   // question typed in project A can never be sent from project B.
   const [drafts, setDrafts] = useState<Record<string, {text: string; atts: PendingAtt[]}>>({})
@@ -1776,6 +1790,7 @@ export default function App() {
   const xtermRef = useRef<Terminal | null>(null)
   const fitRef = useRef<FitAddon | null>(null)
   const assistantBuf = useRef<Record<string, string>>({})
+  const finishedRunKeysRef = useRef<Set<string>>(new Set())
   const activeSessionRef = useRef('')
   const noticeQueueRef = useRef<string[]>([])
   const lastRequestRef = useRef<{text: string; atts: PendingAtt[]} | null>(null)
@@ -1783,6 +1798,7 @@ export default function App() {
   const busyBySessionRef = useRef<Record<string, boolean>>({})
   const queuesRef = useRef<Record<string, QueuedMsg[]>>({})
   const itemsBySessionRef = useRef<Record<string, ChatItem[]>>({})
+  const runLanesRef = useRef<Record<string, Record<string, ChatItem[]>>>({})
 
   /**
    * Сохраняет транскрипт чата на диск. Элементы берём только по ключу сессии из
@@ -1861,7 +1877,10 @@ export default function App() {
           ? `${providerLabel} key OK`
           : `no ${providerLabel} key`
 
-  const items = asList(activeSessionId ? itemsBySession[activeSessionId] : undefined)
+  const baseItems = asList(activeSessionId ? itemsBySession[activeSessionId] : undefined)
+  const laneIds = activeSessionId ? asList(runOrder[activeSessionId]) : []
+  const laneItems = laneIds.flatMap((id) => asList(runLanes[activeSessionId]?.[id]))
+  const items = [...baseItems, ...laneItems]
   const busy = Boolean(activeSessionId && busyBySession[activeSessionId])
   // Иконка программы: анимируем, пока в приложении идёт хоть один прогон.
   const anyRunActive = Object.values(busyBySession).some(Boolean)
@@ -2035,13 +2054,6 @@ export default function App() {
     if (!sid || sid !== activeSessionRef.current) return false
     const first = asList(queuesRef.current[sid])[0]
     if (!first) return false
-    // The busy ref can lag the React state for one render after a run finishes.
-    // Wait it out briefly instead of abandoning the queued question forever.
-    for (let i = 0; i < 10 && busyBySessionRef.current[sid]; i++) {
-      await new Promise((resolve) => window.setTimeout(resolve, 200))
-      if (sid !== activeSessionRef.current) return false
-    }
-    if (busyBySessionRef.current[sid]) return false
     const res = await runAgentRef.current(sid, first.text, first.atts)
     if (res === 'started') {
       setQueues((prev) => ({
@@ -2089,30 +2101,6 @@ export default function App() {
   // Shared "run is over" cleanup. A run may finish for a project that is not on
   // screen any more — then the transcript is saved right away, from that chat's
   // own project (backend resolves the owner), so the answer is never lost.
-  const finishRunUI = useCallback((sid: string) => {
-    if (!sid) return
-    assistantBuf.current[sid] = ''
-    lastOutputAtRef.current[sid] = Date.now()
-    silentNoticeRef.current[sid] = false
-    setBusyBySession((b) => ({...b, [sid]: false}))
-    setProgressBySession((prev) => {
-      if (!prev[sid]) return prev
-      const next = {...prev}
-      delete next[sid]
-      return next
-    })
-    setRunStartedAt((prev) => {
-      if (!prev[sid]) return prev
-      const next = {...prev}
-      delete next[sid]
-      return next
-    })
-    if (sid !== activeSessionRef.current) {
-      // Прогон чужого (фонового) чата: сохраняем именно его транскрипт.
-      window.setTimeout(() => { void persistSession(sid) }, 700)
-    }
-  }, [])
-
   useEffect(() => {
     busyBySessionRef.current = busyBySession
   }, [busyBySession])
@@ -2122,6 +2110,9 @@ export default function App() {
   useEffect(() => {
     itemsBySessionRef.current = itemsBySession
   }, [itemsBySession])
+  useEffect(() => {
+    runLanesRef.current = runLanes
+  }, [runLanes])
   useEffect(() => {
     progressAskedRef.current = progressAskedBySession
   }, [progressAskedBySession])
@@ -2201,13 +2192,84 @@ export default function App() {
     }))
   }, [])
 
+  const setRunLaneItems = useCallback((sessionId: string, runId: string, updater: (prev: ChatItem[]) => ChatItem[]) => {
+    if (!sessionId || !runId) return
+    setRunLanes((prev) => {
+      const lanes = prev[sessionId] || {}
+      return {...prev, [sessionId]: {...lanes, [runId]: updater(asList(lanes[runId]))}}
+    })
+  }, [])
+
+  // finishRunLane merges one finished run's lane into the session transcript and
+  // drops it from the active-lane list. The session stays busy while other lanes
+  // of the same chat are still running.
+  const finishRunLane = useCallback((sessionId: string, runId: string) => {
+    if (!sessionId) return
+    const lane = asList(runLanesRef.current[sessionId]?.[runId])
+    setRunLanes((prev) => {
+      const lanes = {...(prev[sessionId] || {})}
+      delete lanes[runId]
+      return {...prev, [sessionId]: lanes}
+    })
+    setRunOrder((prev) => ({...prev, [sessionId]: asList(prev[sessionId]).filter((id) => id !== runId)}))
+    if (lane.length > 0) {
+      setSessionItems(sessionId, (prev) => [...prev, ...lane])
+    }
+    setRunCountBySession((prev) => {
+      const next = Math.max(0, (prev[sessionId] || 0) - 1)
+      if (next === 0) {
+        setBusyBySession((b) => ({...b, [sessionId]: false}))
+      }
+      return {...prev, [sessionId]: next}
+    })
+  }, [setSessionItems])
+
+  // Shared "run is over" cleanup. A run may finish for a project that is not on
+  // screen any more — then the transcript is saved right away, from that chat's
+  // own project (backend resolves the owner), so the answer is never lost.
+  const finishRunUI = useCallback((sid: string, runId?: string) => {
+    if (!sid) return
+    const key = runId ? `${sid}|${runId}` : sid
+    if (runId) {
+      if (finishedRunKeysRef.current.has(key)) return
+      finishedRunKeysRef.current.add(key)
+    }
+    assistantBuf.current[key] = ''
+    lastOutputAtRef.current[key] = Date.now()
+    silentNoticeRef.current[key] = false
+    const remaining = Math.max(0, (runCountBySession[sid] || 0) - 1)
+    if (runId) {
+      finishRunLane(sid, runId)
+    } else {
+      setBusyBySession((b) => ({...b, [sid]: false}))
+    }
+    if (remaining === 0) {
+      setProgressBySession((prev) => {
+        if (!prev[sid]) return prev
+        const next = {...prev}
+        delete next[sid]
+        return next
+      })
+      setRunStartedAt((prev) => {
+        if (!prev[sid]) return prev
+        const next = {...prev}
+        delete next[sid]
+        return next
+      })
+    }
+    if (sid !== activeSessionRef.current) {
+      // Прогон чужого (фонового) чата: сохраняем именно его транскрипт.
+      window.setTimeout(() => { void persistSession(sid) }, 700)
+    }
+  }, [finishRunLane, runCountBySession])
+
   // Closes the streaming reasoning block and stamps how long the model thought.
-  const closeReasoning = useCallback((sessionId: string) => {
-    const started = reasoningStartRef.current[sessionId]
+  const closeReasoningIn = useCallback((key: string, apply: (updater: (prev: ChatItem[]) => ChatItem[]) => void) => {
+    const started = reasoningStartRef.current[key]
     if (!started) return
-    delete reasoningStartRef.current[sessionId]
+    delete reasoningStartRef.current[key]
     const seconds = Math.max(1, Math.round((Date.now() - started) / 1000))
-    setSessionItems(sessionId, (prev) => {
+    apply((prev) => {
       const copy = [...prev]
       const last = copy[copy.length - 1]
       if (last && last.kind === 'reasoning' && last.seconds == null) {
@@ -2216,7 +2278,7 @@ export default function App() {
       }
       return prev
     })
-  }, [setSessionItems])
+  }, [])
 
   useEffect(() => {
     if (!activeSessionId || noticeQueueRef.current.length === 0) return
@@ -2665,15 +2727,22 @@ export default function App() {
             }
             return
           }
+          const sid = ev.sessionId || activeSessionRef.current
+          const runId = ev.runId || ''
+          const key = runId ? `${sid}|${runId}` : sid
+          // Events belonging to a parallel run go into that run's lane; other
+          // events keep landing in the session transcript as before.
+          const apply = (updater: (prev: ChatItem[]) => ChatItem[]) => {
+            if (runId) setRunLaneItems(sid, runId, updater)
+            else setSessionItems(sid, updater)
+          }
           if (ev.type === 'notice') {
             const text = String(ev.content || '').trim()
             if (!text) return
-            const sid = ev.sessionId || activeSessionRef.current
-            if (sid) setSessionItems(sid, (m) => [...m, {kind: 'system' as const, content: text}])
+            if (sid) apply((m) => [...m, {kind: 'system' as const, content: text}])
             else noticeQueueRef.current = [...noticeQueueRef.current, text]
             return
           }
-          const sid = ev.sessionId || activeSessionRef.current
           if (ev.type === 'model') {
             const nextModel = String(ev.content || '').trim()
             const reason = String(ev.name || '').trim()
@@ -2685,10 +2754,10 @@ export default function App() {
               else if (prov === 'yandex' || nextModel.startsWith('yandexgpt') || nextModel.includes('gpt://')) setYandexModel(nextModel)
               else if (prov === 'openrouter' || nextModel.includes('/')) setOpenrouterModel(nextModel)
               else setDeepseekModel(nextModel)
-              const prev = lastModelRef.current[sid]
-              lastModelRef.current[sid] = nextModel
+              const prev = lastModelRef.current[key]
+              lastModelRef.current[key] = nextModel
               if (prev && prev !== nextModel) {
-                setSessionItems(sid, (m) => [...m, {
+                apply((m) => [...m, {
                   kind: 'system',
                   content: reason
                     ? `⚙ модель: ${prev} → ${nextModel} (${reason})`
@@ -2710,8 +2779,8 @@ export default function App() {
             return
           }
           if (ev.type === 'delta_clear') {
-            assistantBuf.current[sid] = ''
-            setSessionItems(sid, (prev) => {
+            assistantBuf.current[key] = ''
+            apply((prev) => {
               const copy = [...prev]
               const last = copy[copy.length - 1]
               if (last && last.kind === 'assistant') {
@@ -2723,12 +2792,12 @@ export default function App() {
             return
           }
           if (ev.type === 'delta') {
-            closeReasoning(sid)
-            lastOutputAtRef.current[sid] = Date.now()
-            silentNoticeRef.current[sid] = false
-            assistantBuf.current[sid] = (assistantBuf.current[sid] || '') + (ev.content || '')
-            const text = assistantBuf.current[sid]
-            setSessionItems(sid, (prev) => {
+            closeReasoningIn(key, apply)
+            lastOutputAtRef.current[key] = Date.now()
+            silentNoticeRef.current[key] = false
+            assistantBuf.current[key] = (assistantBuf.current[key] || '') + (ev.content || '')
+            const text = assistantBuf.current[key]
+            apply((prev) => {
               const copy = [...prev]
               const last = copy[copy.length - 1]
               const at = Date.now()
@@ -2739,8 +2808,8 @@ export default function App() {
               return [...copy, {kind: 'assistant', content: text, at}]
             })
           } else if (ev.type === 'reasoning') {
-            if (!reasoningStartRef.current[sid]) reasoningStartRef.current[sid] = Date.now()
-            setSessionItems(sid, (prev) => {
+            if (!reasoningStartRef.current[key]) reasoningStartRef.current[key] = Date.now()
+            apply((prev) => {
               const copy = [...prev]
               const last = copy[copy.length - 1]
               if (last && last.kind === 'reasoning') {
@@ -2777,14 +2846,14 @@ export default function App() {
             // ones worth keeping in the transcript — and only when the request
             // asked for stages, or the agent has been silent for two minutes.
             const asked = Boolean(progressAskedRef.current[sid])
-            const silent = Date.now() - (lastOutputAtRef.current[sid] || Date.now()) >= SILENT_PROGRESS_MS
+            const silent = Date.now() - (lastOutputAtRef.current[key] || Date.now()) >= SILENT_PROGRESS_MS
             if (parsed.phase !== 'heartbeat' && parsed.phase !== 'start' && (asked || silent)) {
-              setSessionItems(sid, (prev) => [...prev, {kind: 'progress', content: parsed.text}])
+              apply((prev) => [...prev, {kind: 'progress', content: parsed.text}])
             }
           } else if (ev.type === 'tool_start') {
-            closeReasoning(sid)
-            assistantBuf.current[sid] = ''
-            setSessionItems(sid, (prev) => [...prev, {
+            closeReasoningIn(key, apply)
+            assistantBuf.current[key] = ''
+            apply((prev) => [...prev, {
               kind: 'tool',
               name: ev.name || 'tool',
               args: ev.content || '',
@@ -2796,7 +2865,7 @@ export default function App() {
               if (prev && prev.sessionId === sid && !ev.callId && prev.name === (ev.name || '')) return null
               return prev
             })
-            setSessionItems(sid, (prev) => {
+            apply((prev) => {
               const copy = [...prev]
               for (let i = copy.length - 1; i >= 0; i--) {
                 const it = copy[i]
@@ -2822,23 +2891,23 @@ export default function App() {
               }]
             })
           } else if (ev.type === 'reconnect') {
-            setSessionItems(sid, (prev) => [...prev, {kind: 'system', content: ev.content || 'reconnecting…'}])
+            apply((prev) => [...prev, {kind: 'system', content: ev.content || 'reconnecting…'}])
           } else if (ev.type === 'done' || ev.type === 'persist') {
-            closeReasoning(sid)
-            finishRunUI(sid)
+            closeReasoningIn(key, apply)
+            finishRunUI(sid, runId)
             if (ev.type === 'done') playEndSound()
             if (sid === activeSessionRef.current) setRetryVisible(false)
             void applyUsageStats()
           } else if (ev.type === 'error') {
-            finishRunUI(sid)
+            finishRunUI(sid, runId)
             const errContent = ev.content || 'unknown'
             const canceled = /context canceled|context cancelled/i.test(errContent)
             if (canceled) {
-              setSessionItems(sid, (prev) => [...prev, {kind: 'system', content: 'Остановлено'}])
+              apply((prev) => [...prev, {kind: 'system', content: 'Остановлено'}])
               if (sid === activeSessionRef.current) setRetryVisible(false)
               return
             }
-            setSessionItems(sid, (prev) => {
+            apply((prev) => {
               const next: ChatItem[] = [...prev, {kind: 'system', content: `Error: ${errContent}`}]
               if (/402|Insufficient Balance/i.test(errContent)) {
                 next.push({kind: 'system', content: 'Пополните баланс провайдера и нажмите Reconnect.'})
@@ -3449,9 +3518,13 @@ export default function App() {
       const t = e.target as Node | null
       if (t && projectMenuRef.current?.contains(t)) return
       setProjectMenu(false)
+      setMenuPos(null)
     }
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setProjectMenu(false)
+      if (e.key === 'Escape') {
+        setProjectMenu(false)
+        setMenuPos(null)
+      }
     }
     window.addEventListener('mousedown', onDown)
     window.addEventListener('keydown', onKey)
@@ -3523,6 +3596,97 @@ export default function App() {
     setCloneTarget('')
     setCloneErr('')
     setCloneBusy(false)
+  }
+
+  function openArchivesView() {
+    setProjectMenu(false)
+    setArchiveView(null)
+    setArchiveProjectFilter('')
+    setShowArchives(true)
+    void refreshArchives()
+  }
+
+  function toggleShowFiles() {
+    setProjectMenu(false)
+    setShowTree((v) => {
+      const next = !v
+      SaveShowFiles(next).catch(() => undefined)
+      return next
+    })
+  }
+
+  function openModelPricesView() {
+    setProjectMenu(false)
+    setShowPrices(true)
+    if (modelPrices.length === 0) {
+      setPricesLoading(true)
+      ListModelPrices()
+        .then((rows) => {
+          const list = asList(rows).map((r) => {
+            const o = (r || {}) as unknown as Record<string, unknown>
+            return {
+              provider: String(o.provider || o.Provider || ''),
+              model: String(o.model || o.Model || ''),
+              inputUsd: Number(o.inputUsd ?? o.InputUSD ?? 0) || 0,
+              outputUsd: Number(o.outputUsd ?? o.OutputUSD ?? 0) || 0,
+              cacheHitUsd: Number(o.cacheHitUsd ?? o.CacheHitUSD ?? 0) || 0,
+              strength: Number(o.strength ?? o.Strength ?? 0) || 0,
+              note: String(o.note || o.Note || ''),
+              free: Boolean(o.free ?? o.Free),
+            } as ModelPriceRow
+          })
+          setModelPrices(list)
+        })
+        .catch(() => setModelPrices([]))
+        .finally(() => setPricesLoading(false))
+    }
+  }
+
+  function openSettingsView() {
+    setProjectMenu(false)
+    setSettingsVisible(true)
+  }
+
+  function openAbout() {
+    setProjectMenu(false)
+    setShowAbout(true)
+  }
+
+  function exitApp() {
+    Quit()
+  }
+
+  async function addRootToActive() {
+    setProjectMenu(false)
+    const anchor = active?.path
+    if (!anchor) return
+    try {
+      const dir = await PickProjectRootDir()
+      if (!dir) return
+      const p = await AddProjectRoot(anchor, dir)
+      setActive(p)
+      setProjects(asList(await ListProjects()))
+      await refreshFiles('.')
+      void refreshRules()
+    } catch (e) {
+      if (activeSessionId) setSessionItems(activeSessionId, (m) => [...m, {kind: 'system', content: String(e)}])
+    }
+  }
+
+  async function removeRootFromActive(root: string) {
+    setProjectMenu(false)
+    setProjectCtx(null)
+    const anchor = active?.path
+    if (!anchor) return
+    try {
+      const p = await RemoveProjectRoot(anchor, root)
+      setActive(p)
+      setProjects(asList(await ListProjects()))
+      await refreshFiles('.')
+      void refreshRules()
+    } catch (e) {
+      if (activeSessionId) setSessionItems(activeSessionId, (m) => [...m, {kind: 'system', content: String(e)}])
+    }
   }
 
   function closeCloneDlg() {
@@ -4296,18 +4460,23 @@ export default function App() {
   ): Promise<RunStartResult> {
     if (!sid || sid !== activeSessionRef.current) return 'invalid'
     if (!text && atts.length === 0) return 'invalid'
-    if (busyBySessionRef.current[sid] && !force) return 'busy'
+    // Parallel runs share one chat: each run gets its own lane id and streams
+    // into that lane. The backend routes events back by this same id.
+    const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    const key = `${sid}|${runId}`
     lastRequestRef.current = {text, atts}
     setRetryVisible(false)
-    assistantBuf.current[sid] = ''
+    assistantBuf.current[key] = ''
     // Stage cards/status are opt-in per request; silence is measured from now.
-    lastOutputAtRef.current[sid] = Date.now()
-    silentNoticeRef.current[sid] = false
-    reasoningStartRef.current[sid] = 0
+    lastOutputAtRef.current[key] = Date.now()
+    silentNoticeRef.current[key] = false
+    reasoningStartRef.current[key] = 0
     setProgressAskedBySession((prev) => ({...prev, [sid]: wantsInterimProgress(text)}))
     if (!skipUserMessage) {
-      setSessionItems(sid, (m) => [...m, makeUserItem(text, atts)])
+      setRunLaneItems(sid, runId, (m) => [...m, makeUserItem(text, atts)])
     }
+    setRunOrder((prev) => ({...prev, [sid]: [...asList(prev[sid]), runId]}))
+    setRunCountBySession((prev) => ({...prev, [sid]: (prev[sid] || 0) + 1}))
     setRunStartedAt((prev) => ({...prev, [sid]: Date.now()}))
     setProgressBySession((prev) => {
       if (!prev[sid]) return prev
@@ -4319,9 +4488,10 @@ export default function App() {
     const runPath = activeProjectRef.current?.path || ''
     if (runPath) setRunProjectBySession((p) => (p[sid] === runPath ? p : {...p, [sid]: runPath}))
     try {
-      // Прогон привязываем к чату: бэкенд больше не угадывает сессию по своему
-      // «активному» состоянию, поэтому ответ не может уехать в другой проект.
-      await RunAgentInSession(sid, text, atts.map((a) => ({
+      // Прогон привязываем к чату и к конкретной «дорожке» runId: бэкенд больше
+      // не угадывает сессию по своему «активному» состоянию, поэтому ответ не
+      // может уехать в другой проект или перепутаться с параллельным запросом.
+      await RunAgentInSession(sid, runId, text, atts.map((a) => ({
         name: a.name,
         mime: a.mime || '',
         dataUrl: a.dataUrl || '',
@@ -4329,7 +4499,7 @@ export default function App() {
         isImage: a.isImage,
       })))
     } catch (err) {
-      setBusyBySession((b) => ({...b, [sid]: false}))
+      finishRunUI(sid, runId)
       setSessionItems(sid, (m) => [...m, {kind: 'system', content: String(err)}])
       setRetryVisible(true)
       return 'error'
@@ -4389,13 +4559,8 @@ export default function App() {
     if (!text && atts.length === 0) return
     setInput('', sid)
     setPendingAtts([], sid)
-    if (busyBySessionRef.current[sid] || busy) {
-      const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-      setQueue((q) => [...q, {id, text, atts}], sid)
-      return
-    }
     const res = await runAgent(sid, text, atts)
-    if (res === 'busy' || res === 'invalid') {
+    if (res === 'invalid') {
       // Never lose the question: keep it queued for this chat instead. On
       // 'error' the question is already in the transcript with a Retry button,
       // so re-queueing it would just auto-retry in a loop.
@@ -4410,13 +4575,8 @@ export default function App() {
     const msg = queue.find((q) => q.id === id)
     if (!msg) return
     setQueue((q) => q.filter((x) => x.id !== id), sid)
-    if (busyBySessionRef.current[sid]) {
-      StopAgentSession(sid)
-      // Give the backend a moment to release the session before restarting it.
-      await new Promise((resolve) => window.setTimeout(resolve, 150))
-    }
     const res = await runAgent(sid, msg.text, msg.atts, false, true)
-    if (res === 'busy' || res === 'invalid') setQueue((q) => [...q, msg], sid)
+    if (res === 'invalid') setQueue((q) => [...q, msg], sid)
   }
 
   function dismissQueued(id: string) {
@@ -4682,28 +4842,91 @@ export default function App() {
               className="nc-project-new-btn"
               aria-haspopup="menu"
               aria-expanded={projectMenu}
-              onClick={() => setProjectMenu((v) => !v)}
+              onClick={() => {
+                setProjectMenu((v) => {
+                  const next = !v
+                  if (next) {
+                    const r = projectMenuRef.current?.getBoundingClientRect()
+                    setMenuPos(r ? {left: Math.round(r.left), top: Math.round(r.bottom) + 4} : null)
+                  } else {
+                    setMenuPos(null)
+                  }
+                  return next
+                })
+              }}
             >
-              Project <span className="nc-project-new-caret">▾</span>
+              Menu <span className="nc-project-new-caret">▾</span>
             </button>
             {projectMenu && (
-              <div className="nc-ctx-menu nc-project-new-menu" role="menu">
-                <button type="button" role="menuitem" onClick={() => void openPicked()}>
-                  Open project…
-                </button>
-                <button type="button" role="menuitem" onClick={() => void openNewProject()}>
-                  Create project…
-                </button>
-                <button type="button" role="menuitem" onClick={() => void openCloneDlg()}>
-                  Clone repository…
-                </button>
+              <div
+                className="nc-ctx-menu nc-project-new-menu nc-app-menu"
+                role="menu"
+                style={menuPos ? {left: menuPos.left, top: menuPos.top} : undefined}
+              >
+                <div className="nc-menu-section">
+                  <div className="nc-menu-heading">Project</div>
+                  <button type="button" role="menuitem" onClick={() => void openPicked()}>
+                    Open project…
+                  </button>
+                  <button type="button" role="menuitem" onClick={() => void openNewProject()}>
+                    Create project…
+                  </button>
+                  <button type="button" role="menuitem" onClick={() => void openCloneDlg()}>
+                    Clone repository…
+                  </button>
+                  <button type="button" role="menuitem" disabled={!active} onClick={() => void addRootToActive()}>
+                    Add folder to workspace…
+                  </button>
+                  {(active?.roots?.length ?? 0) > 1 && (
+                    <div className="nc-menu-sub">Workspace folders</div>
+                  )}
+                  {(active?.roots ?? []).filter((r) => r !== active?.path).map((r) => (
+                    <button
+                      key={r}
+                      type="button"
+                      role="menuitem"
+                      className="nc-menu-root-item"
+                      title={`Убрать ${r}`}
+                      onClick={() => void removeRootFromActive(r)}
+                    >
+                      ✕ {r}
+                    </button>
+                  ))}
+                </div>
+                <div className="nc-menu-section">
+                  <div className="nc-menu-heading">File</div>
+                  <button type="button" role="menuitem" onClick={() => void openArchivesView()}>
+                    Archived chats
+                  </button>
+                  <button type="button" role="menuitem" onClick={() => void toggleShowFiles()}>
+                    {showTree ? 'Hide files' : 'Show files'}
+                  </button>
+                  <button type="button" role="menuitem" onClick={() => void exitApp()}>
+                    Exit
+                  </button>
+                </div>
+                <div className="nc-menu-section">
+                  <div className="nc-menu-heading">Settings</div>
+                  <button type="button" role="menuitem" onClick={() => void openSettingsView()}>
+                    Settings
+                  </button>
+                  <button type="button" role="menuitem" onClick={() => void openModelPricesView()}>
+                    Model prices
+                  </button>
+                </div>
+                <div className="nc-menu-section">
+                  <div className="nc-menu-heading">Help</div>
+                  <button type="button" role="menuitem" onClick={() => void openAbout()}>
+                    About
+                  </button>
+                </div>
               </div>
             )}
           </div>
           <div className="nc-section-label">Projects</div>
           <ul className="nc-list" onClick={() => setProjectCtx(null)}>
             {asList(projects).length === 0 && (
-              <li className="nc-empty">Нет проектов — «Project» → Open project / Create project / Clone repository</li>
+              <li className="nc-empty">Нет проектов — «Menu» → Project → Open project / Create project / Clone repository</li>
             )}
             {asList(projects).map((p) => {
               const running = isProjectRunning(p.path)
@@ -4732,59 +4955,6 @@ export default function App() {
               )
             })}
           </ul>
-          <div className="nc-projects-foot">
-            <button
-              type="button"
-              className="nc-ghost"
-              onClick={() => {
-                setArchiveView(null)
-                setArchiveProjectFilter('')
-                setShowArchives(true)
-                void refreshArchives()
-              }}>
-              🗄 Archived chats
-            </button>
-            <button type="button" className="nc-ghost" onClick={() => {
-              setShowTree((v) => {
-                const next = !v
-                SaveShowFiles(next).catch(() => undefined)
-                return next
-              })
-            }}>
-              {showTree ? 'Hide files' : 'Show files'}
-            </button>
-            <button
-              type="button"
-              className="nc-ghost"
-              onClick={() => {
-                setShowPrices(true)
-                if (modelPrices.length === 0) {
-                  setPricesLoading(true)
-                  ListModelPrices()
-                    .then((rows) => {
-                      const list = asList(rows).map((r) => {
-                        const o = (r || {}) as unknown as Record<string, unknown>
-                        return {
-                          provider: String(o.provider || o.Provider || ''),
-                          model: String(o.model || o.Model || ''),
-                          inputUsd: Number(o.inputUsd ?? o.InputUSD ?? 0) || 0,
-                          outputUsd: Number(o.outputUsd ?? o.OutputUSD ?? 0) || 0,
-                          cacheHitUsd: Number(o.cacheHitUsd ?? o.CacheHitUSD ?? 0) || 0,
-                          strength: Number(o.strength ?? o.Strength ?? 0) || 0,
-                          note: String(o.note || o.Note || ''),
-                          free: Boolean(o.free ?? o.Free),
-                        } as ModelPriceRow
-                      })
-                      setModelPrices(list)
-                    })
-                    .catch(() => setModelPrices([]))
-                    .finally(() => setPricesLoading(false))
-                }
-              }}
-            >
-              Model prices
-            </button>
-          </div>
           <div className="nc-vsplit" onMouseDown={(e) => beginResize('projects', e)} />
         </aside>
 
@@ -6620,6 +6790,29 @@ export default function App() {
             )}
             <div className="nc-prices-foot">
               <button type="button" className="nc-prices-close" onClick={() => setShowPrices(false)}>
+                Закрыть
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showAbout && (
+        <div className="nc-modal-backdrop" role="presentation" onClick={() => setShowAbout(false)}>
+          <div
+            className="nc-modal nc-about"
+            role="dialog"
+            aria-labelledby="nc-about-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 id="nc-about-title">{info.name}</h2>
+            <p className="nc-help">Version {info.version} · stage {info.stage}</p>
+            <p className="nc-muted">
+              Desktop coding agent with multi-provider routing, local models, rules and a
+              multi-root workspace for working across several repositories as one.
+            </p>
+            <div className="nc-prices-foot">
+              <button type="button" className="nc-prices-close" onClick={() => setShowAbout(false)}>
                 Закрыть
               </button>
             </div>

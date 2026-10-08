@@ -5,7 +5,7 @@ import "time"
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "0.7.14"
+	Version = "0.8.0"
 )
 
 // DeepSeekProRetireRFC3339 is the announced V4 Pro retirement instant, empty
@@ -51,19 +51,19 @@ func retiredAt(at time.Time, now time.Time) bool {
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
-	"DeepSeek V4.1 Flash показан по имени, а не служебным id (deepseek-flash)",
-	"Refresh models у всех провайдеров сообщает об ошибке, а не молчит",
-	"Своя модель у каждого чата — выбор в шапке чата, переживает перезапуск",
-	"Долгая работа отчитывается каждые 30 секунд: этап, шаги, что делает сейчас",
-	"DeepSeek: в шапке остаток баланса, грант и пополнения (GET /user/balance)",
+	"Рабочее пространство из нескольких папок: репозитории одного комплекса работают как один",
+	"Левое меню: только список проектов, всё остальное в Menu → Project/File/Settings/Help",
+	"Multitask: несколько запросов в одном чате идут параллельно, каждый своей дорожкой",
+	"Объединение папок ищет и читает по всем корням; лишнюю папку можно убрать из Menu",
+	"About и Exit переехали в Menu, версия 0.8.0",
 }
 
 var HighlightsEN = []string{
-	"DeepSeek V4.1 Flash is shown by name, not by its service id (deepseek-flash)",
-	"Refresh models reports an error for every provider instead of staying silent",
-	"Each chat has its own model — picked in the chat header, survives restart",
-	"Long work reports every 30 seconds: stage, steps, and what it is doing now",
-	"DeepSeek: header shows balance, grant, and topped-up funds (GET /user/balance)",
+	"Multi-folder workspace: repositories of one suite behave like a single repo",
+	"Left panel: projects only — the rest moved into Menu → Project/File/Settings/Help",
+	"Multitask: several requests in one chat run in parallel, each in its own lane",
+	"Search and read span every workspace root; extra folders removable from Menu",
+	"About and Exit live in Menu now, version 0.8.0",
 }
 
 

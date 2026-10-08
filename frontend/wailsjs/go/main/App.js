@@ -10,6 +10,10 @@ export function ActiveRuns() {
   return window['go']['main']['App']['ActiveRuns']();
 }
 
+export function AddProjectRoot(arg1, arg2) {
+  return window['go']['main']['App']['AddProjectRoot'](arg1, arg2);
+}
+
 export function AllowToolForSession(arg1, arg2) {
   return window['go']['main']['App']['AllowToolForSession'](arg1, arg2);
 }
@@ -230,6 +234,10 @@ export function PickProjectParentDir() {
   return window['go']['main']['App']['PickProjectParentDir']();
 }
 
+export function PickProjectRootDir() {
+  return window['go']['main']['App']['PickProjectRootDir']();
+}
+
 export function PreferDeepSeekModel(arg1) {
   return window['go']['main']['App']['PreferDeepSeekModel'](arg1);
 }
@@ -282,6 +290,10 @@ export function RemoveLocalEndpoint(arg1) {
   return window['go']['main']['App']['RemoveLocalEndpoint'](arg1);
 }
 
+export function RemoveProjectRoot(arg1, arg2) {
+  return window['go']['main']['App']['RemoveProjectRoot'](arg1, arg2);
+}
+
 export function RemoveTodos(arg1) {
   return window['go']['main']['App']['RemoveTodos'](arg1);
 }
@@ -306,8 +318,8 @@ export function RunAgent(arg1) {
   return window['go']['main']['App']['RunAgent'](arg1);
 }
 
-export function RunAgentInSession(arg1, arg2, arg3) {
-  return window['go']['main']['App']['RunAgentInSession'](arg1, arg2, arg3);
+export function RunAgentInSession(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['RunAgentInSession'](arg1, arg2, arg3, arg4);
 }
 
 export function RunAgentWithAttachments(arg1, arg2) {

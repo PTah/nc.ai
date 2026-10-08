@@ -130,6 +130,9 @@ type Settings struct {
 	Shell          string   `json:"shell"`
 	RecentProjects []string `json:"recentProjects"`
 	LastProject    string   `json:"lastProject,omitempty"`
+	// ProjectRoots persists extra folders merged into a workspace (keyed by the
+	// workspace anchor path). The anchor itself is not duplicated here.
+	ProjectRoots map[string][]string `json:"projectRoots,omitempty"`
 	// LastProjectParent is the folder the user last created a project in; the
 	// open/create dialogs start from it.
 	LastProjectParent string `json:"lastProjectParent,omitempty"`
@@ -1594,6 +1597,28 @@ func (s *Store) RemoveRecentProject(path string) error {
 		}
 	}
 	s.settings.RecentProjects = out
+	s.mu.Unlock()
+	return s.Save()
+}
+
+// GetProjectRoots returns the extra folders persisted for a workspace anchor.
+func (s *Store) GetProjectRoots(path string) []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return append([]string{}, s.settings.ProjectRoots[path]...)
+}
+
+// SetProjectRoots persists the extra folders merged into a workspace.
+func (s *Store) SetProjectRoots(path string, roots []string) error {
+	s.mu.Lock()
+	if s.settings.ProjectRoots == nil {
+		s.settings.ProjectRoots = map[string][]string{}
+	}
+	if len(roots) == 0 {
+		delete(s.settings.ProjectRoots, path)
+	} else {
+		s.settings.ProjectRoots[path] = append([]string{}, roots...)
+	}
 	s.mu.Unlock()
 	return s.Save()
 }
