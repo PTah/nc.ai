@@ -1449,11 +1449,49 @@ mark.nc-find-mark.nc-find-current {
   opacity: 0.8;
 }
 .nc-project-new-menu {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: calc(100% + 0.25rem);
-  min-width: 0;
+  position: fixed;
+  z-index: 90;
+}
+
+/* Menu ▾ — grouped Project / File / Settings / Help sections. */
+.nc-app-menu {
+  right: auto;
+  min-width: 440px;
+  max-width: min(560px, calc(100vw - 2rem));
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.nc-menu-section {
+  flex: 1 1 10rem;
+  min-width: 10rem;
+}
+.nc-menu-heading {
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--muted);
+  padding: 0.3rem 0.65rem 0.2rem;
+}
+.nc-menu-sub {
+  font-size: 0.66rem;
+  color: var(--muted);
+  padding: 0.4rem 0.65rem 0.1rem;
+  margin-top: 0.25rem;
+  border-top: 1px solid var(--border);
+}
+.nc-menu-root-item {
+  opacity: 0.85;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 14rem;
+}
+.nc-about {
+  max-width: 440px;
+}
+.nc-about h2 {
+  margin: 0 0 0.4rem;
 }
 
 .nc-new-project-field {

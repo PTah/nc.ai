@@ -14,9 +14,9 @@ import (
 // FindFiles returns relative paths whose names/paths fuzzy-match query.
 // Prefer this over Grep when looking for a file by name.
 func (m *Manager) FindFiles(query string, limit int) ([]string, error) {
-	root, err := m.ActiveRoot()
-	if err != nil {
-		return nil, err
+	entries := m.rootEntries()
+	if len(entries) == 0 {
+		return nil, fmt.Errorf("no active project")
 	}
 	if limit <= 0 {
 		limit = 40
@@ -31,28 +31,30 @@ func (m *Manager) FindFiles(query string, limit int) ([]string, error) {
 		score int
 	}
 	var ranked []scored
-	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		name := d.Name()
-		if d.IsDir() {
-			if ignoredName(name) {
-				return filepath.SkipDir
+	for _, e := range entries {
+		err := filepath.WalkDir(e.root, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return nil
 			}
+			name := d.Name()
+			if d.IsDir() {
+				if ignoredName(name) {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			rel, _ := filepath.Rel(e.root, path)
+			display := m.displayRel(e, filepath.ToSlash(rel))
+			sc := fuzzyPathScore(q, display, strings.ToLower(name))
+			if sc < 0 {
+				return nil
+			}
+			ranked = append(ranked, scored{path: display, score: sc})
 			return nil
+		})
+		if err != nil && err != errSearchLimit {
+			return nil, err
 		}
-		rel, _ := filepath.Rel(root, path)
-		rel = filepath.ToSlash(rel)
-		sc := fuzzyPathScore(q, rel, strings.ToLower(name))
-		if sc < 0 {
-			return nil
-		}
-		ranked = append(ranked, scored{path: rel, score: sc})
-		return nil
-	})
-	if err != nil {
-		return nil, err
 	}
 	sort.Slice(ranked, func(i, j int) bool {
 		if ranked[i].score != ranked[j].score {
@@ -73,9 +75,9 @@ func (m *Manager) FindFiles(query string, limit int) ([]string, error) {
 // Glob returns workspace-relative paths matching a glob (e.g. **/*.go).
 // searchDir optionally restricts the walk to a subdirectory.
 func (m *Manager) Glob(pattern, searchDir string, limit int) ([]string, error) {
-	root, err := m.ActiveRoot()
-	if err != nil {
-		return nil, err
+	entries := m.rootEntries()
+	if len(entries) == 0 {
+		return nil, fmt.Errorf("no active project")
 	}
 	pattern = strings.TrimSpace(pattern)
 	if pattern == "" {
@@ -87,46 +89,60 @@ func (m *Manager) Glob(pattern, searchDir string, limit int) ([]string, error) {
 	if limit > 200 {
 		limit = 200
 	}
-	walkRoot := root
+
+	// A searchDir pins the walk to one root (possibly a virtual root name).
+	walkEntries := entries
+	rest := ""
 	if strings.TrimSpace(searchDir) != "" && searchDir != "." {
-		full, err := m.Resolve(searchDir)
+		e, r, err := m.resolveRoot(searchDir)
 		if err != nil {
 			return nil, err
 		}
-		st, err := os.Stat(full)
-		if err != nil {
-			return nil, err
-		}
-		if !st.IsDir() {
-			return nil, fmt.Errorf("path is not a directory: %s", searchDir)
-		}
-		walkRoot = full
+		walkEntries = []rootEntry{e}
+		rest = r
 	}
+
 	var out []string
-	err = filepath.WalkDir(walkRoot, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return nil
+	for _, e := range walkEntries {
+		walkRoot := e.root
+		if rest != "" {
+			walkRoot = filepath.Join(e.root, filepath.FromSlash(rest))
 		}
-		name := d.Name()
-		if d.IsDir() {
-			if ignoredName(name) {
-				return filepath.SkipDir
+		if st, err := os.Stat(walkRoot); err != nil || !st.IsDir() {
+			if len(walkEntries) == 1 && err != nil {
+				return nil, err
+			}
+			continue
+		}
+		err := filepath.WalkDir(walkRoot, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return nil
+			}
+			name := d.Name()
+			if d.IsDir() {
+				if ignoredName(name) {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			rel, _ := filepath.Rel(walkRoot, path)
+			relWithin := rel
+			if rest != "" {
+				relWithin = filepath.Join(rest, rel)
+			}
+			display := m.displayRel(e, filepath.ToSlash(relWithin))
+			if !matchPathGlob(pattern, display) {
+				return nil
+			}
+			out = append(out, display)
+			if len(out) >= 500 {
+				return errSearchLimit
 			}
 			return nil
+		})
+		if err != nil && err != errSearchLimit {
+			return nil, err
 		}
-		rel, _ := filepath.Rel(root, path)
-		rel = filepath.ToSlash(rel)
-		if !matchPathGlob(pattern, rel) {
-			return nil
-		}
-		out = append(out, rel)
-		if len(out) >= 500 {
-			return errSearchLimit
-		}
-		return nil
-	})
-	if err != nil && err != errSearchLimit {
-		return nil, err
 	}
 	sort.Strings(out)
 	if len(out) > limit {
@@ -160,9 +176,9 @@ type GrepHit struct {
 
 // Grep scans text files for a regex (ripgrep-like). Invalid patterns return an error.
 func (m *Manager) Grep(opts GrepOptions) ([]GrepHit, error) {
-	root, err := m.ActiveRoot()
-	if err != nil {
-		return nil, err
+	entries := m.rootEntries()
+	if len(entries) == 0 {
+		return nil, fmt.Errorf("no active project")
 	}
 	q := opts.Query
 	if strings.TrimSpace(q) == "" {
@@ -190,54 +206,69 @@ func (m *Manager) Grep(opts GrepOptions) ([]GrepHit, error) {
 	}
 
 	var hits []GrepHit
-	walkRoot := root
-	if strings.TrimSpace(opts.Path) != "" {
-		full, err := m.Resolve(opts.Path)
+	walkEntries := entries
+	rest := ""
+	if strings.TrimSpace(opts.Path) != "" && strings.TrimSpace(opts.Path) != "." {
+		e, r, err := m.resolveRoot(opts.Path)
 		if err != nil {
 			return nil, err
 		}
+		walkEntries = []rootEntry{e}
+		rest = r
+		full := filepath.Join(e.root, filepath.FromSlash(r))
 		st, err := os.Stat(full)
 		if err != nil {
 			return nil, fmt.Errorf("grep path: %w", err)
 		}
 		if !st.IsDir() {
-			rel, _ := filepath.Rel(root, full)
-			rel = filepath.ToSlash(rel)
-			if opts.PathGlob != "" && !matchPathGlob(opts.PathGlob, rel) {
+			display := m.displayRel(e, filepath.ToSlash(r))
+			if opts.PathGlob != "" && !matchPathGlob(opts.PathGlob, display) {
 				return nil, nil
 			}
-			grepOneFile(&hits, full, rel, re, opts, before, after, limit)
+			grepOneFile(&hits, full, display, re, opts, before, after, limit)
 			return hits, nil
 		}
-		walkRoot = full
 	}
-	err = filepath.WalkDir(walkRoot, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || len(hits) >= limit {
+	for _, e := range walkEntries {
+		walkRoot := e.root
+		if rest != "" {
+			walkRoot = filepath.Join(e.root, filepath.FromSlash(rest))
+		}
+		if st, err := os.Stat(walkRoot); err != nil || !st.IsDir() {
+			continue
+		}
+		err := filepath.WalkDir(walkRoot, func(path string, d fs.DirEntry, err error) error {
+			if err != nil || len(hits) >= limit {
+				if len(hits) >= limit {
+					return errSearchLimit
+				}
+				return nil
+			}
+			name := d.Name()
+			if d.IsDir() {
+				if ignoredName(name) {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			rel, _ := filepath.Rel(walkRoot, path)
+			relWithin := rel
+			if rest != "" {
+				relWithin = filepath.Join(rest, rel)
+			}
+			display := m.displayRel(e, filepath.ToSlash(relWithin))
+			if opts.PathGlob != "" && !matchPathGlob(opts.PathGlob, display) {
+				return nil
+			}
+			grepOneFile(&hits, path, display, re, opts, before, after, limit)
 			if len(hits) >= limit {
 				return errSearchLimit
 			}
 			return nil
+		})
+		if err != nil && err != errSearchLimit {
+			return hits, err
 		}
-		name := d.Name()
-		if d.IsDir() {
-			if ignoredName(name) {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		rel, _ := filepath.Rel(root, path)
-		rel = filepath.ToSlash(rel)
-		if opts.PathGlob != "" && !matchPathGlob(opts.PathGlob, rel) {
-			return nil
-		}
-		grepOneFile(&hits, path, rel, re, opts, before, after, limit)
-		if len(hits) >= limit {
-			return errSearchLimit
-		}
-		return nil
-	})
-	if err != nil && err != errSearchLimit {
-		return hits, err
 	}
 	return hits, nil
 }

@@ -58,14 +58,12 @@ func TestDeepSeekProRetired(t *testing.T) {
 	}
 }
 
-func TestHighlightsMentionDeepSeekBalance(t *testing.T) {
-	found := false
-	for _, line := range HighlightsRU {
-		if strings.Contains(line, "баланса") || strings.Contains(line, "/user/balance") {
-			found = true
-		}
+func TestHighlightsMentionWorkspaceAndMultitask(t *testing.T) {
+	joined := strings.Join(HighlightsRU, "\n")
+	if !strings.Contains(joined, "несколько папок") && !strings.Contains(joined, "Рабочее пространство") {
+		t.Fatal("в списке «что нового» нет упоминания рабочего пространства из папок")
 	}
-	if !found {
-		t.Fatal("в списке «что нового» нет упоминания баланса DeepSeek")
+	if !strings.Contains(joined, "параллельно") && !strings.Contains(joined, "Multitask") {
+		t.Fatal("в списке «что нового» нет упоминания параллельных запросов")
 	}
 }

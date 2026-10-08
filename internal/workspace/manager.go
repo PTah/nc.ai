@@ -13,10 +13,11 @@ import (
 )
 
 type Project struct {
-	Name    string `json:"name"`
-	Path    string `json:"path"`
-	Opened  string `json:"opened"`
-	IconURL string `json:"iconUrl,omitempty"` // data URL from project folder icon, if any
+	Name    string   `json:"name"`
+	Path    string   `json:"path"`
+	Roots   []string `json:"roots,omitempty"` // folders merged into this workspace; [0] == Path
+	Opened  string   `json:"opened"`
+	IconURL string   `json:"iconUrl,omitempty"` // data URL from project folder icon, if any
 }
 
 type Entry struct {
@@ -29,6 +30,9 @@ type Manager struct {
 	mu       sync.RWMutex
 	projects []Project
 	active   string
+	// roots — roots of the active workspace for a scoped (per-run) manager.
+	// Empty means "derive from the project list" (the shared manager).
+	roots []string
 }
 
 func NewManager() *Manager {
@@ -72,6 +76,7 @@ func (m *Manager) Open(path string) (*Project, error) {
 	p := Project{
 		Name:    filepath.Base(abs),
 		Path:    abs,
+		Roots:   []string{abs},
 		Opened:  time.Now().Format(time.RFC3339),
 		IconURL: FindIconDataURL(abs),
 	}
@@ -80,6 +85,10 @@ func (m *Manager) Open(path string) (*Project, error) {
 	found := false
 	for i, existing := range m.projects {
 		if existing.Path == abs {
+			// Keep roots added to this workspace earlier; only refresh metadata.
+			if len(existing.Roots) > 0 {
+				p.Roots = append([]string{}, existing.Roots...)
+			}
 			m.projects[i] = p
 			found = true
 			break
@@ -89,6 +98,7 @@ func (m *Manager) Open(path string) (*Project, error) {
 		m.projects = append([]Project{p}, m.projects...)
 	}
 	m.active = abs
+	m.roots = nil
 	return &p, nil
 }
 
@@ -187,7 +197,182 @@ func (m *Manager) Scoped(root string) *Manager {
 	if root == "" && m != nil {
 		root, _ = m.ActiveRoot()
 	}
-	return &Manager{active: root, projects: []Project{}}
+	roots := []string(nil)
+	if m != nil {
+		roots = m.RootsOf(root)
+	}
+	return &Manager{active: root, projects: []Project{}, roots: roots}
+}
+
+// RootsOf returns the folders merged into the workspace identified by path.
+// If path is empty or unknown it returns the active workspace roots.
+func (m *Manager) RootsOf(path string) []string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	key := strings.TrimSpace(path)
+	if key == "" {
+		key = m.active
+	}
+	for i := range m.projects {
+		if m.projects[i].Path == key {
+			if len(m.projects[i].Roots) > 0 {
+				return append([]string{}, m.projects[i].Roots...)
+			}
+			return []string{m.projects[i].Path}
+		}
+	}
+	if key != "" {
+		return []string{key}
+	}
+	return nil
+}
+
+// rootEntry pairs a physical root with its virtual name inside the merged tree.
+type rootEntry struct {
+	root string
+	virt string
+}
+
+func (m *Manager) rootsFor() []string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.rootsForLocked()
+}
+
+func (m *Manager) rootsForLocked() []string {
+	if len(m.roots) > 0 {
+		return append([]string{}, m.roots...)
+	}
+	if m.active == "" {
+		return nil
+	}
+	for i := range m.projects {
+		if m.projects[i].Path == m.active {
+			if len(m.projects[i].Roots) > 0 {
+				return append([]string{}, m.projects[i].Roots...)
+			}
+			return []string{m.projects[i].Path}
+		}
+	}
+	return []string{m.active}
+}
+
+// rootEntries computes virtual names for each workspace root. With a single
+// root the virtual name is unused (paths stay workspace-relative for backward
+// compatibility). With several roots each one becomes a top-level folder named
+// after its directory (disambiguated with -2, -3 on name collisions).
+func (m *Manager) rootEntries() []rootEntry {
+	roots := m.rootsFor()
+	if len(roots) == 0 {
+		return nil
+	}
+	// Count collisions so duplicate base names get deterministic suffixes.
+	base := make([]string, len(roots))
+	seen := map[string]int{}
+	for i, r := range roots {
+		base[i] = filepath.Base(r)
+		seen[strings.ToLower(base[i])]++
+	}
+	used := map[string]int{}
+	out := make([]rootEntry, 0, len(roots))
+	for i, r := range roots {
+		virt := base[i]
+		if seen[strings.ToLower(virt)] > 1 {
+			used[strings.ToLower(virt)]++
+			virt = fmt.Sprintf("%s-%d", base[i], used[strings.ToLower(virt)])
+		}
+		out = append(out, rootEntry{root: r, virt: virt})
+	}
+	return out
+}
+
+// multiRoot reports whether the active workspace merges more than one folder.
+func (m *Manager) multiRoot() bool {
+	return len(m.rootEntries()) > 1
+}
+
+// primaryRoot returns the anchor folder of the active workspace (the one the
+// workspace is named after and where chats live).
+func (m *Manager) primaryRoot() string {
+	if m.active != "" {
+		return m.active
+	}
+	root, err := m.ActiveRoot()
+	if err != nil {
+		return ""
+	}
+	return root
+}
+
+// resolveRoot maps a workspace-relative path to (physical root, remainder).
+// rel may start with a root's virtual name; otherwise the first root that
+// contains rel wins, and unknown paths default to the primary root.
+func (m *Manager) resolveRoot(rel string) (rootEntry, string, error) {
+	entries := m.rootEntries()
+	empty := rootEntry{}
+	if len(entries) == 0 {
+		return empty, "", fmt.Errorf("no active project")
+	}
+	clean := strings.TrimSpace(rel)
+	if clean == "" || clean == "." {
+		for _, e := range entries {
+			if e.root == m.primaryRoot() {
+				return e, "", nil
+			}
+		}
+		return entries[0], "", nil
+	}
+	if filepath.IsAbs(clean) || strings.HasPrefix(clean, "/") {
+		return empty, "", fmt.Errorf("path escapes workspace: %s", rel)
+	}
+	clean = filepath.Clean(strings.ReplaceAll(clean, "\\", "/"))
+	if clean == ".." || strings.HasPrefix(clean, "../") {
+		return empty, "", fmt.Errorf("path escapes workspace: %s", rel)
+	}
+	first, rest := splitFirstComponent(clean)
+	if first != "" && m.multiRoot() {
+		for _, e := range entries {
+			if strings.EqualFold(first, e.virt) {
+				return e, rest, nil
+			}
+		}
+	}
+	// No virtual root matched: pick a root where rel already exists.
+	for _, e := range entries {
+		candidate := filepath.Join(e.root, filepath.FromSlash(clean))
+		if _, err := os.Stat(candidate); err == nil {
+			return e, clean, nil
+		}
+	}
+	// Unknown path: default to the primary root (writes create new files there).
+	for _, e := range entries {
+		if e.root == m.primaryRoot() {
+			return e, clean, nil
+		}
+	}
+	return entries[0], clean, nil
+}
+
+func splitFirstComponent(clean string) (string, string) {
+	i := strings.IndexAny(clean, "/\\")
+	if i < 0 {
+		return clean, ""
+	}
+	return clean[:i], strings.TrimLeft(clean[i:], "/\\")
+}
+
+// displayRel renders a root-relative path for the model/UI. Only multi-root
+// workspaces get the virtual root prefix, so single-project behaviour is
+// unchanged (paths are plain workspace-relative paths).
+func (m *Manager) displayRel(e rootEntry, relWithinRoot string) string {
+	rel := filepath.ToSlash(relWithinRoot)
+	if !m.multiRoot() {
+		return rel
+	}
+	if rel == "" || rel == "." {
+		return e.virt
+	}
+	return filepath.ToSlash(filepath.Join(e.virt, rel))
 }
 
 func (m *Manager) SetActive(path string) error {
@@ -200,8 +385,110 @@ func (m *Manager) SetActive(path string) error {
 	}
 	m.mu.Lock()
 	m.active = abs
+	m.roots = nil
 	m.mu.Unlock()
 	return nil
+}
+
+// AddRoot merges an existing folder into the workspace identified by
+// projectPath. The anchor folder (projectPath) always stays first.
+func (m *Manager) AddRoot(projectPath, root string) (*Project, error) {
+	abs, err := filepath.Abs(root)
+	if err != nil {
+		return nil, err
+	}
+	st, err := os.Stat(abs)
+	if err != nil {
+		return nil, err
+	}
+	if !st.IsDir() {
+		return nil, fmt.Errorf("not a directory: %s", abs)
+	}
+	projPath, err := filepath.Abs(projectPath)
+	if err != nil {
+		return nil, err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	idx := -1
+	for i := range m.projects {
+		if m.projects[i].Path == projPath {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return nil, fmt.Errorf("workspace not found: %s", projPath)
+	}
+	p := &m.projects[idx]
+	roots := []string{p.Path}
+	for _, r := range p.Roots {
+		if r != "" && r != p.Path && !stringInSlice(roots, r) {
+			roots = append(roots, r)
+		}
+	}
+	if !stringInSlice(roots, abs) {
+		roots = append(roots, abs)
+	}
+	p.Roots = roots
+	if m.active == projPath {
+		m.roots = nil
+	}
+	out := *p
+	return &out, nil
+}
+
+// RemoveRoot detaches a folder from a workspace. The anchor folder cannot be
+// removed (chats and the workspace identity live there).
+func (m *Manager) RemoveRoot(projectPath, root string) (*Project, error) {
+	abs, err := filepath.Abs(root)
+	if err != nil {
+		return nil, err
+	}
+	projPath, err := filepath.Abs(projectPath)
+	if err != nil {
+		return nil, err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	idx := -1
+	for i := range m.projects {
+		if m.projects[i].Path == projPath {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return nil, fmt.Errorf("workspace not found: %s", projPath)
+	}
+	p := &m.projects[idx]
+	if abs == p.Path {
+		return nil, fmt.Errorf("нельзя убрать главную папку рабочего пространства")
+	}
+	roots := p.Roots[:0]
+	for _, r := range p.Roots {
+		if r != abs {
+			roots = append(roots, r)
+		}
+	}
+	if len(roots) == 0 {
+		roots = []string{p.Path}
+	}
+	p.Roots = roots
+	if m.active == projPath {
+		m.roots = nil
+	}
+	out := *p
+	return &out, nil
+}
+
+func stringInSlice(list []string, s string) bool {
+	for _, v := range list {
+		if v == s {
+			return true
+		}
+	}
+	return false
 }
 
 // Close removes a project from the open list.
@@ -242,20 +529,13 @@ func (m *Manager) Close(path string) (*Project, error) {
 }
 
 func (m *Manager) Resolve(rel string) (string, error) {
-	root, err := m.ActiveRoot()
+	e, rest, err := m.resolveRoot(rel)
 	if err != nil {
 		return "", err
 	}
-	if rel == "" || rel == "." {
-		return root, nil
-	}
-	clean := filepath.Clean(strings.ReplaceAll(rel, "\\", "/"))
-	if clean == ".." || strings.HasPrefix(clean, "../") ||
-		filepath.IsAbs(clean) || strings.HasPrefix(clean, "/") {
-		return "", fmt.Errorf("path escapes workspace: %s", rel)
-	}
-	full := filepath.Clean(filepath.Join(root, clean))
-	relToRoot, err := filepath.Rel(root, full)
+	full := filepath.Clean(filepath.Join(e.root, filepath.FromSlash(rest)))
+	// Double-check the resolved path never escapes the chosen root.
+	relToRoot, err := filepath.Rel(e.root, full)
 	if err != nil || relToRoot == ".." || strings.HasPrefix(relToRoot, ".."+string(filepath.Separator)) {
 		return "", fmt.Errorf("path escapes workspace")
 	}
@@ -272,10 +552,23 @@ func ignoredName(name string) bool {
 }
 
 func (m *Manager) ListDir(rel string) ([]Entry, error) {
-	full, err := m.Resolve(rel)
+	// Empty path in a multi-root workspace lists the merged top level: one
+	// virtual folder per workspace root.
+	if strings.TrimSpace(rel) == "" || rel == "." {
+		if m.multiRoot() {
+			entries := m.rootEntries()
+			out := make([]Entry, 0, len(entries))
+			for _, e := range entries {
+				out = append(out, Entry{Name: e.virt, Path: e.virt, IsDir: true})
+			}
+			return out, nil
+		}
+	}
+	e, rest, err := m.resolveRoot(rel)
 	if err != nil {
 		return nil, err
 	}
+	full := filepath.Clean(filepath.Join(e.root, filepath.FromSlash(rest)))
 	items, err := os.ReadDir(full)
 	if err != nil {
 		return nil, err
@@ -286,11 +579,15 @@ func (m *Manager) ListDir(rel string) ([]Entry, error) {
 		if ignoredName(name) {
 			continue
 		}
-		child := name
-		if rel != "" && rel != "." {
-			child = filepath.ToSlash(filepath.Join(rel, name))
+		relChild := name
+		if rest != "" && rest != "." {
+			relChild = filepath.ToSlash(filepath.Join(rest, name))
 		}
-		out = append(out, Entry{Name: name, Path: child, IsDir: it.IsDir()})
+		out = append(out, Entry{
+			Name:  name,
+			Path:  m.displayRel(e, relChild),
+			IsDir: it.IsDir(),
+		})
 	}
 	return out, nil
 }

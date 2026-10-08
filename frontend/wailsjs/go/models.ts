@@ -840,6 +840,7 @@ export namespace workspace {
 	export class Project {
 	    name: string;
 	    path: string;
+	    roots?: string[];
 	    opened: string;
 	    iconUrl?: string;
 	
@@ -851,6 +852,7 @@ export namespace workspace {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.name = source["name"];
 	        this.path = source["path"];
+	        this.roots = source["roots"];
 	        this.opened = source["opened"];
 	        this.iconUrl = source["iconUrl"];
 	    }

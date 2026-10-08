@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -55,10 +56,11 @@ type App struct {
 	rulesMu sync.RWMutex
 	cancels map[string]context.CancelFunc
 	runGens map[string]uint64
-	// activeRuns — сессии с идущими прогонами; зеркалится в running.json,
-	// чтобы build.sh не перезапускал клиент посреди работы.
+	// activeRuns — сессии с идущими прогонами (число = сколько параллельных
+	// дорожек работает в сессии); зеркалится в running.json, чтобы build.sh не
+	// перезапускал клиент посреди работы.
 	runMarkerLock sync.Mutex
-	activeRuns    map[string]bool
+	activeRuns    map[string]int
 	// runActive is true while an agent run is in flight: the local health probe
 	// must not send its own generation and compete for the model slot.
 	runActive bool
@@ -172,6 +174,7 @@ func (a *App) startup(ctx context.Context) {
 
 	for _, p := range a.cfg.Get().RecentProjects {
 		_, _ = a.ws.Open(p)
+		a.applyPersistedRoots(p)
 	}
 	// Re-activate the project that was open when the app was closed, so the
 	// chat shown on startup matches where the user left off.
@@ -179,6 +182,7 @@ func (a *App) startup(ctx context.Context) {
 		for _, p := range a.cfg.Get().RecentProjects {
 			if p == last {
 				_, _ = a.ws.Open(p)
+				a.applyPersistedRoots(p)
 				break
 			}
 		}
@@ -589,17 +593,22 @@ func (a *App) markRunStart(sid string) {
 	a.runMarkerMu().Lock()
 	defer a.runMarkerMu().Unlock()
 	if a.activeRuns == nil {
-		a.activeRuns = map[string]bool{}
+		a.activeRuns = map[string]int{}
 	}
-	a.activeRuns[sid] = true
+	a.activeRuns[sid]++
 	a.writeRunMarker()
 }
 
-// markRunEnd снимает отметку и удаляет файл, когда прогонов не осталось.
+// markRunEnd снимает отметку (одну параллельную дорожку) и удаляет файл,
+// когда прогонов в сессии не осталось.
 func (a *App) markRunEnd(sid string) {
 	a.runMarkerMu().Lock()
 	defer a.runMarkerMu().Unlock()
-	delete(a.activeRuns, sid)
+	if a.activeRuns[sid] <= 1 {
+		delete(a.activeRuns, sid)
+	} else {
+		a.activeRuns[sid]--
+	}
 	a.writeRunMarker()
 }
 
@@ -635,7 +644,7 @@ func (a *App) clearStaleRunMarker() {
 		_ = os.Remove(path)
 	}
 	a.runMarkerLock.Lock()
-	a.activeRuns = map[string]bool{}
+	a.activeRuns = map[string]int{}
 	a.runMarkerLock.Unlock()
 }
 
@@ -692,6 +701,18 @@ func (a *App) emit(evt agent.Event) {
 func (a *App) emitFor(sessionID string, evt agent.Event) {
 	evt.SessionID = sessionID
 	a.emit(evt)
+}
+
+func (a *App) emitRun(sessionID, runID string, evt agent.Event) {
+	evt.SessionID = sessionID
+	evt.RunID = runID
+	a.emit(evt)
+}
+
+var runIDSeq uint64
+
+func newRunID() string {
+	return fmt.Sprintf("%d-%d", time.Now().UnixNano(), atomic.AddUint64(&runIDSeq, 1))
 }
 
 func (a *App) emitTerm(data string) {
@@ -2163,6 +2184,32 @@ func (a *App) SaveGitAuth(_, _ string) error {
 
 // --- workspace ---
 
+// applyPersistedRoots re-attaches extra folders to a workspace after restart.
+func (a *App) applyPersistedRoots(anchor string) {
+	for _, r := range a.cfg.GetProjectRoots(anchor) {
+		_, _ = a.ws.AddRoot(anchor, r)
+	}
+}
+
+func (a *App) persistProjectRoots(anchor string, roots []string) error {
+	extra := make([]string, 0, len(roots))
+	for _, r := range roots {
+		if r != "" && r != anchor {
+			extra = append(extra, r)
+		}
+	}
+	return a.cfg.SetProjectRoots(anchor, extra)
+}
+
+func (a *App) projectByPath(path string) *workspace.Project {
+	for _, p := range a.ws.List() {
+		if p.Path == path {
+			return &p
+		}
+	}
+	return nil
+}
+
 func (a *App) ListProjects() []workspace.Project {
 	return a.ws.List()
 }
@@ -2294,7 +2341,39 @@ func (a *App) OpenProject(path string) (*workspace.Project, error) {
 	}
 	_ = a.cfg.AddRecentProject(p.Path)
 	_ = a.cfg.SetLastProject(p.Path)
+	a.applyPersistedRoots(p.Path)
+	if updated := a.projectByPath(p.Path); updated != nil {
+		p = updated
+	}
 	a.loadRules()
+	return p, nil
+}
+
+// PickProjectRootDir asks for a folder to merge into the active workspace.
+func (a *App) PickProjectRootDir() (string, error) {
+	return runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{
+		Title:            "Add folder to workspace",
+		DefaultDirectory: a.projectDialogDir(),
+	})
+}
+
+// AddProjectRoot merges an existing folder into a workspace.
+func (a *App) AddProjectRoot(projectPath, root string) (*workspace.Project, error) {
+	p, err := a.ws.AddRoot(projectPath, root)
+	if err != nil {
+		return nil, err
+	}
+	_ = a.persistProjectRoots(p.Path, p.Roots)
+	return p, nil
+}
+
+// RemoveProjectRoot detaches a folder from a workspace.
+func (a *App) RemoveProjectRoot(projectPath, root string) (*workspace.Project, error) {
+	p, err := a.ws.RemoveRoot(projectPath, root)
+	if err != nil {
+		return nil, err
+	}
+	_ = a.persistProjectRoots(p.Path, p.Roots)
 	return p, nil
 }
 
@@ -2346,6 +2425,7 @@ func (a *App) CloseProject(path, chatAction string) (*workspace.Project, error) 
 		return nil, err
 	}
 	_ = a.cfg.RemoveRecentProject(abs)
+	_ = a.cfg.SetProjectRoots(abs, nil)
 	if wasActive {
 		a.mu.Lock()
 		a.history = nil
@@ -2804,9 +2884,14 @@ func (a *App) StopAgentSession(sessionID string) {
 		denyPending("")
 		return
 	}
-	if c := a.cancels[sessionID]; c != nil {
-		c()
-		delete(a.cancels, sessionID)
+	prefix := sessionID + "/"
+	for id, c := range a.cancels {
+		if strings.HasPrefix(id, prefix) {
+			if c != nil {
+				c()
+			}
+			delete(a.cancels, id)
+		}
 	}
 	denyPending(sessionID)
 }
@@ -2824,7 +2909,7 @@ func (a *App) RunAgentWithAttachments(userMessage string, attachments []agent.At
 	if sid == "" {
 		return fmt.Errorf("чат не открыт: некуда отправлять запрос")
 	}
-	return a.RunAgentInSession(sid, userMessage, attachments)
+	return a.RunAgentInSession(sid, newRunID(), userMessage, attachments)
 }
 
 // RunAgentInSession запускает агента для конкретного чата. Прогон привязан к
@@ -2836,7 +2921,7 @@ func (a *App) RunAgentWithAttachments(userMessage string, attachments []agent.At
 // чужой чат и вовсе не попасть в транскрипт (сохранялась только история
 // модели). Теперь проект определяется по самой сессии, а запуск без открытого
 // чата падает с внятной ошибкой вместо молчаливой подмены.
-func (a *App) RunAgentInSession(sessionID, userMessage string, attachments []agent.Attachment) error {
+func (a *App) RunAgentInSession(sessionID, runID, userMessage string, attachments []agent.Attachment) error {
 	if err := a.requireProviderReady(); err != nil {
 		return err
 	}
@@ -2847,6 +2932,11 @@ func (a *App) RunAgentInSession(sessionID, userMessage string, attachments []age
 	if sid == "" {
 		return fmt.Errorf("чат не открыт: запуск агента требует сессию")
 	}
+	runID = strings.TrimSpace(runID)
+	if runID == "" {
+		runID = newRunID()
+	}
+	runKey := sid + "/" + runID
 	a.mu.Lock()
 	activeSid := a.sessionID
 	activeHist := append([]llm.Message{}, a.history...)
@@ -2882,13 +2972,12 @@ func (a *App) RunAgentInSession(sessionID, userMessage string, attachments []age
 	_, _ = a.ws.ActiveRoot()
 
 	a.mu.Lock()
-	if old := a.cancels[sid]; old != nil {
-		old()
-	}
+	// Параллельные запросы в одном чате живут под разными runKey; новый запрос
+	// не отменяет уже идущий (в отличие от прежнего «один чат — один прогон»).
 	ctx, cancel := context.WithCancel(a.ctx)
-	a.cancels[sid] = cancel
-	a.runGens[sid]++
-	gen := a.runGens[sid]
+	a.cancels[runKey] = cancel
+	a.runGens[runKey]++
+	gen := a.runGens[runKey]
 	a.mu.Unlock()
 	// Маркер активного прогона: build.sh читает его и не перезапускает клиент
 	// поверх работающего агента (перезапуск обрывает прогон без предупреждения).
@@ -3003,7 +3092,7 @@ func (a *App) RunAgentInSession(sessionID, userMessage string, attachments []age
 		HintPathCount:   len(hints),
 	}
 	if localSkipRules {
-		a.emitFor(sid, agent.Event{
+		a.emitRun(sid, runID, agent.Event{
 			Type:    "notice",
 			Content: "Local: проектные правила не подключены (галочка «Не подключать проектные правила» в Settings → Local).",
 		})
@@ -3027,7 +3116,7 @@ func (a *App) RunAgentInSession(sessionID, userMessage string, attachments []age
 		// Запрос подтверждения обязан нести свой sessionID: без него фронтенд
 		// приписывал запрос активному чату (или выбрасывал, если активного нет),
 		// ответ уходил не туда, и прогон молча висел до watchdog'а.
-		a.emitFor(sid, agent.Event{Type: "tool_ask", Name: name, Content: argsJSON, CallID: callID, Reason: reason})
+		a.emitRun(sid, runID, agent.Event{Type: "tool_ask", Name: name, Content: argsJSON, CallID: callID, Reason: reason})
 		// Диалог может «потеряться» (свернутое окно, другой проект, закрытый чат) —
 		// не держим шаг до watchdog'а: ждём ограниченное время и говорим внятно.
 		askCtx, cancelAsk := context.WithTimeout(ctx, approvalWaitLimit)
@@ -3041,7 +3130,7 @@ func (a *App) RunAgentInSession(sessionID, userMessage string, attachments []age
 	if runTools != nil {
 		runTools.AskUser = func(ctx context.Context, callID, question string, options []string) (string, error) {
 			payload, _ := json.Marshal(map[string]any{"question": question, "options": options})
-			a.emitFor(sid, agent.Event{Type: "tool_ask", Name: "ask_user", Content: string(payload), CallID: callID})
+			a.emitRun(sid, runID, agent.Event{Type: "tool_ask", Name: "ask_user", Content: string(payload), CallID: callID})
 			return a.waitUserAsk(ctx, sid, callID, question, options)
 		}
 	}
@@ -3066,7 +3155,7 @@ func (a *App) RunAgentInSession(sessionID, userMessage string, attachments []age
 			}
 		}
 		balOK, balUSD, balDetail := a.usageBalanceSnapshot(provider)
-		a.emitFor(sid, agent.Event{Type: "usage", Content: usagePayload(
+		a.emitRun(sid, runID, agent.Event{Type: "usage", Content: usagePayload(
 			provider,
 			baseCost+costUSD, baseIn+inTokens, baseOut+outTokens, baseHit+cacheHit, baseMiss+cacheMiss,
 			chatCost+costUSD, chatIn+inTokens, chatOut+outTokens, chatHit+cacheHit, chatMiss+cacheMiss,
@@ -3083,7 +3172,7 @@ func (a *App) RunAgentInSession(sessionID, userMessage string, attachments []age
 		stillCurrent := func() bool {
 			a.mu.Lock()
 			defer a.mu.Unlock()
-			return a.runGens[sid] == gen
+			return a.runGens[runKey] == gen
 		}
 
 		emit := func(evt agent.Event) {
@@ -3107,7 +3196,7 @@ func (a *App) RunAgentInSession(sessionID, userMessage string, attachments []age
 				// другие чаты и проекты.
 				a.logAgentLine(fmt.Sprintf("model=%s session=%s reason=%q", evt.Content, sid, evt.Name))
 			}
-			a.emitFor(sid, evt)
+			a.emitRun(sid, runID, evt)
 		}
 		var newHist []llm.Message
 		var err error
@@ -3118,12 +3207,12 @@ func (a *App) RunAgentInSession(sessionID, userMessage string, attachments []age
 			newHist, err = runner.Run(ctx, hist, userMessage, emit)
 		}
 		a.mu.Lock()
-		current := a.runGens[sid] == gen
+		current := a.runGens[runKey] == gen
 		if current {
 			if a.sessionID == sid && err == nil {
 				a.history = newHist
 			}
-			delete(a.cancels, sid)
+			delete(a.cancels, runKey)
 		}
 		a.mu.Unlock()
 		if !current {
@@ -3140,7 +3229,7 @@ func (a *App) RunAgentInSession(sessionID, userMessage string, attachments []age
 					a.emitTodos(items)
 				}
 			}
-			a.emitFor(sid, agent.Event{
+			a.emitRun(sid, runID, agent.Event{
 				Type:    "notice",
 				Content: "⏱ Работа заняла " + agent.FormatElapsed(time.Since(runStart)),
 			})
@@ -3173,13 +3262,13 @@ func (a *App) RunAgentInSession(sessionID, userMessage string, attachments []age
 			}
 		}
 		balOK, balUSD, balDetail := a.usageBalanceSnapshot(provider)
-		a.emitFor(sid, agent.Event{Type: "usage", Content: usagePayload(
+		a.emitRun(sid, runID, agent.Event{Type: "usage", Content: usagePayload(
 			provider,
 			totCost, totIn, totOut, totHit, totMiss,
 			chatCost, chatIn, chatOut, chatHit, chatMiss,
 			balOK, balUSD, balDetail,
 		)})
-		a.emitFor(sid, agent.Event{Type: "persist", Content: "1"})
+		a.emitRun(sid, runID, agent.Event{Type: "persist", Content: "1"})
 	}()
 	return nil
 }
