@@ -9,6 +9,10 @@ var (
 	bearerRe = regexp.MustCompile(`(?i)(bearer\s+)[a-z0-9._\-+=/]{8,}`)
 	skRe     = regexp.MustCompile(`(?i)\b(sk-[a-z0-9_\-]{8,})`)
 	zaiRe    = regexp.MustCompile(`(?i)\b(zai-[a-z0-9_\-]{8,})`)
+	// urlCredRe masks credentials embedded in URLs: scheme://user:pass@host.
+	urlCredRe = regexp.MustCompile(`(?i)([a-z][a-z0-9+.\-]*://)([^\s/@]+)@`)
+	// basicRe masks Authorization: Basic <base64>.
+	basicRe = regexp.MustCompile(`(?i)(authorization:\s*basic\s+)[a-z0-9+/=]{6,}`)
 	keyEqRe  = regexp.MustCompile(`(?i)((?:api[_-]?key|access[_-]?token|secret|password|passwd|authorization)["']?\s*[:=]\s*["']?)([^\s"'\\]{6,})`)
 	pemRe    = regexp.MustCompile(`(?s)-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----`)
 )
@@ -22,6 +26,8 @@ func String(s string) string {
 	out = bearerRe.ReplaceAllString(out, "${1}***")
 	out = skRe.ReplaceAllString(out, "sk-***")
 	out = zaiRe.ReplaceAllString(out, "zai-***")
+	out = urlCredRe.ReplaceAllString(out, "${1}***@")
+	out = basicRe.ReplaceAllString(out, "${1}***")
 	out = keyEqRe.ReplaceAllString(out, "${1}***")
 	return out
 }
@@ -32,6 +38,19 @@ func LooksSecret(s string) bool {
 	if strings.Contains(l, "bearer ") || strings.Contains(l, "sk-") || strings.Contains(l, "zai-") {
 		return true
 	}
+	if strings.Contains(l, "authorization:") && strings.Contains(l, "basic") {
+		return true
+	}
+	if strings.Contains(l, "://") {
+		if i := strings.Index(l, "://"); i >= 0 {
+			rest := l[i+3:]
+			if at := strings.Index(rest, "@"); at >= 0 {
+				if slash := strings.Index(rest, "/"); slash < 0 || at < slash {
+					return true
+				}
+			}
+		}
+	}
 	return strings.Contains(l, "api_key") || strings.Contains(l, "api-key") ||
 		strings.Contains(l, "begin ") && strings.Contains(l, "private key")
 }
@@ -39,8 +58,11 @@ func LooksSecret(s string) bool {
 var (
 	// envAssignRe matches NAME=value / NAME: value, including $env:NAME and $NAME.
 	envAssignRe = regexp.MustCompile(`(?i)((?:\$env:|\$)?[\pL_][\pL0-9_]*)(\s*[:=]\s*)("[^"\n]*"|'[^'\n]*'|[^\s;&|(){}]{1,})`)
+	// jsonKeyRe matches "key": value pairs in JSON tool arguments, where the key
+	// is wrapped in quotes (e.g. {"user": "papatramp"}).
+	jsonKeyRe = regexp.MustCompile(`(?i)("[^"\n]*?(?:password|passwd|passphrase|pwd|secret|token|api[_-]?key|apikey|access[_-]?key|private[_-]?key|credential|bearer|session[_-]?id|cookie|login|username|user|парол\pL*|логин\pL*|пользовател\pL*)[^"\n]*?")(\s*:\s*)("(?:[^"\\\n]|\\.)*"|[^\s,;}]+)`)
 	// secretNameRe matches assignment keys that usually hold credentials.
-	secretNameRe = regexp.MustCompile(`(?i)(password|passwd|passphrase|pwd|secret|token|api[_-]?key|apikey|access[_-]?key|private[_-]?key|credential|bearer|session[_-]?id|cookie|login|username|user|пароль|логин|пользователь)`)
+	secretNameRe = regexp.MustCompile(`(?i)(password|passwd|passphrase|pwd|secret|token|api[_-]?key|apikey|access[_-]?key|private[_-]?key|credential|bearer|session[_-]?id|cookie|login|username|user|парол\pL*|логин\pL*|пользовател\pL*)`)
 	// flagAssignRe matches CLI flags like --password x, -p=x, /password:x.
 	flagAssignRe = regexp.MustCompile(`(?i)((?:--?|/)(?:password|passwd|passphrase|pwd|secret|token|api[_-]?key|apikey|access[_-]?key|private[_-]?key|credential|login|username|user))(\s+|[:=]\s*)("[^"\n]*"|'[^'\n]*'|[^\s;&|(){}]{2,})`)
 )
@@ -55,6 +77,13 @@ func Display(s string) string {
 		return s
 	}
 	out := String(s)
+	out = jsonKeyRe.ReplaceAllStringFunc(out, func(m string) string {
+		sub := jsonKeyRe.FindStringSubmatch(m)
+		if len(sub) < 4 {
+			return m
+		}
+		return sub[1] + sub[2] + maskValue(sub[3])
+	})
 	out = envAssignRe.ReplaceAllStringFunc(out, func(m string) string {
 		sub := envAssignRe.FindStringSubmatch(m)
 		if len(sub) < 4 {

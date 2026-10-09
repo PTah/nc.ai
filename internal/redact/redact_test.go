@@ -42,6 +42,36 @@ func TestDisplayMasksCommandSecrets(t *testing.T) {
 	}
 }
 
+func TestDisplayMasksJSONToolArgs(t *testing.T) {
+	in := `{"host":"192.168.128.1","user":"papatramp","password":"[eqyfhskj]","command":"uname -a"}`
+	out := Display(in)
+	for _, leak := range []string{"papatramp", "[eqyfhskj]"} {
+		if strings.Contains(out, leak) {
+			t.Fatalf("Display leaked %q in %q", leak, out)
+		}
+	}
+	if !strings.Contains(out, `"host":"192.168.128.1"`) {
+		t.Fatalf("Display should keep non-secret host, got %q", out)
+	}
+}
+
+func TestStringMasksURLCredsAndBasic(t *testing.T) {
+	cases := map[string]string{
+		"https://user:pass@example.com/repo":                            "https://***@example.com/repo",
+		"git clone https://papatramp:secret@git.papatramp.ru/x.git":     "git clone https://***@git.papatramp.ru/x.git",
+		"Authorization: Basic dXNlcjpwYXNz":                             "Authorization: Basic ***",
+	}
+	for in, want := range cases {
+		if got := String(in); got != want {
+			t.Fatalf("String(%q) = %q, want %q", in, got, want)
+		}
+	}
+	// scp-синтаксис без пароля не трогаем.
+	if got := String("git@github.com:PTah/nc.ai.git"); got != "git@github.com:PTah/nc.ai.git" {
+		t.Fatalf("scp URL changed: %q", got)
+	}
+}
+
 func TestDisplayKeepsNormalText(t *testing.T) {
 	for _, in := range []string{
 		"func Routes() {}",
