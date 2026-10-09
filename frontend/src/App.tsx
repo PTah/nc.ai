@@ -675,7 +675,12 @@ function makeUserItem(text: string, atts: PendingAtt[]): ChatItem {
   }
 }
 
-const USER_SECRET_KEY = '(?:password|passwd|passphrase|pwd|secret|token|api[_-]?key|apikey|access[_-]?key|private[_-]?key|credential|bearer|session[_-]?id|cookie|login|username|user|пароль|логин|пользователь)'
+// EN/RU credential keys. RU stems cover cases like логином/паролем/пользователя.
+const USER_SECRET_ASSIGN =
+  '(?:password|passwd|passphrase|pwd|secret|token|api[_-]?key|apikey|access[_-]?key|private[_-]?key|credential|bearer|session[_-]?id|cookie|login|username|user|парол[а-яё]*|логин[а-яё]*|пользовател[а-яё]*)'
+// Same, but without the very generic bare "user" for the "ключ значение" form.
+const USER_SECRET_SPACE =
+  '(?:password|passwd|passphrase|pwd|secret|token|api[_-]?key|apikey|access[_-]?key|private[_-]?key|credential|bearer|session[_-]?id|cookie|login|username|парол[а-яё]*|логин[а-яё]*|пользовател[а-яё]*)'
 
 function maskUserValue(v: string): string {
   if (v.length >= 2 && (v[0] === '"' || v[0] === "'") && v[v.length - 1] === v[0]) {
@@ -691,20 +696,35 @@ function redactUserForDisplay(s: string): string {
   let out = s
   // NAME=value / NAME: value
   out = out.replace(
-    new RegExp(`(${USER_SECRET_KEY})[\\w-]*(\\s*[:=]\\s*)("[^"]*"|'[^']*'|[^\\s;&|]+)`, 'gi'),
+    new RegExp(`(${USER_SECRET_ASSIGN})(\\s*[:=]\\s*)("[^"]*"|'[^']*'|[^\\s;&|]+)`, 'gi'),
     (m, key: string, op: string, val: string) => key + op + maskUserValue(val),
   )
-  // «логин Вася», «пароль 'СуперВася'»
+  // «логином papatramp», «пароль 'СуперВася'», «user bob» (в т.ч. падежи)
   out = out.replace(
-    new RegExp(`\\b(${USER_SECRET_KEY})\\s+("[^"]*"|'[^']*'|[^\\s,;:]+)`, 'gi'),
-    (m, key: string, val: string) => key + ' ' + maskUserValue(val),
+    new RegExp(`(^|[^A-Za-zА-Яа-яЁё])(${USER_SECRET_SPACE})([\\s:=]+)("[^"]*"|'[^']*'|[^\\s,;:]+)`, 'gi'),
+    (m, pre: string, key: string, sep: string, val: string) => pre + key + sep + maskUserValue(val),
   )
   // $env:NAME=value / $NAME=value
   out = out.replace(
     /((?:\$env:|\$)[A-Za-z_][A-Za-z0-9_]*)\s*[:=]\s*("[^"]*"|'[^']*'|[^\s;&|]+)/g,
     (m, name: string, val: string) => name + '=' + maskUserValue(val),
   )
+  // ALL-CAPS имена (ZP='...', DATABASE_URL=...) со «секретным» значением.
+  out = out.replace(
+    /(^|[^A-Za-zА-Яа-яЁё])([A-Z][A-Z0-9_]{1,})(\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s;&|]+)/g,
+    (m, pre: string, key: string, op: string, val: string) =>
+      looksSecretishValue(val.replace(/^["']|["']$/g, '')) ? pre + key + op + maskUserValue(val) : m,
+  )
   return out
+}
+
+/** Значение похоже на секрет (цифры/символы), а не на обычное слово. */
+function looksSecretishValue(v: string): boolean {
+  if (v.length < 4) return false
+  for (const ch of v) {
+    if ((ch >= '0' && ch <= '9') || '[]{}(!@#$%^&*+=|;:<>?~`\'"'.includes(ch)) return true
+  }
+  return false
 }
 
 function pickNum(u: Record<string, unknown>, ...keys: string[]): number {
@@ -2602,15 +2622,6 @@ export default function App() {
         if (n && typeof n === 'object' && typeof (n as Record<string, any>).reason === 'string') {
           const note = n as Record<string, any>
           setStartupNotice(note)
-          // Дублируем причину перезапуска в ленту чата: баннер сверху можно
-          // закрыть/пропустить, а системная строка остаётся в истории переписки.
-          const text = startupNoticeText(note)
-          if (text) {
-            const line = `⟳ ${text}`
-            const sid = activeSessionRef.current
-            if (sid) setSessionItems(sid, (m) => [...m, {kind: 'system' as const, content: line}])
-            else noticeQueueRef.current = [...noticeQueueRef.current, line]
-          }
         }
       }).catch(() => undefined)
       LocalBuildHash().then((h) => setLocalBuildHash(String(h || ''))).catch(() => undefined)
