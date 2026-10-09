@@ -35,3 +35,101 @@ func LooksSecret(s string) bool {
 	return strings.Contains(l, "api_key") || strings.Contains(l, "api-key") ||
 		strings.Contains(l, "begin ") && strings.Contains(l, "private key")
 }
+
+var (
+	// envAssignRe matches NAME=value / NAME: value, including $env:NAME and $NAME.
+	envAssignRe = regexp.MustCompile(`(?i)((?:\$env:|\$)?[\pL_][\pL0-9_]*)(\s*[:=]\s*)("[^"\n]*"|'[^'\n]*'|[^\s;&|(){}]{1,})`)
+	// secretNameRe matches assignment keys that usually hold credentials.
+	secretNameRe = regexp.MustCompile(`(?i)(password|passwd|passphrase|pwd|secret|token|api[_-]?key|apikey|access[_-]?key|private[_-]?key|credential|bearer|session[_-]?id|cookie|login|username|user|пароль|логин|пользователь)`)
+	// flagAssignRe matches CLI flags like --password x, -p=x, /password:x.
+	flagAssignRe = regexp.MustCompile(`(?i)((?:--?|/)(?:password|passwd|passphrase|pwd|secret|token|api[_-]?key|apikey|access[_-]?key|private[_-]?key|credential|login|username|user))(\s+|[:=]\s*)("[^"\n]*"|'[^'\n]*'|[^\s;&|(){}]{2,})`)
+)
+
+// Display is a stronger mask used only for what the user sees in the chat.
+// Besides everything String hides, it also masks values of environment-style
+// (ALL_CAPS / $env:) and credential-named assignments, plus secret CLI flags.
+// The real values still run and still reach the model; only the transcript text
+// is redacted, so secrets are usable but not shown.
+func Display(s string) string {
+	if s == "" {
+		return s
+	}
+	out := String(s)
+	out = envAssignRe.ReplaceAllStringFunc(out, func(m string) string {
+		sub := envAssignRe.FindStringSubmatch(m)
+		if len(sub) < 4 {
+			return m
+		}
+		name, op, val := sub[1], sub[2], sub[3]
+		raw := strings.Trim(val, "\"'")
+		mask := false
+		switch {
+		case strings.HasPrefix(name, "$"): // $env:NAME= / $NAME= is always a command assignment
+			mask = true
+		case secretNameRe.MatchString(name):
+			mask = true
+		case envStyleName(name) && looksSecretishValue(raw): // ZP='[...]' style
+			mask = true
+		}
+		if mask {
+			return name + op + maskValue(val)
+		}
+		return m
+	})
+	out = flagAssignRe.ReplaceAllStringFunc(out, func(m string) string {
+		sub := flagAssignRe.FindStringSubmatch(m)
+		if len(sub) < 4 {
+			return m
+		}
+		return sub[1] + sub[2] + maskValue(sub[3])
+	})
+	return out
+}
+
+// envStyleName reports whether name looks like an environment variable
+// (ALL_CAPS_WITH_UNDERSCORES), e.g. ZP, PYTHONIOENCODING, DATABASE_URL.
+func envStyleName(name string) bool {
+	name = strings.TrimPrefix(name, "$env:")
+	name = strings.TrimPrefix(name, "$")
+	if name == "" {
+		return false
+	}
+	hasLetter := false
+	for _, r := range name {
+		switch {
+		case r >= 'A' && r <= 'Z':
+			hasLetter = true
+		case r >= '0' && r <= '9', r == '_':
+			// digits and underscores are fine inside an env-style name
+		default:
+			return false
+		}
+	}
+	return hasLetter
+}
+
+func maskValue(v string) string {
+	if len(v) >= 2 && (v[0] == '"' || v[0] == '\'') && v[len(v)-1] == v[0] {
+		return string(v[0]) + "***" + string(v[0])
+	}
+	return "***"
+}
+
+// looksSecretishValue reports whether a value assigned to an ALL_CAPS name looks
+// like a credential rather than a plain word, so prose like "NOTE: something"
+// is not mangled while "ZP=[eqyfhskj]" still gets masked.
+func looksSecretishValue(v string) bool {
+	if len(v) < 4 {
+		return false
+	}
+	for _, r := range v {
+		if r >= '0' && r <= '9' {
+			return true
+		}
+		switch r {
+		case '[', ']', '{', '}', '(', ')', '!', '@', '#', '$', '%', '^', '&', '*', '+', '=', '|', ';', ':', '<', '>', '?', '~', '`', '\'', '"':
+			return true
+		}
+	}
+	return false
+}

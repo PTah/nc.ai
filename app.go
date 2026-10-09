@@ -694,7 +694,9 @@ func (a *App) emit(evt agent.Event) {
 	if a.ctx == nil {
 		return
 	}
-	evt.Content = redact.String(evt.Content)
+	// Отображаемый текст маскируем сильнее, чем контекст модели: пароли и логины
+	// из команд/файлов остаются рабочими, но в чат не попадают.
+	evt.Content = redact.Display(evt.Content)
 	runtime.EventsEmit(a.ctx, "agent:event", evt)
 }
 

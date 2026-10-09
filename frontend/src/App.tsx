@@ -675,6 +675,38 @@ function makeUserItem(text: string, atts: PendingAtt[]): ChatItem {
   }
 }
 
+const USER_SECRET_KEY = '(?:password|passwd|passphrase|pwd|secret|token|api[_-]?key|apikey|access[_-]?key|private[_-]?key|credential|bearer|session[_-]?id|cookie|login|username|user|пароль|логин|пользователь)'
+
+function maskUserValue(v: string): string {
+  if (v.length >= 2 && (v[0] === '"' || v[0] === "'") && v[v.length - 1] === v[0]) {
+    return v[0] + '***' + v[0]
+  }
+  return '***'
+}
+
+/** Маскирует логины/пароли в сообщении пользователя только для показа в чате.
+ *  Модель получает оригинальный текст — значение остаётся рабочим, но не светится. */
+function redactUserForDisplay(s: string): string {
+  if (!s) return s
+  let out = s
+  // NAME=value / NAME: value
+  out = out.replace(
+    new RegExp(`(${USER_SECRET_KEY})[\\w-]*(\\s*[:=]\\s*)("[^"]*"|'[^']*'|[^\\s;&|]+)`, 'gi'),
+    (m, key: string, op: string, val: string) => key + op + maskUserValue(val),
+  )
+  // «логин Вася», «пароль 'СуперВася'»
+  out = out.replace(
+    new RegExp(`\\b(${USER_SECRET_KEY})\\s+("[^"]*"|'[^']*'|[^\\s,;:]+)`, 'gi'),
+    (m, key: string, val: string) => key + ' ' + maskUserValue(val),
+  )
+  // $env:NAME=value / $NAME=value
+  out = out.replace(
+    /((?:\$env:|\$)[A-Za-z_][A-Za-z0-9_]*)\s*[:=]\s*("[^"]*"|'[^']*'|[^\s;&|]+)/g,
+    (m, name: string, val: string) => name + '=' + maskUserValue(val),
+  )
+  return out
+}
+
 function pickNum(u: Record<string, unknown>, ...keys: string[]): number {
   for (const k of keys) {
     const v = u[k]
@@ -1741,6 +1773,8 @@ export default function App() {
   // Скрытые блоки ToDo: sessionId → набор id, который человек убрал из чата.
   const [todosHidden, setTodosHidden] = useState<Record<string, string>>({})
   const [todoCtx, setTodoCtx] = useState<{x: number; y: number; id?: string} | null>(null)
+  // ПКМ по выделенному тексту сообщения → «Цитировать» в поле ввода.
+  const [quoteCtx, setQuoteCtx] = useState<{x: number; y: number; text: string; sid: string} | null>(null)
   // Место в ленте, куда «уезжает» завершённый план задач (индекс элемента чата).
   const [todosFlowAnchor, setTodosFlowAnchor] = useState<Record<string, number>>({})
   const [editor, setEditor] = useState<EditorState | null>(null)
@@ -1780,6 +1814,7 @@ export default function App() {
   // выше «дёргалось» вниз на каждом новом чанке ответа.
   const stickToBottomRef = useRef(true)
   const chatFindInputRef = useRef<HTMLInputElement>(null)
+  const composerRef = useRef<HTMLTextAreaElement>(null)
   const chatFindOpenRef = useRef(false)
   const chatFindRunAt = useRef(0)
   const chatFindHitsRef = useRef<ChatFindHit[]>([])
@@ -1952,6 +1987,27 @@ export default function App() {
     e.preventDefault()
     e.stopPropagation()
     setTodoCtx({x: e.clientX, y: e.clientY, id})
+  }
+
+  // ПКМ по выделенному тексту сообщения → «Цитировать».
+  function openQuoteCtx(e: ReactMouseEvent) {
+    const sel = window.getSelection()
+    const text = (sel ? sel.toString() : '').trim()
+    if (!text) return
+    const sid = activeSessionRef.current
+    if (!sid) return
+    e.preventDefault()
+    e.stopPropagation()
+    setQuoteCtx({x: e.clientX, y: e.clientY, text, sid})
+  }
+
+  function doQuote() {
+    if (!quoteCtx) return
+    const quoted = quoteCtx.text.split('\n').map((line) => `> ${line}`).join('\n')
+    const cur = input
+    setInput((cur ? cur + '\n\n' : '') + quoted + '\n\n', quoteCtx.sid)
+    setQuoteCtx(null)
+    window.setTimeout(() => composerRef.current?.focus(), 0)
   }
 
   function hideTodosFromChat() {
@@ -3490,18 +3546,20 @@ export default function App() {
   }, [showTerm, layout.terminalH])
 
   useEffect(() => {
-    if (!projectCtx && !todoCtx) return
+    if (!projectCtx && !todoCtx && !quoteCtx) return
     const onDown = (e: MouseEvent) => {
       const t = e.target as Node | null
       const menu = document.querySelector('.nc-ctx-menu')
       if (menu && t && menu.contains(t)) return
       setProjectCtx(null)
       setTodoCtx(null)
+      setQuoteCtx(null)
     }
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         setProjectCtx(null)
         setTodoCtx(null)
+        setQuoteCtx(null)
       }
     }
     window.addEventListener('mousedown', onDown)
@@ -3510,7 +3568,7 @@ export default function App() {
       window.removeEventListener('mousedown', onDown)
       window.removeEventListener('keydown', onKey)
     }
-  }, [projectCtx, todoCtx])
+  }, [projectCtx, todoCtx, quoteCtx])
 
   useEffect(() => {
     if (!projectMenu) return
@@ -4473,7 +4531,7 @@ export default function App() {
     reasoningStartRef.current[key] = 0
     setProgressAskedBySession((prev) => ({...prev, [sid]: wantsInterimProgress(text)}))
     if (!skipUserMessage) {
-      setRunLaneItems(sid, runId, (m) => [...m, makeUserItem(text, atts)])
+      setRunLaneItems(sid, runId, (m) => [...m, makeUserItem(redactUserForDisplay(text), atts)])
     }
     setRunOrder((prev) => ({...prev, [sid]: [...asList(prev[sid]), runId]}))
     setRunCountBySession((prev) => ({...prev, [sid]: (prev[sid] || 0) + 1}))
@@ -5302,7 +5360,7 @@ export default function App() {
                     )
                   }
                   return (
-                    <div key={row.key} className={`nc-msg ${m.kind}`}>
+                    <div key={row.key} className={`nc-msg ${m.kind}`} onContextMenu={openQuoteCtx}>
                       <div className="nc-role">
                         {m.kind === 'user' ? 'Вы' : m.kind === 'assistant' ? 'Агент' : 'Система'}
                       </div>
@@ -5460,6 +5518,7 @@ export default function App() {
                   </div>
                 )}
                 <textarea
+                  ref={composerRef}
                   value={input}
                   onChange={(e) => setInput(stripUrlContext(e.target.value))}
                   placeholder="Спросите агента… Ctrl+V / drag-drop — скриншот или файл"
@@ -6939,6 +6998,25 @@ export default function App() {
             onClick={() => void requestCloseProject(projectCtx.path, projectCtx.name)}
           >
             Закрыть папку проекта
+          </button>
+        </div>
+      )}
+
+      {quoteCtx && (
+        <div
+          className="nc-ctx-menu"
+          style={{left: quoteCtx.x, top: quoteCtx.y}}
+          role="menu"
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            type="button"
+            role="menuitem"
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={doQuote}
+          >
+            Цитировать
           </button>
         </div>
       )}

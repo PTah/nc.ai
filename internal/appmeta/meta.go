@@ -5,7 +5,7 @@ import "time"
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "0.8.0"
+	Version = "0.8.1"
 )
 
 // DeepSeekProRetireRFC3339 is the announced V4 Pro retirement instant, empty
@@ -51,19 +51,19 @@ func retiredAt(at time.Time, now time.Time) bool {
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
+	"Логины и пароли маскируются в чате: используются в работе, но не видны",
+	"ПКМ по выделенному тексту → «Цитировать» прямо в поле ввода",
+	"Агент сам дописывает ответ, оборвавшийся по лимиту длины",
 	"Рабочее пространство из нескольких папок: репозитории одного комплекса работают как один",
-	"Левое меню: только список проектов, всё остальное в Menu → Project/File/Settings/Help",
 	"Multitask: несколько запросов в одном чате идут параллельно, каждый своей дорожкой",
-	"Объединение папок ищет и читает по всем корням; лишнюю папку можно убрать из Menu",
-	"About и Exit переехали в Menu, версия 0.8.0",
 }
 
 var HighlightsEN = []string{
+	"Logins and passwords are masked in chat: used at work, never shown",
+	"Right-click a text selection → Quote into the composer",
+	"Agent auto-completes answers cut off by the output length limit",
 	"Multi-folder workspace: repositories of one suite behave like a single repo",
-	"Left panel: projects only — the rest moved into Menu → Project/File/Settings/Help",
 	"Multitask: several requests in one chat run in parallel, each in its own lane",
-	"Search and read span every workspace root; extra folders removable from Menu",
-	"About and Exit live in Menu now, version 0.8.0",
 }
 
 
