@@ -3711,9 +3711,10 @@ export default function App() {
     }
   }
 
-  function openSettingsView() {
+  /** Menu → Settings открывает панель настроек, Menu → Hide Settings закрывает (Ctrl+Shift+S — как раньше). */
+  function toggleSettingsView() {
     setProjectMenu(false)
-    setSettingsVisible(true)
+    setSettingsVisible((v) => !v)
   }
 
   function openAbout() {
@@ -4891,9 +4892,6 @@ export default function App() {
               </>
             )}
           </span>
-          <button type="button" className="nc-ghost" onClick={() => setSettingsVisible((v) => !v)} title="Ctrl+Shift+S">
-            {showSettings ? 'Hide settings' : 'Settings'}
-          </button>
         </div>
       </header>
       <div
@@ -4976,8 +4974,8 @@ export default function App() {
                 </div>
                 <div className="nc-menu-section">
                   <div className="nc-menu-heading">Settings</div>
-                  <button type="button" role="menuitem" onClick={() => void openSettingsView()}>
-                    Settings
+                  <button type="button" role="menuitem" onClick={() => void toggleSettingsView()}>
+                    {showSettings ? 'Hide Settings' : 'Settings'}
                   </button>
                   <button type="button" role="menuitem" onClick={() => void openModelPricesView()}>
                     Model prices
