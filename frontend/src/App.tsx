@@ -5481,6 +5481,76 @@ export default function App() {
                 </div>
               </div>
             )}
+            {toolAsk && (
+              <div className="nc-ask-dock" role="dialog" aria-labelledby="nc-tool-ask-title">
+                {toolAsk.name === 'ask_user' ? (
+                  <AskUserDialog
+                    sessionId={toolAsk.sessionId}
+                    callId={toolAsk.callId}
+                    args={toolAsk.args}
+                    answer={askAnswer}
+                    setAnswer={setAskAnswer}
+                    onDone={() => { setToolAsk(null); setAskAnswer('') }}
+                  />
+                ) : (
+                  <>
+                    <p className="nc-confirm-app">{askContextLabel(toolAsk.sessionId)}</p>
+                    <h2 id="nc-tool-ask-title">Разрешить «{toolAsk.name}»?</h2>
+                    {toolAsk.reason ? (
+                      <p className="nc-rule-edit-err" style={{fontWeight: 600}}>{toolAsk.reason}</p>
+                    ) : null}
+                    <p className="nc-help">
+                      {toolAsk.reason
+                        ? `Команда меняет данные вне текущего проекта. Такие изменения подтверждаются всегда — даже когда галочка «Confirm dangerous tools» выключена. Чтение вне проекта (Get-Content, git log, dir) разрешено молча.`
+                        : 'Агент хочет выполнить потенциально опасное действие.'}
+                    </p>
+                    <pre className="nc-tool-ask-args">{toolAsk.args || '(no args)'}</pre>
+                    <p className="nc-help">
+                      «Разрешить и не спрашивать» — только для этого инструмента и этого чата, до
+                      закрытия приложения (для run_terminal это отключает и проверку выхода за проект).
+                      Совсем без подтверждений внутри проекта — Settings → Agent → «Confirm dangerous
+                      tools».
+                    </p>
+                    <div className="nc-close-project-actions">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const ask = toolAsk
+                          setToolAsk(null)
+                          ResolveToolApproval(ask.sessionId, ask.callId, true)
+                        }}
+                      >
+                        Разрешить
+                      </button>
+                      <button
+                        type="button"
+                        className="nc-ghost"
+                        title={`Больше не спрашивать про ${toolAsk.name} в этом чате`}
+                        onClick={() => {
+                          const ask = toolAsk
+                          setToolAsk(null)
+                          AllowToolForSession(ask.sessionId, ask.name)
+                          ResolveToolApproval(ask.sessionId, ask.callId, true)
+                        }}
+                      >
+                        Разрешить и не спрашивать
+                      </button>
+                      <button
+                        type="button"
+                        className="nc-danger"
+                        onClick={() => {
+                          const ask = toolAsk
+                          setToolAsk(null)
+                          ResolveToolApproval(ask.sessionId, ask.callId, false)
+                        }}
+                      >
+                        Запретить
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
             <div className="nc-composer-wrap">
               {showRunStatus && (
                 <div className="nc-run-status" title="Текущий этап работы агента">
@@ -7049,84 +7119,6 @@ export default function App() {
                 Отмена
               </button>
             </div>
-          </div>
-        </div>
-      )}
-
-      {toolAsk && (
-        <div className="nc-modal-backdrop" role="presentation">
-          <div
-            className="nc-modal nc-confirm"
-            role="dialog"
-            aria-labelledby="nc-tool-ask-title"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {toolAsk.name === 'ask_user' ? (
-              <AskUserDialog
-                sessionId={toolAsk.sessionId}
-                callId={toolAsk.callId}
-                args={toolAsk.args}
-                answer={askAnswer}
-                setAnswer={setAskAnswer}
-                onDone={() => { setToolAsk(null); setAskAnswer('') }}
-              />
-            ) : (
-              <>
-                <p className="nc-confirm-app">{askContextLabel(toolAsk.sessionId)}</p>
-                <h2 id="nc-tool-ask-title">Разрешить «{toolAsk.name}»?</h2>
-                {toolAsk.reason ? (
-                  <p className="nc-rule-edit-err" style={{fontWeight: 600}}>{toolAsk.reason}</p>
-                ) : null}
-                <p className="nc-help">
-                  {toolAsk.reason
-                    ? `Команда меняет данные вне текущего проекта. Такие изменения подтверждаются всегда — даже когда галочка «Confirm dangerous tools» выключена. Чтение вне проекта (Get-Content, git log, dir) разрешено молча.`
-                    : 'Агент хочет выполнить потенциально опасное действие.'}
-                </p>
-                <pre className="nc-tool-ask-args">{toolAsk.args || '(no args)'}</pre>
-                <p className="nc-help">
-                  «Разрешить и не спрашивать» — только для этого инструмента и этого чата, до
-                  закрытия приложения (для run_terminal это отключает и проверку выхода за проект).
-                  Совсем без подтверждений внутри проекта — Settings → Agent → «Confirm dangerous
-                  tools».
-                </p>
-                <div className="nc-close-project-actions">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const ask = toolAsk
-                      setToolAsk(null)
-                      ResolveToolApproval(ask.sessionId, ask.callId, true)
-                    }}
-                  >
-                    Разрешить
-                  </button>
-                  <button
-                    type="button"
-                    className="nc-ghost"
-                    title={`Больше не спрашивать про ${toolAsk.name} в этом чате`}
-                    onClick={() => {
-                      const ask = toolAsk
-                      setToolAsk(null)
-                      AllowToolForSession(ask.sessionId, ask.name)
-                      ResolveToolApproval(ask.sessionId, ask.callId, true)
-                    }}
-                  >
-                    Разрешить и не спрашивать
-                  </button>
-                  <button
-                    type="button"
-                    className="nc-danger"
-                    onClick={() => {
-                      const ask = toolAsk
-                      setToolAsk(null)
-                      ResolveToolApproval(ask.sessionId, ask.callId, false)
-                    }}
-                  >
-                    Запретить
-                  </button>
-                </div>
-              </>
-            )}
           </div>
         </div>
       )}

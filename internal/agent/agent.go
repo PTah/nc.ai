@@ -624,9 +624,73 @@ func (r *Runner) chat(ctx context.Context, req *llm.ChatRequest, emit EmitFunc) 
 			return nil, false, ctx.Err()
 		}
 		waited += wait
+		// Сетевой обрыв посреди ответа: дописываем с места обрыва, чтобы не
+		// терять уже показанный текст и не дублировать его. Полный перезапуск
+		// оставляем на случай, когда текста ещё нет (обрыв до первого токена).
+		if streamed && assistantText(resp) != "" {
+			next, _, nextErr := r.chatOnce(ctx, continuationRequest(req, resp), emit)
+			if nextErr == nil && next != nil {
+				resp = mergeContinuation(resp, next)
+				streamed = true
+				err = nil
+				break
+			}
+			// Хвост снова оборвался: накапливаем то, что успели, и пробуем ещё.
+			resp = mergeContinuation(resp, next)
+			streamed = true
+			err = nextErr
+			continue
+		}
 		resp, streamed, err = r.chatOnce(ctx, req, emit)
 	}
 	return resp, streamed, err
+}
+
+// assistantText — накопленный текст ответа ("" если модель отдала только рассуждение).
+func assistantText(resp *llm.ChatResponse) string {
+	if resp == nil || len(resp.Choices) == 0 {
+		return ""
+	}
+	if strings.TrimSpace(resp.Choices[0].Message.Content) == "" {
+		return ""
+	}
+	return resp.Choices[0].Message.Content
+}
+
+// continuationRequest дополняет исходный запрос частичным ответом и просьбой
+// дописать хвост: после сетевого обрыва ответ продолжается, а не начинается заново.
+func continuationRequest(req *llm.ChatRequest, partial *llm.ChatResponse) *llm.ChatRequest {
+	next := *req
+	msgs := make([]llm.Message, 0, len(req.Messages)+2)
+	msgs = append(msgs, req.Messages...)
+	last := partial.Choices[0].Message
+	last.Role = "assistant"
+	msgs = append(msgs, last, llm.UserText(lengthContinueNudge))
+	next.Messages = msgs
+	return &next
+}
+
+// mergeContinuation склеивает частичный ответ и дописанный хвост — и для UI
+// (дельты уже склеены на клиенте), и для истории чата.
+func mergeContinuation(a, b *llm.ChatResponse) *llm.ChatResponse {
+	if a == nil {
+		return b
+	}
+	if b == nil || len(b.Choices) == 0 {
+		return a
+	}
+	am, bm := a.Choices[0].Message, b.Choices[0].Message
+	am.Content += bm.Content
+	am.ReasoningContent += bm.ReasoningContent
+	if len(bm.ToolCalls) > 0 {
+		am.ToolCalls = bm.ToolCalls
+	}
+	out := *a
+	out.Choices = []llm.Choice{{Index: 0, FinishReason: b.Choices[0].FinishReason, Message: am}}
+	if b.Usage != nil {
+		out.Usage = b.Usage
+	}
+	return &out
 }
 
 func (r *Runner) chatOnce(ctx context.Context, req *llm.ChatRequest, emit EmitFunc) (*llm.ChatResponse, bool, error) {
@@ -636,11 +700,16 @@ func (r *Runner) chatOnce(ctx context.Context, req *llm.ChatRequest, emit EmitFu
 		// (<think>…</think>): разводим поток на ответ и reasoning, чтобы теги не
 		// попадали в текст ответа и в историю чата.
 		var split llm.ThinkSplitter
+		// Копим то, что уже отдали в UI: при сетевом обрыве посреди ответа
+		// вернём это как частичный ответ, чтобы вызывающий дописал хвост, а не
+		// начинал генерацию заново.
+		var accBody, accThink strings.Builder
 		emitReasoning := func(s string) {
 			if strings.TrimSpace(s) == "" {
 				return
 			}
 			streamed = true
+			accThink.WriteString(s)
 			r.stallTouch("модель присылает рассуждение")
 			emit(Event{Type: "reasoning", Content: s})
 		}
@@ -649,6 +718,7 @@ func (r *Runner) chatOnce(ctx context.Context, req *llm.ChatRequest, emit EmitFu
 				return
 			}
 			streamed = true
+			accBody.WriteString(s)
 			r.stallTouch("модель присылает ответ")
 			emit(Event{Type: "delta", Content: s})
 		}
@@ -666,6 +736,17 @@ func (r *Runner) chatOnce(ctx context.Context, req *llm.ChatRequest, emit EmitFu
 			body, think := split.Flush()
 			emitReasoning(think)
 			emitBody(body)
+		}
+		if err != nil && resp == nil && (accBody.Len() > 0 || accThink.Len() > 0) {
+			resp = &llm.ChatResponse{Choices: []llm.Choice{{
+				Index:        0,
+				FinishReason: "drop",
+				Message: llm.Message{
+					Role:             "assistant",
+					Content:          accBody.String(),
+					ReasoningContent: accThink.String(),
+				},
+			}}}
 		}
 		return resp, streamed, err
 	}
