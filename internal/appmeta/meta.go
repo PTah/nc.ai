@@ -5,7 +5,7 @@ import "time"
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "0.8.2"
+	Version = "0.8.3"
 )
 
 // DeepSeekProRetireRFC3339 is the announced V4 Pro retirement instant, empty
@@ -51,19 +51,19 @@ func retiredAt(at time.Time, now time.Time) bool {
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
+	"Ответ не обрывается: при потере сети агент дописывает прерванный ответ",
+	"Окно вопросов и подтверждений больше не накрывает чат — панель над полем ввода",
 	"Логины и пароли (в т.ч. в URL user:pass@host) маскируются в чате",
-	"Маскировка ловит падежи и JSON: «логином X», \"user\": \"…\", Basic-auth",
-	"Из ленты чата убрана вечная строка «Приложение перезапущено»",
-	"Рабочее пространство из нескольких папок: репозитории одного комплекса работают как один",
 	"Multitask: несколько запросов в одном чате идут параллельно, каждый своей дорожкой",
+	"Рабочее пространство из нескольких папок: репозитории одного комплекса работают как один",
 }
 
 var HighlightsEN = []string{
+	"Answers no longer cut off: after a network drop the agent writes the rest",
+	"Ask / approval dialog no longer covers the chat — it docks above the input",
 	"Logins and passwords (incl. URL user:pass@host) are masked in chat",
-	"Masking now covers case forms and JSON: \"user\": \"…\" and Basic-auth",
-	"The permanent \"App restarted\" line is gone from the chat transcript",
-	"Multi-folder workspace: repositories of one suite behave like a single repo",
 	"Multitask: several requests in one chat run in parallel, each in its own lane",
+	"Multi-folder workspace: repositories of one suite behave like a single repo",
 }
 
 

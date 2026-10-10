@@ -1580,6 +1580,32 @@ mark.nc-find-mark.nc-find-current {
   font-size: 1.05rem;
 }
 
+/* Ask / tool-approval panel: docked inside the chat column, right above the
+   input, so the transcript stays visible and scrollable while the user decides.
+   Mirrors .nc-queue-pending (normal flow, pushes the thread up, no backdrop). */
+.nc-ask-dock {
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  align-self: center;
+  width: min(var(--layout-chat-max, 100%), calc(100% - 2rem));
+  max-width: calc(100% - 2rem);
+  max-height: min(52vh, 460px);
+  overflow: auto;
+  margin: 0.5rem 0 0;
+  padding: 0.8rem 0.95rem 0.9rem;
+  border: 1px solid var(--accent, #3d8bfd);
+  border-radius: 12px;
+  background: var(--panel);
+  box-shadow: 0 -8px 22px rgba(0, 0, 0, 0.3);
+}
+.nc-ask-dock h2 {
+  margin: 0 0 0.45rem;
+  font-size: 1.05rem;
+}
+.nc-ask-dock .nc-tool-ask-args {
+  max-height: min(38vh, 260px);
+}
+
 /* Restart notice: why the app (re)started (update / unclean exit). */
 .nc-restart-note {
   display: flex;
