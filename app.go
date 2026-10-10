@@ -191,6 +191,9 @@ func (a *App) startup(ctx context.Context) {
 	costing.ApplyPersisted(a.cfg)
 	go a.priceRefreshLoop()
 	go a.autoCheckUpdate()
+	// Список проектов поднимается из RecentProjects с дисковым I/O: фронтенд мог
+	// запросить его, пока открыты ещё не все. Просим UI обновить сайдбар.
+	runtime.EventsEmit(a.ctx, "projects:changed", nil)
 }
 
 // autoCheckUpdate — тихая проверка обновлений после старта. Сеть не должна
@@ -299,11 +302,12 @@ func (a *App) domReady(ctx context.Context) {
 	s := a.cfg.Get()
 	if s.WindowMaximised {
 		runtime.WindowMaximise(ctx)
-		return
-	}
-	if s.WindowPosSet {
+	} else if s.WindowPosSet {
 		runtime.WindowSetPosition(ctx, s.WindowX, s.WindowY)
 	}
+	// Страховка от гонки со startup: список проектов мог ещё догружаться, когда
+	// фронтенд запросил его впервые. Пусть UI перечитает.
+	runtime.EventsEmit(a.ctx, "projects:changed", nil)
 }
 
 // noticeDeepSeekProRetired tells the chat once per launch that V4 Pro is retired.
