@@ -2774,6 +2774,7 @@ export default function App() {
     let offUpdate: (() => void) | undefined
     let offUpdateProgress: (() => void) | undefined
     let offUpdateInstall: (() => void) | undefined
+    let offProjects: (() => void) | undefined
     try {
       offAgent = EventsOn('agent:event', (...args: unknown[]) => {
         try {
@@ -3012,6 +3013,13 @@ export default function App() {
         setUpdateProgress({done: Number(rec.done) || 0, total: Number(rec.total) || 0})
       })
       offUpdateInstall = EventsOn('update:installing', () => setUpdatePhase('installing'))
+      offProjects = EventsOn('projects:changed', () => {
+        void ListProjects().then((v) => {
+          const list = asList(v)
+          setProjects(list)
+          setActive((cur) => (cur && list.some((p) => p.path === cur.path) ? cur : list[0] ?? cur))
+        }).catch(() => undefined)
+      })
     } catch {
       // runtime bindings not ready
     }
@@ -3029,6 +3037,8 @@ export default function App() {
         offUpdate?.()
         offUpdateProgress?.()
         offUpdateInstall?.()
+        EventsOff('projects:changed')
+        offProjects?.()
       } catch {
         /* ignore */
       }
