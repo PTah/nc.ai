@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"notcursor.ai/app/internal/appmeta"
 	"notcursor.ai/app/internal/llm"
@@ -1108,7 +1109,7 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 				emit(Event{Type: "error", Content: emptyAnswerError(
 					finish, r.LocalNumCtx, r.LocalServerKind, strings.TrimSpace(msg.ReasoningContent) != "", usagePromptTokens(resp.Usage),
 				)})
-			} else if finish == "length" {
+			} else if finish == "length" || (!r.isLocal() && looksTruncated(msg.Content)) {
 				// Ответ упёрся в max output tokens. Вместо обрыва на полуслове
 				// просим модель дописать хвост с того же места. Лимит попыток
 				// защищает от зацикливания, если модель всегда упирается в лимит.
@@ -1255,6 +1256,23 @@ func longStepNotice(name, argsJSON string) string {
 			what, llm.FormatWait(wait))
 	}
 	return fmt.Sprintf("Возможен долгий шаг: %s — лимит до %s. Если пойдёт дольше, сообщу.", what, llm.FormatWait(wait))
+}
+
+// looksTruncated — слабый сигнал «ответ оборвался на полуслове», когда провайдер
+// вернул finish_reason=stop, но текст реально обрезан. Используется как fallback
+// для облачных провайдеров (локальные часто просто не ставят финальную точку —
+// их обрабатывают ветка length и проверка пустого ответа).
+func looksTruncated(s string) bool {
+	r := []rune(strings.TrimRight(s, " \t"))
+	if len(r) < 200 {
+		return false
+	}
+	last := r[len(r)-1]
+	if !unicode.IsLetter(last) {
+		return false
+	}
+	prev := r[len(r)-2]
+	return unicode.IsLetter(prev) || unicode.IsDigit(prev)
 }
 
 func truncate(s string, n int) string {
