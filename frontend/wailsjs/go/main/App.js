@@ -514,6 +514,10 @@ export function SetIDEContext(arg1, arg2) {
   return window['go']['main']['App']['SetIDEContext'](arg1, arg2);
 }
 
+export function SetProjectLocked(arg1, arg2) {
+  return window['go']['main']['App']['SetProjectLocked'](arg1, arg2);
+}
+
 export function SetSessionModel(arg1, arg2) {
   return window['go']['main']['App']['SetSessionModel'](arg1, arg2);
 }

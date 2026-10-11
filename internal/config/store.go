@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -130,6 +131,9 @@ type Settings struct {
 	Shell          string   `json:"shell"`
 	RecentProjects []string `json:"recentProjects"`
 	LastProject    string   `json:"lastProject,omitempty"`
+	// LockedProjects — workspaces on a "lock": no messages can be sent there and
+	// the agent never runs, so different projects are not mixed by accident.
+	LockedProjects []string `json:"lockedProjects,omitempty"`
 	// ProjectRoots persists extra folders merged into a workspace (keyed by the
 	// workspace anchor path). The anchor itself is not duplicated here.
 	ProjectRoots map[string][]string `json:"projectRoots,omitempty"`
@@ -1599,6 +1603,51 @@ func (s *Store) RemoveRecentProject(path string) error {
 	s.settings.RecentProjects = out
 	s.mu.Unlock()
 	return s.Save()
+}
+
+// IsProjectLocked reports whether the workspace at path is on lock: the chat
+// cannot send messages there and the agent will not run.
+func (s *Store) IsProjectLocked(path string) bool {
+	if strings.TrimSpace(path) == "" {
+		return false
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, p := range s.settings.LockedProjects {
+		if sameLockPath(p, path) {
+			return true
+		}
+	}
+	return false
+}
+
+// SetProjectLocked puts a workspace on lock (or takes it off) and persists it.
+func (s *Store) SetProjectLocked(path string, locked bool) error {
+	if strings.TrimSpace(path) == "" {
+		return nil
+	}
+	s.mu.Lock()
+	out := make([]string, 0, len(s.settings.LockedProjects)+1)
+	for _, p := range s.settings.LockedProjects {
+		if !sameLockPath(p, path) {
+			out = append(out, p)
+		}
+	}
+	if locked {
+		out = append(out, filepath.Clean(path))
+	}
+	s.settings.LockedProjects = out
+	s.mu.Unlock()
+	return s.Save()
+}
+
+// sameLockPath compares workspace paths, case-insensitively on Windows.
+func sameLockPath(a, b string) bool {
+	ca, cb := filepath.Clean(a), filepath.Clean(b)
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(ca, cb)
+	}
+	return ca == cb
 }
 
 // GetProjectRoots returns the extra folders persisted for a workspace anchor.

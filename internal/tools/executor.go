@@ -139,9 +139,16 @@ func (r *Registry) Execute(ctx context.Context, call llm.ToolCall) (string, erro
 		}
 		path, _ := args["path"].(string)
 		content, _ := args["content"].(string)
+		op := "Created"
+		if abs, rerr := r.ws().Resolve(path); rerr == nil {
+			if _, serr := os.Stat(abs); serr == nil {
+				op = "Edited"
+			}
+		}
 		if err := r.ws().WriteFile(path, content); err != nil {
 			return "", err
 		}
+		r.stampFileHeader(path, op)
 		return fmt.Sprintf("wrote %s (%d bytes)", path, len(content)), nil
 	case "delete_file":
 		if r.PlanMode {
@@ -168,11 +175,13 @@ func (r *Registry) Execute(ctx context.Context, call llm.ToolCall) (string, erro
 			return "", fmt.Errorf("from and to are required")
 		}
 		if _, err := r.Git.Mv(from, to); err == nil {
+			r.stampFileHeader(to, "Moved")
 			return fmt.Sprintf("moved %s → %s (git)", from, to), nil
 		}
 		if err := r.ws().MovePath(from, to); err != nil {
 			return "", err
 		}
+		r.stampFileHeader(to, "Moved")
 		return fmt.Sprintf("moved %s → %s", from, to), nil
 	case "apply_patch":
 		if r.PlanMode {
@@ -200,6 +209,7 @@ func (r *Registry) Execute(ctx context.Context, call llm.ToolCall) (string, erro
 		if err := r.ws().WriteFile(path, next); err != nil {
 			return "", err
 		}
+		r.stampFileHeader(path, "Edited")
 		return fmt.Sprintf("patched %s (%d replacement(s), %d → %d bytes)", path, n, len(raw), len(next)), nil
 	case "list_dir":
 		path, _ := args["path"].(string)
