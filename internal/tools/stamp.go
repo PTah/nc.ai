@@ -26,6 +26,9 @@ import (
 // followed by a "YYYY-MM-DD HH:MM:SS" timestamp.
 var stampLineRe = regexp.MustCompile(`by nc\.ai \S+ on \S+ \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}`)
 
+// stampHostRe pulls the machine name out of a provenance line.
+var stampHostRe = regexp.MustCompile(`by nc\.ai \S+ on (\S+) \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}`)
+
 // stampStyle is how a single-line comment is written for a file type.
 type stampStyle struct {
 	line  string // line-comment token, e.g. "//" or "#"
@@ -84,7 +87,7 @@ func (r *Registry) stampFileHeader(path, op string) {
 	body := fmt.Sprintf("%s by nc.ai %s on %s", op, appmeta.Version, host)
 	full := stampWrap(style, body+" "+when)
 
-	next := mergeStampBlock(raw, full, body)
+	next := mergeStampBlock(raw, full, host)
 	if next == raw {
 		return
 	}
@@ -98,10 +101,10 @@ func stampWrap(s stampStyle, text string) string {
 	return s.line + " " + text
 }
 
-// mergeStampBlock inserts `full` as the first line, or appends it to the existing
-// provenance block; if a line for the same build+op+host already exists, its
-// timestamp is refreshed instead of adding a duplicate.
-func mergeStampBlock(src, full, bodyPrefix string) string {
+// mergeStampBlock records this machine in the provenance block. A line is added
+// only when the file has no stamp yet, or when the LAST stamp was written on
+// another machine — edits from the same machine do not add a line every time.
+func mergeStampBlock(src, full, host string) string {
 	crlf := strings.Contains(src, "\r\n")
 	lines := strings.Split(strings.ReplaceAll(src, "\r\n", "\n"), "\n")
 
@@ -114,15 +117,19 @@ func mergeStampBlock(src, full, bodyPrefix string) string {
 		end++
 	}
 
-	sameLine := regexp.MustCompile(regexp.QuoteMeta(bodyPrefix) + ` \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}`)
-	for i := start; i < end; i++ {
-		if sameLine.MatchString(lines[i]) {
-			lines[i] = full
-			return joinStampLines(lines, crlf)
-		}
+	if end > start && stampLineHost(lines[end-1]) == host {
+		return src // this machine is already the last one recorded
 	}
 	lines = insertLine(lines, end, full)
 	return joinStampLines(lines, crlf)
+}
+
+// stampLineHost pulls the machine name out of a provenance line.
+func stampLineHost(line string) string {
+	if m := stampHostRe.FindStringSubmatch(line); m != nil {
+		return m[1]
+	}
+	return ""
 }
 
 func insertLine(lines []string, at int, line string) []string {
