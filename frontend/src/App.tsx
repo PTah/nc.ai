@@ -2160,6 +2160,17 @@ export default function App() {
     } catch { /* автовоспроизведение запрещено — работе агента не мешаем */ }
   }, [])
 
+  // Chime means "everything is finished": play it only when no other chat is
+  // still running and nothing is waiting in a queue. Otherwise it fires for one
+  // chat while another chat (or a queued follow-up) keeps working — exactly the
+  // "sound, but the app is still busy" confusion.
+  const noWorkLeft = useCallback((finishedSid: string) => {
+    const busyElsewhere = Object.entries(busyBySessionRef.current)
+      .some(([id, isBusy]) => Boolean(isBusy) && id !== finishedSid)
+    if (busyElsewhere) return false
+    return !Object.values(queuesRef.current).some((q) => asList(q).length > 0)
+  }, [])
+
   // Load the clip once: it is embedded in the binary (works on macOS and Windows).
   useEffect(() => {
     let alive = true
@@ -2963,7 +2974,7 @@ export default function App() {
           } else if (ev.type === 'done' || ev.type === 'persist') {
             closeReasoningIn(key, apply)
             finishRunUI(sid, runId)
-            if (ev.type === 'done') playEndSound()
+            if (ev.type === 'done' && noWorkLeft(sid)) playEndSound()
             if (sid === activeSessionRef.current) setRetryVisible(false)
             void applyUsageStats()
           } else if (ev.type === 'error') {
@@ -4540,6 +4551,11 @@ export default function App() {
   ): Promise<RunStartResult> {
     if (!sid || sid !== activeSessionRef.current) return 'invalid'
     if (!text && atts.length === 0) return 'invalid'
+    // По умолчанию сообщение, отправленное во время прогона, уходит в очередь —
+    // оно не должно перебивать текущий прогон и не должно запускать параллельный
+    // само по себе. Параллельный запуск — только явно: force=true приходит из
+    // кнопки «Параллельно» на карточке очереди.
+    if (busyBySessionRef.current[sid] && !force) return 'busy'
     // Parallel runs share one chat: each run gets its own lane id and streams
     // into that lane. The backend routes events back by this same id.
     const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
@@ -4640,10 +4656,9 @@ export default function App() {
     setInput('', sid)
     setPendingAtts([], sid)
     const res = await runAgent(sid, text, atts)
-    if (res === 'invalid') {
-      // Never lose the question: keep it queued for this chat instead. On
-      // 'error' the question is already in the transcript with a Retry button,
-      // so re-queueing it would just auto-retry in a loop.
+    if (res === 'busy' || res === 'invalid') {
+      // Пока чат занят, новый вопрос ждёт в очереди. На 'error' вопрос уже в
+      // ленте с кнопкой Retry, поэтому повторная постановка дала бы цикл.
       const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
       setQueue((q) => [...q, {id, text, atts}], sid)
     }
@@ -5472,10 +5487,10 @@ export default function App() {
                         <button
                           type="button"
                           className="nc-ghost"
-                          title="Остановить текущий ответ и отправить сейчас"
+                          title="Запустить этот запрос параллельно текущему (multitask)"
                           onClick={() => void sendQueuedNow(q.id)}
                         >
-                          Send now
+                          Параллельно
                         </button>
                         <button
                           type="button"

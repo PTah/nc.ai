@@ -5,7 +5,7 @@ import "time"
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "0.8.3.1"
+	Version = "0.8.3.2"
 )
 
 // DeepSeekProRetireRFC3339 is the announced V4 Pro retirement instant, empty
@@ -51,21 +51,20 @@ func retiredAt(at time.Time, now time.Time) bool {
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
-	"Список проектов в сайдбаре полностью появляется сразу при старте",
-	"Ответ не обрывается: при потере сети агент дописывает прерванный ответ",
-	"Окно вопросов и подтверждений больше не накрывает чат — панель над полем ввода",
+	"Сообщение во время прогона ждёт в очереди — параллельно только кнопкой",
+	"Звук окончания — когда завершена вся работа, а не один чат",
 	"Рабочее пространство из нескольких папок: репозитории одного комплекса работают как один",
 	"Multitask: несколько запросов в одном чате идут параллельно, каждый своей дорожкой",
+	"Ответ не обрывается: при потере сети агент дописывает прерванный ответ",
 }
 
 var HighlightsEN = []string{
-	"The sidebar shows the full project list right at startup",
-	"Answers no longer cut off: after a network drop the agent writes the rest",
-	"Ask / approval dialog no longer covers the chat — it docks above the input",
+	"A message sent during a run waits in the queue — parallel only via a button",
+	"The end chime plays only when all work is done, not when a single chat finishes",
 	"Multi-folder workspace: repositories of one suite behave like a single repo",
 	"Multitask: several requests in one chat run in parallel, each in its own lane",
+	"Answers no longer cut off: after a network drop the agent writes the rest",
 }
-
 
 // UICopy is localized chrome for the Welcome splash.
 type UICopy struct {
