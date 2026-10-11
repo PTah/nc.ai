@@ -23,55 +23,48 @@ func TestStampStyleFor(t *testing.T) {
 	}
 }
 
-func TestMergeStampBlockInsertsAndAppends(t *testing.T) {
-	line1 := "// Created by nc.ai 0.8.3.3 on HOST1 2026-10-11 15:00:00"
-	body1 := "Created by nc.ai 0.8.3.3 on HOST1"
-
-	got := mergeStampBlock("package main\n", line1, body1)
-	if !strings.HasPrefix(got, line1+"\npackage main") {
+func TestMergeStampBlockFirstLineAtTop(t *testing.T) {
+	line := "// Created by nc.ai 0.8.3.3 on HOST1 2026-10-11 15:00:00"
+	got := mergeStampBlock("package main\n", line, "HOST1")
+	if !strings.HasPrefix(got, line+"\npackage main") {
 		t.Fatalf("line not inserted at the top: %q", got)
 	}
+}
 
-	line2 := "// Edited by nc.ai 0.8.3.3 on HOST2 2026-10-11 16:00:00"
-	body2 := "Edited by nc.ai 0.8.3.3 on HOST2"
-	got = mergeStampBlock(got, line2, body2)
-	if !strings.Contains(got, line1) || !strings.Contains(got, line2) {
-		t.Fatalf("both lines must be present: %q", got)
+func TestMergeStampBlockSameHostAddsNothing(t *testing.T) {
+	src := "// Created by nc.ai 0.8.3.3 on HOST1 2026-10-11 15:00:00\npackage main\n"
+	line := "// Edited by nc.ai 0.8.3.3 on HOST1 2026-10-11 15:05:00"
+	if got := mergeStampBlock(src, line, "HOST1"); got != src {
+		t.Fatalf("same host must not add a line: %q", got)
 	}
-	if strings.Index(got, line1) > strings.Index(got, line2) {
+}
+
+func TestMergeStampBlockOtherHostAppends(t *testing.T) {
+	src := "// Created by nc.ai 0.8.3.3 on HOST1 2026-10-11 15:00:00\npackage main\n"
+	line := "// Edited by nc.ai 0.8.3.3 on HOST2 2026-10-11 16:00:00"
+	got := mergeStampBlock(src, line, "HOST2")
+	if strings.Count(got, "by nc.ai") != 2 {
+		t.Fatalf("another host must add its own line: %q", got)
+	}
+	if strings.Index(got, "HOST1") > strings.Index(got, "HOST2") {
 		t.Fatalf("oldest line must come first: %q", got)
 	}
 }
 
-func TestMergeStampBlockRefreshesSameAgent(t *testing.T) {
-	body := "Edited by nc.ai 0.8.3.3 on HOST1"
-	src := "// Edited by nc.ai 0.8.3.3 on HOST1 2026-10-11 15:00:00\npackage main\n"
-	updated := "// Edited by nc.ai 0.8.3.3 on HOST1 2026-10-11 15:05:00"
-
-	got := mergeStampBlock(src, updated, body)
-	if strings.Contains(got, "15:00:00") {
-		t.Fatalf("old timestamp must be replaced: %q", got)
-	}
-	if strings.Count(got, "by nc.ai") != 1 {
-		t.Fatalf("must not duplicate the line: %q", got)
+func TestMergeStampBlockSameHostAgainAfterOther(t *testing.T) {
+	src := "// Created by nc.ai 0.8.3.3 on HOST1 2026-10-11 15:00:00\n" +
+		"// Edited by nc.ai 0.8.3.3 on HOST2 2026-10-11 16:00:00\npackage main\n"
+	line := "// Edited by nc.ai 0.8.3.3 on HOST1 2026-10-11 17:00:00"
+	got := mergeStampBlock(src, line, "HOST1")
+	if strings.Count(got, "by nc.ai") != 3 {
+		t.Fatalf("HOST1 must add a line again after HOST2: %q", got)
 	}
 }
 
 func TestMergeStampBlockKeepsShebangFirst(t *testing.T) {
 	line := "# Created by nc.ai 0.8.3.3 on HOST1 2026-10-11 15:00:00"
-	got := mergeStampBlock("#!/usr/bin/env python3\nprint(1)\n", line, "Created by nc.ai 0.8.3.3 on HOST1")
+	got := mergeStampBlock("#!/usr/bin/env python3\nprint(1)\n", line, "HOST1")
 	if !strings.HasPrefix(got, "#!/usr/bin/env python3\n"+line) {
 		t.Fatalf("shebang must stay first: %q", got)
-	}
-}
-
-func TestMergeStampBlockDifferentHostAppends(t *testing.T) {
-	src := "// Edited by nc.ai 0.8.3.3 on HOST1 2026-10-11 15:00:00\nx = 1\n"
-	body2 := "Edited by nc.ai 0.8.3.3 on HOST2"
-	line2 := "// Edited by nc.ai 0.8.3.3 on HOST2 2026-10-11 16:00:00"
-
-	got := mergeStampBlock(src, line2, body2)
-	if strings.Count(got, "by nc.ai") != 2 {
-		t.Fatalf("another host must add its own line: %q", got)
 	}
 }
