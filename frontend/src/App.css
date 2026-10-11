@@ -1606,18 +1606,27 @@ mark.nc-find-mark.nc-find-current {
   max-height: min(38vh, 260px);
 }
 
-/* Per-project "lock": the small padlock on the project row and the banner that
-   blocks the composer while a project is on lock. */
+/* Per-project "lock": the padlock sits at the LEFT of the project row (before the
+   icon and the name), so it can never be covered by a long project name. Its
+   width is always reserved — the name is shifted right by it and does not jump
+   when the padlock appears on hover. */
 .nc-projects .nc-list li {
   position: relative;
+  display: flex;
+  align-items: center;
+  gap: 2px;
 }
-.nc-project-lock {
-  position: absolute;
-  right: 5px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 22px;
-  height: 22px;
+.nc-projects .nc-list li .nc-project-btn {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+}
+.nc-projects .nc-list li .nc-project-lock {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  padding: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1633,12 +1642,13 @@ mark.nc-find-mark.nc-find-current {
 .nc-projects .nc-list li:hover .nc-project-lock {
   opacity: 0.6;
 }
-.nc-project-lock.on {
+.nc-projects .nc-list li .nc-project-lock.on {
   opacity: 1;
 }
-.nc-project-lock:hover {
+.nc-projects .nc-list li .nc-project-lock:hover {
   opacity: 1;
   background: color-mix(in srgb, currentColor 14%, transparent);
+  border-color: transparent;
 }
 .nc-locked-banner {
   flex: 0 0 auto;
