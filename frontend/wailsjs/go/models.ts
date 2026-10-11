@@ -843,6 +843,7 @@ export namespace workspace {
 	    roots?: string[];
 	    opened: string;
 	    iconUrl?: string;
+	    locked?: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new Project(source);
@@ -855,6 +856,7 @@ export namespace workspace {
 	        this.roots = source["roots"];
 	        this.opened = source["opened"];
 	        this.iconUrl = source["iconUrl"];
+	        this.locked = source["locked"];
 	    }
 	}
 

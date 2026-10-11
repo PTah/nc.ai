@@ -2217,7 +2217,22 @@ func (a *App) projectByPath(path string) *workspace.Project {
 }
 
 func (a *App) ListProjects() []workspace.Project {
-	return a.ws.List()
+	list := a.ws.List()
+	for i := range list {
+		list[i].Locked = a.cfg.IsProjectLocked(list[i].Path)
+	}
+	return list
+}
+
+// SetProjectLocked puts a workspace on lock (or takes it off). While locked the
+// chat cannot send messages and the agent will not run there, so unrelated
+// remarks are not sent into the wrong project.
+func (a *App) SetProjectLocked(path string, locked bool) error {
+	if err := a.cfg.SetProjectLocked(path, locked); err != nil {
+		return err
+	}
+	runtime.EventsEmit(a.ctx, "projects:changed", nil)
+	return nil
 }
 
 // PickProjectDir asks for an existing folder to open as a project.
@@ -2974,6 +2989,10 @@ func (a *App) RunAgentInSession(sessionID, runID, userMessage string, attachment
 	}
 	if projKey == "" {
 		return fmt.Errorf("проект не выбран: некуда запускать агента")
+	}
+	// Замок проекта: в него нельзя писать и агент там не запускается.
+	if a.cfg.IsProjectLocked(projKey) {
+		return fmt.Errorf("проект на замке — снимите замок, чтобы писать в него")
 	}
 	_, _ = a.ws.ActiveRoot()
 

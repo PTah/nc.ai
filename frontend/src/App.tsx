@@ -131,6 +131,7 @@ import {
   WriteCursorRule,
   WriteFile,
   ListProjects,
+  SetProjectLocked,
 } from '../wailsjs/go/main/App'
 import {EventsOn, EventsOff, ClipboardSetText, BrowserOpenURL, Quit} from '../wailsjs/runtime/runtime'
 import BrandMark from './BrandMark'
@@ -139,7 +140,7 @@ import ProjectIcon from './ProjectIcon'
 import {applyChatFindMarks, clearChatFindMarks, focusChatFindHit, type ChatFindHit} from './chatFind'
 import {fmtDate, fmtDateTime} from './datetime'
 
-type Project = { name: string; path: string; opened?: string; iconUrl?: string; roots?: string[] }
+type Project = { name: string; path: string; opened?: string; iconUrl?: string; roots?: string[]; locked?: boolean }
 type FileEntry = { name: string; path: string; isDir: boolean }
 type ChatItem =
   | { kind: 'user' | 'assistant' | 'system'; content: string; attachments?: ChatAttPreview[]; at?: number }
@@ -3843,6 +3844,15 @@ export default function App() {
     }
   }, [cloneDlg])
 
+  async function toggleProjectLock(path: string, locked: boolean) {
+    try {
+      await SetProjectLocked(path, locked)
+      setProjects((list) => asList(list).map((p) => (p.path === path ? {...p, locked} : p)))
+    } catch {
+      /* the projects:changed event will resync the list anyway */
+    }
+  }
+
   async function openProject(path: string) {
     if (active && activeSessionId) {
       try { await persistSession(activeSessionId) } catch { /* ignore */ }
@@ -4649,6 +4659,10 @@ export default function App() {
     e?.preventDefault()
     const sid = activeSessionId
     if (!sid) return
+    if (active?.locked) {
+      setSessionItems(sid, (m) => [...m, {kind: 'system', content: 'Проект на замке — снимите замок в списке проектов, чтобы писать.'}])
+      return
+    }
     stickToBottomRef.current = true // свой вопрос — снова следим за низом
     const text = stripUrlContext(input.trim())
     const atts = pendingAtts
@@ -5042,6 +5056,19 @@ export default function App() {
                     ) : null}
                     {p.name}
                   </span>
+                </button>
+                <button
+                  type="button"
+                  className={`nc-project-lock ${p.locked ? 'on' : ''}`}
+                  title={p.locked
+                    ? 'Проект на замке: писать нельзя. Снять замок'
+                    : 'Поставить замок: запретить отправку и запуск агента в этом проекте'}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    void toggleProjectLock(p.path, !p.locked)
+                  }}
+                >
+                  {p.locked ? '🔒' : '🔓'}
                 </button>
               </li>
               )
@@ -5588,6 +5615,12 @@ export default function App() {
                   {activeTodo && <span className="nc-run-todo">осталось: {activeTodo.content}</span>}
                 </div>
               )}
+              {active?.locked && (
+                <div className="nc-locked-banner" role="status">
+                  <span>🔒 Проект «{active.name}» на замке — отправка сообщений и запуск агента запрещены.</span>
+                  <button type="button" className="nc-ghost" onClick={() => void toggleProjectLock(active.path, false)}>Снять замок</button>
+                </div>
+              )}
               <form
                 className={`nc-composer ${dragOver ? 'drag' : ''}`}
                 onSubmit={sendChat}
@@ -5625,7 +5658,10 @@ export default function App() {
                   ref={composerRef}
                   value={input}
                   onChange={(e) => setInput(stripUrlContext(e.target.value))}
-                  placeholder="Спросите агента… Ctrl+V / drag-drop — скриншот или файл"
+                  disabled={Boolean(active?.locked)}
+                  placeholder={active?.locked
+                    ? 'Проект на замке — снимите замок в списке проектов, чтобы писать'
+                    : 'Спросите агента… Ctrl+V / drag-drop — скриншот или файл'}
                   rows={3}
                   onPaste={(e) => {
                     const files = e.clipboardData?.files
@@ -5671,7 +5707,7 @@ export default function App() {
                     />
                     <span className="nc-hint">Enter — отправить · картинки → vision</span>
                   </div>
-                  <button type="submit" disabled={!input.trim() && pendingAtts.length === 0}>{busy ? 'Send' : 'Send'}</button>
+                  <button type="submit" disabled={Boolean(active?.locked) || (!input.trim() && pendingAtts.length === 0)}>{busy ? 'Send' : 'Send'}</button>
                 </div>
               </form>
             </div>

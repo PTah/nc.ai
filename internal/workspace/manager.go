@@ -18,6 +18,7 @@ type Project struct {
 	Roots   []string `json:"roots,omitempty"` // folders merged into this workspace; [0] == Path
 	Opened  string   `json:"opened"`
 	IconURL string   `json:"iconUrl,omitempty"` // data URL from project folder icon, if any
+	Locked  bool     `json:"locked,omitempty"`  // chat cannot send here and the agent will not run
 }
 
 type Entry struct {
