@@ -1,3 +1,4 @@
+// Edited by nc.ai 0.8.3.3 on macbook 2026-10-11 19:43:36
 import {FormEvent, MouseEvent as ReactMouseEvent, useCallback, useEffect, useRef, useState} from 'react'
 import {Terminal} from '@xterm/xterm'
 import {FitAddon} from '@xterm/addon-fit'
@@ -5040,6 +5041,19 @@ export default function App() {
               <li key={p.path} className={active?.path === p.path ? 'active' : ''}>
                 <button
                   type="button"
+                  className={`nc-project-lock ${p.locked ? 'on' : ''}`}
+                  title={p.locked
+                    ? 'Проект на замке: писать нельзя. Снять замок'
+                    : 'Поставить замок: запретить отправку и запуск агента в этом проекте'}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    void toggleProjectLock(p.path, !p.locked)
+                  }}
+                >
+                  {p.locked ? '🔒' : '🔓'}
+                </button>
+                <button
+                  type="button"
                   className={`nc-project-btn ${running ? 'busy' : ''}`}
                   onClick={() => openProject(p.path)}
                   onContextMenu={(e) => {
@@ -5056,19 +5070,6 @@ export default function App() {
                     ) : null}
                     {p.name}
                   </span>
-                </button>
-                <button
-                  type="button"
-                  className={`nc-project-lock ${p.locked ? 'on' : ''}`}
-                  title={p.locked
-                    ? 'Проект на замке: писать нельзя. Снять замок'
-                    : 'Поставить замок: запретить отправку и запуск агента в этом проекте'}
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    void toggleProjectLock(p.path, !p.locked)
-                  }}
-                >
-                  {p.locked ? '🔒' : '🔓'}
                 </button>
               </li>
               )
