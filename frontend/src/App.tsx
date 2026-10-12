@@ -1,4 +1,5 @@
 // Edited by nc.ai 0.8.3.3 on macbook 2026-10-11 19:43:36
+// Edited by nc.ai 0.8.3.3 on new-admin-pc 2026-10-12 17:40:55
 import {FormEvent, MouseEvent as ReactMouseEvent, useCallback, useEffect, useRef, useState} from 'react'
 import {Terminal} from '@xterm/xterm'
 import {FitAddon} from '@xterm/addon-fit'
@@ -6862,7 +6863,7 @@ export default function App() {
                         onChange={(e) => {
                           const next = mcpServers.map((s, i) => i === idx ? {...s, enabled: e.target.checked} : s)
                           setMcpServers(next)
-                          void SaveMCPServers(next).then(() => MCPStatuses().then((v) => setMcpStatuses(asList(v))).catch(() => undefined))
+                          void SaveMCPServers(next as any).then(() => MCPStatuses().then((v) => setMcpStatuses(asList(v))).catch(() => undefined))
                         }}
                       />
                       <b>{String(srv.label || srv.id)}</b>
@@ -6888,7 +6889,7 @@ export default function App() {
                                 const nextTools = Array.from(set)
                                 const next = mcpServers.map((s, i) => i === idx ? {...s, enabledTools: nextTools} : s)
                                 setMcpServers(next)
-                                void SaveMCPServers(next)
+                                void SaveMCPServers(next as any)
                               }}
                             />
                             {t}
@@ -6913,7 +6914,7 @@ export default function App() {
                               setMcpNote(`«${srv.label || srv.id}»: подключён`)
                             } catch (e) {
                               setMcpNote(String(e))
-                              setMcpStatuses(asList(await MCPStatuses().catch(() => [])))
+                              setMcpStatuses(asList(await MCPStatuses().catch(() => undefined)))
                             } finally {
                               setMcpBusy('')
                             }
@@ -6941,7 +6942,7 @@ export default function App() {
                         onClick={() => {
                           const next = mcpServers.filter((_, i) => i !== idx)
                           setMcpServers(next)
-                          void SaveMCPServers(next).then(() => MCPStatuses().then((v) => setMcpStatuses(asList(v))))
+                          void SaveMCPServers(next as any).then(() => MCPStatuses().then((v) => setMcpStatuses(asList(v))))
                         }}
                       >
                         Удалить

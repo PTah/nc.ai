@@ -5,10 +5,12 @@ import {update} from '../models';
 import {rules} from '../models';
 import {deepseek} from '../models';
 import {costing} from '../models';
+import {config} from '../models';
 import {openrouter} from '../models';
 import {providernews} from '../models';
 import {main} from '../models';
 import {zai} from '../models';
+import {mcp} from '../models';
 import {chatstore} from '../models';
 import {agent} from '../models';
 
@@ -23,6 +25,8 @@ export function AllowToolForSession(arg1:string,arg2:string):Promise<void>;
 export function AppDataDir():Promise<string>;
 
 export function AppInfo():Promise<Record<string, string>>;
+
+export function ApplyMCPPreset(arg1:string):Promise<Record<string, any>>;
 
 export function ArchiveChatSession(arg1:string,arg2:string):Promise<string>;
 
@@ -74,33 +78,21 @@ export function GetDeepSeekPeakInfo(arg1:string):Promise<costing.PeakInfo>;
 
 export function GetEndSound():Promise<string>;
 
+export function GetMCPServers():Promise<Array<config.MCPServerSettings>>;
+
 export function GetOpenRouterBalance():Promise<openrouter.AccountBalance>;
 
 export function GetProviderNews(arg1:boolean):Promise<providernews.Payload>;
 
 export function GetSettings():Promise<Record<string, any>>;
 
-export function GetMCPServers():Promise<Array<Record<string, any>>>;
-
-export function MCPStatuses():Promise<Array<Record<string, any>>>;
-
-export function MCPPresets():Promise<Array<Record<string, any>>>;
-
-export function ApplyMCPPreset(arg1:string):Promise<Record<string, any>>;
-
-export function InstallMCPPreset(arg1:string):Promise<Record<string, any>>;
-
-export function StartMCPServer(arg1:string):Promise<Record<string, any>>;
-
-export function StopMCPServer(arg1:string):Promise<Record<string, any>>;
-
-export function SaveMCPServers(arg1:Array<Record<string, any>>):Promise<void>;
-
 export function GetUsageStats():Promise<main.UsageStats>;
 
 export function GetWelcome(arg1:string):Promise<main.WelcomeInfo>;
 
 export function GetZaiBalance():Promise<zai.AccountBalance>;
+
+export function InstallMCPPreset(arg1:string):Promise<mcp.InstallResult>;
 
 export function InstallUpdate():Promise<void>;
 
@@ -133,6 +125,10 @@ export function LoadChat(arg1:string):Promise<string>;
 export function LoadChatTranscript(arg1:string):Promise<main.ChatTranscript>;
 
 export function LocalBuildHash():Promise<string>;
+
+export function MCPPresets():Promise<Array<mcp.Preset>>;
+
+export function MCPStatuses():Promise<Array<mcp.Status>>;
 
 export function MarkProviderNewsRead():Promise<void>;
 
@@ -240,6 +236,8 @@ export function SaveLocalModel(arg1:string):Promise<void>;
 
 export function SaveLocalSkipRules(arg1:boolean):Promise<void>;
 
+export function SaveMCPServers(arg1:Array<config.MCPServerSettings>):Promise<void>;
+
 export function SaveMonoFont(arg1:string):Promise<void>;
 
 export function SaveOpenRouterKey(arg1:string):Promise<void>;
@@ -247,14 +245,6 @@ export function SaveOpenRouterKey(arg1:string):Promise<void>;
 export function SaveOpenRouterModel(arg1:string):Promise<void>;
 
 export function SavePlanMode(arg1:boolean):Promise<void>;
-
-export function SaveSubagentsAllowWrite(arg1:boolean):Promise<void>;
-
-export function SaveSubagentsEnabled(arg1:boolean):Promise<void>;
-
-export function SaveSubagentsMaxPerRun(arg1:number):Promise<void>;
-
-export function SaveSubagentsMaxSteps(arg1:number):Promise<void>;
 
 export function SaveQwenEndpoint(arg1:string):Promise<void>;
 
@@ -269,6 +259,14 @@ export function SaveShowFiles(arg1:boolean):Promise<void>;
 export function SaveShowSettings(arg1:boolean):Promise<void>;
 
 export function SaveShowTerminal(arg1:boolean):Promise<void>;
+
+export function SaveSubagentsAllowWrite(arg1:boolean):Promise<void>;
+
+export function SaveSubagentsEnabled(arg1:boolean):Promise<void>;
+
+export function SaveSubagentsMaxPerRun(arg1:number):Promise<void>;
+
+export function SaveSubagentsMaxSteps(arg1:number):Promise<void>;
 
 export function SaveTheme(arg1:string):Promise<void>;
 
@@ -296,6 +294,8 @@ export function SetProjectLocked(arg1:string,arg2:boolean):Promise<void>;
 
 export function SetSessionModel(arg1:string,arg2:string):Promise<void>;
 
+export function StartMCPServer(arg1:string):Promise<mcp.Status>;
+
 export function StartTerminal():Promise<void>;
 
 export function StartupNotice():Promise<Record<string, any>>;
@@ -303,6 +303,8 @@ export function StartupNotice():Promise<Record<string, any>>;
 export function StopAgent():Promise<void>;
 
 export function StopAgentSession(arg1:string):Promise<void>;
+
+export function StopMCPServer(arg1:string):Promise<mcp.Status>;
 
 export function StopTerminal():Promise<void>;
 
