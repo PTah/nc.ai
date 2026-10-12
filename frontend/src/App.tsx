@@ -1,5 +1,6 @@
 // Edited by nc.ai 0.8.3.3 on macbook 2026-10-11 19:43:36
 // Edited by nc.ai 0.8.3.3 on new-admin-pc 2026-10-12 17:40:55
+// Edited by nc.ai 0.8.5.2 on macbook 2026-10-12 20:41:23
 import {FormEvent, MouseEvent as ReactMouseEvent, useCallback, useEffect, useRef, useState} from 'react'
 import {Terminal} from '@xterm/xterm'
 import {FitAddon} from '@xterm/addon-fit'
@@ -129,6 +130,7 @@ import {
   SaveShell,
   SaveTheme,
   SaveUiFont,
+  SaveUpdateMirror,
   SaveMonoFont,
   SaveChat,
   SaveChatSession,
@@ -1764,6 +1766,11 @@ export default function App() {
   const [updateProgress, setUpdateProgress] = useState<{done: number; total: number}>({done: 0, total: 0})
   const [updateError, setUpdateError] = useState('')
   const [localBuildHash, setLocalBuildHash] = useState('')
+  // Источник обновлений (Settings → Обновления): GitHub или своё зеркало.
+  const [updateMirrorOn, setUpdateMirrorOn] = useState(false)
+  const [updateMirrorUrl, setUpdateMirrorUrl] = useState('')
+  const [updateMirrorToken, setUpdateMirrorToken] = useState('')
+  const [updateMirrorHasToken, setUpdateMirrorHasToken] = useState(false)
   const updatePercent =
     updateProgress.total > 0
       ? Math.min(100, Math.round((updateProgress.done / updateProgress.total) * 100))
@@ -2791,6 +2798,9 @@ export default function App() {
           setNetDrops(Number.isFinite(drop) && drop > 0 ? drop : 0)
           setNetLastDrop(typeof raw.netLastDrop === 'string' ? raw.netLastDrop : '')
           setNetLastDropAt(typeof raw.netLastDropAt === 'string' ? raw.netLastDropAt : '')
+          setUpdateMirrorOn(Boolean(raw.updateMirrorOn))
+          setUpdateMirrorUrl(typeof raw.updateMirrorUrl === 'string' ? raw.updateMirrorUrl : '')
+          setUpdateMirrorHasToken(Boolean(raw.updateMirrorHasToken))
         }
         setShowTerm(Boolean(s.showTerminal))
         if (typeof s.showFiles === 'boolean') setShowTree(s.showFiles)
@@ -4635,6 +4645,8 @@ export default function App() {
     await SaveAgentStallMin(stallOff ? -1 : Math.min(240, Math.max(1, Number(stallMinutes) || 10)))
     await SaveHTTPProtocol(httpProtocol)
     await SaveHTTP2PingSec(Math.max(-1, Math.min(120, Number(http2PingSec) || 0)))
+    await SaveUpdateMirror(updateMirrorOn, updateMirrorUrl, updateMirrorToken)
+    setUpdateMirrorToken('')
     await SaveAgentRetryCount(Math.max(0, Math.min(10, Number(retryCount) || 0)))
     await SaveAgentRetryBudgetSec(Math.max(0, Math.min(900, Number(retryBudgetSec) || 0)))
     await SaveShowTerminal(showTerm)
@@ -7149,8 +7161,54 @@ export default function App() {
             <p className="nc-help">
               Установлена версия <code>v{info.version}</code>
               {localBuildHash ? <> · сборка <code>{localBuildHash}</code></> : null}. При старте приложение само
-              проверяет релизы на GitHub и предлагает обновление только если там версия <em>новее</em>, либо
-              тот же номер, но другой sha256 бинарника. Если у вас сборка новее GitHub — баннер не показывается.
+              проверяет релизы и предлагает обновление только если там версия <em>новее</em>, либо
+              тот же номер, но другой sha256 бинарника. Если у вас сборка новее — баннер не показывается.
+            </p>
+            <label>
+              Источник обновлений
+              <select
+                value={updateMirrorOn ? 'mirror' : 'github'}
+                onChange={(e) => {
+                  const mirror = e.target.value === 'mirror'
+                  setUpdateMirrorOn(mirror)
+                  void SaveUpdateMirror(mirror, updateMirrorUrl, updateMirrorToken)
+                }}
+              >
+                <option value="github">GitHub (по умолчанию)</option>
+                <option value="mirror">Своё зеркало</option>
+              </select>
+            </label>
+            {updateMirrorOn ? (
+              <>
+                <label>
+                  Адрес зеркала
+                  <input
+                    value={updateMirrorUrl}
+                    spellCheck={false}
+                    placeholder="http://192.168.128.48:3000/PapaTramp/nc.ai"
+                    title="Корень репозитория на зеркале (Gitea/GitHub-совместимый релизный API)"
+                    onChange={(e) => setUpdateMirrorUrl(e.target.value)}
+                    onBlur={() => void SaveUpdateMirror(true, updateMirrorUrl, updateMirrorToken)}
+                  />
+                </label>
+                <label>
+                  Токен зеркала (необязательно)
+                  <input
+                    type="password"
+                    value={updateMirrorToken}
+                    spellCheck={false}
+                    placeholder={updateMirrorHasToken ? 'токен сохранён — введите новый, чтобы заменить' : 'нужен только для приватного зеркала'}
+                    onChange={(e) => setUpdateMirrorToken(e.target.value)}
+                    onBlur={() => void SaveUpdateMirror(true, updateMirrorUrl, updateMirrorToken)}
+                  />
+                </label>
+              </>
+            ) : null}
+            <p className="nc-help">
+              «Своё зеркало» — личный источник релизов (например, домашний Gitea): проверка и скачивание идут
+              сначала с него, а если он недоступен — автоматически с GitHub. Ничего общего: адрес и токен
+              хранятся только на этой машине (токен — в системном хранилище секретов), у других пользователей
+              поле пустое и работает GitHub.
             </p>
             <button type="button" className="nc-ghost" onClick={() => void checkUpdatesNow()}>
               Проверить обновления

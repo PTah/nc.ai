@@ -1,4 +1,5 @@
 // Edited by nc.ai 0.8.5.1 on new-admin-pc 2026-10-12 17:51:41
+// Edited by nc.ai 0.8.5.2 on macbook 2026-10-12 20:42:49
 package appmeta
 
 import "time"
@@ -6,7 +7,7 @@ import "time"
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "0.8.5.2"
+	Version = "0.8.5.3"
 )
 
 // DeepSeekProRetireRFC3339 is the announced V4 Pro retirement instant, empty

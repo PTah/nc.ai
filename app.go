@@ -1,3 +1,4 @@
+// Edited by nc.ai 0.8.5.2 on macbook 2026-10-12 20:40:28
 package main
 
 import (
@@ -199,6 +200,7 @@ func (a *App) startup(ctx context.Context) {
 	}
 	a.loadRules()
 	costing.ApplyPersisted(a.cfg)
+	a.applyUpdateSource()
 	go a.priceRefreshLoop()
 	go a.autoCheckUpdate()
 	// Список проектов поднимается из RecentProjects с дисковым I/O: фронтенд мог
@@ -220,11 +222,15 @@ func (a *App) autoCheckUpdate() {
 	}
 }
 
-// checkUpdate сверяет текущую версию с последним релизом на GitHub.
+// checkUpdate сверяет текущую версию с последним релизом: сначала со своего
+// зеркала (если оно включено), иначе — с GitHub.
 func (a *App) checkUpdate() update.Info {
 	ctx, cancel := context.WithTimeout(a.ctx, 60*time.Second)
 	defer cancel()
 	info, _ := update.Check(ctx, appmeta.Version, stdruntime.GOOS, stdruntime.GOARCH)
+	if info.Source != "" {
+		a.logAgentLine(fmt.Sprintf("update check source=%s latest=%s available=%t", info.Source, info.Latest, info.Available))
+	}
 	if info.Latest != "" {
 		a.updMu.Lock()
 		if info.Available {
@@ -986,6 +992,7 @@ func (a *App) GetSettings() map[string]any {
 	provider := a.cfg.Provider()
 	appData, _ := a.cfg.AppDataDir()
 	netDrops, netLastDrop, netLastDropAt := a.networkStats()
+	mirrorOn, mirrorURL := a.cfg.UpdateMirror()
 	localEps := make([]map[string]any, 0, len(s.LocalEndpoints))
 	for _, ep := range a.cfg.LocalEndpoints() {
 		localEps = append(localEps, map[string]any{
@@ -1004,64 +1011,67 @@ func (a *App) GetSettings() map[string]any {
 		localKeyProvider = config.MakeLocalProvider(config.DefaultLocalEndpointID)
 	}
 	return map[string]any{
-		"activeProvider":      provider,
-		"deepseekModel":       s.DeepSeekModel,
-		"deepseekProRetired":  appmeta.DeepSeekProRetired(time.Now()),
-		"deepseekKeySet":      a.cfg.HasAPIKey(config.ProviderDeepSeek),
-		"zaiModel":            orDefault(s.ZaiModel, zai.DefaultModel),
-		"zaiKeySet":           a.cfg.HasAPIKey(config.ProviderZAI),
-		"zaiEndpoint":         a.cfg.ZaiEndpoint(),
-		"openrouterModel":     orDefault(s.OpenRouterModel, openrouter.DefaultModel),
-		"openrouterKeySet":    a.cfg.HasAPIKey(config.ProviderOpenRouter),
-		"qwenModel":           orDefault(s.QwenModel, qwen.DefaultModel),
-		"qwenKeySet":          a.cfg.HasAPIKey(config.ProviderQwen),
-		"qwenEndpoint":        a.cfg.QwenEndpoint(),
-		"yandexModel":         orDefault(s.YandexModel, yandex.DefaultModel),
-		"yandexKeySet":        a.cfg.HasAPIKey(config.ProviderYandex),
-		"yandexFolderId":      a.cfg.YandexFolderID(),
-		"localBaseUrl":        a.cfg.LocalBaseURL(),
-		"localModel":          a.cfg.LocalModel(),
-		"localKeySet":         a.cfg.HasAPIKey(localKeyProvider),
-		"localEndpoints":      localEps,
-		"secretsBackend":      a.cfg.SecretsBackendLabel(),
-		"shell":               s.Shell,
-		"shellResolved":       shell.ResolveShell(s.Shell),
-		"shellDetected":       shell.DetectDefaultShell(),
-		"recentProjects":      s.RecentProjects,
-		"showTerminal":        s.ShowTerminal,
-		"showFiles":           a.cfg.FilesVisible(),
-		"endSound":            a.cfg.EndSoundEnabled(),
-		"showSettings":        s.ShowSettings,
-		"theme":               a.cfg.Theme(),
-		"uiFont":              a.cfg.UiFont(),
-		"monoFont":            a.cfg.MonoFont(),
-		"agentMaxSteps":       a.cfg.MaxAgentSteps(),
-		"agentWarnSteps":      a.cfg.AgentWarnSteps(),
-		"agentStallMinutes":   int(a.cfg.AgentStallLimit().Minutes()),
-		"httpProtocol":        a.cfg.HTTPProtocolMode(),
-		"http2PingSec":        int(a.cfg.HTTP2Ping().Seconds()),
-		"agentRetryCount":     a.cfg.AgentRetryCount(),
-		"agentRetryBudgetSec": int(a.cfg.AgentRetryBudget().Seconds()),
-		"netDrops":            netDrops,
-		"netLastDrop":         netLastDrop,
-		"netLastDropAt":       netLastDropAt,
-		"autoModels":          a.cfg.AutoModels(),
-		"localLite":           a.cfg.LocalLiteEnabled(),
-		"localSkipRules":      a.cfg.LocalSkipRulesEnabled(),
-		"toolConfirm":         a.cfg.ToolConfirmEnabled(),
-		"planMode":            a.cfg.PlanModeEnabled(),
-		"subagentsEnabled":    a.cfg.SubagentsEnabled(),
-		"subagentsMaxSteps":   a.cfg.SubagentsMaxSteps(),
-		"subagentsAllowWrite": a.cfg.SubagentsAllowWrite(),
-		"subagentsMaxPerRun":  a.cfg.SubagentsMaxPerRun(),
-		"mcpServers":          a.cfg.MCPServers(),
-		"visionModel":         deepseek.VisionModel,
-		"appDataDir":          appData,
-		"layoutProjectsW":     nonzero(s.LayoutProjectsW, 200),
-		"layoutTreeW":         nonzero(s.LayoutTreeW, 220),
-		"layoutSettingsW":     nonzero(s.LayoutSettingsW, 230),
-		"layoutTerminalH":     nonzero(s.LayoutTerminalH, 160),
-		"layoutComposerH":     nonzero(s.LayoutComposerH, 150),
+		"activeProvider":       provider,
+		"deepseekModel":        s.DeepSeekModel,
+		"deepseekProRetired":   appmeta.DeepSeekProRetired(time.Now()),
+		"deepseekKeySet":       a.cfg.HasAPIKey(config.ProviderDeepSeek),
+		"zaiModel":             orDefault(s.ZaiModel, zai.DefaultModel),
+		"zaiKeySet":            a.cfg.HasAPIKey(config.ProviderZAI),
+		"zaiEndpoint":          a.cfg.ZaiEndpoint(),
+		"openrouterModel":      orDefault(s.OpenRouterModel, openrouter.DefaultModel),
+		"openrouterKeySet":     a.cfg.HasAPIKey(config.ProviderOpenRouter),
+		"qwenModel":            orDefault(s.QwenModel, qwen.DefaultModel),
+		"qwenKeySet":           a.cfg.HasAPIKey(config.ProviderQwen),
+		"qwenEndpoint":         a.cfg.QwenEndpoint(),
+		"yandexModel":          orDefault(s.YandexModel, yandex.DefaultModel),
+		"yandexKeySet":         a.cfg.HasAPIKey(config.ProviderYandex),
+		"yandexFolderId":       a.cfg.YandexFolderID(),
+		"localBaseUrl":         a.cfg.LocalBaseURL(),
+		"localModel":           a.cfg.LocalModel(),
+		"localKeySet":          a.cfg.HasAPIKey(localKeyProvider),
+		"localEndpoints":       localEps,
+		"secretsBackend":       a.cfg.SecretsBackendLabel(),
+		"shell":                s.Shell,
+		"shellResolved":        shell.ResolveShell(s.Shell),
+		"shellDetected":        shell.DetectDefaultShell(),
+		"recentProjects":       s.RecentProjects,
+		"showTerminal":         s.ShowTerminal,
+		"showFiles":            a.cfg.FilesVisible(),
+		"endSound":             a.cfg.EndSoundEnabled(),
+		"showSettings":         s.ShowSettings,
+		"theme":                a.cfg.Theme(),
+		"uiFont":               a.cfg.UiFont(),
+		"monoFont":             a.cfg.MonoFont(),
+		"agentMaxSteps":        a.cfg.MaxAgentSteps(),
+		"agentWarnSteps":       a.cfg.AgentWarnSteps(),
+		"agentStallMinutes":    int(a.cfg.AgentStallLimit().Minutes()),
+		"httpProtocol":         a.cfg.HTTPProtocolMode(),
+		"http2PingSec":         int(a.cfg.HTTP2Ping().Seconds()),
+		"updateMirrorOn":       mirrorOn,
+		"updateMirrorUrl":      mirrorURL,
+		"updateMirrorHasToken": a.cfg.UpdateMirrorToken() != "",
+		"agentRetryCount":      a.cfg.AgentRetryCount(),
+		"agentRetryBudgetSec":  int(a.cfg.AgentRetryBudget().Seconds()),
+		"netDrops":             netDrops,
+		"netLastDrop":          netLastDrop,
+		"netLastDropAt":        netLastDropAt,
+		"autoModels":           a.cfg.AutoModels(),
+		"localLite":            a.cfg.LocalLiteEnabled(),
+		"localSkipRules":       a.cfg.LocalSkipRulesEnabled(),
+		"toolConfirm":          a.cfg.ToolConfirmEnabled(),
+		"planMode":             a.cfg.PlanModeEnabled(),
+		"subagentsEnabled":     a.cfg.SubagentsEnabled(),
+		"subagentsMaxSteps":    a.cfg.SubagentsMaxSteps(),
+		"subagentsAllowWrite":  a.cfg.SubagentsAllowWrite(),
+		"subagentsMaxPerRun":   a.cfg.SubagentsMaxPerRun(),
+		"mcpServers":           a.cfg.MCPServers(),
+		"visionModel":          deepseek.VisionModel,
+		"appDataDir":           appData,
+		"layoutProjectsW":      nonzero(s.LayoutProjectsW, 200),
+		"layoutTreeW":          nonzero(s.LayoutTreeW, 220),
+		"layoutSettingsW":      nonzero(s.LayoutSettingsW, 230),
+		"layoutTerminalH":      nonzero(s.LayoutTerminalH, 160),
+		"layoutComposerH":      nonzero(s.LayoutComposerH, 150),
 		// 0 = fill the whole chat pane (no artificial max-width).
 		"layoutChatMaxW": s.LayoutChatMaxW,
 	}
@@ -2351,6 +2361,35 @@ func (a *App) SaveHTTP2PingSec(sec int) error {
 		return err
 	}
 	a.applyHTTPConfig()
+	return nil
+}
+
+// applyUpdateSource применяет настройку зеркала обновлений (Settings →
+// Обновления). При включённом зеркале проверка и скачивание идут сначала с него,
+// а при любой ошибке (нет сети до дома, зеркало недоступно) — с GitHub.
+// По умолчанию зеркала нет: публичная сборка знает только GitHub.
+func (a *App) applyUpdateSource() {
+	on, url := a.cfg.UpdateMirror()
+	if !on {
+		update.ConfigureMirror(nil)
+		a.logAgentLine("update source=github")
+		return
+	}
+	token := a.cfg.UpdateMirrorToken()
+	update.ConfigureMirror(&update.Mirror{BaseURL: url, Token: token})
+	a.logAgentLine(fmt.Sprintf("update source=mirror url=%s token=%t", url, token != ""))
+}
+
+// SaveUpdateMirror включает своё зеркало релизов, сохраняет его адрес и
+// необязательный токен (для приватного зеркала). Пустой адрес — снова GitHub.
+func (a *App) SaveUpdateMirror(on bool, url, token string) error {
+	if err := a.cfg.SetUpdateMirror(on, url); err != nil {
+		return err
+	}
+	if err := a.cfg.SetUpdateMirrorToken(token); err != nil {
+		return err
+	}
+	a.applyUpdateSource()
 	return nil
 }
 

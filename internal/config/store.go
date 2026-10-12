@@ -1,3 +1,4 @@
+// Edited by nc.ai 0.8.5.2 on macbook 2026-10-12 20:40:10
 package config
 
 import (
@@ -108,6 +109,10 @@ const (
 	maxHTTP2PingSec     = 120
 )
 
+// updateMirrorSecretID — идентификатор токена зеркала в системном хранилище
+// секретов (нужен только для приватного зеркала; публичному — не требуется).
+const updateMirrorSecretID = "update-mirror-token"
+
 type Settings struct {
 	// ActiveProvider selects which LLM backend is used ("deepseek" | "zai" | "openrouter" | "local").
 	ActiveProvider string `json:"activeProvider,omitempty"`
@@ -207,6 +212,14 @@ type Settings struct {
 	// HTTP2PingSec — HTTP/2 keepalive: через сколько секунд тишины (ни одного
 	// кадра от сервера) отправляем PING. 0 = DefaultHTTP2PingSec, -1 = выключено.
 	HTTP2PingSec int `json:"http2PingSec,omitempty"`
+
+	// UpdateMirrorOn — качать обновления со своего зеркала (Settings → Обновления).
+	// По умолчанию выключено: остальные пользователи ходят на GitHub.
+	UpdateMirrorOn bool `json:"updateMirrorOn,omitempty"`
+	// UpdateMirrorURL — корень репозитория на зеркале, например
+	// http://192.168.128.48:3000/PapaTramp/nc.ai. Личная настройка машины:
+	// в репозиторий и в публичную сборку не попадает.
+	UpdateMirrorURL string `json:"updateMirrorUrl,omitempty"`
 
 	// AutoModels enables per-turn model routing (DeepSeek flash/pro/vision;
 	// Z.ai free flash → glm-5.3; OpenRouter flash → coder on complex tasks).
@@ -1588,6 +1601,69 @@ func NormalizeHTTPProtocol(mode string) string {
 	default:
 		return HTTPProtocolAuto
 	}
+}
+
+// UpdateMirror возвращает настройки своего зеркала релизов: включено ли и адрес.
+// Публичный релиз зеркала не знает — это личная настройка машины владельца.
+func (s *Store) UpdateMirror() (bool, string) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	url := strings.TrimRight(strings.TrimSpace(s.settings.UpdateMirrorURL), "/")
+	return s.settings.UpdateMirrorOn && url != "", url
+}
+
+// SetUpdateMirror сохраняет настройки зеркала. Пустой адрес выключает зеркало,
+// тогда обновления снова берутся только с GitHub.
+func (s *Store) SetUpdateMirror(on bool, rawURL string) error {
+	rawURL = strings.TrimRight(strings.TrimSpace(rawURL), "/")
+	if rawURL == "" {
+		on = false
+	}
+	s.mu.Lock()
+	s.settings.UpdateMirrorOn = on
+	s.settings.UpdateMirrorURL = rawURL
+	s.mu.Unlock()
+	return s.Save()
+}
+
+// UpdateMirrorToken возвращает токен приватного зеркала (пусто — не задан).
+func (s *Store) UpdateMirrorToken() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if v, ok := s.keys[updateMirrorSecretID]; ok {
+		return v
+	}
+	if err := s.ensureSecretsLocked(); err != nil {
+		return ""
+	}
+	v, err := s.sec.Get(updateMirrorSecretID)
+	if err != nil {
+		return ""
+	}
+	s.keys[updateMirrorSecretID] = v
+	return v
+}
+
+// SetUpdateMirrorToken сохраняет токен приватного зеркала (пусто — удалить).
+func (s *Store) SetUpdateMirrorToken(token string) error {
+	token = strings.TrimSpace(token)
+	s.mu.Lock()
+	if err := s.ensureSecretsLocked(); err != nil {
+		s.mu.Unlock()
+		return err
+	}
+	var err error
+	if token == "" {
+		err = s.sec.Delete(updateMirrorSecretID)
+		delete(s.keys, updateMirrorSecretID)
+	} else {
+		err = s.sec.Set(updateMirrorSecretID, token)
+		if err == nil {
+			s.keys[updateMirrorSecretID] = token
+		}
+	}
+	s.mu.Unlock()
+	return err
 }
 
 func (s *Store) SetWindowGeometry(width, height, x, y int, maximised bool) error {
