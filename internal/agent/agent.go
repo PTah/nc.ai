@@ -1,3 +1,4 @@
+// Edited by nc.ai 0.8.3.3 on new-admin-pc 2026-10-12 10:06:16
 package agent
 
 import (
@@ -1353,7 +1354,13 @@ func looksTruncated(s string) bool {
 		return false
 	}
 	prev := r[len(r)-2]
-	return unicode.IsLetter(prev) || unicode.IsDigit(prev)
+	if unicode.IsLetter(prev) || unicode.IsDigit(prev) {
+		return true
+	}
+	// Остался случай «последняя буква после пробела» — ответ обрывается на
+	// однобуквенном слове («… менял и», «… в», «… с»). Союз/предлог не может
+	// завершать предложение, значит это тоже обрыв.
+	return true
 }
 
 func truncate(s string, n int) string {
