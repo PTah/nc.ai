@@ -26,6 +26,10 @@ export function AppInfo() {
   return window['go']['main']['App']['AppInfo']();
 }
 
+export function ApplyMCPPreset(arg1) {
+  return window['go']['main']['App']['ApplyMCPPreset'](arg1);
+}
+
 export function ArchiveChatSession(arg1, arg2) {
   return window['go']['main']['App']['ArchiveChatSession'](arg1, arg2);
 }
@@ -126,6 +130,10 @@ export function GetEndSound() {
   return window['go']['main']['App']['GetEndSound']();
 }
 
+export function GetMCPServers() {
+  return window['go']['main']['App']['GetMCPServers']();
+}
+
 export function GetOpenRouterBalance() {
   return window['go']['main']['App']['GetOpenRouterBalance']();
 }
@@ -138,38 +146,6 @@ export function GetSettings() {
   return window['go']['main']['App']['GetSettings']();
 }
 
-export function GetMCPServers() {
-  return window['go']['main']['App']['GetMCPServers']();
-}
-
-export function MCPStatuses() {
-  return window['go']['main']['App']['MCPStatuses']();
-}
-
-export function MCPPresets() {
-  return window['go']['main']['App']['MCPPresets']();
-}
-
-export function ApplyMCPPreset(arg1) {
-  return window['go']['main']['App']['ApplyMCPPreset'](arg1);
-}
-
-export function InstallMCPPreset(arg1) {
-  return window['go']['main']['App']['InstallMCPPreset'](arg1);
-}
-
-export function StartMCPServer(arg1) {
-  return window['go']['main']['App']['StartMCPServer'](arg1);
-}
-
-export function StopMCPServer(arg1) {
-  return window['go']['main']['App']['StopMCPServer'](arg1);
-}
-
-export function SaveMCPServers(arg1) {
-  return window['go']['main']['App']['SaveMCPServers'](arg1);
-}
-
 export function GetUsageStats() {
   return window['go']['main']['App']['GetUsageStats']();
 }
@@ -180,6 +156,10 @@ export function GetWelcome(arg1) {
 
 export function GetZaiBalance() {
   return window['go']['main']['App']['GetZaiBalance']();
+}
+
+export function InstallMCPPreset(arg1) {
+  return window['go']['main']['App']['InstallMCPPreset'](arg1);
 }
 
 export function InstallUpdate() {
@@ -244,6 +224,14 @@ export function LoadChatTranscript(arg1) {
 
 export function LocalBuildHash() {
   return window['go']['main']['App']['LocalBuildHash']();
+}
+
+export function MCPPresets() {
+  return window['go']['main']['App']['MCPPresets']();
+}
+
+export function MCPStatuses() {
+  return window['go']['main']['App']['MCPStatuses']();
 }
 
 export function MarkProviderNewsRead() {
@@ -458,6 +446,10 @@ export function SaveLocalSkipRules(arg1) {
   return window['go']['main']['App']['SaveLocalSkipRules'](arg1);
 }
 
+export function SaveMCPServers(arg1) {
+  return window['go']['main']['App']['SaveMCPServers'](arg1);
+}
+
 export function SaveMonoFont(arg1) {
   return window['go']['main']['App']['SaveMonoFont'](arg1);
 }
@@ -472,22 +464,6 @@ export function SaveOpenRouterModel(arg1) {
 
 export function SavePlanMode(arg1) {
   return window['go']['main']['App']['SavePlanMode'](arg1);
-}
-
-export function SaveSubagentsAllowWrite(arg1) {
-  return window['go']['main']['App']['SaveSubagentsAllowWrite'](arg1);
-}
-
-export function SaveSubagentsEnabled(arg1) {
-  return window['go']['main']['App']['SaveSubagentsEnabled'](arg1);
-}
-
-export function SaveSubagentsMaxPerRun(arg1) {
-  return window['go']['main']['App']['SaveSubagentsMaxPerRun'](arg1);
-}
-
-export function SaveSubagentsMaxSteps(arg1) {
-  return window['go']['main']['App']['SaveSubagentsMaxSteps'](arg1);
 }
 
 export function SaveQwenEndpoint(arg1) {
@@ -516,6 +492,22 @@ export function SaveShowSettings(arg1) {
 
 export function SaveShowTerminal(arg1) {
   return window['go']['main']['App']['SaveShowTerminal'](arg1);
+}
+
+export function SaveSubagentsAllowWrite(arg1) {
+  return window['go']['main']['App']['SaveSubagentsAllowWrite'](arg1);
+}
+
+export function SaveSubagentsEnabled(arg1) {
+  return window['go']['main']['App']['SaveSubagentsEnabled'](arg1);
+}
+
+export function SaveSubagentsMaxPerRun(arg1) {
+  return window['go']['main']['App']['SaveSubagentsMaxPerRun'](arg1);
+}
+
+export function SaveSubagentsMaxSteps(arg1) {
+  return window['go']['main']['App']['SaveSubagentsMaxSteps'](arg1);
 }
 
 export function SaveTheme(arg1) {
@@ -570,6 +562,10 @@ export function SetSessionModel(arg1, arg2) {
   return window['go']['main']['App']['SetSessionModel'](arg1, arg2);
 }
 
+export function StartMCPServer(arg1) {
+  return window['go']['main']['App']['StartMCPServer'](arg1);
+}
+
 export function StartTerminal() {
   return window['go']['main']['App']['StartTerminal']();
 }
@@ -584,6 +580,10 @@ export function StopAgent() {
 
 export function StopAgentSession(arg1) {
   return window['go']['main']['App']['StopAgentSession'](arg1);
+}
+
+export function StopMCPServer(arg1) {
+  return window['go']['main']['App']['StopMCPServer'](arg1);
 }
 
 export function StopTerminal() {
