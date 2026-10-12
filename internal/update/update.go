@@ -1,3 +1,4 @@
+// Edited by nc.ai 0.8.5.2 on macbook 2026-10-12 20:39:19
 // Package update проверяет публичные релизы NotCursor.ai на GitHub и умеет
 // скачать подходящий сборке файл, распаковать его и подменить работающую
 // версию с перезапуском.
@@ -83,7 +84,9 @@ type Info struct {
 	BuildDiffers bool   `json:"buildDiffers,omitempty"`
 	BuildHash    string `json:"buildHash,omitempty"`
 	LocalHash    string `json:"localHash,omitempty"`
-	Error        string `json:"error,omitempty"`
+	// Source — откуда взяли релиз: SourceGitHub или SourceMirror (Settings → Обновления).
+	Source string `json:"source,omitempty"`
+	Error  string `json:"error,omitempty"`
 }
 
 // Client — HTTP-клиент с разумными таймаутами (проверка идёт на старте).
@@ -297,6 +300,7 @@ func getWithRetry(ctx context.Context, url, accept string) (*http.Response, erro
 			return nil, err
 		}
 		req.Header.Set("User-Agent", userAgent)
+		authorizeMirror(req)
 		if accept != "" {
 			req.Header.Set("Accept", accept)
 		}
@@ -427,21 +431,36 @@ func DecideAvailability(remoteVsLocal int, buildDiffers bool) (available, sameVe
 	}
 }
 
-// Check сравнивает текущую версию с последним релизом и подбирает файл.
-// Ошибка сети возвращается как есть — вызывающий решает, показывать ли её.
-func Check(ctx context.Context, current, goos, goarch string) (Info, error) {
-	info := Info{Current: current, URL: ReleasePage, LocalHash: LocalExeHash()}
+// latestReleaseWithMirror берёт последний релиз: сначала с настроенного зеркала
+// (если оно есть), при любой ошибке — с GitHub, как раньше.
+func latestReleaseWithMirror(ctx context.Context, goos, goarch string) (*Release, string, error) {
+	if m := currentMirror(); m != nil {
+		if rel, err := latestFromMirror(ctx, m); err == nil {
+			return rel, SourceMirror, nil
+		}
+	}
 	rel, err := LatestRelease(ctx)
 	if err != nil {
 		// api.github.com может быть недоступен (блокировка, DPI), а github.com
 		// открывается — тогда берём тег из редиректа страницы релизов.
 		if fb, ferr := releaseByRedirect(ctx, goos, goarch); ferr == nil {
-			rel, err = fb, nil
-		} else {
-			info.Error = err.Error()
-			return info, err
+			return fb, SourceGitHub, nil
 		}
+		return nil, "", err
 	}
+	return rel, SourceGitHub, nil
+}
+
+// Check сравнивает текущую версию с последним релизом и подбирает файл.
+// Ошибка сети возвращается как есть — вызывающий решает, показывать ли её.
+func Check(ctx context.Context, current, goos, goarch string) (Info, error) {
+	info := Info{Current: current, URL: ReleasePage, LocalHash: LocalExeHash()}
+	rel, source, err := latestReleaseWithMirror(ctx, goos, goarch)
+	if err != nil {
+		info.Error = err.Error()
+		return info, err
+	}
+	info.Source = source
 	info.Latest = strings.TrimPrefix(rel.Tag, "v")
 	info.Notes = strings.TrimSpace(rel.Body)
 	if rel.HTMLURL != "" {
@@ -480,6 +499,7 @@ func Download(ctx context.Context, url, dest string, progress func(done, total i
 		return err
 	}
 	req.Header.Set("User-Agent", userAgent)
+	authorizeMirror(req)
 	res, err := Client.Do(req)
 	if err != nil {
 		return err
