@@ -551,16 +551,31 @@ func (a *App) MCPPresets() []mcp.Preset {
 	return mcp.Presets()
 }
 
-// ApplyMCPPreset merges a built-in preset into settings (does not enable tools).
-func (a *App) ApplyMCPPreset(presetID string) ([]config.MCPServerSettings, error) {
+// ApplyMCPPreset installs the package (pip/npm/uvx/npx), writes Settings → MCP
+// and returns {servers, install}. Tools allowlist = SuggestedTools (user can trim).
+func (a *App) ApplyMCPPreset(presetID string) (map[string]any, error) {
 	p, ok := mcp.PresetByID(presetID)
 	if !ok {
-		return a.cfg.MCPServers(), fmt.Errorf("unknown MCP preset %q", presetID)
+		return map[string]any{"servers": a.cfg.MCPServers()}, fmt.Errorf("unknown MCP preset %q", presetID)
 	}
-	srv := cfgMCPFromMCP(p.Server)
-	if len(p.SuggestedTools) > 0 && len(srv.EnabledTools) == 0 {
-		srv.EnabledTools = append([]string(nil), p.SuggestedTools...)
+	ctx, cancel := context.WithTimeout(a.ctx, 6*time.Minute)
+	defer cancel()
+	cfg, inst, err := mcp.EnsureInstalled(ctx, presetID)
+	if err != nil {
+		return map[string]any{
+			"servers": a.cfg.MCPServers(),
+			"install": mcp.InstallResult{PresetID: presetID, OK: false, Message: err.Error()},
+		}, err
 	}
+	if len(p.SuggestedTools) > 0 {
+		cfg.EnabledTools = append([]string(nil), p.SuggestedTools...)
+	}
+	cfg.Enabled = true
+	cfg.Label = p.Server.Label
+	if cfg.Label == "" {
+		cfg.Label = p.Label
+	}
+	srv := cfgMCPFromMCP(cfg)
 	list := a.cfg.MCPServers()
 	replaced := false
 	for i := range list {
@@ -574,9 +589,79 @@ func (a *App) ApplyMCPPreset(presetID string) ([]config.MCPServerSettings, error
 		list = append(list, srv)
 	}
 	if err := a.SaveMCPServers(list); err != nil {
-		return list, err
+		return map[string]any{"servers": list, "install": inst}, err
 	}
-	return list, nil
+	// Best-effort probe so tools/list fills the UI card; sync allowlist to real names.
+	if a.mcp != nil {
+		if st, startErr := a.mcp.Start(ctx, srv.ID); startErr != nil {
+			inst.Message = strings.TrimSpace(inst.Message + " · старт: " + startErr.Error())
+		} else {
+			if synced := syncEnabledTools(list, srv.ID, st.Tools, p.SuggestedTools); synced {
+				_ = a.SaveMCPServers(list)
+			}
+			inst.Message = strings.TrimSpace(inst.Message + " · сервер запущен, tools в карточке")
+		}
+	}
+	return map[string]any{
+		"servers":   list,
+		"install":   inst,
+		"usageHint": p.UsageHint,
+	}, nil
+}
+
+// syncEnabledTools keeps suggested names that exist on the server; if none match,
+// enables up to 8 discovered tools so the agent can use the server immediately.
+func syncEnabledTools(list []config.MCPServerSettings, id string, discovered, suggested []string) bool {
+	have := map[string]bool{}
+	for _, t := range discovered {
+		have[t] = true
+	}
+	var keep []string
+	for _, t := range suggested {
+		if have[t] {
+			keep = append(keep, t)
+		}
+	}
+	if len(keep) == 0 {
+		for i, t := range discovered {
+			if i >= 8 {
+				break
+			}
+			keep = append(keep, t)
+		}
+	}
+	if len(keep) == 0 {
+		return false
+	}
+	for i := range list {
+		if strings.EqualFold(list[i].ID, id) {
+			list[i].EnabledTools = keep
+			return true
+		}
+	}
+	return false
+}
+
+// InstallMCPPreset only downloads/resolves the binary (no settings change).
+func (a *App) InstallMCPPreset(presetID string) (mcp.InstallResult, error) {
+	ctx, cancel := context.WithTimeout(a.ctx, 6*time.Minute)
+	defer cancel()
+	_, inst, err := mcp.EnsureInstalled(ctx, presetID)
+	return inst, err
+}
+
+// mcpUsageHint collects UsageHint from presets whose servers are enabled.
+func (a *App) mcpUsageHint() string {
+	var lines []string
+	for _, s := range a.cfg.MCPServers() {
+		if !s.Enabled || len(s.EnabledTools) == 0 {
+			continue
+		}
+		if p, ok := mcp.PresetByID(s.ID); ok && strings.TrimSpace(p.UsageHint) != "" {
+			lines = append(lines, "- "+p.Label+": "+p.UsageHint)
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 // deployMarkerName is dropped by build.ps1 before a deploy restart, so the next
@@ -3256,6 +3341,7 @@ func (a *App) RunAgentInSession(sessionID, runID, userMessage string, attachment
 		a.syncMCPFromConfig()
 		a.mcp.EnsureStarted(ctx)
 		runner.ExtraTools = a.mcp.ToolSpecs()
+		runner.MCPUsageHint = a.mcpUsageHint()
 	}
 	if localSkipRules {
 		a.emitRun(sid, runID, agent.Event{

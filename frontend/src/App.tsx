@@ -6800,8 +6800,9 @@ export default function App() {
 
             <div className="nc-section-label">MCP</div>
             <p className="nc-help">
-              Внешние инструменты (граф кода / память) через stdio. По умолчанию ничего не попадает
-              в промпт — отметьте tools после «Проверить». Пресеты: code-graph / memory.
+              Кнопка пресета сама скачивает пакет (pip/npm/uvx/npx) и пишет сервер в настройки.
+              Tools из пресета сразу в allowlist — при желании снимите лишние. Порядок для агента:
+              индекс/граф → запрос → read_file (не широкий grep вначале).
             </p>
             <div className="nc-mcp-presets">
               {mcpPresets.map((p) => (
@@ -6814,21 +6815,34 @@ export default function App() {
                   onClick={() => {
                     void (async () => {
                       setMcpBusy(String(p.id))
-                      setMcpNote('')
+                      setMcpNote(`Скачиваю и настраиваю «${p.label}»…`)
                       try {
-                        const list = await ApplyMCPPreset(String(p.id))
-                        setMcpServers(asList(list as Array<Record<string, any>>))
+                        const raw = await ApplyMCPPreset(String(p.id)) as Record<string, any>
+                        const list = asList((raw?.servers ?? raw) as Array<Record<string, any>>)
+                        setMcpServers(list)
                         setMcpStatuses(asList(await MCPStatuses()))
-                        setMcpNote(`Пресет «${p.label}» добавлен (выкл.). Включите, отметьте tools, нажмите Проверить.`)
+                        const inst = raw?.install as Record<string, any> | undefined
+                        const hint = String(raw?.usageHint || p.description || '')
+                        setMcpNote(
+                          `«${p.label}»: ${inst?.message || 'готово'}. ` +
+                          (hint ? `Как работать: ${hint}` : 'Отметьте tools при необходимости и пишите в чат.'),
+                        )
                       } catch (e) {
                         setMcpNote(String(e))
+                        try {
+                          setMcpServers(asList(await MCPStatuses().then(async () => {
+                            // refresh servers from settings snapshot
+                            const s = await GetSettings()
+                            return asList((s as any)?.mcpServers)
+                          })))
+                        } catch { /* ignore */ }
                       } finally {
                         setMcpBusy('')
                       }
                     })()
                   }}
                 >
-                  + {String(p.label || p.id)}
+                  ↓ {String(p.label || p.id)}
                 </button>
               ))}
             </div>

@@ -1,7 +1,8 @@
 # MCP в NotCursor — дизайн (без кода)
 
-Статус: **MVP stdio в 0.8.5.0** (`internal/mcp`, Settings → MCP). HTTP/SSE/OAuth —
-ещё нет. Документ описывает целевой дизайн и этапы.
+Статус: **MVP stdio + автоустановка пресетов в 0.8.5.1** (`internal/mcp`, Settings → MCP).
+Кодинг-пресеты и порядок работы: [`mcp-coding-servers.md`](mcp-coding-servers.md).
+HTTP/SSE/OAuth — ещё нет.
 
 Зачем: одна шина инструментов вместо десятка прошитых интеграций. Пользователь на Custom-
 провайдере (Ollama / LM Studio / любой OpenAI-совместимый эндпоинт) получает доступ к чужим
