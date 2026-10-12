@@ -217,7 +217,7 @@ type Settings struct {
 	// По умолчанию выключено: остальные пользователи ходят на GitHub.
 	UpdateMirrorOn bool `json:"updateMirrorOn,omitempty"`
 	// UpdateMirrorURL — корень репозитория на зеркале, например
-	// http://192.168.128.48:3000/PapaTramp/nc.ai. Личная настройка машины:
+	// http://192.168.x.x:3000/PapaTramp/nc.ai. Личная настройка машины:
 	// в репозиторий и в публичную сборку не попадает.
 	UpdateMirrorURL string `json:"updateMirrorUrl,omitempty"`
 

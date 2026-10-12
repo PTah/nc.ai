@@ -22,7 +22,7 @@ import (
 // системном хранилище секретов), в репозиторий и в публичную сборку не попадают.
 type Mirror struct {
 	// BaseURL — корень репозитория на зеркале, например
-	// http://192.168.128.48:3000/PapaTramp/nc.ai
+	// http://192.168.x.x:3000/PapaTramp/nc.ai
 	BaseURL string
 	// Owner/Repo — можно не задавать: тогда берутся из последних двух сегментов BaseURL.
 	Owner string
