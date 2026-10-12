@@ -975,6 +975,7 @@ export namespace update {
 	    buildDiffers?: boolean;
 	    buildHash?: string;
 	    localHash?: string;
+	    source?: string;
 	    error?: string;
 	
 	    static createFrom(source: any = {}) {
@@ -996,6 +997,7 @@ export namespace update {
 	        this.buildDiffers = source["buildDiffers"];
 	        this.buildHash = source["buildHash"];
 	        this.localHash = source["localHash"];
+	        this.source = source["source"];
 	        this.error = source["error"];
 	    }
 	}
