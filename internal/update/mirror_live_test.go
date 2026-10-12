@@ -9,7 +9,7 @@ import (
 
 // Живая проверка зеркала (по умолчанию пропускается):
 //
-//	NC_LIVE_MIRROR=http://192.168.128.48:3000/PapaTramp/nc.ai go test ./internal/update/ -run TestLiveMirror -v
+//	NC_LIVE_MIRROR=http://192.168.x.x:3000/PapaTramp/nc.ai go test ./internal/update/ -run TestLiveMirror -v
 func TestLiveMirrorCheck(t *testing.T) {
 	base := os.Getenv("NC_LIVE_MIRROR")
 	if base == "" {

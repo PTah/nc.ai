@@ -7185,7 +7185,7 @@ export default function App() {
                   <input
                     value={updateMirrorUrl}
                     spellCheck={false}
-                    placeholder="http://192.168.128.48:3000/PapaTramp/nc.ai"
+                    placeholder="http://192.168.x.x:3000/PapaTramp/nc.ai"
                     title="Корень репозитория на зеркале (Gitea/GitHub-совместимый релизный API)"
                     onChange={(e) => setUpdateMirrorUrl(e.target.value)}
                     onBlur={() => void SaveUpdateMirror(true, updateMirrorUrl, updateMirrorToken)}
