@@ -144,13 +144,15 @@ func stepWarning(step, max int, unlimited bool, warnAt int) string {
 
 // Event is pushed to the UI during an agent run.
 type Event struct {
-	Type      string `json:"type"` // delta|delta_clear|reasoning|tool_start|tool_end|tool_ask|reconnect|done|error|persist|usage|model|notice|progress
+	Type      string `json:"type"` // delta|delta_clear|reasoning|tool_start|tool_end|tool_ask|reconnect|done|error|persist|usage|model|notice|progress|subrun_*
 	Content   string `json:"content,omitempty"`
 	Name      string `json:"name,omitempty"`
 	OK        bool   `json:"ok,omitempty"`
 	SessionID string `json:"sessionId,omitempty"`
 	RunID     string `json:"runId,omitempty"`
 	CallID    string `json:"callId,omitempty"`
+	// ParentCallID связывает события подагента с вызовом task у родителя.
+	ParentCallID string `json:"parentCallId,omitempty"`
 	// Reason — почему вызов требует подтверждения (например, команда заходит в
 	// другой проект). Пусто — обычное подтверждение опасного инструмента.
 	Reason string `json:"reason,omitempty"`
@@ -249,6 +251,22 @@ type Runner struct {
 	// OnUsage, when set, is called after each provider response with the model
 	// that produced it and its token usage (usage may be nil for some providers).
 	OnUsage func(model string, u *llm.Usage)
+
+	// SubagentsEnabled — родитель видит инструмент task (Settings → Agent).
+	SubagentsEnabled bool
+	// SubagentsMaxSteps — лимит шагов у ребёнка.
+	SubagentsMaxSteps int
+	// SubagentsAllowWrite — ребёнок может писать файлы.
+	SubagentsAllowWrite bool
+	// SubagentsMaxPerRun — сколько task за один родительский прогон.
+	SubagentsMaxPerRun int
+	// Depth: 0 = родитель, 1 = подагент (без рекурсии task).
+	Depth int
+	// subagentMode — короткий системный промпт SubagentPrompt вместо полного.
+	subagentMode bool
+
+	subMu    sync.Mutex
+	subCount int
 
 	lastEmittedModel string
 	// runModel locks the model for the rest of this Run* after the first pick
@@ -488,18 +506,24 @@ func IsVisionModel(model string) bool {
 
 func (r *Runner) systemPrompt() string {
 	base := SystemPrompt
-	if r.LocalLite {
+	if r.subagentMode {
+		base = SubagentPrompt
+	} else if r.LocalLite {
 		base = SystemPromptLite
 	}
-	if r.PlanMode {
+	if r.PlanMode && !r.subagentMode {
 		base += "\n\n" + PlanModePrompt
+	}
+	if r.SubagentsEnabled && r.Depth == 0 && !r.subagentMode {
+		base += "\n\nSubagents: you may call tool `task` to explore many files in a nested context. " +
+			"Use it for broad search/review so this chat stays short; then act on the returned summary."
 	}
 	rules := strings.TrimSpace(r.RulesText)
 	if rules == "" {
 		return base
 	}
-	if r.LocalLite {
-		// Keep rules short on weak local models.
+	if r.LocalLite || r.subagentMode {
+		// Keep rules short on weak local models / nested runs.
 		const maxRules = 2500
 		if len(rules) > maxRules {
 			rules = rules[:maxRules] + "\n…"
@@ -996,6 +1020,8 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 		watch.onStep(step+1, model)
 		var toolSpecs []llm.ToolSpec
 		switch {
+		case r.subagentMode || r.Depth > 0:
+			toolSpecs = tools.SpecsForSubagent(r.SubagentsAllowWrite)
 		case exploreToolsOnly:
 			toolSpecs = tools.SpecsForLocalExplore(r.PlanMode)
 			exploreToolsOnly = false
@@ -1003,6 +1029,9 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 			toolSpecs = tools.SpecsForLite(r.PlanMode)
 		default:
 			toolSpecs = tools.SpecsFor(r.PlanMode)
+		}
+		if r.SubagentsEnabled && r.Depth == 0 && !r.subagentMode {
+			toolSpecs = tools.WithTaskTool(toolSpecs)
 		}
 		// Never use tool_choice=required on Local: weak models dump broken JSON
 		// (e.g. write_file loops) into the chat instead of structured tool_calls.
@@ -1410,6 +1439,9 @@ func (r *Runner) execTools(ctx context.Context, calls []llm.ToolCall, emit EmitF
 
 func (r *Runner) execOne(ctx context.Context, call llm.ToolCall, emit EmitFunc) llm.Message {
 	name := call.Function.Name
+	if name == "task" {
+		return r.runTask(ctx, call, emit)
+	}
 	emit(Event{Type: "tool_start", Name: name, Content: call.Function.Arguments, CallID: call.ID})
 	// Долгий шаг предупреждаем до запуска: пользователь видит, что это минуты, а
 	// не секунды, даже если модель забыла сказать об этом сама.

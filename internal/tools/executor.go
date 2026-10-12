@@ -104,6 +104,28 @@ func ReadOnlyTool(name string) bool {
 	}
 }
 
+// SubagentDefaultTool reports the default read-only allowlist for nested runs
+// (tool "task"). Keep this tight — every schema costs tokens in the child prompt.
+func SubagentDefaultTool(name string) bool {
+	switch name {
+	case "read_file", "list_dir", "find_files", "glob", "grep",
+		"git_status", "git_diff", "git_log", "get_env_info":
+		return true
+	default:
+		return false
+	}
+}
+
+// SubagentWriteTool is the extra set when Settings → Subagents → allow write.
+func SubagentWriteTool(name string) bool {
+	switch name {
+	case "write_file", "apply_patch", "delete_file", "move_file":
+		return true
+	default:
+		return false
+	}
+}
+
 func PlanBlocked(name string) bool {
 	switch name {
 	case "write_file", "apply_patch", "delete_file", "move_file", "run_terminal",
@@ -539,6 +561,46 @@ func SpecsForLite(plan bool) []llm.ToolSpec {
 // (guessing or broken tool JSON). Keeps write/shell/ssh out of reach.
 func SpecsForLocalExplore(plan bool) []llm.ToolSpec {
 	return filterToolSpecs(allToolSpecs(), plan, false, true)
+}
+
+// SpecsForSubagent is the tool set for a nested task run.
+// allowWrite adds patch/write/delete/move; task itself is never included (no recursion).
+func SpecsForSubagent(allowWrite bool) []llm.ToolSpec {
+	all := allToolSpecs()
+	out := make([]llm.ToolSpec, 0, 12)
+	for _, s := range all {
+		name := s.Function.Name
+		if SubagentDefaultTool(name) || (allowWrite && SubagentWriteTool(name)) {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// TaskToolSpec is the parent-only tool that spawns a nested agent run.
+func TaskToolSpec() llm.ToolSpec {
+	return fn("task", "Delegate a noisy research/explore job to a nested subagent with its own context. "+
+		"Use for long searches across many files so the parent chat stays short. "+
+		"Returns a compact summary + file list. The child cannot call task again. "+
+		"Prefer one focused task over many tiny ones.", map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"description": map[string]any{"type": "string", "description": "Short UI label, e.g. «найти обработку ошибок стрима»"},
+			"prompt":      map[string]any{"type": "string", "description": "Full assignment for the subagent (what to find, constraints)"},
+			"model":       map[string]any{"type": "string", "description": "Optional model id, or \"auto\" (default)"},
+		},
+		"required": []string{"description", "prompt"},
+	})
+}
+
+// WithTaskTool appends the task tool for a parent agent when subagents are enabled.
+func WithTaskTool(specs []llm.ToolSpec) []llm.ToolSpec {
+	for _, s := range specs {
+		if s.Function.Name == "task" {
+			return specs
+		}
+	}
+	return append(specs, TaskToolSpec())
 }
 
 func filterToolSpecs(all []llm.ToolSpec, plan, lite, explore bool) []llm.ToolSpec {

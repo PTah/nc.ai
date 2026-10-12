@@ -854,6 +854,10 @@ func (a *App) GetSettings() map[string]any {
 		"localSkipRules":      a.cfg.LocalSkipRulesEnabled(),
 		"toolConfirm":         a.cfg.ToolConfirmEnabled(),
 		"planMode":            a.cfg.PlanModeEnabled(),
+		"subagentsEnabled":    a.cfg.SubagentsEnabled(),
+		"subagentsMaxSteps":   a.cfg.SubagentsMaxSteps(),
+		"subagentsAllowWrite": a.cfg.SubagentsAllowWrite(),
+		"subagentsMaxPerRun":  a.cfg.SubagentsMaxPerRun(),
 		"visionModel":         deepseek.VisionModel,
 		"appDataDir":          appData,
 		"layoutProjectsW":     nonzero(s.LayoutProjectsW, 200),
@@ -1887,6 +1891,22 @@ func (a *App) SaveToolConfirm(on bool) error {
 
 func (a *App) SavePlanMode(on bool) error {
 	return a.cfg.SetPlanMode(on)
+}
+
+func (a *App) SaveSubagentsEnabled(on bool) error {
+	return a.cfg.SetSubagentsEnabled(on)
+}
+
+func (a *App) SaveSubagentsMaxSteps(n int) error {
+	return a.cfg.SetSubagentsMaxSteps(n)
+}
+
+func (a *App) SaveSubagentsAllowWrite(on bool) error {
+	return a.cfg.SetSubagentsAllowWrite(on)
+}
+
+func (a *App) SaveSubagentsMaxPerRun(n int) error {
+	return a.cfg.SetSubagentsMaxPerRun(n)
 }
 
 func (a *App) SaveLocalLite(on bool) error {
@@ -3090,31 +3110,35 @@ func (a *App) RunAgentInSession(sessionID, runID, userMessage string, attachment
 	}
 
 	runner := &agent.Runner{
-		Provider:        a.llm,
-		Tools:           runTools,
-		MaxSteps:        a.cfg.MaxAgentSteps(),
-		WarnSteps:       a.cfg.AgentWarnSteps(),
-		StallLimit:      a.cfg.AgentStallLimit(),
-		RetryCount:      a.cfg.AgentRetryCount(),
-		RetryBudget:     a.cfg.AgentRetryBudget(),
-		OnNetworkRetry:  a.noteNetworkDrop,
-		Logf:            a.logAgentLine,
-		RulesText:       rulesText,
-		TurnRulesText:   turnRulesText,
-		StickyModel:     sticky,
-		ProjectMap:      projectMap,
-		IDEContext:      a.ideContextText(),
-		PlanMode:        a.cfg.PlanModeEnabled(),
-		AutoModels:      autoModels,
-		LocalLite:       localLite,
-		LocalModels:     localModels,
-		LocalNumCtx:     a.cfg.LocalNumCtx(),
-		LocalServerKind: localServerKind,
-		ProviderID:      provider,
-		PreferredModel:  prefModel,
-		UserText:        userMessage,
-		HasImages:       hasImages,
-		HintPathCount:   len(hints),
+		Provider:            a.llm,
+		Tools:               runTools,
+		MaxSteps:            a.cfg.MaxAgentSteps(),
+		WarnSteps:           a.cfg.AgentWarnSteps(),
+		StallLimit:          a.cfg.AgentStallLimit(),
+		RetryCount:          a.cfg.AgentRetryCount(),
+		RetryBudget:         a.cfg.AgentRetryBudget(),
+		OnNetworkRetry:      a.noteNetworkDrop,
+		Logf:                a.logAgentLine,
+		RulesText:           rulesText,
+		TurnRulesText:       turnRulesText,
+		StickyModel:         sticky,
+		ProjectMap:          projectMap,
+		IDEContext:          a.ideContextText(),
+		PlanMode:            a.cfg.PlanModeEnabled(),
+		AutoModels:          autoModels,
+		LocalLite:           localLite,
+		LocalModels:         localModels,
+		LocalNumCtx:         a.cfg.LocalNumCtx(),
+		LocalServerKind:     localServerKind,
+		ProviderID:          provider,
+		PreferredModel:      prefModel,
+		UserText:            userMessage,
+		HasImages:           hasImages,
+		HintPathCount:       len(hints),
+		SubagentsEnabled:    a.cfg.SubagentsEnabled(),
+		SubagentsMaxSteps:   a.cfg.SubagentsMaxSteps(),
+		SubagentsAllowWrite: a.cfg.SubagentsAllowWrite(),
+		SubagentsMaxPerRun:  a.cfg.SubagentsMaxPerRun(),
 	}
 	if localSkipRules {
 		a.emitRun(sid, runID, agent.Event{

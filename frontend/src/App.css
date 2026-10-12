@@ -937,6 +937,25 @@ mark.nc-find-mark.nc-find-current {
 .nc-tool-icon { color: var(--tool-icon-ok); font-size: 0.75rem; }
 .nc-msg.tool.fail .nc-tool-icon { color: var(--tool-icon-fail); }
 .nc-msg.tool.running .nc-tool-icon { color: var(--tool-icon-run); }
+.nc-msg.subagent {
+  margin: 0.35rem 0;
+  padding: 0.45rem 0.6rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--panel, transparent);
+}
+.nc-msg.subagent.fail { border-color: var(--tool-icon-fail, #c44); }
+.nc-msg.subagent.running .nc-tool-icon { color: var(--tool-icon-run); }
+.nc-msg.subagent.fail .nc-tool-icon { color: var(--tool-icon-fail); }
+.nc-subagent-sum {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+  cursor: pointer;
+  list-style: none;
+}
+.nc-subagent-sum::-webkit-details-marker { display: none; }
 .nc-tool-title { font-weight: 600; color: var(--tool-title); }
 .nc-tool-name {
   margin-left: auto;

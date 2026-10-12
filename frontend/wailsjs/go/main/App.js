@@ -442,6 +442,22 @@ export function SavePlanMode(arg1) {
   return window['go']['main']['App']['SavePlanMode'](arg1);
 }
 
+export function SaveSubagentsAllowWrite(arg1) {
+  return window['go']['main']['App']['SaveSubagentsAllowWrite'](arg1);
+}
+
+export function SaveSubagentsEnabled(arg1) {
+  return window['go']['main']['App']['SaveSubagentsEnabled'](arg1);
+}
+
+export function SaveSubagentsMaxPerRun(arg1) {
+  return window['go']['main']['App']['SaveSubagentsMaxPerRun'](arg1);
+}
+
+export function SaveSubagentsMaxSteps(arg1) {
+  return window['go']['main']['App']['SaveSubagentsMaxSteps'](arg1);
+}
+
 export function SaveQwenEndpoint(arg1) {
   return window['go']['main']['App']['SaveQwenEndpoint'](arg1);
 }
