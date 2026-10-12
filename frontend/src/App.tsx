@@ -94,6 +94,10 @@ import {
   SaveLocalSkipRules,
   SaveToolConfirm,
   SavePlanMode,
+  SaveSubagentsEnabled,
+  SaveSubagentsMaxSteps,
+  SaveSubagentsAllowWrite,
+  SaveSubagentsMaxPerRun,
   SetIDEContext,
   ResolveUserAsk,
   ResolveToolApproval,
@@ -148,6 +152,18 @@ type ChatItem =
   | { kind: 'reasoning'; content: string; seconds?: number }
   | { kind: 'progress'; content: string }
   | { kind: 'tool'; name: string; args: string; result?: string; phase: 'running' | 'done'; ok?: boolean; interrupted?: boolean }
+  | {
+      kind: 'subagent'
+      callId: string
+      description: string
+      phase: 'running' | 'done'
+      steps: number
+      currentTool?: string
+      summary?: string
+      files?: string[]
+      tokens?: number
+      ok?: boolean
+    }
   | { kind: 'file'; path: string; content: string }
 
 /** One entry of the provider news digest. */
@@ -274,6 +290,7 @@ type AgentEvent = {
   sessionId?: string
   callId?: string
   runId?: string
+  parentCallId?: string
   /** Почему вызов требует подтверждения (например, команда заходит в другой проект). */
   reason?: string
 }
@@ -1102,6 +1119,28 @@ function ToolCard({item}: {item: Extract<ChatItem, {kind: 'tool'}>}) {
   )
 }
 
+function SubagentCard({item}: {item: Extract<ChatItem, {kind: 'subagent'}>}) {
+  const icon = item.phase === 'running' ? '◉' : item.ok === false ? '✗' : '✓'
+  const meta = [
+    item.steps ? `${item.steps} ш.` : '',
+    item.tokens ? `${item.tokens} tok` : '',
+    item.currentTool && item.phase === 'running' ? item.currentTool : '',
+  ].filter(Boolean).join(' · ')
+  return (
+    <details className={`nc-msg subagent ${item.phase}${item.ok === false ? ' fail' : ''}`} open={item.phase === 'running'}>
+      <summary className="nc-subagent-sum">
+        <span className="nc-tool-icon">{icon}</span>
+        <span className="nc-tool-title">Подагент: {item.description || 'задача'}</span>
+        {meta ? <span className="nc-tool-name">{meta}</span> : null}
+      </summary>
+      {item.files && item.files.length > 0 ? (
+        <p className="nc-help">файлы: {item.files.slice(0, 12).join(', ')}{item.files.length > 12 ? '…' : ''}</p>
+      ) : null}
+      {item.summary ? <pre className="nc-tool-pre">{item.summary}</pre> : null}
+    </details>
+  )
+}
+
 function summarizeTools(tools: Extract<ChatItem, {kind: 'tool'}>[]): string {
   const counts: Record<string, number> = {}
   let failed = 0
@@ -1448,6 +1487,7 @@ function IntermediateRow({row}: {row: DisplayRow}) {
   if (row.kind === 'todos') return null
   const m = row.item
   if (m.kind === 'tool') return <ToolCard item={m} />
+  if (m.kind === 'subagent') return <SubagentCard item={m} />
   if (m.kind === 'reasoning') {
     return <ThinkingBlock content={m.content} seconds={m.seconds} collapsed />
   }
@@ -1791,6 +1831,10 @@ export default function App() {
   const [ctxUsage, setCtxUsage] = useState<{used: number; limit: number} | null>(null)
   const [toolConfirm, setToolConfirm] = useState(true)
   const [planMode, setPlanMode] = useState(false)
+  const [subagentsEnabled, setSubagentsEnabled] = useState(false)
+  const [subagentsMaxSteps, setSubagentsMaxSteps] = useState(12)
+  const [subagentsAllowWrite, setSubagentsAllowWrite] = useState(false)
+  const [subagentsMaxPerRun, setSubagentsMaxPerRun] = useState(3)
   const [todosBySession, setTodosBySession] = useState<Record<string, TodoItem[]>>({})
   // Скрытые блоки ToDo: sessionId → набор id, который человек убрал из чата.
   const [todosHidden, setTodosHidden] = useState<Record<string, string>>({})
@@ -2693,6 +2737,14 @@ export default function App() {
         setLocalSkipRules(Boolean(s.localSkipRules))
         setToolConfirm(s.toolConfirm !== false)
         setPlanMode(Boolean(s.planMode))
+        setSubagentsEnabled(Boolean(s.subagentsEnabled))
+        if (typeof s.subagentsMaxSteps === 'number' && s.subagentsMaxSteps > 0) {
+          setSubagentsMaxSteps(s.subagentsMaxSteps)
+        }
+        setSubagentsAllowWrite(Boolean(s.subagentsAllowWrite))
+        if (typeof s.subagentsMaxPerRun === 'number' && s.subagentsMaxPerRun > 0) {
+          setSubagentsMaxPerRun(s.subagentsMaxPerRun)
+        }
         if (typeof s.appDataDir === 'string' && s.appDataDir) setAppDataDir(s.appDataDir)
         if (typeof s.agentMaxSteps === 'number' && s.agentMaxSteps !== 0) setMaxSteps(s.agentMaxSteps)
         {
@@ -2934,19 +2986,134 @@ export default function App() {
           } else if (ev.type === 'tool_start') {
             closeReasoningIn(key, apply)
             assistantBuf.current[key] = ''
-            apply((prev) => [...prev, {
-              kind: 'tool',
-              name: ev.name || 'tool',
-              args: ev.content || '',
-              phase: 'running',
-            }])
+            // task → карточка подагента (не обычный tool card).
+            if (ev.name === 'task') {
+              let desc = 'подагент'
+              try {
+                const parsed = JSON.parse(ev.content || '{}') as {description?: string}
+                if (parsed.description) desc = String(parsed.description)
+              } catch { /* ignore */ }
+              apply((prev) => [...prev, {
+                kind: 'subagent',
+                callId: ev.callId || `task-${prev.length}`,
+                description: desc,
+                phase: 'running',
+                steps: 0,
+              }])
+            } else {
+              apply((prev) => [...prev, {
+                kind: 'tool',
+                name: ev.name || 'tool',
+                args: ev.content || '',
+                phase: 'running',
+              }])
+            }
+          } else if (ev.type === 'subrun_start') {
+            const cid = ev.parentCallId || ev.callId || ''
+            apply((prev) => {
+              const copy = [...prev]
+              for (let i = copy.length - 1; i >= 0; i--) {
+                const it = copy[i]
+                if (it.kind === 'subagent' && it.phase === 'running' && (!cid || it.callId === cid)) {
+                  copy[i] = {
+                    ...it,
+                    callId: cid || it.callId,
+                    description: ev.name || it.description,
+                  }
+                  return copy
+                }
+              }
+              return [...copy, {
+                kind: 'subagent',
+                callId: cid || `sub-${copy.length}`,
+                description: ev.name || 'подагент',
+                phase: 'running',
+                steps: 0,
+              }]
+            })
+          } else if (ev.type === 'subrun_step') {
+            const cid = ev.parentCallId || ev.callId || ''
+            const isErr = ev.name === 'error'
+            apply((prev) => {
+              const copy = [...prev]
+              for (let i = copy.length - 1; i >= 0; i--) {
+                const it = copy[i]
+                if (it.kind === 'subagent' && (!cid || it.callId === cid)) {
+                  copy[i] = {
+                    ...it,
+                    steps: it.steps + (isErr ? 0 : 1),
+                    currentTool: isErr ? it.currentTool : (ev.name || it.currentTool),
+                    ok: isErr ? false : it.ok,
+                  }
+                  return copy
+                }
+              }
+              return copy
+            })
+          } else if (ev.type === 'subrun_end') {
+            const cid = ev.parentCallId || ev.callId || ''
+            let summary = ev.content || ''
+            let files: string[] | undefined
+            let tokens: number | undefined
+            try {
+              const parsed = JSON.parse(ev.content || '{}') as {
+                summary?: string
+                files?: string[]
+                tokens?: number
+                steps?: number
+              }
+              if (parsed.summary) summary = parsed.summary
+              if (parsed.files) files = parsed.files
+              if (typeof parsed.tokens === 'number') tokens = parsed.tokens
+            } catch { /* plain text */ }
+            apply((prev) => {
+              const copy = [...prev]
+              for (let i = copy.length - 1; i >= 0; i--) {
+                const it = copy[i]
+                if (it.kind === 'subagent' && (!cid || it.callId === cid)) {
+                  copy[i] = {
+                    ...it,
+                    phase: 'done',
+                    ok: ev.ok !== false,
+                    summary,
+                    files: files || it.files,
+                    tokens: tokens ?? it.tokens,
+                    currentTool: undefined,
+                    description: ev.name || it.description,
+                  }
+                  return copy
+                }
+              }
+              return copy
+            })
           } else if (ev.type === 'tool_end') {
             setToolAsk((prev) => {
               if (prev && prev.sessionId === sid && ev.callId && prev.callId === ev.callId) return null
               if (prev && prev.sessionId === sid && !ev.callId && prev.name === (ev.name || '')) return null
               return prev
             })
-            apply((prev) => {
+            // task обычно закрыт через subrun_end; при ранней ошибке (disabled/limit)
+            // subrun_end нет — добиваем карточку здесь.
+            if (ev.name === 'task') {
+              const cid = ev.callId || ''
+              apply((prev) => {
+                const copy = [...prev]
+                for (let i = copy.length - 1; i >= 0; i--) {
+                  const it = copy[i]
+                  if (it.kind === 'subagent' && it.phase === 'running' && (!cid || it.callId === cid)) {
+                    copy[i] = {
+                      ...it,
+                      phase: 'done',
+                      ok: ev.ok !== false,
+                      summary: it.summary || ev.content || '',
+                      currentTool: undefined,
+                    }
+                    return copy
+                  }
+                }
+                return copy
+              })
+            } else apply((prev) => {
               const copy = [...prev]
               for (let i = copy.length - 1; i >= 0; i--) {
                 const it = copy[i]
@@ -4444,6 +4611,10 @@ export default function App() {
       await refreshDeepSeekBalance()
     }
     await SaveAutoModels(autoModels)
+    await SaveSubagentsEnabled(subagentsEnabled)
+    await SaveSubagentsMaxSteps(Math.max(1, Math.min(60, Number(subagentsMaxSteps) || 12)))
+    await SaveSubagentsAllowWrite(subagentsAllowWrite)
+    await SaveSubagentsMaxPerRun(Math.max(1, Math.min(10, Number(subagentsMaxPerRun) || 3)))
     await SaveAgentMaxSteps(unlimitedSteps ? -1 : (Number(maxSteps) || 120))
     await SaveAgentWarnSteps(warnSteps > 0 ? Number(warnSteps) : -1)
     await SaveAgentStallMin(stallOff ? -1 : Math.min(240, Math.max(1, Number(stallMinutes) || 10)))
@@ -5389,6 +5560,9 @@ export default function App() {
                   if (m.kind === 'tool') {
                     return <ToolCard key={row.key} item={m} />
                   }
+                  if (m.kind === 'subagent') {
+                    return <SubagentCard key={row.key} item={m} />
+                  }
                   if (m.kind === 'file') {
                     return (
                       <div key={row.key} className="nc-msg file">
@@ -5866,6 +6040,21 @@ export default function App() {
                 }}
               />
               Plan mode (без правок)
+            </label>
+            <label
+              className="nc-top-check"
+              title="Родитель может звать tool task: шумный поиск уходит во вложенный прогон, в чат возвращается краткая сводка (экономия контекста)"
+            >
+              <input
+                type="checkbox"
+                checked={subagentsEnabled}
+                onChange={(e) => {
+                  const on = e.target.checked
+                  setSubagentsEnabled(on)
+                  void SaveSubagentsEnabled(on)
+                }}
+              />
+              Subagents (tool task)
             </label>
 
             {activeProvider === 'deepseek' ? (
@@ -6551,6 +6740,49 @@ export default function App() {
             <button type="button" className="nc-ghost" onClick={() => void clearAllKeys()}>Clear all keys</button>
 
             <div className="nc-section-label">Agent</div>
+            {subagentsEnabled ? (
+              <>
+                <label>
+                  Subagent max steps
+                  <input
+                    type="number"
+                    min={1}
+                    max={60}
+                    value={subagentsMaxSteps}
+                    onChange={(e) => setSubagentsMaxSteps(Number(e.target.value))}
+                  />
+                </label>
+                <label>
+                  Subagents per run
+                  <input
+                    type="number"
+                    min={1}
+                    max={10}
+                    value={subagentsMaxPerRun}
+                    onChange={(e) => setSubagentsMaxPerRun(Number(e.target.value))}
+                  />
+                </label>
+                <label
+                  className="nc-inline-check"
+                  title="По умолчанию подагент только читает. Включайте запись осознанно."
+                >
+                  <input
+                    type="checkbox"
+                    checked={subagentsAllowWrite}
+                    onChange={(e) => {
+                      const on = e.target.checked
+                      setSubagentsAllowWrite(on)
+                      void SaveSubagentsAllowWrite(on)
+                    }}
+                  />
+                  Subagent may write files
+                </label>
+                <p className="nc-help">
+                  Вложенный прогон экономит контекст родителя: поиск по репо → краткая сводка.
+                  По умолчанию выключено; глубина ровно 1 (без рекурсии).
+                </p>
+              </>
+            ) : null}
             <label>
               Max tool steps
               <input
@@ -7528,6 +7760,14 @@ export default function App() {
                     <div key={i} className="nc-arc-msg nc-arc-msg-tool">
                       <div className="nc-arc-role">Инструмент: {m.name}</div>
                       <div className="nc-arc-content">{String(m.result ?? m.args ?? '')}</div>
+                    </div>
+                  )
+                }
+                if (m.kind === 'subagent') {
+                  return (
+                    <div key={i} className="nc-arc-msg nc-arc-msg-tool">
+                      <div className="nc-arc-role">Подагент: {m.description}</div>
+                      <div className="nc-arc-content">{m.summary || ''}</div>
                     </div>
                   )
                 }

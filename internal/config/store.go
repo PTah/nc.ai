@@ -205,6 +205,19 @@ type Settings struct {
 	// PlanMode: explore-only (no writes/shell/git push/ssh).
 	PlanMode bool `json:"planMode,omitempty"`
 
+	// SubagentsEnabled — родитель может звать инструмент task (вложенный прогон).
+	// По умолчанию выкл. до обкатки (см. docs/roadmap.md §3).
+	SubagentsEnabled bool `json:"subagentsEnabled,omitempty"`
+
+	// SubagentsMaxSteps — лимит шагов у ребёнка (0 = DefaultSubagentsMaxSteps).
+	SubagentsMaxSteps int `json:"subagentsMaxSteps,omitempty"`
+
+	// SubagentsAllowWrite — разрешить ребёнку write/patch (по умолчанию только чтение).
+	SubagentsAllowWrite bool `json:"subagentsAllowWrite,omitempty"`
+
+	// SubagentsMaxPerRun — сколько task за один родительский прогон (0 = default).
+	SubagentsMaxPerRun int `json:"subagentsMaxPerRun,omitempty"`
+
 	// LocalLite: short system prompt + reduced tools for weak local LLMs.
 	// Default false — full prompt/tools work better on capable coder models (7B+).
 	// Nil = unset → off (see LocalLiteEnabled).
@@ -959,6 +972,70 @@ func (s *Store) PlanModeEnabled() bool {
 func (s *Store) SetPlanMode(on bool) error {
 	s.mu.Lock()
 	s.settings.PlanMode = on
+	s.mu.Unlock()
+	return s.Save()
+}
+
+// DefaultSubagentsMaxSteps — лимит шагов подагента, если в настройках 0.
+const DefaultSubagentsMaxSteps = 12
+
+// DefaultSubagentsMaxPerRun — сколько task за один родительский прогон.
+const DefaultSubagentsMaxPerRun = 3
+
+func (s *Store) SubagentsEnabled() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.settings.SubagentsEnabled
+}
+
+func (s *Store) SetSubagentsEnabled(on bool) error {
+	s.mu.Lock()
+	s.settings.SubagentsEnabled = on
+	s.mu.Unlock()
+	return s.Save()
+}
+
+func (s *Store) SubagentsMaxSteps() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.settings.SubagentsMaxSteps <= 0 {
+		return DefaultSubagentsMaxSteps
+	}
+	return s.settings.SubagentsMaxSteps
+}
+
+func (s *Store) SetSubagentsMaxSteps(n int) error {
+	s.mu.Lock()
+	s.settings.SubagentsMaxSteps = n
+	s.mu.Unlock()
+	return s.Save()
+}
+
+func (s *Store) SubagentsAllowWrite() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.settings.SubagentsAllowWrite
+}
+
+func (s *Store) SetSubagentsAllowWrite(on bool) error {
+	s.mu.Lock()
+	s.settings.SubagentsAllowWrite = on
+	s.mu.Unlock()
+	return s.Save()
+}
+
+func (s *Store) SubagentsMaxPerRun() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.settings.SubagentsMaxPerRun <= 0 {
+		return DefaultSubagentsMaxPerRun
+	}
+	return s.settings.SubagentsMaxPerRun
+}
+
+func (s *Store) SetSubagentsMaxPerRun(n int) error {
+	s.mu.Lock()
+	s.settings.SubagentsMaxPerRun = n
 	s.mu.Unlock()
 	return s.Save()
 }

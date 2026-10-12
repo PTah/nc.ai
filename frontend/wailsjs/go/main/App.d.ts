@@ -232,6 +232,14 @@ export function SaveOpenRouterModel(arg1:string):Promise<void>;
 
 export function SavePlanMode(arg1:boolean):Promise<void>;
 
+export function SaveSubagentsAllowWrite(arg1:boolean):Promise<void>;
+
+export function SaveSubagentsEnabled(arg1:boolean):Promise<void>;
+
+export function SaveSubagentsMaxPerRun(arg1:number):Promise<void>;
+
+export function SaveSubagentsMaxSteps(arg1:number):Promise<void>;
+
 export function SaveQwenEndpoint(arg1:string):Promise<void>;
 
 export function SaveQwenKey(arg1:string):Promise<void>;
