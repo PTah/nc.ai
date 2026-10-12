@@ -98,6 +98,12 @@ import {
   SaveSubagentsMaxSteps,
   SaveSubagentsAllowWrite,
   SaveSubagentsMaxPerRun,
+  SaveMCPServers,
+  MCPStatuses,
+  MCPPresets,
+  ApplyMCPPreset,
+  StartMCPServer,
+  StopMCPServer,
   SetIDEContext,
   ResolveUserAsk,
   ResolveToolApproval,
@@ -1835,6 +1841,11 @@ export default function App() {
   const [subagentsMaxSteps, setSubagentsMaxSteps] = useState(12)
   const [subagentsAllowWrite, setSubagentsAllowWrite] = useState(false)
   const [subagentsMaxPerRun, setSubagentsMaxPerRun] = useState(3)
+  const [mcpServers, setMcpServers] = useState<Array<Record<string, any>>>([])
+  const [mcpStatuses, setMcpStatuses] = useState<Array<Record<string, any>>>([])
+  const [mcpPresets, setMcpPresets] = useState<Array<Record<string, any>>>([])
+  const [mcpBusy, setMcpBusy] = useState('')
+  const [mcpNote, setMcpNote] = useState('')
   const [todosBySession, setTodosBySession] = useState<Record<string, TodoItem[]>>({})
   // Скрытые блоки ToDo: sessionId → набор id, который человек убрал из чата.
   const [todosHidden, setTodosHidden] = useState<Record<string, string>>({})
@@ -2745,6 +2756,9 @@ export default function App() {
         if (typeof s.subagentsMaxPerRun === 'number' && s.subagentsMaxPerRun > 0) {
           setSubagentsMaxPerRun(s.subagentsMaxPerRun)
         }
+        if (Array.isArray(s.mcpServers)) setMcpServers(s.mcpServers as Array<Record<string, any>>)
+        void MCPStatuses().then((v) => setMcpStatuses(asList(v as Array<Record<string, any>>))).catch(() => undefined)
+        void MCPPresets().then((v) => setMcpPresets(asList(v as Array<Record<string, any>>))).catch(() => undefined)
         if (typeof s.appDataDir === 'string' && s.appDataDir) setAppDataDir(s.appDataDir)
         if (typeof s.agentMaxSteps === 'number' && s.agentMaxSteps !== 0) setMaxSteps(s.agentMaxSteps)
         {
@@ -6783,6 +6797,148 @@ export default function App() {
                 </p>
               </>
             ) : null}
+
+            <div className="nc-section-label">MCP</div>
+            <p className="nc-help">
+              Внешние инструменты (граф кода / память) через stdio. По умолчанию ничего не попадает
+              в промпт — отметьте tools после «Проверить». Пресеты: code-graph / memory.
+            </p>
+            <div className="nc-mcp-presets">
+              {mcpPresets.map((p) => (
+                <button
+                  key={String(p.id)}
+                  type="button"
+                  className="nc-ghost"
+                  disabled={Boolean(mcpBusy)}
+                  title={String(p.description || '')}
+                  onClick={() => {
+                    void (async () => {
+                      setMcpBusy(String(p.id))
+                      setMcpNote('')
+                      try {
+                        const list = await ApplyMCPPreset(String(p.id))
+                        setMcpServers(asList(list as Array<Record<string, any>>))
+                        setMcpStatuses(asList(await MCPStatuses()))
+                        setMcpNote(`Пресет «${p.label}» добавлен (выкл.). Включите, отметьте tools, нажмите Проверить.`)
+                      } catch (e) {
+                        setMcpNote(String(e))
+                      } finally {
+                        setMcpBusy('')
+                      }
+                    })()
+                  }}
+                >
+                  + {String(p.label || p.id)}
+                </button>
+              ))}
+            </div>
+            {mcpServers.length === 0 ? (
+              <p className="nc-help">Серверов пока нет — добавьте пресет выше.</p>
+            ) : (
+              mcpServers.map((srv, idx) => {
+                const st = mcpStatuses.find((x) => x.id === srv.id) || {}
+                const tools = asList((st.tools as string[]) || [])
+                const enabled = asList((srv.enabledTools as string[]) || [])
+                return (
+                  <div key={String(srv.id || idx)} className="nc-mcp-card">
+                    <label className="nc-inline-check">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(srv.enabled)}
+                        onChange={(e) => {
+                          const next = mcpServers.map((s, i) => i === idx ? {...s, enabled: e.target.checked} : s)
+                          setMcpServers(next)
+                          void SaveMCPServers(next).then(() => MCPStatuses().then((v) => setMcpStatuses(asList(v))).catch(() => undefined))
+                        }}
+                      />
+                      <b>{String(srv.label || srv.id)}</b>
+                      <span className="nc-help" style={{display: 'inline', marginLeft: 6}}>
+                        {String(st.state || 'stopped')}
+                        {st.error ? ` · ${st.error}` : ''}
+                      </span>
+                    </label>
+                    <p className="nc-help" style={{margin: '0.2rem 0'}}>
+                      <code>{String(srv.command || '')} {(srv.args as string[] | undefined)?.join(' ') || ''}</code>
+                    </p>
+                    {tools.length > 0 ? (
+                      <div className="nc-mcp-tools">
+                        {tools.map((t) => (
+                          <label key={t} className="nc-inline-check">
+                            <input
+                              type="checkbox"
+                              checked={enabled.includes(t)}
+                              onChange={(e) => {
+                                const set = new Set(enabled)
+                                if (e.target.checked) set.add(t)
+                                else set.delete(t)
+                                const nextTools = Array.from(set)
+                                const next = mcpServers.map((s, i) => i === idx ? {...s, enabledTools: nextTools} : s)
+                                setMcpServers(next)
+                                void SaveMCPServers(next)
+                              }}
+                            />
+                            {t}
+                          </label>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="nc-help">Tools появятся после «Проверить».</p>
+                    )}
+                    <div className="nc-mcp-actions">
+                      <button
+                        type="button"
+                        className="nc-ghost"
+                        disabled={Boolean(mcpBusy)}
+                        onClick={() => {
+                          void (async () => {
+                            setMcpBusy(String(srv.id))
+                            setMcpNote('')
+                            try {
+                              await StartMCPServer(String(srv.id))
+                              setMcpStatuses(asList(await MCPStatuses()))
+                              setMcpNote(`«${srv.label || srv.id}»: подключён`)
+                            } catch (e) {
+                              setMcpNote(String(e))
+                              setMcpStatuses(asList(await MCPStatuses().catch(() => [])))
+                            } finally {
+                              setMcpBusy('')
+                            }
+                          })()
+                        }}
+                      >
+                        Проверить
+                      </button>
+                      <button
+                        type="button"
+                        className="nc-ghost"
+                        disabled={Boolean(mcpBusy)}
+                        onClick={() => {
+                          void (async () => {
+                            await StopMCPServer(String(srv.id))
+                            setMcpStatuses(asList(await MCPStatuses()))
+                          })()
+                        }}
+                      >
+                        Стоп
+                      </button>
+                      <button
+                        type="button"
+                        className="nc-ghost"
+                        onClick={() => {
+                          const next = mcpServers.filter((_, i) => i !== idx)
+                          setMcpServers(next)
+                          void SaveMCPServers(next).then(() => MCPStatuses().then((v) => setMcpStatuses(asList(v))))
+                        }}
+                      >
+                        Удалить
+                      </button>
+                    </div>
+                  </div>
+                )
+              })
+            )}
+            {mcpNote ? <p className="nc-help">{mcpNote}</p> : null}
+
             <label>
               Max tool steps
               <input

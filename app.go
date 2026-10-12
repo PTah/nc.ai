@@ -32,6 +32,7 @@ import (
 	"notcursor.ai/app/internal/llm/providers/qwen"
 	"notcursor.ai/app/internal/llm/providers/yandex"
 	"notcursor.ai/app/internal/llm/providers/zai"
+	"notcursor.ai/app/internal/mcp"
 	"notcursor.ai/app/internal/providernews"
 	"notcursor.ai/app/internal/redact"
 	"notcursor.ai/app/internal/rules"
@@ -49,6 +50,7 @@ type App struct {
 	cfg   *config.Store
 	ws    *workspace.Manager
 	tools *tools.Registry
+	mcp   *mcp.Manager
 	llm   llm.Provider
 	chats *chatstore.Store
 
@@ -166,6 +168,14 @@ func (a *App) startup(ctx context.Context) {
 	}
 	a.tools = tools.NewRegistry(a.ws, a.sshDir)
 	a.tools.Shell = shell.ResolveShell(a.cfg.Get().Shell)
+	a.mcp = mcp.NewManager()
+	a.syncMCPFromConfig()
+	a.tools.MCPCall = func(ctx context.Context, name, argsJSON string) (string, error) {
+		if a.mcp == nil {
+			return "", fmt.Errorf("MCP is not configured")
+		}
+		return a.mcp.Call(ctx, name, argsJSON)
+	}
 	a.refreshProvider()
 	// Drop legacy in-app Git passwords (auth is OS git / ~/.ssh now).
 	if s := a.cfg.Get(); s.GitUsername != "" || s.GitPassword != "" {
@@ -465,7 +475,108 @@ func (a *App) stopBackgroundWork() {
 	if a.tools != nil && a.tools.Jobs != nil {
 		a.tools.Jobs.KillAll()
 	}
+	if a.mcp != nil {
+		a.mcp.CloseAll()
+	}
 	a.StopTerminal()
+}
+
+func (a *App) syncMCPFromConfig() {
+	if a.mcp == nil || a.cfg == nil {
+		return
+	}
+	raw := a.cfg.MCPServers()
+	cfgs := make([]mcp.ServerConfig, 0, len(raw))
+	for _, s := range raw {
+		cfgs = append(cfgs, mcp.ServerConfig{
+			ID: s.ID, Label: s.Label, Enabled: s.Enabled, Transport: s.Transport,
+			Command: s.Command, Args: s.Args, Env: s.Env, CWD: s.CWD,
+			TimeoutSec: s.TimeoutSec, EnabledTools: s.EnabledTools,
+		})
+	}
+	a.mcp.SetConfigs(cfgs)
+}
+
+func cfgMCPFromMCP(c mcp.ServerConfig) config.MCPServerSettings {
+	c.Normalize()
+	return config.MCPServerSettings{
+		ID: c.ID, Label: c.Label, Enabled: c.Enabled, Transport: c.Transport,
+		Command: c.Command, Args: c.Args, Env: c.Env, CWD: c.CWD,
+		TimeoutSec: c.TimeoutSec, EnabledTools: c.EnabledTools,
+	}
+}
+
+// GetMCPServers returns configured MCP servers (settings).
+func (a *App) GetMCPServers() []config.MCPServerSettings {
+	return a.cfg.MCPServers()
+}
+
+// SaveMCPServers persists the MCP registry and refreshes the manager.
+func (a *App) SaveMCPServers(list []config.MCPServerSettings) error {
+	if err := a.cfg.SetMCPServers(list); err != nil {
+		return err
+	}
+	a.syncMCPFromConfig()
+	return nil
+}
+
+// MCPStatuses returns live status cards for Settings → MCP.
+func (a *App) MCPStatuses() []mcp.Status {
+	if a.mcp == nil {
+		return nil
+	}
+	a.syncMCPFromConfig()
+	return a.mcp.Statuses()
+}
+
+// StartMCPServer starts one server (initialize + tools/list).
+func (a *App) StartMCPServer(id string) (mcp.Status, error) {
+	if a.mcp == nil {
+		return mcp.Status{}, fmt.Errorf("MCP is not configured")
+	}
+	a.syncMCPFromConfig()
+	return a.mcp.Start(a.ctx, id)
+}
+
+// StopMCPServer stops one server process.
+func (a *App) StopMCPServer(id string) mcp.Status {
+	if a.mcp == nil {
+		return mcp.Status{ID: id, State: "stopped"}
+	}
+	return a.mcp.Stop(id)
+}
+
+// MCPPresets returns built-in coding MCP recipes (code-graph / memory).
+func (a *App) MCPPresets() []mcp.Preset {
+	return mcp.Presets()
+}
+
+// ApplyMCPPreset merges a built-in preset into settings (does not enable tools).
+func (a *App) ApplyMCPPreset(presetID string) ([]config.MCPServerSettings, error) {
+	p, ok := mcp.PresetByID(presetID)
+	if !ok {
+		return a.cfg.MCPServers(), fmt.Errorf("unknown MCP preset %q", presetID)
+	}
+	srv := cfgMCPFromMCP(p.Server)
+	if len(p.SuggestedTools) > 0 && len(srv.EnabledTools) == 0 {
+		srv.EnabledTools = append([]string(nil), p.SuggestedTools...)
+	}
+	list := a.cfg.MCPServers()
+	replaced := false
+	for i := range list {
+		if strings.EqualFold(list[i].ID, srv.ID) {
+			list[i] = srv
+			replaced = true
+			break
+		}
+	}
+	if !replaced {
+		list = append(list, srv)
+	}
+	if err := a.SaveMCPServers(list); err != nil {
+		return list, err
+	}
+	return list, nil
 }
 
 // deployMarkerName is dropped by build.ps1 before a deploy restart, so the next
@@ -858,6 +969,7 @@ func (a *App) GetSettings() map[string]any {
 		"subagentsMaxSteps":   a.cfg.SubagentsMaxSteps(),
 		"subagentsAllowWrite": a.cfg.SubagentsAllowWrite(),
 		"subagentsMaxPerRun":  a.cfg.SubagentsMaxPerRun(),
+		"mcpServers":          a.cfg.MCPServers(),
 		"visionModel":         deepseek.VisionModel,
 		"appDataDir":          appData,
 		"layoutProjectsW":     nonzero(s.LayoutProjectsW, 200),
@@ -3139,6 +3251,11 @@ func (a *App) RunAgentInSession(sessionID, runID, userMessage string, attachment
 		SubagentsMaxSteps:   a.cfg.SubagentsMaxSteps(),
 		SubagentsAllowWrite: a.cfg.SubagentsAllowWrite(),
 		SubagentsMaxPerRun:  a.cfg.SubagentsMaxPerRun(),
+	}
+	if a.mcp != nil {
+		a.syncMCPFromConfig()
+		a.mcp.EnsureStarted(ctx)
+		runner.ExtraTools = a.mcp.ToolSpecs()
 	}
 	if localSkipRules {
 		a.emitRun(sid, runID, agent.Event{

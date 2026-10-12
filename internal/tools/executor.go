@@ -35,6 +35,8 @@ type Registry struct {
 	WSRoot string
 	// AskUser, when set, blocks until the user answers ask_user.
 	AskUser func(ctx context.Context, callID, question string, options []string) (string, error)
+	// MCPCall routes mcp:<server>:<tool> to the MCP manager. nil = MCP disabled.
+	MCPCall func(ctx context.Context, prefixedName, argsJSON string) (string, error)
 }
 
 // ForRun returns a per-run copy of the registry bound to root. PlanMode, the
@@ -144,6 +146,12 @@ func (r *Registry) Execute(ctx context.Context, call llm.ToolCall) (string, erro
 		if err := json.Unmarshal([]byte(raw), &args); err != nil {
 			return "", fmt.Errorf("invalid tool arguments JSON: %w", err)
 		}
+	}
+	if strings.HasPrefix(name, "mcp:") {
+		if r.MCPCall == nil {
+			return "", fmt.Errorf("MCP is not configured")
+		}
+		return r.MCPCall(ctx, name, call.Function.Arguments)
 	}
 	if r.PlanMode && PlanBlocked(name) {
 		return "", fmt.Errorf("plan mode: %s is disabled — explore, then present a plan; wait for Act", name)
