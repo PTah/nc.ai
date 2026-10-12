@@ -1,3 +1,4 @@
+// Edited by nc.ai 0.8.5.1 on new-admin-pc 2026-10-12 17:50:30
 package mcp
 
 import (
@@ -214,13 +215,32 @@ func runCmdOut(ctx context.Context, bin string, args []string, env []string) (st
 	if len(env) > 0 {
 		cmd.Env = env
 	} else {
-		cmd.Env = os.Environ()
+		cmd.Env = installEnv()
 	}
 	var buf bytes.Buffer
 	cmd.Stdout = &buf
 	cmd.Stderr = &buf
 	err := cmd.Run()
 	return buf.String(), err
+}
+
+// installEnv keeps the full environment for package installers (PATH, proxy,
+// certificates) but strips our provider credentials so pip/npm never sees them.
+func installEnv() []string {
+	env := os.Environ()
+	out := make([]string, 0, len(env))
+	for _, kv := range env {
+		i := strings.IndexByte(kv, '=')
+		if i <= 0 {
+			out = append(out, kv)
+			continue
+		}
+		if isSecretEnvKey(strings.ToUpper(kv[:i])) {
+			continue
+		}
+		out = append(out, kv)
+	}
+	return out
 }
 
 func truncateOut(s string, n int) string {
