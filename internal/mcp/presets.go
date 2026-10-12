@@ -1,3 +1,4 @@
+// Edited by nc.ai 0.8.5.3 on macbook 2026-10-12 21:49:38
 package mcp
 
 // Preset is a ready-made MCP server config for Settings → MCP.
@@ -50,10 +51,11 @@ func Presets() []Preset {
 				Binary:  "codebase-memory-mcp",
 			},
 			SuggestedTools: []string{
-				"index_repository", "search_graph", "trace_call_path",
-				"query_graph", "get_architecture", "get_code_snippet", "search_code",
+				"index_repository", "search_graph", "trace_path",
+				"query_graph", "get_architecture", "get_code_snippet", "search_code", "index_status",
 			},
-			UsageHint: "Сначала index_repository (если проект ещё не в графе), затем search_graph / trace_call_path; " +
+			UsageHint: "Сначала index_repository (если проект ещё не в графе), затем search_graph " +
+				"(query — текстовый поиск, name_pattern — regex, НЕ glob) / trace_path по найденному qn; " +
 				"потом точечный read_file / apply_patch. Не начинай с широкого grep.",
 		},
 		{

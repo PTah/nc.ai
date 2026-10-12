@@ -1,4 +1,5 @@
 // Edited by nc.ai 0.8.5.1 on new-admin-pc 2026-10-12 17:50:30
+// Edited by nc.ai 0.8.5.3 on macbook 2026-10-12 21:47:34
 package mcp
 
 import (
@@ -36,7 +37,7 @@ func EnsureInstalled(ctx context.Context, presetID string) (ServerConfig, Instal
 
 	switch strings.ToLower(p.Install.Kind) {
 	case "npx":
-		if _, err := exec.LookPath("npx"); err != nil {
+		if _, err := lookPath("npx"); err != nil {
 			return cfg, res, fmt.Errorf("npx не найден — установите Node.js")
 		}
 		cfg.Command = "npx"
@@ -146,8 +147,13 @@ func EnsureInstalled(ctx context.Context, presetID string) (ServerConfig, Instal
 	}
 }
 
+// lookPath ищет исполняемый файл так же, как это делает shell, но с учётом
+// стандартных каталогов пакетных менеджеров: приложение, запущенное из Finder,
+// видит PATH вида /usr/bin:/bin:/usr/sbin:/sbin, где нет ни /opt/homebrew/bin
+// (Homebrew на Apple Silicon), ни npm-global. Без этого «npm не найден» и
+// «уже установлено» не срабатывали, хотя пакет стоит.
 func lookPath(name string) (string, error) {
-	return exec.LookPath(name)
+	return resolveBinary(name)
 }
 
 func resolveBinary(name string) (string, error) {
@@ -166,7 +172,18 @@ func resolveBinary(name string) (string, error) {
 			return path, nil
 		}
 	}
-	for _, dir := range candidateBinDirs() {
+	if path, err := searchBinDirs(name, candidateBinDirs()); err == nil {
+		return path, nil
+	}
+	return "", fmt.Errorf("%s not found", name)
+}
+
+// searchBinDirs ищет name (и windows-варианты .exe/.cmd) в заданных каталогах.
+func searchBinDirs(name string, dirs []string) (string, error) {
+	for _, dir := range dirs {
+		if strings.TrimSpace(dir) == "" {
+			continue
+		}
 		for _, cand := range []string{name, name + ".exe", name + ".cmd"} {
 			p := filepath.Join(dir, cand)
 			if st, err := os.Stat(p); err == nil && !st.IsDir() {
@@ -174,7 +191,7 @@ func resolveBinary(name string) (string, error) {
 			}
 		}
 	}
-	return "", fmt.Errorf("%s not found", name)
+	return "", fmt.Errorf("%s not found in %d dirs", name, len(dirs))
 }
 
 func candidateBinDirs() []string {
@@ -199,8 +216,17 @@ func candidateBinDirs() []string {
 		dirs = append(dirs,
 			filepath.Join(home, ".local", "bin"),
 			"/usr/local/bin",
+			"/usr/local/sbin",
 			filepath.Join(home, ".npm-global", "bin"),
+			filepath.Join(home, ".cargo", "bin"),
+			filepath.Join(home, ".bun", "bin"),
 		)
+		if runtime.GOOS == "darwin" {
+			// Homebrew: /opt/homebrew на Apple Silicon, /usr/local на Intel.
+			dirs = append(dirs, "/opt/homebrew/bin", "/opt/homebrew/sbin")
+		} else {
+			dirs = append(dirs, "/snap/bin", "/usr/bin")
+		}
 	}
 	return dirs
 }

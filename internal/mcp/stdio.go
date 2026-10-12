@@ -1,4 +1,5 @@
 // Edited by nc.ai 0.8.5.1 on new-admin-pc 2026-10-12 17:50:14
+// Edited by nc.ai 0.8.5.3 on macbook 2026-10-12 21:47:49
 package mcp
 
 import (
@@ -9,6 +10,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -126,7 +128,56 @@ func filteredEnv(extra map[string]string) []string {
 		}
 		base = append(base, k+"="+v)
 	}
-	return base
+	return withBinDirsInPath(base)
+}
+
+// withBinDirsInPath дописывает в PATH каталоги пакетных менеджеров
+// (Homebrew, npm-global, ~/.local/bin, …). Приложение из Finder стартует с
+// PATH=/usr/bin:/bin:/usr/sbin:/sbin, и без этого MCP-серверы на Node/Python
+// не запускаются: их обёртки ищут интерпретатор через /usr/bin/env.
+func withBinDirsInPath(env []string) []string {
+	dirs := candidateBinDirs()
+	if len(dirs) == 0 {
+		return env
+	}
+	key := "PATH"
+	if runtime.GOOS == "windows" {
+		key = "Path"
+	}
+	sep := string(os.PathListSeparator)
+	cur := ""
+	idx := -1
+	for i, kv := range env {
+		if strings.HasPrefix(kv, "PATH=") || strings.HasPrefix(kv, "Path=") {
+			idx = i
+			cur = kv[strings.IndexByte(kv, '=')+1:]
+			break
+		}
+	}
+	seen := map[string]bool{}
+	parts := make([]string, 0, len(dirs)+4)
+	add := func(p string) {
+		p = strings.TrimSpace(p)
+		if p == "" || seen[p] {
+			return
+		}
+		seen[p] = true
+		parts = append(parts, p)
+	}
+	for _, p := range strings.Split(cur, sep) {
+		add(p)
+	}
+	for _, d := range dirs {
+		if st, err := os.Stat(d); err == nil && st.IsDir() {
+			add(d)
+		}
+	}
+	joined := key + "=" + strings.Join(parts, sep)
+	if idx >= 0 {
+		env[idx] = joined
+		return env
+	}
+	return append(env, joined)
 }
 
 // isSecretEnvKey reports whether an env var name looks like one of our provider
