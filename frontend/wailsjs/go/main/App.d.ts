@@ -80,6 +80,20 @@ export function GetProviderNews(arg1:boolean):Promise<providernews.Payload>;
 
 export function GetSettings():Promise<Record<string, any>>;
 
+export function GetMCPServers():Promise<Array<Record<string, any>>>;
+
+export function MCPStatuses():Promise<Array<Record<string, any>>>;
+
+export function MCPPresets():Promise<Array<Record<string, any>>>;
+
+export function ApplyMCPPreset(arg1:string):Promise<Array<Record<string, any>>>;
+
+export function StartMCPServer(arg1:string):Promise<Record<string, any>>;
+
+export function StopMCPServer(arg1:string):Promise<Record<string, any>>;
+
+export function SaveMCPServers(arg1:Array<Record<string, any>>):Promise<void>;
+
 export function GetUsageStats():Promise<main.UsageStats>;
 
 export function GetWelcome(arg1:string):Promise<main.WelcomeInfo>;

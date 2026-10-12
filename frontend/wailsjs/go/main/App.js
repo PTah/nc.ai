@@ -138,6 +138,34 @@ export function GetSettings() {
   return window['go']['main']['App']['GetSettings']();
 }
 
+export function GetMCPServers() {
+  return window['go']['main']['App']['GetMCPServers']();
+}
+
+export function MCPStatuses() {
+  return window['go']['main']['App']['MCPStatuses']();
+}
+
+export function MCPPresets() {
+  return window['go']['main']['App']['MCPPresets']();
+}
+
+export function ApplyMCPPreset(arg1) {
+  return window['go']['main']['App']['ApplyMCPPreset'](arg1);
+}
+
+export function StartMCPServer(arg1) {
+  return window['go']['main']['App']['StartMCPServer'](arg1);
+}
+
+export function StopMCPServer(arg1) {
+  return window['go']['main']['App']['StopMCPServer'](arg1);
+}
+
+export function SaveMCPServers(arg1) {
+  return window['go']['main']['App']['SaveMCPServers'](arg1);
+}
+
 export function GetUsageStats() {
   return window['go']['main']['App']['GetUsageStats']();
 }

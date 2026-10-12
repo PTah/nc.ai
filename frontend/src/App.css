@@ -956,6 +956,15 @@ mark.nc-find-mark.nc-find-current {
   list-style: none;
 }
 .nc-subagent-sum::-webkit-details-marker { display: none; }
+.nc-mcp-presets { display: flex; flex-wrap: wrap; gap: 0.35rem; margin: 0.35rem 0 0.6rem; }
+.nc-mcp-card {
+  margin: 0.45rem 0;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.nc-mcp-tools { display: flex; flex-wrap: wrap; gap: 0.35rem 0.7rem; margin: 0.3rem 0; }
+.nc-mcp-actions { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.35rem; }
 .nc-tool-title { font-weight: 600; color: var(--tool-title); }
 .nc-tool-name {
   margin-left: auto;

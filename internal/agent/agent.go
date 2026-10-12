@@ -264,6 +264,8 @@ type Runner struct {
 	Depth int
 	// subagentMode — короткий системный промпт SubagentPrompt вместо полного.
 	subagentMode bool
+	// ExtraTools — доп. схемы (MCP), добавляются к Specs на каждом шаге родителя.
+	ExtraTools []llm.ToolSpec
 
 	subMu    sync.Mutex
 	subCount int
@@ -1032,6 +1034,9 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 		}
 		if r.SubagentsEnabled && r.Depth == 0 && !r.subagentMode {
 			toolSpecs = tools.WithTaskTool(toolSpecs)
+		}
+		if len(r.ExtraTools) > 0 && r.Depth == 0 && !r.subagentMode {
+			toolSpecs = append(toolSpecs, r.ExtraTools...)
 		}
 		// Never use tool_choice=required on Local: weak models dump broken JSON
 		// (e.g. write_file loops) into the chat instead of structured tool_calls.

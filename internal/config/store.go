@@ -26,6 +26,20 @@ const (
 	ProviderLocal      = "local"
 )
 
+// MCPServerSettings is one MCP server card in Settings (no secrets in JSON).
+type MCPServerSettings struct {
+	ID           string            `json:"id"`
+	Label        string            `json:"label,omitempty"`
+	Enabled      bool              `json:"enabled"`
+	Transport    string            `json:"transport,omitempty"`
+	Command      string            `json:"command,omitempty"`
+	Args         []string          `json:"args,omitempty"`
+	Env          map[string]string `json:"env,omitempty"`
+	CWD          string            `json:"cwd,omitempty"`
+	TimeoutSec   int               `json:"timeoutSec,omitempty"`
+	EnabledTools []string          `json:"enabledTools,omitempty"`
+}
+
 // Qwen (DashScope) endpoints persisted in Settings.QwenEndpoint.
 const (
 	QwenEndpointIntl = "intl"
@@ -217,6 +231,9 @@ type Settings struct {
 
 	// SubagentsMaxPerRun — сколько task за один родительский прогон (0 = default).
 	SubagentsMaxPerRun int `json:"subagentsMaxPerRun,omitempty"`
+
+	// MCPServers — реестр внешних MCP-серверов (см. docs/mcp.md). Секреты не здесь.
+	MCPServers []MCPServerSettings `json:"mcpServers,omitempty"`
 
 	// LocalLite: short system prompt + reduced tools for weak local LLMs.
 	// Default false — full prompt/tools work better on capable coder models (7B+).
@@ -1036,6 +1053,25 @@ func (s *Store) SubagentsMaxPerRun() int {
 func (s *Store) SetSubagentsMaxPerRun(n int) error {
 	s.mu.Lock()
 	s.settings.SubagentsMaxPerRun = n
+	s.mu.Unlock()
+	return s.Save()
+}
+
+// MCPServers returns a copy of configured MCP servers.
+func (s *Store) MCPServers() []MCPServerSettings {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]MCPServerSettings, len(s.settings.MCPServers))
+	copy(out, s.settings.MCPServers)
+	return out
+}
+
+// SetMCPServers replaces the MCP server list.
+func (s *Store) SetMCPServers(list []MCPServerSettings) error {
+	s.mu.Lock()
+	cp := make([]MCPServerSettings, len(list))
+	copy(cp, list)
+	s.settings.MCPServers = cp
 	s.mu.Unlock()
 	return s.Save()
 }
