@@ -154,6 +154,10 @@ export function ApplyMCPPreset(arg1) {
   return window['go']['main']['App']['ApplyMCPPreset'](arg1);
 }
 
+export function InstallMCPPreset(arg1) {
+  return window['go']['main']['App']['InstallMCPPreset'](arg1);
+}
+
 export function StartMCPServer(arg1) {
   return window['go']['main']['App']['StartMCPServer'](arg1);
 }

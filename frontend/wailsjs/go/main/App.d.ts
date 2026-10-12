@@ -86,7 +86,9 @@ export function MCPStatuses():Promise<Array<Record<string, any>>>;
 
 export function MCPPresets():Promise<Array<Record<string, any>>>;
 
-export function ApplyMCPPreset(arg1:string):Promise<Array<Record<string, any>>>;
+export function ApplyMCPPreset(arg1:string):Promise<Record<string, any>>;
+
+export function InstallMCPPreset(arg1:string):Promise<Record<string, any>>;
 
 export function StartMCPServer(arg1:string):Promise<Record<string, any>>;
 
