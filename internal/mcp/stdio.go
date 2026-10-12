@@ -1,3 +1,4 @@
+// Edited by nc.ai 0.8.5.1 on new-admin-pc 2026-10-12 17:50:14
 package mcp
 
 import (
@@ -114,11 +115,7 @@ func filteredEnv(extra map[string]string) []string {
 			continue
 		}
 		// Never leak our provider keys into MCP children.
-		if strings.Contains(ku, "API_KEY") || strings.Contains(ku, "APIKEY") ||
-			strings.Contains(ku, "SECRET") || strings.Contains(ku, "TOKEN") ||
-			strings.HasPrefix(ku, "DEEPSEEK") || strings.HasPrefix(ku, "OPENROUTER") ||
-			strings.HasPrefix(ku, "ZAI") || strings.HasPrefix(ku, "QWEN") ||
-			strings.HasPrefix(ku, "YANDEX") {
+		if isSecretEnvKey(ku) {
 			continue
 		}
 	}
@@ -130,6 +127,16 @@ func filteredEnv(extra map[string]string) []string {
 		base = append(base, k+"="+v)
 	}
 	return base
+}
+
+// isSecretEnvKey reports whether an env var name looks like one of our provider
+// credentials and must never be handed to child processes.
+func isSecretEnvKey(ku string) bool {
+	return strings.Contains(ku, "API_KEY") || strings.Contains(ku, "APIKEY") ||
+		strings.Contains(ku, "SECRET") || strings.Contains(ku, "TOKEN") ||
+		strings.HasPrefix(ku, "DEEPSEEK") || strings.HasPrefix(ku, "OPENROUTER") ||
+		strings.HasPrefix(ku, "ZAI") || strings.HasPrefix(ku, "QWEN") ||
+		strings.HasPrefix(ku, "YANDEX")
 }
 
 func (s *Session) initialize(ctx context.Context) error {

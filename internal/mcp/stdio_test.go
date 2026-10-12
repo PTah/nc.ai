@@ -1,3 +1,4 @@
+// Edited by nc.ai 0.8.5.1 on new-admin-pc 2026-10-12 17:51:05
 package mcp
 
 import (
@@ -47,8 +48,7 @@ func TestStdioInitializeAndCall(t *testing.T) {
 	}
 }
 
-func TestManagerToolSpecsAndCall(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+func TestManagerToolSpecsAndCall(t *testing.T) {	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
 	mock := filepath.Join("testdata", "mock_server.go")
@@ -90,6 +90,36 @@ func TestManagerToolSpecsAndCall(t *testing.T) {
 	specs = m.ToolSpecs()
 	if len(specs) != 0 {
 		t.Fatalf("want empty specs when allowlist empty, got %d", len(specs))
+	}
+}
+
+func TestStartSurvivesCallerContextCancel(t *testing.T) {
+	m := NewManager()
+	defer m.CloseAll()
+
+	mock := filepath.Join("testdata", "mock_server.go")
+	m.SetConfigs([]ServerConfig{{
+		ID: "mock", Label: "Mock", Enabled: true, Transport: "stdio",
+		Command: goBin(), Args: []string{"run", mock},
+		TimeoutSec: 10, EnabledTools: []string{"echo"},
+	}})
+
+	// A dead caller context must not kill the MCP process: its lifetime is the
+	// manager's, not the run's.
+	callerCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := m.Start(callerCtx, "mock"); err != nil {
+		t.Fatalf("start must not depend on caller ctx: %v", err)
+	}
+
+	ctx, cancelCall := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancelCall()
+	out, err := m.Call(ctx, "mcp:mock:echo", `{"text":"alive"}`)
+	if err != nil {
+		t.Fatalf("call after caller ctx cancel: %v", err)
+	}
+	if out != "alive" {
+		t.Fatalf("out=%q", out)
 	}
 }
 

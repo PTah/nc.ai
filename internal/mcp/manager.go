@@ -1,3 +1,4 @@
+// Edited by nc.ai 0.8.5.1 on new-admin-pc 2026-10-12 17:49:52
 package mcp
 
 import (
@@ -29,15 +30,23 @@ type Manager struct {
 	mu       sync.Mutex
 	configs  []ServerConfig
 	sessions map[string]*Session // id → live
-	states   map[string]string  // id → state text
+	states   map[string]string   // id → state text
 	errors   map[string]string
+	// lifetime is the base context for MCP child processes. It must NOT be a
+	// per-run/per-call context: otherwise Stop (or any run cancellation) kills
+	// the server while the manager still thinks it is running.
+	lifetime       context.Context
+	lifetimeCancel context.CancelFunc
 }
 
 func NewManager() *Manager {
+	ctx, cancel := context.WithCancel(context.Background())
 	return &Manager{
-		sessions: map[string]*Session{},
-		states:   map[string]string{},
-		errors:   map[string]string{},
+		sessions:       map[string]*Session{},
+		states:         map[string]string{},
+		errors:         map[string]string{},
+		lifetime:       ctx,
+		lifetimeCancel: cancel,
 	}
 }
 
@@ -108,7 +117,7 @@ func (m *Manager) Start(ctx context.Context, id string) (Status, error) {
 	m.errors[cfg.ID] = ""
 	m.mu.Unlock()
 
-	sess, err := StartStdio(ctx, cfg)
+	sess, err := StartStdio(m.lifetime, cfg)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if err != nil {
@@ -145,6 +154,9 @@ func (m *Manager) CloseAll() {
 		delete(m.sessions, id)
 		m.states[id] = "stopped"
 	}
+	if m.lifetimeCancel != nil {
+		m.lifetimeCancel()
+	}
 }
 
 // Statuses returns UI status for each configured server.
@@ -170,10 +182,6 @@ func (m *Manager) statusLocked(cfg ServerConfig) Status {
 	if st.State == "" {
 		st.State = "stopped"
 	}
-	allow := map[string]bool{}
-	for _, t := range cfg.EnabledTools {
-		allow[strings.TrimSpace(t)] = true
-	}
 	st.EnabledCount = len(cfg.EnabledTools)
 	if s := m.sessions[cfg.ID]; s != nil {
 		tools := s.Tools()
@@ -187,7 +195,6 @@ func (m *Manager) statusLocked(cfg ServerConfig) Status {
 			st.State = "running"
 		}
 	}
-	_ = allow
 	return st
 }
 
