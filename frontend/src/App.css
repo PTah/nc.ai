@@ -896,6 +896,9 @@ mark.nc-find-mark.nc-find-current {
 }
 .nc-news-updated { font-size: 0.68rem; color: var(--muted); }
 .nc-news-error { font-size: 0.72rem; color: var(--danger, #e5534b); margin: 0.2rem 0; }
+/* Баланс в шапке: «topup» подсвечивается красным, когда пополнения осталось < $1 —
+   предупреждение, что работа агента скоро остановится по балансу. */
+.nc-cost-bal .nc-bal-low { color: var(--danger, #e5534b); font-weight: 600; }
 .nc-news-list { list-style: none; margin: 0.2rem 0 0.4rem; padding: 0; display: flex; flex-direction: column; gap: 0.15rem; }
 .nc-news-item { margin: 0; }
 .nc-news-link {

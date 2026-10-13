@@ -117,6 +117,8 @@ import {
   SaveAgentRetryCount,
   SaveAgentWarnSteps,
   SaveAgentStallMin,
+  ComposerDrafts,
+  SaveComposerDraft,
   SaveComposerHeight,
   SaveHTTP2PingSec,
   SaveHTTPProtocol,
@@ -321,6 +323,8 @@ type UsageSnapshot = {
   balanceOk: boolean
   balanceUsd: number
   balanceDetail: string
+  balanceToppedUp: number
+  balanceGranted: number
 }
 
 type RuleInfo = {
@@ -355,6 +359,8 @@ const emptyUsage: UsageSnapshot = {
   balanceOk: false,
   balanceUsd: 0,
   balanceDetail: '',
+  balanceToppedUp: 0,
+  balanceGranted: 0,
 }
 
 type ProviderId = string
@@ -810,6 +816,8 @@ function usageFromUnknown(raw: unknown): UsageSnapshot | null {
     balanceOk: Boolean(u.balanceOk ?? u.BalanceOk),
     balanceUsd: pickNum(u, 'balanceUsd', 'BalanceUsd'),
     balanceDetail: String(u.balanceDetail || u.BalanceDetail || ''),
+    balanceToppedUp: pickNum(u, 'balanceToppedUp', 'BalanceToppedUp'),
+    balanceGranted: pickNum(u, 'balanceGranted', 'BalanceGranted'),
   }
 }
 
@@ -1755,6 +1763,30 @@ export default function App() {
   // Drafts, pending attachments and queued messages are per chat session, so a
   // question typed in project A can never be sent from project B.
   const [drafts, setDrafts] = useState<Record<string, {text: string; atts: PendingAtt[]}>>({})
+  // Восстанавливаем неотправленный текст при старте (то, что человек печатал до
+  // закрытия приложения) — чтобы перезапуск не «съедал» набранное.
+  useEffect(() => {
+    void ComposerDrafts().then((m) => {
+      const map = (m || {}) as Record<string, string>
+      setDrafts((prev) => {
+        const next = {...prev}
+        for (const [sid, text] of Object.entries(map)) {
+          if (text && !next[sid]) next[sid] = {text, atts: []}
+        }
+        return next
+      })
+    })
+  }, [])
+  // Последний дебаунс (400 мс) может не успеть при закрытии — дописываем по beforeunload.
+  useEffect(() => {
+    const flush = () => {
+      for (const [sid, d] of Object.entries(drafts)) {
+        if (d && d.text.trim()) void SaveComposerDraft(sid, d.text)
+      }
+    }
+    window.addEventListener('beforeunload', flush)
+    return () => window.removeEventListener('beforeunload', flush)
+  }, [drafts])
   const [queues, setQueues] = useState<Record<string, QueuedMsg[]>>({})
   const [progressBySession, setProgressBySession] = useState<Record<string, RunProgressInfo>>({})
   const [progressAskedBySession, setProgressAskedBySession] = useState<Record<string, boolean>>({})
@@ -1908,6 +1940,7 @@ export default function App() {
   const stickToBottomRef = useRef(true)
   const chatFindInputRef = useRef<HTMLInputElement>(null)
   const composerRef = useRef<HTMLTextAreaElement>(null)
+  const draftSaveTimerRef = useRef<number | undefined>(undefined)
   const chatFindOpenRef = useRef(false)
   const chatFindRunAt = useRef(0)
   const chatFindHitsRef = useRef<ChatFindHit[]>([])
@@ -2172,6 +2205,12 @@ export default function App() {
   const setInput = useCallback((value: string, sid = activeSessionRef.current) => {
     if (!sid) return
     setDrafts((prev) => ({...prev, [sid]: {text: value, atts: prev[sid]?.atts ?? []}}))
+    // Автосохранение неотправленного текста: закрытие/перезапуск приложения не
+    // должно терять набранное (инцидент 13.10.2026).
+    if (draftSaveTimerRef.current) window.clearTimeout(draftSaveTimerRef.current)
+    draftSaveTimerRef.current = window.setTimeout(() => {
+      void SaveComposerDraft(sid, value)
+    }, 400)
   }, [])
   const setPendingAtts = useCallback((
     updater: PendingAtt[] | ((prev: PendingAtt[]) => PendingAtt[]),
@@ -5131,7 +5170,20 @@ export default function App() {
                 <span className="nc-cost-bal" title={usage.balanceDetail || 'Refresh balance в Settings'}>
                   {usage.balanceOk
                     ? (activeProvider === 'deepseek' && usage.balanceDetail
-                      ? usage.balanceDetail
+                      ? (
+                        <>
+                          <span>bal {fmtUsd(usage.balanceUsd)}</span>
+                          <span className="nc-cost-sep">·</span>
+                          <span>grant {fmtUsd(usage.balanceGranted)}</span>
+                          <span className="nc-cost-sep">·</span>
+                          <span
+                            className={usage.balanceToppedUp < 1 ? 'nc-bal-low' : ''}
+                            title={usage.balanceToppedUp < 1 ? 'Пополнение DeepSeek меньше $1 — работа скоро остановится' : undefined}
+                          >
+                            topup {fmtUsd(usage.balanceToppedUp)}
+                          </span>
+                        </>
+                      )
                       : `bal ${fmtUsd(usage.balanceUsd)}`)
                     : 'bal —'}
                 </span>
