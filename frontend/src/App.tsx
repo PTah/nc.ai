@@ -5972,7 +5972,7 @@ export default function App() {
               <div className="nc-section-label">Settings</div>
               <div className="nc-settings-head-actions">
                 <button type="button" onClick={saveSettings}>Save settings</button>
-                <button type="button" className="nc-ghost" onClick={() => setSettingsVisible(false)}>Close</button>
+                <button type="button" onClick={() => setSettingsVisible(false)}>Close</button>
               </div>
             </div>
             <div className="nc-section-label">Provider</div>

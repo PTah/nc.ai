@@ -356,9 +356,11 @@ textarea { resize: none; }
 .nc-settings-head-actions {
   display: flex; align-items: center; gap: 0.4rem; flex: 0 0 auto;
 }
-.nc-settings-head-actions button,
-.nc-settings-head-actions .nc-ghost {
-  width: auto; margin: 0;
+/* Обе кнопки — одного вида и на одном уровне: базовое правило
+   `.nc-settings button { width: 100%; margin-bottom: … }` и `.nc-ghost`
+   объявлены ниже, поэтому перебиваем их по специфичности (два класса + тег). */
+.nc-settings-head .nc-settings-head-actions button {
+  width: auto; margin: 0; padding: 0.4rem 0.9rem;
 }
 .nc-topbar .nc-ghost { width: auto; margin: 0; }
 .nc-brand { display: flex; gap: 0.55rem; align-items: center; margin-bottom: 0.8rem; }
