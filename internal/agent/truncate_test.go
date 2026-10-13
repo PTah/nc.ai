@@ -18,6 +18,9 @@ func TestLooksTruncated(t *testing.T) {
 	if looksTruncated(longBody()+"ничего больше не менял и") != true {
 		t.Fatal("ответ, обрывающийся на однобуквенном союзе «и», должен считаться обрезанным")
 	}
+	if looksTruncated(longBody()+"потом запусти `go test") != true {
+		t.Fatal("обрыв внутри код-спана `…` должен считаться обрезанным")
+	}
 	if looksTruncated(longBody() + "задача выполнена.") {
 		t.Fatal("ответ, завершённый точкой, не должен считаться обрезанным")
 	}

@@ -343,3 +343,27 @@ func (m *Manager) Call(ctx context.Context, prefixedName string, argsJSON string
 	}
 	return s.CallTool(ctx, toolName, args)
 }
+
+// NotReadyExplanation recognises temporary "not ready yet" answers from MCP
+// servers (no index / graph / branch built yet). Such answers are states, not
+// failures: the agent should build the index and retry, and the user should see
+// an informational note instead of a red error. Returns ok=false for real errors.
+func NotReadyExplanation(err error) (string, bool) {
+	if err == nil {
+		return "", false
+	}
+	l := strings.ToLower(err.Error())
+	for _, p := range []string{
+		"not indexed", "not found or not indexed", "no index", "index not",
+		"not built", "must be indexed", "call index_repository", "index_repository first",
+		"not initialized", "no graph", "graph not", "not ready", "not available yet",
+	} {
+		if strings.Contains(l, p) {
+			return "ℹ️ Это не сбой, а временное состояние: у MCP-сервера ещё не готовы данные " +
+				"(индекс / граф / ветки) для этого проекта. Сначала построй индекс " +
+				"(инструмент index_repository), затем повтори запрос. " +
+				"Ответ сервера: " + err.Error(), true
+		}
+	}
+	return "", false
+}

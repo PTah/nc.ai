@@ -4,6 +4,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -155,6 +156,19 @@ func TestFilteredEnvDropsAPIKeys(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("extra env missing")
+	}
+}
+
+func TestNotReadyExplanation(t *testing.T) {
+	note, ok := NotReadyExplanation(fmt.Errorf(`{"error":"project not found or not indexed","hint":"No projects indexed yet. Call index_repository first."}`))
+	if !ok || !strings.Contains(note, "временное состояние") {
+		t.Fatalf("not-ready error not recognised: %q %v", note, ok)
+	}
+	if _, ok := NotReadyExplanation(fmt.Errorf("connection refused")); ok {
+		t.Fatal("real error must not be treated as not-ready")
+	}
+	if _, ok := NotReadyExplanation(nil); ok {
+		t.Fatal("nil must not be not-ready")
 	}
 }
 
