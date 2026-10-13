@@ -1,5 +1,6 @@
 // Edited by nc.ai 0.8.5.2 on macbook 2026-10-12 20:40:28
 // Edited by nc.ai 0.8.5.4 on new-admin-pc 2026-10-13 10:04:30
+// Edited by nc.ai 0.8.5.6 on macbook 2026-10-13 21:42:31
 package main
 
 import (
@@ -475,6 +476,9 @@ func (a *App) RefreshProviderPrices() map[string]any {
 
 func (a *App) beforeClose(ctx context.Context) (prevent bool) {
 	a.ctx = ctx
+	// Пометить прерванные ответы надо до отмены прогонов: иначе маркер уже пуст,
+	// и в транскрипте останется молча обрезанный ответ.
+	a.markInterruptedRuns()
 	a.stopBackgroundWork()
 	_ = a.cfg.SetRunState(appmeta.Version, true)
 	a.saveWindowGeometry()
@@ -484,6 +488,7 @@ func (a *App) beforeClose(ctx context.Context) (prevent bool) {
 
 func (a *App) shutdown(ctx context.Context) {
 	a.ctx = ctx
+	a.markInterruptedRuns()
 	a.stopBackgroundWork()
 	_ = a.cfg.SetRunState(appmeta.Version, true)
 	a.saveWindowGeometry()
@@ -868,13 +873,103 @@ func (a *App) writeRunMarker() {
 }
 
 // clearStaleRunMarker убирает маркер прошлого процесса: при старте прогонов нет.
+// Если приложение упало посреди прогона, обрезанный ответ в транскрипте надо
+// пометить — иначе он выглядит как обычный законченный.
 func (a *App) clearStaleRunMarker() {
 	if path, err := runMarkerPath(); err == nil {
+		a.markSessionsInterrupted(markerSessions(path))
 		_ = os.Remove(path)
 	}
 	a.runMarkerLock.Lock()
 	a.activeRuns = map[string]int{}
 	a.runMarkerLock.Unlock()
+}
+
+// interruptedNotice — заметка в транскрипте, когда прогон оборвался из-за
+// закрытия приложения (хвост ответа мог не дойти).
+const interruptedNotice = "⚠️ Ответ прерван закрытием приложения — напишите «продолжи», чтобы дописать."
+
+// appendInterruptedNotice добавляет заметку в конец транскрипта. Идемпотентно:
+// если последняя запись — уже эта заметка, второй раз не пишем. Возвращает
+// новый JSON и признак, что что-то изменилось.
+func appendInterruptedNotice(itemsJSON string) (string, bool) {
+	if strings.TrimSpace(itemsJSON) == "" {
+		return itemsJSON, false
+	}
+	var items []any
+	if err := json.Unmarshal([]byte(itemsJSON), &items); err != nil || len(items) == 0 {
+		return itemsJSON, false
+	}
+	if last, ok := items[len(items)-1].(map[string]any); ok {
+		if txt, _ := last["content"].(string); strings.Contains(txt, interruptedNotice) {
+			return itemsJSON, false
+		}
+	}
+	items = append(items, map[string]any{"kind": "system", "content": interruptedNotice})
+	data, err := json.Marshal(items)
+	if err != nil {
+		return itemsJSON, false
+	}
+	return string(data), true
+}
+
+// markerSessions читает список сессий с активными прогонами из running.json.
+func markerSessions(path string) []string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var m struct {
+		Sessions []string `json:"sessions"`
+	}
+	if err := json.Unmarshal(data, &m); err != nil {
+		return nil
+	}
+	return m.Sessions
+}
+
+// markInterruptedRuns помечает сессии, чьи прогоны обрываются сейчас (вызов из
+// beforeClose/shutdown — строго до отмены прогонов, иначе маркер уже пуст).
+func (a *App) markInterruptedRuns() {
+	a.runMarkerLock.Lock()
+	ids := make([]string, 0, len(a.activeRuns))
+	for id, n := range a.activeRuns {
+		if n > 0 {
+			ids = append(ids, id)
+		}
+	}
+	a.runMarkerLock.Unlock()
+	a.markSessionsInterrupted(ids)
+}
+
+// markSessionsInterrupted дописывает в транскрипт каждой сессии заметку о
+// прерванном ответе.
+func (a *App) markSessionsInterrupted(ids []string) {
+	if a.chats == nil || len(ids) == 0 {
+		return
+	}
+	for _, sid := range ids {
+		sid = strings.TrimSpace(sid)
+		if sid == "" {
+			continue
+		}
+		project, err := a.chats.FindProject(sid)
+		if err != nil || project == "" {
+			continue
+		}
+		sess, err := a.chats.Get(project, sid)
+		if err != nil || sess == nil {
+			continue
+		}
+		updated, changed := appendInterruptedNotice(sess.ItemsJSON)
+		if !changed {
+			continue
+		}
+		sess.ItemsJSON = updated
+		if err := a.chats.SaveSession(project, sess); err == nil {
+			a.logAgentLine("run interrupted by app close: " + sid)
+		}
+	}
 }
 
 // ActiveRuns возвращает сессии с идущими прогонами (для внешних скриптов и UI).
