@@ -1,3 +1,4 @@
+<!-- Edited by nc.ai 0.8.5.4 on new-admin-pc 2026-10-13 10:29:40 -->
 # MCP-серверы для кода (NotCursor)
 
 Как программа работает с пресетами Settings → MCP (с 0.8.5.1).
@@ -9,7 +10,7 @@
 1. `EnsureInstalled` — pip / npm -g / uvx prefetch / npx (без глобальной установки).
 2. Пишет сервер в `settings.json` → `mcpServers` (command, args, enabledTools).
 3. Пробует `Start` (initialize + tools/list).
-4. В agent loop tools попадают как `mcp:<id>:<tool>` только из **enabledTools**.
+4. В agent loop tools попадают как `mcp__<id>__<tool>` только из **enabledTools**.
 
 | Пресет | Откуда | Установка | Запуск |
 |---|---|---|---|

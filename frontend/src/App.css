@@ -957,6 +957,8 @@ mark.nc-find-mark.nc-find-current {
 }
 .nc-subagent-sum::-webkit-details-marker { display: none; }
 .nc-mcp-presets { display: flex; flex-wrap: wrap; gap: 0.35rem; margin: 0.35rem 0 0.6rem; }
+.nc-mcp-mark { font-weight: 600; }
+.nc-mcp-mark-ok { color: #16a34a; font-weight: 800; }
 .nc-mcp-card {
   margin: 0.45rem 0;
   padding: 0.45rem 0.55rem;

@@ -69,10 +69,10 @@ func TestManagerToolSpecsAndCall(t *testing.T) {	ctx, cancel := context.WithTime
 	defer m.CloseAll()
 
 	specs := m.ToolSpecs()
-	if len(specs) != 1 || specs[0].Function.Name != "mcp:mock:echo" {
+	if len(specs) != 1 || specs[0].Function.Name != "mcp__mock__echo" {
 		t.Fatalf("specs=%v", specs)
 	}
-	out, err := m.Call(ctx, "mcp:mock:echo", `{"text":"ping"}`)
+	out, err := m.Call(ctx, "mcp__mock__echo", `{"text":"ping"}`)
 	if err != nil {
 		t.Fatalf("call: %v", err)
 	}
@@ -114,7 +114,7 @@ func TestStartSurvivesCallerContextCancel(t *testing.T) {
 
 	ctx, cancelCall := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancelCall()
-	out, err := m.Call(ctx, "mcp:mock:echo", `{"text":"alive"}`)
+	out, err := m.Call(ctx, "mcp__mock__echo", `{"text":"alive"}`)
 	if err != nil {
 		t.Fatalf("call after caller ctx cancel: %v", err)
 	}
@@ -124,12 +124,18 @@ func TestStartSurvivesCallerContextCancel(t *testing.T) {
 }
 
 func TestSplitPrefixed(t *testing.T) {
-	s, tool, ok := SplitPrefixed("mcp:codegraph:find_symbol")
+	s, tool, ok := SplitPrefixed("mcp__codegraph__find_symbol")
 	if !ok || s != "codegraph" || tool != "find_symbol" {
 		t.Fatalf("got %s %s %v", s, tool, ok)
 	}
 	if _, _, ok := SplitPrefixed("read_file"); ok {
 		t.Fatal("read_file must not parse as mcp")
+	}
+	if got := PrefixedName("codebase-memory", "index_repository"); got != "mcp__codebase-memory__index_repository" {
+		t.Fatalf("PrefixedName=%q", got)
+	}
+	if got := PrefixedName("my.server", "do:thing"); got != "mcp__my_server__do_thing" {
+		t.Fatalf("sanitized PrefixedName=%q", got)
 	}
 }
 

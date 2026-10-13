@@ -1,3 +1,4 @@
+// Edited by nc.ai 0.8.5.4 on new-admin-pc 2026-10-13 10:28:27
 package tools
 
 import (
@@ -13,6 +14,7 @@ import (
 
 	"notcursor.ai/app/internal/gitx"
 	"notcursor.ai/app/internal/llm"
+	"notcursor.ai/app/internal/mcp"
 	"notcursor.ai/app/internal/netx"
 	"notcursor.ai/app/internal/shell"
 	"notcursor.ai/app/internal/sshx"
@@ -35,7 +37,7 @@ type Registry struct {
 	WSRoot string
 	// AskUser, when set, blocks until the user answers ask_user.
 	AskUser func(ctx context.Context, callID, question string, options []string) (string, error)
-	// MCPCall routes mcp:<server>:<tool> to the MCP manager. nil = MCP disabled.
+	// MCPCall routes mcp__<server>__<tool> to the MCP manager. nil = MCP disabled.
 	MCPCall func(ctx context.Context, prefixedName, argsJSON string) (string, error)
 }
 
@@ -147,7 +149,7 @@ func (r *Registry) Execute(ctx context.Context, call llm.ToolCall) (string, erro
 			return "", fmt.Errorf("invalid tool arguments JSON: %w", err)
 		}
 	}
-	if strings.HasPrefix(name, "mcp:") {
+	if strings.HasPrefix(name, mcp.NamePrefix) {
 		if r.MCPCall == nil {
 			return "", fmt.Errorf("MCP is not configured")
 		}

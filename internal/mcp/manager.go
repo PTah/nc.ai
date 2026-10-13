@@ -289,10 +289,12 @@ func (m *Manager) ToolSpecs() []llm.ToolSpec {
 	return out
 }
 
-// Call routes mcp:<server>:<tool> to the live session.
+// Call routes a provider-safe tool name (mcp__<server>__<tool>) to the live
+// session that owns it. The real tool name is resolved from the enabled
+// allowlist, so sanitized names still reach the server correctly.
 func (m *Manager) Call(ctx context.Context, prefixedName string, argsJSON string) (string, error) {
-	serverID, toolName, ok := SplitPrefixed(prefixedName)
-	if !ok {
+	prefixedName = strings.TrimSpace(prefixedName)
+	if !strings.HasPrefix(prefixedName, NamePrefix) {
 		return "", fmt.Errorf("not an MCP tool: %s", prefixedName)
 	}
 	args := map[string]any{}
@@ -303,31 +305,35 @@ func (m *Manager) Call(ctx context.Context, prefixedName string, argsJSON string
 	}
 
 	m.mu.Lock()
-	cfg, has := m.configByID(serverID)
-	s := m.sessions[serverID]
-	m.mu.Unlock()
-	if !has {
-		return "", fmt.Errorf("unknown MCP server %q", serverID)
-	}
-	if !cfg.Enabled {
-		return "", fmt.Errorf("MCP server %q is disabled", serverID)
-	}
-	allowed := false
-	for _, t := range cfg.EnabledTools {
-		if t == toolName {
-			allowed = true
+	var (
+		serverID string
+		toolName string
+		found    bool
+	)
+	for _, c := range m.configs {
+		if !c.Enabled {
+			continue
+		}
+		for _, t := range c.EnabledTools {
+			if PrefixedName(c.ID, t) == prefixedName {
+				serverID, toolName, found = c.ID, t, true
+				break
+			}
+		}
+		if found {
 			break
 		}
 	}
-	if !allowed {
-		return "", fmt.Errorf("MCP tool %q is not enabled for server %q", toolName, serverID)
+	if !found {
+		m.mu.Unlock()
+		return "", fmt.Errorf("MCP tool %q is not enabled for any server", prefixedName)
 	}
-	if s == nil {
-		st, err := m.Start(ctx, serverID)
-		if err != nil {
+	s := m.sessions[serverID]
+	m.mu.Unlock()
+	if s == nil || !s.Alive() {
+		if _, err := m.Start(ctx, serverID); err != nil {
 			return "", err
 		}
-		_ = st
 		m.mu.Lock()
 		s = m.sessions[serverID]
 		m.mu.Unlock()

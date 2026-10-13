@@ -1,6 +1,7 @@
 // Edited by nc.ai 0.8.3.3 on macbook 2026-10-11 19:43:36
 // Edited by nc.ai 0.8.3.3 on new-admin-pc 2026-10-12 17:40:55
 // Edited by nc.ai 0.8.5.2 on macbook 2026-10-12 20:41:23
+// Edited by nc.ai 0.8.5.4 on new-admin-pc 2026-10-13 10:22:44
 import {FormEvent, MouseEvent as ReactMouseEvent, useCallback, useEffect, useRef, useState} from 'react'
 import {Terminal} from '@xterm/xterm'
 import {FitAddon} from '@xterm/addon-fit'
@@ -1852,6 +1853,12 @@ export default function App() {
   const [mcpServers, setMcpServers] = useState<Array<Record<string, any>>>([])
   const [mcpStatuses, setMcpStatuses] = useState<Array<Record<string, any>>>([])
   const [mcpPresets, setMcpPresets] = useState<Array<Record<string, any>>>([])
+  // ✓ у пресета: сервер установлен и реально работает (state=running), иначе ↓.
+  const mcpPresetMark = (id: string): {ok: boolean} => {
+    const installed = asList(mcpServers).some((s) => String(s.id) === id)
+    const st = asList(mcpStatuses).find((x) => String(x.id) === id) || {}
+    return {ok: installed && String(st.state || '') === 'running'}
+  }
   const [mcpBusy, setMcpBusy] = useState('')
   const [mcpNote, setMcpNote] = useState('')
   const [todosBySession, setTodosBySession] = useState<Record<string, TodoItem[]>>({})
@@ -6855,7 +6862,10 @@ export default function App() {
                     })()
                   }}
                 >
-                  ↓ {String(p.label || p.id)}
+                  {mcpPresetMark(String(p.id)).ok
+                    ? <span className="nc-mcp-mark nc-mcp-mark-ok" title="установлен и работает">✓</span>
+                    : <span className="nc-mcp-mark" title="не установлен">↓</span>}{' '}
+                  {String(p.label || p.id)}
                 </button>
               ))}
             </div>
