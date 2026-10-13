@@ -58,6 +58,8 @@ export function CloneTargetPath(arg1:string,arg2:string):Promise<string>;
 
 export function CloseProject(arg1:string,arg2:string):Promise<workspace.Project>;
 
+export function ComposerDrafts():Promise<{[key: string]: string}>;
+
 export function CreateProject(arg1:string,arg2:string):Promise<workspace.Project>;
 
 export function CursorRulesStatus(arg1:string):Promise<Array<rules.Status>>;
@@ -209,6 +211,8 @@ export function SaveAutoModels(arg1:boolean):Promise<void>;
 export function SaveChat(arg1:string):Promise<void>;
 
 export function SaveChatSession(arg1:string,arg2:string):Promise<void>;
+
+export function SaveComposerDraft(arg1:string,arg2:string):Promise<void>;
 
 export function SaveComposerHeight(arg1:number):Promise<void>;
 

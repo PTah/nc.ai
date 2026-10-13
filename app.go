@@ -116,6 +116,9 @@ type App struct {
 	netDrops     int
 	netLastDrop  string
 	netLastDropA time.Time
+
+	// draftMu guards the composer drafts file (неотправленный текст на сессию).
+	draftMu sync.Mutex
 }
 
 func NewApp() *App {
@@ -476,6 +479,22 @@ func (a *App) RefreshProviderPrices() map[string]any {
 
 func (a *App) beforeClose(ctx context.Context) (prevent bool) {
 	a.ctx = ctx
+	// Если идёт прогон или в поле ввода остался неотправленный текст — спросить,
+	// а не закрывать молча: это выглядит как «вылет» и теряет набранное
+	// (инцидент 13.10.2026 21:48:16).
+	if a.hasActiveRuns() || a.hasPendingDraft() {
+		res, err := runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
+			Type:          runtime.QuestionDialog,
+			Title:         "NotCursor",
+			Message:       "Идёт прогон и/или в поле ввода есть неотправленный текст. Закрыть приложение?",
+			Buttons:       []string{"Закрыть", "Отмена"},
+			DefaultButton: "Отмена",
+			CancelButton:  "Отмена",
+		})
+		if err != nil || res != "Закрыть" {
+			return true
+		}
+	}
 	// Пометить прерванные ответы надо до отмены прогонов: иначе маркер уже пуст,
 	// и в транскрипте останется молча обрезанный ответ.
 	a.markInterruptedRuns()
@@ -483,6 +502,86 @@ func (a *App) beforeClose(ctx context.Context) (prevent bool) {
 	_ = a.cfg.SetRunState(appmeta.Version, true)
 	a.saveWindowGeometry()
 	a.saveLastProject()
+	return false
+}
+
+// hasActiveRuns — идёт ли сейчас хоть один прогон агента.
+func (a *App) hasActiveRuns() bool {
+	a.runMarkerLock.Lock()
+	defer a.runMarkerLock.Unlock()
+	return len(a.activeRuns) > 0
+}
+
+// composerDraftsPath — файл с неотправленными текстами (по сессии).
+func (a *App) composerDraftsPath() (string, error) {
+	dir, err := a.cfg.AppDataDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "composer-drafts.json"), nil
+}
+
+func (a *App) readComposerDrafts() map[string]string {
+	m := map[string]string{}
+	path, err := a.composerDraftsPath()
+	if err != nil {
+		return m
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return m
+	}
+	_ = json.Unmarshal(data, &m)
+	return m
+}
+
+// SaveComposerDraft сохраняет неотправленный текст сессии, чтобы закрытие или
+// перезапуск приложения не теряли набранное. Пустой текст удаляет черновик.
+func (a *App) SaveComposerDraft(sessionID, text string) error {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return nil
+	}
+	text = strings.TrimSpace(text)
+	a.draftMu.Lock()
+	defer a.draftMu.Unlock()
+	m := a.readComposerDrafts()
+	if text == "" {
+		delete(m, sessionID)
+	} else {
+		const maxDraft = 200_000
+		if len(text) > maxDraft {
+			text = text[:maxDraft]
+		}
+		m[sessionID] = text
+	}
+	path, err := a.composerDraftsPath()
+	if err != nil {
+		return err
+	}
+	data, err := json.Marshal(m)
+	if err != nil {
+		return err
+	}
+	return fsx.WriteFileAtomic(path, data, 0o600)
+}
+
+// ComposerDrafts отдаёт сохранённые черновики — фронт восстанавливает их при старте.
+func (a *App) ComposerDrafts() map[string]string {
+	a.draftMu.Lock()
+	defer a.draftMu.Unlock()
+	return a.readComposerDrafts()
+}
+
+// hasPendingDraft — есть ли хоть один неотправленный текст.
+func (a *App) hasPendingDraft() bool {
+	a.draftMu.Lock()
+	defer a.draftMu.Unlock()
+	for _, t := range a.readComposerDrafts() {
+		if strings.TrimSpace(t) != "" {
+			return true
+		}
+	}
 	return false
 }
 
@@ -1334,6 +1433,8 @@ type UsageStats struct {
 	BalanceOk           bool    `json:"balanceOk"`
 	BalanceUsd          float64 `json:"balanceUsd"`
 	BalanceDetail       string  `json:"balanceDetail"`
+	BalanceToppedUp     float64 `json:"balanceToppedUp"`
+	BalanceGranted      float64 `json:"balanceGranted"`
 }
 
 // GetUsageStats returns spend for the active provider plus the active chat spend.
@@ -1371,6 +1472,8 @@ func (a *App) GetUsageStats() UsageStats {
 		outStats.BalanceOk = bal.OK
 		outStats.BalanceUsd = bal.AvailableUSD
 		outStats.BalanceDetail = bal.Detail
+		outStats.BalanceToppedUp = bal.ToppedUpUSD
+		outStats.BalanceGranted = bal.GrantedUSD
 	}
 	if a.chats == nil {
 		return outStats
@@ -2181,6 +2284,13 @@ func (a *App) GetDeepSeekBalance() deepseek.AccountBalance {
 		ctx = context.Background()
 	}
 	bal := deepseek.FetchBalance(ctx, key)
+	// Баланс пишем в agent.log — после сбоя видно, был ли он низким, даже если
+	// шапку никто не читал (инцидент 13.10.2026: баланс ушёл в ноль, а в логе
+	// об этом не было ни строки).
+	if bal.Source == "balance" {
+		a.logAgentLine(fmt.Sprintf("balance total=%.4f grant=%.4f topup=%.4f available=%t",
+			bal.AvailableUSD, bal.GrantedUSD, bal.ToppedUpUSD, bal.IsAvailable))
+	}
 	a.dsBalMu.Lock()
 	a.dsBal = bal
 	a.dsBalMu.Unlock()

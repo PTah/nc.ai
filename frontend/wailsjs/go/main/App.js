@@ -90,6 +90,10 @@ export function CloseProject(arg1, arg2) {
   return window['go']['main']['App']['CloseProject'](arg1, arg2);
 }
 
+export function ComposerDrafts() {
+  return window['go']['main']['App']['ComposerDrafts']();
+}
+
 export function CreateProject(arg1, arg2) {
   return window['go']['main']['App']['CreateProject'](arg1, arg2);
 }
@@ -392,6 +396,10 @@ export function SaveChat(arg1) {
 
 export function SaveChatSession(arg1, arg2) {
   return window['go']['main']['App']['SaveChatSession'](arg1, arg2);
+}
+
+export function SaveComposerDraft(arg1, arg2) {
+  return window['go']['main']['App']['SaveComposerDraft'](arg1, arg2);
 }
 
 export function SaveComposerHeight(arg1) {
