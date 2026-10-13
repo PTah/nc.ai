@@ -180,6 +180,12 @@ func (a *App) startup(ctx context.Context) {
 		out, err := a.mcp.Call(ctx, name, argsJSON)
 		took := time.Since(started).Round(time.Millisecond)
 		if err != nil {
+			// Временные состояния сервера (нет индекса/графа) — не ошибка, а
+			// пояснение для пользователя и подсказка модели построить индекс.
+			if note, ok := mcp.NotReadyExplanation(err); ok {
+				a.logAgentLine(fmt.Sprintf("mcp call %s: not-ready after %s: %v", name, took, err))
+				return note, nil
+			}
 			a.logAgentLine(fmt.Sprintf("mcp call %s failed after %s: %v", name, took, err))
 			return out, err
 		}

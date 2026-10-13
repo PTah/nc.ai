@@ -16,6 +16,9 @@ secrets.enc
 .cursor/
 .cursorignore
 
+# Codebase Memory MCP index (generated locally, not for git)
+.codebase-memory/
+
 # Local ops (not mirrored): kalinamall+home push, GitHub release publish
 /push-private.ps1
 /push-private.sh

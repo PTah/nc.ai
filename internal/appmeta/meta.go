@@ -1,5 +1,6 @@
 // Edited by nc.ai 0.8.5.1 on new-admin-pc 2026-10-12 17:51:41
 // Edited by nc.ai 0.8.5.2 on macbook 2026-10-12 20:42:49
+// Edited by nc.ai 0.8.5.4 on new-admin-pc 2026-10-13 10:45:48
 package appmeta
 
 import "time"
@@ -7,7 +8,7 @@ import "time"
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "0.8.5.4"
+	Version = "0.8.5.5"
 )
 
 // DeepSeekProRetireRFC3339 is the announced V4 Pro retirement instant, empty
@@ -53,19 +54,19 @@ func retiredAt(at time.Time, now time.Time) bool {
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
-	"MCP-клиент (stdio): внешние MCP-серверы и их инструменты — Settings → MCP",
-	"Субагенты: агент запускает дочерние прогоны для разведки и возвращает сводку",
+	"MCP работает с любым провайдером: имена инструментов mcp__server__tool",
+	"«Индекс не готов» у MCP — это оповещение, а не ошибка",
 	"Рабочее пространство из нескольких папок: репозитории одного комплекса работают как один",
 	"Multitask: несколько запросов в одном чате идут параллельно, каждый своей дорожкой",
-	"MCP и пресеты: установка в один клик, сервер живёт до закрытия приложения",
+	"Оборванный ответ (в т.ч. внутри `кода`) агент дописывает сам",
 }
 
 var HighlightsEN = []string{
-	"MCP client (stdio): external MCP servers and their tools — Settings → MCP",
-	"Subagents: the agent spawns child runs for recon and returns a digest",
+	"MCP works with any provider: tool names are mcp__server__tool",
+	"\"Index not ready\" from MCP is a notice, not an error",
 	"Multi-folder workspace: repositories of one suite behave like a single repo",
 	"Multitask: several requests in one chat run in parallel, each in its own lane",
-	"MCP and presets: one-click install, the server lives until the app closes",
+	"A cut-off answer (even inside `code`) is continued automatically",
 }
 
 // UICopy is localized chrome for the Welcome splash.

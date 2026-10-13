@@ -1393,6 +1393,11 @@ func looksTruncated(s string) bool {
 	if len(r) < 200 {
 		return false
 	}
+	// Незакрытый код-спан (`…`) или ```-блок: ответ оборвался внутри кода.
+	// Самый частый хвост, который не виден по последней букве.
+	if strings.Count(s, "`")%2 == 1 {
+		return true
+	}
 	last := r[len(r)-1]
 	if !unicode.IsLetter(last) {
 		return false
