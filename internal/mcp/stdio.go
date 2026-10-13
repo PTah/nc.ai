@@ -1,5 +1,6 @@
 // Edited by nc.ai 0.8.5.1 on new-admin-pc 2026-10-12 17:50:14
 // Edited by nc.ai 0.8.5.3 on macbook 2026-10-12 21:47:49
+// Edited by nc.ai 0.8.5.4 on new-admin-pc 2026-10-13 10:03:12
 package mcp
 
 import (
@@ -30,6 +31,9 @@ type Session struct {
 	pending map[uint64]chan jsonRPCResponse
 	nextID  atomic.Uint64
 	closed  atomic.Bool
+	// dead is set when the child process stdout ends (crash / exit), so callers
+	// can tell a live session from a corpse that still sits in the manager map.
+	dead atomic.Bool
 
 	logMu sync.Mutex
 	logs  []string
@@ -48,6 +52,7 @@ func StartStdio(ctx context.Context, cfg ServerConfig) (*Session, error) {
 	}
 
 	cmd := exec.CommandContext(ctx, cfg.Command, cfg.Args...)
+	configureProcess(cmd)
 	if cfg.CWD != "" {
 		cmd.Dir = cfg.CWD
 	}
@@ -82,13 +87,20 @@ func StartStdio(ctx context.Context, cfg ServerConfig) (*Session, error) {
 	go s.readLoop()
 	go s.drainStderr()
 
-	initCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	// Initialize/tools-list timeout comes from the server's own TimeoutSec (min
+	// 30s). A cold Node server (or npx downloading a package on first run) often
+	// needs well over 10s, which used to surface as "context deadline exceeded".
+	boot := time.Duration(cfg.TimeoutSec) * time.Second
+	if boot < 30*time.Second {
+		boot = 30 * time.Second
+	}
+	initCtx, cancel := context.WithTimeout(ctx, boot)
 	defer cancel()
 	if err := s.initialize(initCtx); err != nil {
 		s.Close()
 		return nil, err
 	}
-	listCtx, cancelList := context.WithTimeout(ctx, 10*time.Second)
+	listCtx, cancelList := context.WithTimeout(ctx, boot)
 	defer cancelList()
 	if err := s.refreshTools(listCtx); err != nil {
 		s.Close()
@@ -150,6 +162,9 @@ func withBinDirsInPath(env []string) []string {
 	for i, kv := range env {
 		if strings.HasPrefix(kv, "PATH=") || strings.HasPrefix(kv, "Path=") {
 			idx = i
+			// Сохраняем исходное написание ключа (PATH vs Path): на Windows
+			// getenv регистронезависим, но тесты и внешние утилиты ждут то же имя.
+			key = kv[:strings.IndexByte(kv, '=')]
 			cur = kv[strings.IndexByte(kv, '=')+1:]
 			break
 		}
@@ -234,6 +249,12 @@ func (s *Session) Tools() []mcpTool {
 	out := make([]mcpTool, len(s.tools))
 	copy(out, s.tools)
 	return out
+}
+
+// Alive reports whether the child process is still usable (not closed, stdout
+// still open). A session that crashed stays registered but is no longer alive.
+func (s *Session) Alive() bool {
+	return s != nil && !s.closed.Load() && !s.dead.Load()
 }
 
 // CallTool invokes tools/call and returns text (joined content).
@@ -330,6 +351,7 @@ func (s *Session) readLoop() {
 	for {
 		line, err := s.stdout.ReadBytes('\n')
 		if err != nil {
+			s.dead.Store(true)
 			if !s.closed.Load() {
 				s.appendLog("stdout closed: " + err.Error())
 			}
