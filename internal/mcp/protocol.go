@@ -1,3 +1,4 @@
+// Edited by nc.ai 0.8.5.4 on new-admin-pc 2026-10-13 10:27:58
 // Package mcp implements a minimal Model Context Protocol client (stdio MVP).
 package mcp
 
@@ -20,7 +21,7 @@ type ServerConfig struct {
 	Env       map[string]string `json:"env,omitempty"`
 	CWD       string            `json:"cwd,omitempty"`
 	TimeoutSec int              `json:"timeoutSec,omitempty"`
-	// EnabledTools — allowlist of local tool names (without mcp: prefix).
+	// EnabledTools — allowlist of local tool names (without the mcp__ prefix).
 	// Empty = none exposed to the model (safe default).
 	EnabledTools []string `json:"enabledTools,omitempty"`
 }
@@ -63,23 +64,54 @@ func sanitizeID(id string) string {
 	return out
 }
 
-// PrefixedName builds mcp:<serverId>:<toolName>.
+// NamePrefix — MCP tools are exposed to the model as mcp__<server>__<tool>.
+// OpenAI and Anthropic allow only [A-Za-z0-9_-] in a function name, so the old
+// "mcp:server:tool" (with colons) was not portable and broke strict providers.
+const NamePrefix = "mcp__"
+
+// PrefixedName builds a provider-safe tool name: mcp__<server>__<tool>.
 func PrefixedName(serverID, toolName string) string {
-	return "mcp:" + sanitizeID(serverID) + ":" + strings.TrimSpace(toolName)
+	return NamePrefix + safePart(serverID, true) + "__" + safePart(toolName, false)
 }
 
-// SplitPrefixed parses mcp:<server>:<tool>. ok=false if not an MCP tool name.
+// SplitPrefixed parses mcp__<server>__<tool>. ok=false if not an MCP tool name.
 func SplitPrefixed(name string) (serverID, toolName string, ok bool) {
 	name = strings.TrimSpace(name)
-	if !strings.HasPrefix(name, "mcp:") {
+	if !strings.HasPrefix(name, NamePrefix) {
 		return "", "", false
 	}
-	rest := name[len("mcp:"):]
-	i := strings.IndexByte(rest, ':')
-	if i <= 0 || i >= len(rest)-1 {
+	rest := name[len(NamePrefix):]
+	i := strings.Index(rest, "__")
+	if i <= 0 || i+2 >= len(rest) {
 		return "", "", false
 	}
-	return rest[:i], rest[i+1:], true
+	return rest[:i], rest[i+2:], true
+}
+
+// safePart maps s to [A-Za-z0-9_-]. When collapse is set, runs of separators
+// become a single "_" so the first "__" always separates server from tool.
+func safePart(s string, collapse bool) string {
+	s = strings.TrimSpace(s)
+	var b strings.Builder
+	prevSep := false
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-':
+			b.WriteRune(r)
+			prevSep = false
+		default:
+			if collapse && prevSep {
+				continue
+			}
+			b.WriteByte('_')
+			prevSep = true
+		}
+	}
+	out := strings.Trim(b.String(), "_")
+	if out == "" {
+		return "x"
+	}
+	return out
 }
 
 type jsonRPCRequest struct {

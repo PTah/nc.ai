@@ -176,7 +176,15 @@ func (a *App) startup(ctx context.Context) {
 		if a.mcp == nil {
 			return "", fmt.Errorf("MCP is not configured")
 		}
-		return a.mcp.Call(ctx, name, argsJSON)
+		started := time.Now()
+		out, err := a.mcp.Call(ctx, name, argsJSON)
+		took := time.Since(started).Round(time.Millisecond)
+		if err != nil {
+			a.logAgentLine(fmt.Sprintf("mcp call %s failed after %s: %v", name, took, err))
+			return out, err
+		}
+		a.logAgentLine(fmt.Sprintf("mcp call %s ok in %s (%d chars)", name, took, len(out)))
+		return out, nil
 	}
 	a.refreshProvider()
 	// Drop legacy in-app Git passwords (auth is OS git / ~/.ssh now).
@@ -3398,6 +3406,7 @@ func (a *App) RunAgentInSession(sessionID, runID, userMessage string, attachment
 		if len(specs) > 0 {
 			runner.MCPUsageHint = a.mcpUsageHint()
 		}
+		a.logAgentLine(fmt.Sprintf("mcp: %d tool(s) live for run in session %s (hint=%t)", len(specs), sid, runner.MCPUsageHint != ""))
 	}
 	if localSkipRules {
 		a.emitRun(sid, runID, agent.Event{

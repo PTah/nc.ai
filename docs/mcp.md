@@ -1,4 +1,5 @@
 <!-- Edited by nc.ai 0.8.5.3 on macbook 2026-10-12 21:50:37 -->
+<!-- Edited by nc.ai 0.8.5.4 on new-admin-pc 2026-10-13 10:29:40 -->
 # MCP в NotCursor — дизайн (без кода)
 
 Статус: **MVP stdio + автоустановка пресетов в 0.8.5.1** (`internal/mcp`, Settings → MCP).
@@ -52,7 +53,7 @@ Credential Manager на Windows). В `settings.json` секретов быть �
 {
   "mcpServers": [
     {
-      "id": "google-maps",            // префикс инструментов: mcp:google-maps:*
+      "id": "google-maps",            // префикс инструментов: mcp__google-maps__*
       "label": "Google Maps",
       "enabled": true,                // вкл/выкл сервер
       "transport": "stdio",           // stdio | http
@@ -95,7 +96,9 @@ Credential Manager на Windows). В `settings.json` секретов быть �
 ## 3. Как инструменты попадают в агентский цикл
 
 1. После `tools/list` превращаем каждый инструмент в наш `ToolSpec`:
-   - `name`: `mcp:<serverId>:<toolName>` — плоско, без вложенности, чтобы не ломать провайдеров
+   - `name`: `mcp__<serverId>__<toolName>` — плоско и только `[A-Za-z0-9_-]`,
+     потому что OpenAI/Anthropic допускают лишь такие имена функций (двоеточие
+     в имени ломало строгие провайдеры)
      с ограничением на длину/символы в имени; в UI показываем человекочитаемо.
    - `description`: описание сервера + пометка `[MCP · <label>]`, чтобы модель и человек видели
      источник.

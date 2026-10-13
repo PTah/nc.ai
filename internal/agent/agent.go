@@ -523,7 +523,7 @@ func (r *Runner) systemPrompt() string {
 			"Use it for broad search/review so this chat stays short; then act on the returned summary."
 	}
 	if len(r.ExtraTools) > 0 && r.Depth == 0 && !r.subagentMode {
-		base += "\n\nMCP tools (names start with mcp:): for codebase navigation prefer graph/memory MCP " +
+		base += "\n\nMCP tools (names start with mcp__): for codebase navigation prefer graph/memory MCP " +
 			"before wide grep. Typical order: (1) index/build graph if needed, (2) query graph / search, " +
 			"(3) read_file on the returned paths, (4) apply_patch. Do not ignore MCP results and re-scan blindly."
 		if h := strings.TrimSpace(r.MCPUsageHint); h != "" {
