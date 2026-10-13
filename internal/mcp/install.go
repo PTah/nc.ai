@@ -1,5 +1,6 @@
 // Edited by nc.ai 0.8.5.1 on new-admin-pc 2026-10-12 17:50:30
 // Edited by nc.ai 0.8.5.3 on macbook 2026-10-12 21:47:34
+// Edited by nc.ai 0.8.5.4 on new-admin-pc 2026-10-13 10:04:42
 package mcp
 
 import (
@@ -238,6 +239,7 @@ func runCmd(ctx context.Context, bin string, args []string, env []string) error 
 
 func runCmdOut(ctx context.Context, bin string, args []string, env []string) (string, error) {
 	cmd := exec.CommandContext(ctx, bin, args...)
+	configureProcess(cmd)
 	if len(env) > 0 {
 		cmd.Env = env
 	} else {

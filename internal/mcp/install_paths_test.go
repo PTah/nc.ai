@@ -1,4 +1,5 @@
 // Created by nc.ai 0.8.5.3 on macbook 2026-10-12 21:49:38
+// Edited by nc.ai 0.8.5.4 on new-admin-pc 2026-10-13 10:06:29
 package mcp
 
 import (
@@ -53,7 +54,12 @@ func TestCandidateBinDirsHomebrewOnDarwin(t *testing.T) {
 // PATH для MCP-серверов: сохраняем исходные записи и добавляем существующие
 // каталоги пакетных менеджеров (Node/Python-обёртки ищут интерпретатор в PATH).
 func TestWithBinDirsInPath(t *testing.T) {
-	env := withBinDirsInPath([]string{"PATH=/usr/bin:/bin", "HOME=/tmp"})
+	sep := string(os.PathListSeparator)
+	first, second := "/usr/bin", "/bin"
+	if runtime.GOOS == "windows" {
+		first, second = `C:\Windows\System32`, `C:\Windows`
+	}
+	env := withBinDirsInPath([]string{"PATH=" + first + sep + second, "HOME=/tmp"})
 	path := ""
 	for _, kv := range env {
 		if strings.HasPrefix(kv, "PATH=") {
@@ -63,7 +69,7 @@ func TestWithBinDirsInPath(t *testing.T) {
 	if path == "" {
 		t.Fatal("PATH потерялся")
 	}
-	parts := strings.Split(path, string(os.PathListSeparator))
+	parts := strings.Split(path, sep)
 	has := func(want string) bool {
 		for _, p := range parts {
 			if p == want {
@@ -72,7 +78,7 @@ func TestWithBinDirsInPath(t *testing.T) {
 		}
 		return false
 	}
-	if !has("/usr/bin") || !has("/bin") {
+	if !has(first) || !has(second) {
 		t.Fatalf("исходный PATH не сохранён: %q", path)
 	}
 	for _, dir := range candidateBinDirs() {
@@ -80,7 +86,7 @@ func TestWithBinDirsInPath(t *testing.T) {
 			t.Fatalf("существующий каталог %q не попал в PATH: %q", dir, path)
 		}
 	}
-	if n := strings.Count(path, "/usr/bin"); n > 1 {
+	if n := strings.Count(path, first); n > 1 {
 		t.Fatalf("PATH содержит дубли: %q", path)
 	}
 }

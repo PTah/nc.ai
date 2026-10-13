@@ -37,6 +37,9 @@ type Manager struct {
 	// the server while the manager still thinks it is running.
 	lifetime       context.Context
 	lifetimeCancel context.CancelFunc
+	// startMu serializes Start so the background starter and lazy tool-call
+	// start cannot race and kill each other's session.
+	startMu sync.Mutex
 }
 
 func NewManager() *Manager {
@@ -92,22 +95,64 @@ func (m *Manager) EnsureStarted(ctx context.Context) {
 			continue
 		}
 		m.mu.Lock()
-		_, live := m.sessions[c.ID]
+		s := m.sessions[c.ID]
 		m.mu.Unlock()
-		if live {
+		if s != nil && s.Alive() {
 			continue
 		}
 		_, _ = m.Start(ctx, c.ID)
 	}
 }
 
-// Start connects one server by id.
+// EnsureStartedBackground starts missing servers without blocking the caller.
+// A slow or failing server (cold Node startup, npx download) must not stall the
+// agent run; ToolSpecs pick the tools up on the next step once a session is up.
+func (m *Manager) EnsureStartedBackground() {
+	m.mu.Lock()
+	var todo []string
+	for _, c := range m.configs {
+		if !c.Enabled {
+			continue
+		}
+		if s := m.sessions[c.ID]; s != nil && s.Alive() {
+			continue
+		}
+		todo = append(todo, c.ID)
+	}
+	m.mu.Unlock()
+	for _, id := range todo {
+		go func(id string) { _, _ = m.Start(m.lifetime, id) }(id)
+	}
+}
+
+// RunningIDs returns ids of servers with a live session.
+func (m *Manager) RunningIDs() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]string, 0, len(m.sessions))
+	for id, s := range m.sessions {
+		if s.Alive() {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+// Start connects one server by id. If a healthy session already exists it is
+// left as-is (no needless restart); a dead one is replaced.
 func (m *Manager) Start(ctx context.Context, id string) (Status, error) {
+	m.startMu.Lock()
+	defer m.startMu.Unlock()
 	m.mu.Lock()
 	cfg, ok := m.configByID(id)
 	if !ok {
 		m.mu.Unlock()
 		return Status{}, fmt.Errorf("unknown MCP server %q", id)
+	}
+	if s := m.sessions[cfg.ID]; s != nil && s.Alive() {
+		st := m.statusLocked(cfg)
+		m.mu.Unlock()
+		return st, nil
 	}
 	if old := m.sessions[cfg.ID]; old != nil {
 		old.Close()
@@ -191,7 +236,12 @@ func (m *Manager) statusLocked(cfg ServerConfig) Status {
 			st.Tools = append(st.Tools, t.Name)
 		}
 		st.Logs = s.Logs()
-		if st.State != "error" {
+		if !s.Alive() {
+			st.State = "error"
+			if st.Error == "" {
+				st.Error = "процесс MCP-сервера завершился — нажмите Start, чтобы перезапустить"
+			}
+		} else if st.State != "error" {
 			st.State = "running"
 		}
 	}
@@ -208,7 +258,7 @@ func (m *Manager) ToolSpecs() []llm.ToolSpec {
 			continue
 		}
 		s := m.sessions[cfg.ID]
-		if s == nil {
+		if s == nil || !s.Alive() {
 			continue
 		}
 		allow := map[string]bool{}

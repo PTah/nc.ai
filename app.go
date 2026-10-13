@@ -1,4 +1,5 @@
 // Edited by nc.ai 0.8.5.2 on macbook 2026-10-12 20:40:28
+// Edited by nc.ai 0.8.5.4 on new-admin-pc 2026-10-13 10:04:30
 package main
 
 import (
@@ -656,11 +657,19 @@ func (a *App) InstallMCPPreset(presetID string) (mcp.InstallResult, error) {
 	return inst, err
 }
 
-// mcpUsageHint collects UsageHint from presets whose servers are enabled.
+// mcpUsageHint collects UsageHint from presets whose servers are enabled AND
+// actually running. A server that failed to start must not tell the model to
+// use tools it doesn't have.
 func (a *App) mcpUsageHint() string {
+	live := map[string]bool{}
+	if a.mcp != nil {
+		for _, id := range a.mcp.RunningIDs() {
+			live[id] = true
+		}
+	}
 	var lines []string
 	for _, s := range a.cfg.MCPServers() {
-		if !s.Enabled || len(s.EnabledTools) == 0 {
+		if !s.Enabled || len(s.EnabledTools) == 0 || !live[s.ID] {
 			continue
 		}
 		if p, ok := mcp.PresetByID(s.ID); ok && strings.TrimSpace(p.UsageHint) != "" {
@@ -3378,9 +3387,17 @@ func (a *App) RunAgentInSession(sessionID, runID, userMessage string, attachment
 	}
 	if a.mcp != nil {
 		a.syncMCPFromConfig()
-		a.mcp.EnsureStarted(ctx)
-		runner.ExtraTools = a.mcp.ToolSpecs()
-		runner.MCPUsageHint = a.mcpUsageHint()
+		// Запускаем серверы в фоне: холодный Node/npx может подниматься десятки
+		// секунд, и раньше это стопорило старт прогона. Инструменты и подсказка
+		// появятся, когда сессия реально поднимется, — на следующем шаге/прогоне.
+		a.mcp.EnsureStartedBackground()
+		specs := a.mcp.ToolSpecs()
+		runner.ExtraTools = specs
+		// Подсказку про MCP даём только если инструменты реально доступны —
+		// иначе модель получает инструкцию звать то, чего у неё нет.
+		if len(specs) > 0 {
+			runner.MCPUsageHint = a.mcpUsageHint()
+		}
 	}
 	if localSkipRules {
 		a.emitRun(sid, runID, agent.Event{
