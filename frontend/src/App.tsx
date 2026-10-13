@@ -2719,6 +2719,12 @@ export default function App() {
     }
     refreshPeak()
     const peakTimer = window.setInterval(refreshPeak, 60_000)
+    // Баланс DeepSeek обновляем периодически: раньше он брался только на старте,
+    // при смене провайдера и по Test connect/Refresh balance — и красный
+    // «topup < $1» мог не успеть появиться во время долгой сессии.
+    const balTimer = window.setInterval(() => {
+      if (activeProviderRef.current === 'deepseek') void refreshDeepSeekBalance()
+    }, 5 * 60_000)
     try {
       AppInfo().then((v) => setInfo(v as typeof info)).catch(() => undefined)
       void applyUsageStats()
@@ -3218,6 +3224,7 @@ export default function App() {
             if (ev.type === 'done' && noWorkLeft(sid)) playEndSound()
             if (sid === activeSessionRef.current) setRetryVisible(false)
             void applyUsageStats()
+            if (activeProviderRef.current === 'deepseek') void refreshDeepSeekBalance()
           } else if (ev.type === 'error') {
             finishRunUI(sid, runId)
             const errContent = ev.content || 'unknown'
@@ -3278,6 +3285,7 @@ export default function App() {
 
     return () => {
       window.clearInterval(peakTimer)
+      window.clearInterval(balTimer)
       try {
         EventsOff('agent:event')
         EventsOff('terminal:data')

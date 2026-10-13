@@ -175,7 +175,11 @@ func (a *App) startup(ctx context.Context) {
 	a.tools = tools.NewRegistry(a.ws, a.sshDir)
 	a.tools.Shell = shell.ResolveShell(a.cfg.Get().Shell)
 	a.mcp = mcp.NewManager()
+	a.mcp.OnEvent = func(msg string) { a.logAgentLine("mcp " + msg) }
 	a.syncMCPFromConfig()
+	// Включённые MCP-серверы поднимаем сразу, а не на первом прогоне: к первому
+	// заданию они уже готовы, и инструменты графа доступны с первого шага.
+	a.mcp.EnsureStartedBackground()
 	a.tools.MCPCall = func(ctx context.Context, name, argsJSON string) (string, error) {
 		if a.mcp == nil {
 			return "", fmt.Errorf("MCP is not configured")
@@ -987,6 +991,64 @@ func (a *App) clearStaleRunMarker() {
 // interruptedNotice — заметка в транскрипте, когда прогон оборвался из-за
 // закрытия приложения (хвост ответа мог не дойти).
 const interruptedNotice = "⚠️ Ответ прерван закрытием приложения — напишите «продолжи», чтобы дописать."
+
+// appendMCPNotice добавляет системную заметку в конец транскрипта сессии
+// (аналог appendInterruptedNotice, но с произвольным текстом и идемпотентно).
+func (a *App) appendMCPNotice(sid, text string) {
+	if a.chats == nil || strings.TrimSpace(text) == "" {
+		return
+	}
+	project, err := a.chats.FindProject(sid)
+	if err != nil || project == "" {
+		return
+	}
+	sess, err := a.chats.Get(project, sid)
+	if err != nil || sess == nil {
+		return
+	}
+	updated, changed := appendSystemNotice(sess.ItemsJSON, text)
+	if !changed {
+		return
+	}
+	sess.ItemsJSON = updated
+	_ = a.chats.SaveSession(project, sess)
+}
+
+// appendSystemNotice добавляет {kind:"system", content:text} в конец itemsJSON.
+// Идемпотентно: если последний элемент уже содержит этот текст, ничего не меняем.
+func appendSystemNotice(itemsJSON, text string) (string, bool) {
+	if strings.TrimSpace(itemsJSON) == "" || strings.TrimSpace(text) == "" {
+		return itemsJSON, false
+	}
+	var items []any
+	if err := json.Unmarshal([]byte(itemsJSON), &items); err != nil || len(items) == 0 {
+		return itemsJSON, false
+	}
+	if last, ok := items[len(items)-1].(map[string]any); ok {
+		if txt, _ := last["content"].(string); strings.Contains(txt, text) {
+			return itemsJSON, false
+		}
+	}
+	items = append(items, map[string]any{"kind": "system", "content": text})
+	out, err := json.Marshal(items)
+	if err != nil {
+		return itemsJSON, false
+	}
+	return string(out), true
+}
+
+// logMCPState пишет состояние каждого MCP-сервера в agent.log — после сбоя
+// видно, кто «stopped», кто «error» и почему (раньше в логе была только одна
+// строка «mcp: N tool(s) live», и «остановлен» объяснить было нельзя).
+func (a *App) logMCPState() {
+	if a.mcp == nil {
+		return
+	}
+	for _, st := range a.mcp.Statuses() {
+		a.logAgentLine(fmt.Sprintf("mcp server id=%s state=%s tools=%d enabled=%d err=%s",
+			st.ID, st.State, st.ToolCount, st.EnabledCount, strings.TrimSpace(st.Error)))
+	}
+}
 
 // appendInterruptedNotice добавляет заметку в конец транскрипта. Идемпотентно:
 // если последняя запись — уже эта заметка, второй раз не пишем. Возвращает
@@ -3606,18 +3668,30 @@ func (a *App) RunAgentInSession(sessionID, runID, userMessage string, attachment
 	}
 	if a.mcp != nil {
 		a.syncMCPFromConfig()
-		// Запускаем серверы в фоне: холодный Node/npx может подниматься десятки
-		// секунд, и раньше это стопорило старт прогона. Инструменты и подсказка
-		// появятся, когда сессия реально поднимется, — на следующем шаге/прогоне.
-		a.mcp.EnsureStartedBackground()
+		// Поднимаем серверы синхронно, но с коротким потолком: инструменты должны
+		// быть у модели с первого шага, а мёртвый сервер не должен стопорить старт.
+		startCtx, cancel := context.WithTimeout(a.ctx, 20*time.Second)
+		a.mcp.EnsureStarted(startCtx)
+		cancel()
 		specs := a.mcp.ToolSpecs()
 		runner.ExtraTools = specs
-		// Подсказку про MCP даём только если инструменты реально доступны —
-		// иначе модель получает инструкцию звать то, чего у неё нет.
 		if len(specs) > 0 {
 			runner.MCPUsageHint = a.mcpUsageHint()
+		} else if a.mcp.HasEnabled() {
+			// Инструментов нет (сервер ещё поднимается или упал) — заметка в чат,
+			// чтобы не выглядело, будто агент «не пользуется MCP».
+			a.appendMCPNotice(sid, "ℹ️ MCP-сервер ещё поднимается (или недоступен) — инструменты появятся со следующего шага.")
 		}
-		a.logAgentLine(fmt.Sprintf("mcp: %d tool(s) live for run in session %s (hint=%t)", len(specs), sid, runner.MCPUsageHint != ""))
+		a.logMCPState()
+	}
+	// Низкий баланс: предупреждаем заранее, чтобы обрыв не был сюрпризом.
+	if a.cfg.Provider() == config.ProviderDeepSeek {
+		a.dsBalMu.Lock()
+		bal := a.dsBal
+		a.dsBalMu.Unlock()
+		if bal.OK && bal.ToppedUpUSD < 1 {
+			a.appendMCPNotice(sid, "⚠️ Пополнение DeepSeek меньше $1 — ответ может оборваться, если баланс кончится. Пополните счёт.")
+		}
 	}
 	if localSkipRules {
 		a.emitRun(sid, runID, agent.Event{
