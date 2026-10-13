@@ -351,6 +351,15 @@ textarea { resize: none; }
   gap: 0.5rem; margin-bottom: 0.4rem;
 }
 .nc-settings-head .nc-section-label { margin: 0; }
+/* Save settings + Close живут в шапке панели: обе кнопки по содержимому,
+   без растягивания на всю ширину и без отступов «плавающей» кнопки. */
+.nc-settings-head-actions {
+  display: flex; align-items: center; gap: 0.4rem; flex: 0 0 auto;
+}
+.nc-settings-head-actions button,
+.nc-settings-head-actions .nc-ghost {
+  width: auto; margin: 0;
+}
 .nc-topbar .nc-ghost { width: auto; margin: 0; }
 .nc-brand { display: flex; gap: 0.55rem; align-items: center; margin-bottom: 0.8rem; }
 .nc-brand-mark {

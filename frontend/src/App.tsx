@@ -2,6 +2,7 @@
 // Edited by nc.ai 0.8.3.3 on new-admin-pc 2026-10-12 17:40:55
 // Edited by nc.ai 0.8.5.2 on macbook 2026-10-12 20:41:23
 // Edited by nc.ai 0.8.5.4 on new-admin-pc 2026-10-13 10:22:44
+// Edited by nc.ai 0.8.5.5 on macbook 2026-10-13 21:20:40
 import {FormEvent, MouseEvent as ReactMouseEvent, useCallback, useEffect, useRef, useState} from 'react'
 import {Terminal} from '@xterm/xterm'
 import {FitAddon} from '@xterm/addon-fit'
@@ -5969,7 +5970,10 @@ export default function App() {
             <div className="nc-vsplit leading" onMouseDown={(e) => beginResize('settings', e)} />
             <div className="nc-settings-head">
               <div className="nc-section-label">Settings</div>
-              <button type="button" className="nc-ghost" onClick={() => setSettingsVisible(false)}>Close</button>
+              <div className="nc-settings-head-actions">
+                <button type="button" onClick={saveSettings}>Save settings</button>
+                <button type="button" className="nc-ghost" onClick={() => setSettingsVisible(false)}>Close</button>
+              </div>
             </div>
             <div className="nc-section-label">Provider</div>
             <label>
@@ -6769,7 +6773,6 @@ export default function App() {
                 Чаты: <code>chats</code>, архивы: <code>chat_archive</code>, настройки: <code>settings.json</code> (без API-ключей)
               </p>
             ) : null}
-            <button type="button" onClick={saveSettings}>Save settings</button>
             <button type="button" className="nc-ghost" onClick={testConnect}>Test connect ({providerLabel})</button>
             <button type="button" className="nc-ghost" onClick={() => void clearAllKeys()}>Clear all keys</button>
 
