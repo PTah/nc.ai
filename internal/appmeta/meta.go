@@ -9,7 +9,7 @@ import "time"
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "0.8.6.1"
+	Version = "0.8.6.2"
 )
 
 // DeepSeekProRetireRFC3339 is the announced V4 Pro retirement instant, empty
@@ -55,19 +55,19 @@ func retiredAt(at time.Time, now time.Time) bool {
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
-	"MCP работает с любым провайдером: имена инструментов mcp__server__tool",
-	"«Индекс не готов» у MCP — это оповещение, а не ошибка",
-	"Рабочее пространство из нескольких папок: репозитории одного комплекса работают как один",
-	"Multitask: несколько запросов в одном чате идут параллельно, каждый своей дорожкой",
-	"Оборванный ответ (в т.ч. внутри `кода`) агент дописывает сам",
+	"Черновик сообщения сохраняется, закрытие во время работы спрашивает подтверждение, прерванный ответ помечается",
+	"MCP-граф доступен с первого шага; старт, стоп и ошибки серверов пишутся в agent.log",
+	"Баланс DeepSeek обновляется сам, «topup» краснеет при остатке меньше $1",
+	"Приложение не перезапускается поверх прогона: маркер running.json живёт всю работу",
+	"Рабочее пространство из нескольких папок и multitask (запросы идут параллельно) — на месте",
 }
 
 var HighlightsEN = []string{
-	"MCP works with any provider: tool names are mcp__server__tool",
-	"\"Index not ready\" from MCP is a notice, not an error",
-	"Multi-folder workspace: repositories of one suite behave like a single repo",
-	"Multitask: several requests in one chat run in parallel, each in its own lane",
-	"A cut-off answer (even inside `code`) is continued automatically",
+	"Message drafts are saved; closing while work runs asks for confirmation and marks the cut-off answer",
+	"The MCP graph is available from the first step; server start, stop and errors go to agent.log",
+	"DeepSeek balance refreshes on its own; \"topup\" turns red below $1",
+	"The app never restarts over a running agent: running.json lives for the whole run",
+	"Multi-folder workspace and Multitask (requests run in parallel) stay in place",
 }
 
 // UICopy is localized chrome for the Welcome splash.
