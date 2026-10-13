@@ -1,4 +1,5 @@
 // Edited by nc.ai 0.8.5.1 on new-admin-pc 2026-10-12 17:49:52
+// Edited by nc.ai 0.8.6.0 on macbook 2026-10-13 22:31:30
 package mcp
 
 import (
@@ -40,6 +41,29 @@ type Manager struct {
 	// startMu serializes Start so the background starter and lazy tool-call
 	// start cannot race and kill each other's session.
 	startMu sync.Mutex
+	// OnEvent, если задан, вызывается для журнала: "started id=… tools=N",
+	// "start failed id=… err=…", "stopped id=…". Нужно, чтобы в agent.log было
+	// видно, когда и почему MCP-сервер поднялся или упал.
+	OnEvent func(msg string)
+}
+
+func (m *Manager) notify(msg string) {
+	if m.OnEvent != nil {
+		m.OnEvent(msg)
+	}
+}
+
+// HasEnabled сообщает, есть ли хоть один включённый сервер с непустым
+// allowlist инструментов (когда надо писать подсказку/заметку при 0 tool(s)).
+func (m *Manager) HasEnabled() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, c := range m.configs {
+		if c.Enabled && len(c.EnabledTools) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func NewManager() *Manager {
@@ -168,11 +192,13 @@ func (m *Manager) Start(ctx context.Context, id string) (Status, error) {
 	if err != nil {
 		m.states[cfg.ID] = "error"
 		m.errors[cfg.ID] = err.Error()
+		m.notify(fmt.Sprintf("start failed id=%s err=%s", cfg.ID, err))
 		return m.statusLocked(cfg), err
 	}
 	m.sessions[cfg.ID] = sess
 	m.states[cfg.ID] = "running"
 	m.errors[cfg.ID] = ""
+	m.notify(fmt.Sprintf("started id=%s tools=%d", cfg.ID, len(sess.Tools())))
 	return m.statusLocked(cfg), nil
 }
 
@@ -187,6 +213,7 @@ func (m *Manager) Stop(id string) Status {
 	}
 	m.states[id] = "stopped"
 	cfg, _ := m.configByID(id)
+	m.notify("stopped id=" + id)
 	return m.statusLocked(cfg)
 }
 
@@ -279,7 +306,7 @@ func (m *Manager) ToolSpecs() []llm.ToolSpec {
 			out = append(out, llm.ToolSpec{
 				Type: "function",
 				Function: llm.ToolSpecFunction{
-					Name: PrefixedName(cfg.ID, t.Name),
+					Name:        PrefixedName(cfg.ID, t.Name),
 					Description: fmt.Sprintf("[MCP · %s] %s", cfg.Label, strings.TrimSpace(t.Description)),
 					Parameters:  params,
 				},

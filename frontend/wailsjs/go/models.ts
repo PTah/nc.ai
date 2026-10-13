@@ -561,6 +561,8 @@ export namespace main {
 	    balanceOk: boolean;
 	    balanceUsd: number;
 	    balanceDetail: string;
+	    balanceToppedUp: number;
+	    balanceGranted: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new UsageStats(source);
@@ -582,6 +584,8 @@ export namespace main {
 	        this.balanceOk = source["balanceOk"];
 	        this.balanceUsd = source["balanceUsd"];
 	        this.balanceDetail = source["balanceDetail"];
+	        this.balanceToppedUp = source["balanceToppedUp"];
+	        this.balanceGranted = source["balanceGranted"];
 	    }
 	}
 	export class WelcomeInfo {
