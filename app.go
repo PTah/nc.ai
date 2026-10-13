@@ -3550,10 +3550,11 @@ func (a *App) RunAgentInSession(sessionID, runID, userMessage string, attachment
 	a.runGens[runKey]++
 	gen := a.runGens[runKey]
 	a.mu.Unlock()
-	// Маркер активного прогона: build.sh читает его и не перезапускает клиент
-	// поверх работающего агента (перезапуск обрывает прогон без предупреждения).
-	a.markRunStart(sid)
-	defer a.markRunEnd(sid)
+	// Маркер активного прогона ставится внутри горутины прогона (ниже): build.sh
+	// читает running.json и не перезапускает клиент поверх работающего агента.
+	// Раньше маркер ставился и снимался здесь, в синхронной части, а сам прогон
+	// уходил в горутину — файл удалялся через миллисекунды, и «идёт прогон» было
+	// не видно ни build.sh, ни скриптам перезапуска.
 
 	hasImages := false
 	attNames := make([]string, 0, len(attachments))
@@ -3766,6 +3767,8 @@ func (a *App) RunAgentInSession(sessionID, runID, userMessage string, attachment
 	}
 
 	go func() {
+		a.markRunStart(sid)
+		defer a.markRunEnd(sid)
 		a.setRunActive(true)
 		defer a.setRunActive(false)
 		dockicon.BeginAgent()
