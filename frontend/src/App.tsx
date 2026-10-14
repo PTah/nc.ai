@@ -3,6 +3,7 @@
 // Edited by nc.ai 0.8.5.2 on macbook 2026-10-12 20:41:23
 // Edited by nc.ai 0.8.5.4 on new-admin-pc 2026-10-13 10:22:44
 // Edited by nc.ai 0.8.5.5 on macbook 2026-10-13 21:20:40
+// Edited by nc.ai 0.8.6.2 on new-admin-pc 2026-10-14 11:08:06
 import {FormEvent, MouseEvent as ReactMouseEvent, useCallback, useEffect, useRef, useState} from 'react'
 import {Terminal} from '@xterm/xterm'
 import {FitAddon} from '@xterm/addon-fit'
@@ -4101,6 +4102,20 @@ export default function App() {
     }
   }
 
+  // Клик по проекту = «сейчас пишу запрос»: курсор сразу в поле ввода, в конец
+  // уже набранного текста. Без этого фокус остаётся на кнопке проекта в списке,
+  // и первое же слово уходит в никуда. Отложенный вызов — чтобы фокус встал после
+  // перерисовки (активная сессия и черновик подставляются по ходу открытия).
+  function focusComposer() {
+    window.setTimeout(() => {
+      const el = composerRef.current
+      if (!el || el.disabled) return
+      el.focus({preventScroll: true})
+      const end = el.value.length
+      try { el.setSelectionRange(end, end) } catch { /* ignore */ }
+    }, 0)
+  }
+
   async function openProject(path: string) {
     if (active && activeSessionId) {
       try { await persistSession(activeSessionId) } catch { /* ignore */ }
@@ -4115,6 +4130,7 @@ export default function App() {
       xtermRef.current?.writeln(`\r\n$ cd ${p.path}`)
       await StartTerminal()
     }
+    focusComposer()
   }
 
   async function finishCloseProject(path: string, chatAction: '' | 'delete' | 'archive') {
