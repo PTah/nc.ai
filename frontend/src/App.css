@@ -1710,8 +1710,45 @@ mark.nc-find-mark.nc-find-current {
 }
 .nc-projects .nc-list li .nc-project-lock svg {
   display: block;
-  width: 13px;
-  height: 13px;
+  width: 14px;
+  height: 14px;
+}
+/* Наведение оживляет замок: открытый качает дужкой (петля — левое основание),
+   закрытый подрагивает целиком, как запертая дверь. Короткий цикл с паузой,
+   чтобы не мельтешило. */
+@keyframes nc-lock-swing {
+  0%, 55%, 100% { transform: translateY(0) rotate(0deg); }
+  12%, 40% { transform: translateY(-1.4px) rotate(9deg); }
+}
+@keyframes nc-lock-rattle {
+  0%, 62%, 100% { transform: translateX(0) rotate(0deg); }
+  10% { transform: translateX(-1.1px) rotate(-3deg); }
+  28% { transform: translateX(1.1px) rotate(3deg); }
+  44% { transform: translateX(-0.6px) rotate(-2deg); }
+}
+.nc-lock {
+  transform-box: view-box;
+  transform-origin: 10px 12.6px;
+}
+.nc-lock-open .nc-lock-shackle {
+  transform-origin: 6.9px 8.9px;
+}
+.nc-project-lock:hover .nc-lock-locked {
+  animation: nc-lock-rattle 1.2s ease-in-out infinite;
+}
+.nc-project-lock:hover .nc-lock-open .nc-lock-shackle {
+  animation: nc-lock-swing 1.2s ease-in-out infinite;
+}
+/* Просили не анимировать: движение убираем, но наведение всё равно видно — замок
+   становится ярче. */
+@media (prefers-reduced-motion: reduce) {
+  .nc-project-lock:hover .nc-lock-locked,
+  .nc-project-lock:hover .nc-lock-open .nc-lock-shackle {
+    animation: none;
+  }
+  .nc-project-lock:hover .nc-lock {
+    filter: brightness(1.2) saturate(1.25);
+  }
 }
 .nc-projects .nc-list li .nc-project-lock.on {
   opacity: 1;
@@ -1739,12 +1776,11 @@ mark.nc-find-mark.nc-find-current {
 .nc-locked-banner button {
   margin-left: auto;
 }
-/* Замок в баннере — тем же янтарным, что и рамка предупреждения. */
+/* Замок в баннере — тот же цветной значок, только чуть крупнее. */
 .nc-locked-banner svg {
   flex: 0 0 auto;
-  width: 14px;
-  height: 14px;
-  color: #d08a00;
+  width: 15px;
+  height: 15px;
 }
 
 /* Restart notice: why the app (re)started (update / unclean exit). */
