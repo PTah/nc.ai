@@ -3,6 +3,7 @@
 // Edited by nc.ai 0.8.5.4 on new-admin-pc 2026-10-13 10:45:48
 // Edited by nc.ai 0.8.5.5 on macbook 2026-10-13 21:22:17
 // Edited by nc.ai 0.8.6.3 on new-admin-pc 2026-10-14 11:08:20
+// Edited by nc.ai 0.8.6.3 on Papasha 2026-10-16 14:20:34
 package appmeta
 
 import "time"
@@ -10,7 +11,7 @@ import "time"
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "0.8.6.3"
+	Version = "0.8.6.4"
 )
 
 // DeepSeekProRetireRFC3339 is the announced V4 Pro retirement instant, empty
@@ -56,19 +57,19 @@ func retiredAt(at time.Time, now time.Time) bool {
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
+	"«Refresh models» показывает «Обновление…», а результат опроса — список моделей — пишется прямо в чат",
+	"Model prices: у OpenRouter цены на все модели из списка провайдера, а не только на курированные",
 	"Клик по проекту сразу ставит курсор в поле ввода — можно сразу печатать запрос",
-	"Черновик сообщения сохраняется, закрытие во время работы спрашивает подтверждение, прерванный ответ помечается",
 	"MCP-граф доступен с первого шага; старт, стоп и ошибки серверов пишутся в agent.log",
-	"Баланс DeepSeek обновляется сам, «topup» краснеет при остатке меньше $1",
-	"Приложение не перезапускается поверх прогона: маркер running.json живёт всю работу",
+	"Рабочее пространство из нескольких папок и multitask (запросы идут параллельно) — на месте",
 }
 
 var HighlightsEN = []string{
+	"\"Refresh models\" shows \"Updating…\" and the poll result — the model list — lands in the chat",
+	"Model prices: OpenRouter now lists rates for every model in the provider catalog, not just the curated ones",
 	"Clicking a project drops the cursor right into the input, ready to type",
-	"Message drafts are saved; closing while work runs asks for confirmation and marks the cut-off answer",
 	"The MCP graph is available from the first step; server start, stop and errors go to agent.log",
-	"DeepSeek balance refreshes on its own; \"topup\" turns red below $1",
-	"The app never restarts over a running agent: running.json lives for the whole run",
+	"Multi-folder workspace and Multitask (requests run in parallel) stay in place",
 }
 
 // UICopy is localized chrome for the Welcome splash.

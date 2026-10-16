@@ -1,3 +1,4 @@
+// Edited by nc.ai 0.8.6.3 on Papasha 2026-10-16 14:14:08
 package costing
 
 import (
@@ -25,6 +26,9 @@ func openRouterWantedModels(selected string) []string {
 	want := map[string]struct{}{}
 	for k := range builtinOpenRouterSheet {
 		want[k] = struct{}{}
+	}
+	for _, id := range openRouterCatalog() {
+		want[id] = struct{}{}
 	}
 	if selected != "" {
 		want[selected] = struct{}{}

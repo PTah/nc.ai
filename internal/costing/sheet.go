@@ -1,3 +1,4 @@
+// Edited by nc.ai 0.8.6.3 on Papasha 2026-10-16 14:13:57
 package costing
 
 import (
@@ -89,10 +90,15 @@ var builtinZaiSheet = map[string]Prices{
 var (
 	sheetMu sync.RWMutex
 	// live sheets start as builtins; Apply* replaces them after refresh / load from settings.
-	liveDeepSeekPeak   = cloneSheet(builtinDeepSeekPeak)
-	liveZaiSheet       = cloneSheet(builtinZaiSheet)
+	liveDeepSeekPeak    = cloneSheet(builtinDeepSeekPeak)
+	liveZaiSheet        = cloneSheet(builtinZaiSheet)
 	liveOpenRouterSheet = cloneSheet(builtinOpenRouterSheet)
-	livePeakWindows    = cloneWindows(defaultPeakWindows)
+	livePeakWindows     = cloneWindows(defaultPeakWindows)
+
+	orCatalogMu sync.RWMutex
+	// orCatalog is the selectable OpenRouter id list (UI order) recorded when the
+	// Settings dropdown is (re)read, so Model prices can list every model on offer.
+	orCatalog []string
 )
 
 func cloneSheet(in map[string]Prices) map[string]Prices {
@@ -157,6 +163,26 @@ func SetOpenRouterSheet(sheet map[string]Prices) {
 	}
 	liveOpenRouterSheet = merged
 	sheetMu.Unlock()
+}
+
+// SetOpenRouterCatalog records the selectable OpenRouter ids (UI order) and merges
+// the live prices fetched alongside them, so the Model prices view covers the whole
+// dropdown instead of only the curated snapshot.
+func SetOpenRouterCatalog(ids []string, prices map[string]Prices) {
+	orCatalogMu.Lock()
+	orCatalog = append([]string{}, ids...)
+	orCatalogMu.Unlock()
+	if len(prices) > 0 {
+		SetOpenRouterSheet(prices)
+	}
+}
+
+// openRouterCatalog returns a copy of the selectable OpenRouter ids (empty until
+// the first real catalog read).
+func openRouterCatalog() []string {
+	orCatalogMu.RLock()
+	defer orCatalogMu.RUnlock()
+	return append([]string{}, orCatalog...)
 }
 
 // liveOpenRouterPrices returns current OpenRouter rates (builtin when no live data).

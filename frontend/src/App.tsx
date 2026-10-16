@@ -4,6 +4,7 @@
 // Edited by nc.ai 0.8.5.4 on new-admin-pc 2026-10-13 10:22:44
 // Edited by nc.ai 0.8.5.5 on macbook 2026-10-13 21:20:40
 // Edited by nc.ai 0.8.6.2 on new-admin-pc 2026-10-14 11:08:06
+// Edited by nc.ai 0.8.6.3 on Papasha 2026-10-16 14:11:12
 import {FormEvent, MouseEvent as ReactMouseEvent, useCallback, useEffect, useRef, useState} from 'react'
 import {Terminal} from '@xterm/xterm'
 import {FitAddon} from '@xterm/addon-fit'
@@ -611,6 +612,21 @@ function catalogNote(providerId: string, source: string, err: string, count: num
   }
   if (count === 0) return `${label}: API вернул пустой список моделей.`
   return `Список из API — моделей: ${count}.`
+}
+
+/** Сколько id моделей выводить в чат — хвост сворачивается в «… ещё N». */
+const MODEL_NOTICE_MAX = 40
+
+/**
+ * Чатовая копия результата «Refresh models»: в отличие от строки под кнопкой,
+ * несёт и сами id, чтобы было видно, что список реально перечитался.
+ */
+function catalogChatNotice(providerId: string, note: string, ids: string[]): string {
+  const head = `Модели ${providerLabelOf(providerId)}: ${note}`
+  if (ids.length === 0) return head
+  const shown = ids.slice(0, MODEL_NOTICE_MAX)
+  const rest = ids.length - shown.length
+  return `${head}\n${shown.join(', ')}${rest > 0 ? ` … ещё ${rest}` : ''}`
 }
 
 /** Catalog answers are keyed by provider; every local endpoint shares one key. */
@@ -1833,6 +1849,9 @@ export default function App() {
   // The ref mirrors the state so the header hint can read it in the same tick.
   const [modelsNotes, setModelsNotes] = useState<Record<string, string>>({})
   const modelsNotesRef = useRef<Record<string, string>>({})
+  // Which provider's «Refresh models» button is in flight (provider key → true):
+  // the click must look alive even when the answer text repeats the previous one.
+  const [modelsBusy, setModelsBusy] = useState<Record<string, boolean>>({})
   const [zaiModel, setZaiModel] = useState('glm-4.7-flash')
   const [openrouterModel, setOpenrouterModel] = useState('qwen/qwen3-coder-flash:floor')
   const [qwenModel, setQwenModel] = useState('qwen-plus')
@@ -4296,10 +4315,29 @@ export default function App() {
     setModelsNotes(modelsNotesRef.current)
   }
 
-  async function refreshDeepSeekModels(opts?: {applyPreferred?: boolean}) {
+  function markModelsBusy(rawProviderId: string, on: boolean) {
+    const key = catalogNoteKey(rawProviderId)
+    setModelsBusy((prev) => (prev[key] === on ? prev : {...prev, [key]: on}))
+  }
+
+  /** Manual «Refresh models» also writes the poll result into the active chat. */
+  function notifyModelsToChat(providerId: string, note: string, ids: string[]) {
+    const text = catalogChatNotice(providerId, note, ids)
+    const sid = activeSessionRef.current
+    if (!sid) {
+      noticeQueueRef.current = [...noticeQueueRef.current, text]
+      return
+    }
+    setSessionItems(sid, (m) => [...m, {kind: 'system', content: text}])
+  }
+
+  async function refreshDeepSeekModels(opts?: {applyPreferred?: boolean; notify?: boolean}) {
+    markModelsBusy('deepseek', true)
     try {
       const cat = readCatalog(await ListDeepSeekModels())
-      noteModels('deepseek', catalogNote('deepseek', cat.source, cat.error, cat.ids.length, true))
+      const note = catalogNote('deepseek', cat.source, cat.error, cat.ids.length, true)
+      noteModels('deepseek', note)
+      if (opts?.notify) notifyModelsToChat('deepseek', note, cat.ids)
       if (cat.ids.length === 0) return cat.ids
       setDeepseekModels(cat.ids)
       setDeepseekModelLabels(cat.labels)
@@ -4317,15 +4355,22 @@ export default function App() {
       }
       return cat.ids
     } catch (e) {
-      noteModels('deepseek', `Не удалось запросить список моделей ${providerLabelOf('deepseek')}: ${formatConnectError(e)}`)
+      const note = `Не удалось запросить список моделей ${providerLabelOf('deepseek')}: ${formatConnectError(e)}`
+      noteModels('deepseek', note)
+      if (opts?.notify) notifyModelsToChat('deepseek', note, [])
       return [] as string[]
+    } finally {
+      markModelsBusy('deepseek', false)
     }
   }
 
-  async function refreshZaiModels(opts?: {applyPreferred?: boolean}) {
+  async function refreshZaiModels(opts?: {applyPreferred?: boolean; notify?: boolean}) {
+    markModelsBusy('zai', true)
     try {
       const cat = readCatalog(await ListZaiModels())
-      noteModels('zai', catalogNote('zai', cat.source, cat.error, cat.ids.length, true))
+      const note = catalogNote('zai', cat.source, cat.error, cat.ids.length, true)
+      noteModels('zai', note)
+      if (opts?.notify) notifyModelsToChat('zai', note, cat.ids)
       if (cat.ids.length === 0) return cat.ids
       setZaiModels(cat.ids)
       if (opts?.applyPreferred) {
@@ -4342,15 +4387,22 @@ export default function App() {
       }
       return cat.ids
     } catch (e) {
-      noteModels('zai', `Не удалось запросить список моделей ${providerLabelOf('zai')}: ${formatConnectError(e)}`)
+      const note = `Не удалось запросить список моделей ${providerLabelOf('zai')}: ${formatConnectError(e)}`
+      noteModels('zai', note)
+      if (opts?.notify) notifyModelsToChat('zai', note, [])
       return [] as string[]
+    } finally {
+      markModelsBusy('zai', false)
     }
   }
 
-  async function refreshOpenRouterModels(opts?: {applyPreferred?: boolean}) {
+  async function refreshOpenRouterModels(opts?: {applyPreferred?: boolean; notify?: boolean}) {
+    markModelsBusy('openrouter', true)
     try {
       const cat = readCatalog(await ListOpenRouterModels())
-      noteModels('openrouter', catalogNote('openrouter', cat.source, cat.error, cat.ids.length, true))
+      const note = catalogNote('openrouter', cat.source, cat.error, cat.ids.length, true)
+      noteModels('openrouter', note)
+      if (opts?.notify) notifyModelsToChat('openrouter', note, cat.ids)
       if (cat.ids.length === 0) return cat.ids
       setOpenrouterModels(cat.ids)
       if (opts?.applyPreferred) {
@@ -4367,15 +4419,22 @@ export default function App() {
       }
       return cat.ids
     } catch (e) {
-      noteModels('openrouter', `Не удалось запросить список моделей ${providerLabelOf('openrouter')}: ${formatConnectError(e)}`)
+      const note = `Не удалось запросить список моделей ${providerLabelOf('openrouter')}: ${formatConnectError(e)}`
+      noteModels('openrouter', note)
+      if (opts?.notify) notifyModelsToChat('openrouter', note, [])
       return [] as string[]
+    } finally {
+      markModelsBusy('openrouter', false)
     }
   }
 
-  async function refreshQwenModels(opts?: {applyPreferred?: boolean}) {
+  async function refreshQwenModels(opts?: {applyPreferred?: boolean; notify?: boolean}) {
+    markModelsBusy('qwen', true)
     try {
       const cat = readCatalog(await ListQwenModels())
-      noteModels('qwen', catalogNote('qwen', cat.source, cat.error, cat.ids.length, true))
+      const note = catalogNote('qwen', cat.source, cat.error, cat.ids.length, true)
+      noteModels('qwen', note)
+      if (opts?.notify) notifyModelsToChat('qwen', note, cat.ids)
       if (cat.ids.length === 0) return cat.ids
       setQwenModels(cat.ids)
       if (opts?.applyPreferred) {
@@ -4392,15 +4451,22 @@ export default function App() {
       }
       return cat.ids
     } catch (e) {
-      noteModels('qwen', `Не удалось запросить список моделей ${providerLabelOf('qwen')}: ${formatConnectError(e)}`)
+      const note = `Не удалось запросить список моделей ${providerLabelOf('qwen')}: ${formatConnectError(e)}`
+      noteModels('qwen', note)
+      if (opts?.notify) notifyModelsToChat('qwen', note, [])
       return [] as string[]
+    } finally {
+      markModelsBusy('qwen', false)
     }
   }
 
-  async function refreshYandexModels(opts?: {applyPreferred?: boolean}) {
+  async function refreshYandexModels(opts?: {applyPreferred?: boolean; notify?: boolean}) {
+    markModelsBusy('yandex', true)
     try {
       const cat = readCatalog(await ListYandexModels())
-      noteModels('yandex', catalogNote('yandex', cat.source, cat.error, cat.ids.length, true))
+      const note = catalogNote('yandex', cat.source, cat.error, cat.ids.length, true)
+      noteModels('yandex', note)
+      if (opts?.notify) notifyModelsToChat('yandex', note, cat.ids)
       if (cat.ids.length === 0) return cat.ids
       setYandexModels(cat.ids)
       if (opts?.applyPreferred) {
@@ -4417,15 +4483,21 @@ export default function App() {
       }
       return cat.ids
     } catch (e) {
-      noteModels('yandex', `Не удалось запросить список моделей ${providerLabelOf('yandex')}: ${formatConnectError(e)}`)
+      const note = `Не удалось запросить список моделей ${providerLabelOf('yandex')}: ${formatConnectError(e)}`
+      noteModels('yandex', note)
+      if (opts?.notify) notifyModelsToChat('yandex', note, [])
       return [] as string[]
+    } finally {
+      markModelsBusy('yandex', false)
     }
   }
 
-  async function refreshLocalModels(opts?: {applyPreferred?: boolean}) {
+  async function refreshLocalModels(opts?: {applyPreferred?: boolean; notify?: boolean}) {
+    markModelsBusy('local', true)
     try {
       const cat = readCatalog(await ListLocalModels())
-      noteModels('local', catalogNote('local', cat.source, cat.error, cat.ids.length, false))
+      const note = catalogNote('local', cat.source, cat.error, cat.ids.length, false)
+      noteModels('local', note)
       if (cat.source === 'error') {
         if (cat.error && activeSessionId) {
           setSessionItems(activeSessionId, (m) => [
@@ -4438,6 +4510,7 @@ export default function App() {
       }
       if (cat.ids.length === 0) return cat.ids
       setLocalModels(cat.ids)
+      if (opts?.notify) notifyModelsToChat('local', note, cat.ids)
       if (opts?.applyPreferred) {
         let next = ''
         try {
@@ -4453,7 +4526,9 @@ export default function App() {
       void refreshLocalHealth()
       return cat.ids
     } catch (e) {
-      noteModels('local', `Не удалось запросить список моделей Custom: ${formatConnectError(e)}`)
+      const note = `Не удалось запросить список моделей Custom: ${formatConnectError(e)}`
+      noteModels('local', note)
+      if (opts?.notify) notifyModelsToChat('local', note, [])
       if (activeSessionId) {
         setSessionItems(activeSessionId, (m) => [
           ...m,
@@ -4462,6 +4537,8 @@ export default function App() {
       }
       void refreshLocalHealth()
       return [] as string[]
+    } finally {
+      markModelsBusy('local', false)
     }
   }
 
@@ -4521,17 +4598,17 @@ export default function App() {
     try {
       let list: string[] = []
       if (activeProvider === 'deepseek') {
-        list = await refreshDeepSeekModels({applyPreferred: true})
+        list = await refreshDeepSeekModels({applyPreferred: true, notify: true})
       } else if (activeProvider === 'zai') {
-        list = await refreshZaiModels({applyPreferred: true})
+        list = await refreshZaiModels({applyPreferred: true, notify: true})
       } else if (activeProvider === 'openrouter') {
-        list = await refreshOpenRouterModels({applyPreferred: true})
+        list = await refreshOpenRouterModels({applyPreferred: true, notify: true})
       } else if (activeProvider === 'qwen') {
-        list = await refreshQwenModels({applyPreferred: true})
+        list = await refreshQwenModels({applyPreferred: true, notify: true})
       } else if (activeProvider === 'yandex') {
-        list = await refreshYandexModels({applyPreferred: true})
+        list = await refreshYandexModels({applyPreferred: true, notify: true})
       } else {
-        list = await refreshLocalModels({applyPreferred: true})
+        list = await refreshLocalModels({applyPreferred: true, notify: true})
       }
       const note = modelsNotesRef.current[catalogNoteKey(activeProvider)]
       setModelsRefreshHint(
@@ -6193,8 +6270,8 @@ export default function App() {
                     ))}
                   </select>
                 </label>
-                <button type="button" className="nc-ghost" onClick={() => void refreshDeepSeekModels({applyPreferred: true})}>
-                  Refresh models
+                <button type="button" className="nc-ghost" disabled={!!modelsBusy.deepseek} onClick={() => void refreshDeepSeekModels({applyPreferred: true, notify: true})}>
+                  {modelsBusy.deepseek ? 'Обновление…' : 'Refresh models'}
                 </button>
                 <button type="button" className="nc-ghost" onClick={() => void refreshDeepSeekBalance()}>Refresh balance</button>
                 {modelsNotes.deepseek ? <p className="nc-help">{modelsNotes.deepseek}</p> : null}
@@ -6262,7 +6339,9 @@ export default function App() {
                     placeholder="qwen/qwen3-coder-flash:floor"
                   />
                 </label>
-                <button type="button" className="nc-ghost" onClick={() => void refreshOpenRouterModels()}>Refresh models</button>
+                <button type="button" className="nc-ghost" disabled={!!modelsBusy.openrouter} onClick={() => void refreshOpenRouterModels({notify: true})}>
+                  {modelsBusy.openrouter ? 'Обновление…' : 'Refresh models'}
+                </button>
                 {modelsNotes.openrouter ? <p className="nc-help">{modelsNotes.openrouter}</p> : null}
                 <button type="button" className="nc-ghost" onClick={() => void refreshOpenRouterBalance()}>Refresh balance</button>
                 {orBalance && (
@@ -6336,7 +6415,9 @@ export default function App() {
                     placeholder="qwen-plus"
                   />
                 </label>
-                <button type="button" className="nc-ghost" onClick={() => void refreshQwenModels()}>Refresh models</button>
+                <button type="button" className="nc-ghost" disabled={!!modelsBusy.qwen} onClick={() => void refreshQwenModels({notify: true})}>
+                  {modelsBusy.qwen ? 'Обновление…' : 'Refresh models'}
+                </button>
                 {modelsNotes.qwen ? <p className="nc-help">{modelsNotes.qwen}</p> : null}
                 <p className="nc-help">
                   Для агента нужны модели с tool calling (<code>qwen-max</code>, <code>qwen-plus</code>,{' '}
@@ -6404,7 +6485,9 @@ export default function App() {
                     placeholder="yandexgpt"
                   />
                 </label>
-                <button type="button" className="nc-ghost" onClick={() => void refreshYandexModels()}>Refresh models</button>
+                <button type="button" className="nc-ghost" disabled={!!modelsBusy.yandex} onClick={() => void refreshYandexModels({notify: true})}>
+                  {modelsBusy.yandex ? 'Обновление…' : 'Refresh models'}
+                </button>
                 {modelsNotes.yandex ? <p className="nc-help">{modelsNotes.yandex}</p> : null}
                 <p className="nc-help">
                   Для агента удобны <code>yandexgpt</code> и <code>qwen3-235b-a22b-fp8</code> (tools).
@@ -6733,8 +6816,8 @@ export default function App() {
                     </span>
                   ) : null}
                 </label>
-                <button type="button" className="nc-ghost" onClick={() => void refreshLocalModels({applyPreferred: true})}>
-                  Refresh models
+                <button type="button" className="nc-ghost" disabled={!!modelsBusy.local} onClick={() => void refreshLocalModels({applyPreferred: true, notify: true})}>
+                  {modelsBusy.local ? 'Обновление…' : 'Refresh models'}
                 </button>
                 {modelsNotes.local ? <p className="nc-help">{modelsNotes.local}</p> : null}
                 <label>
@@ -6808,7 +6891,9 @@ export default function App() {
                     placeholder="glm-4.7-flash"
                   />
                 </label>
-                <button type="button" className="nc-ghost" onClick={() => void refreshZaiModels()}>Refresh models</button>
+                <button type="button" className="nc-ghost" disabled={!!modelsBusy.zai} onClick={() => void refreshZaiModels({notify: true})}>
+                  {modelsBusy.zai ? 'Обновление…' : 'Refresh models'}
+                </button>
                 <button type="button" className="nc-ghost" onClick={() => void refreshZaiBalance()}>Refresh balance</button>
                 {modelsNotes.zai ? <p className="nc-help">{modelsNotes.zai}</p> : null}
                 {zaiBalance && (

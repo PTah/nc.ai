@@ -1,3 +1,4 @@
+// Edited by nc.ai 0.8.6.3 on Papasha 2026-10-16 14:13:41
 package openrouter
 
 import (
@@ -8,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -79,14 +81,42 @@ func (c *Client) SetModel(model string) {
 	c.model = model
 }
 
+// PricePer1M returns the base prompt/cache-read/completion rates in USD per 1M
+// tokens. OpenRouter publishes per-token strings; ok=false means no usable price.
+func (m ModelInfo) PricePer1M() (inputMiss, inputHit, completion float64, ok bool) {
+	if m.Pricing == nil {
+		return 0, 0, 0, false
+	}
+	inputMiss = parseUSD(m.Pricing.Prompt)
+	completion = parseUSD(m.Pricing.Completion)
+	inputHit = parseUSD(m.Pricing.InputCacheRead)
+	if inputHit <= 0 {
+		inputHit = inputMiss
+	}
+	return inputMiss, inputHit, completion, inputMiss > 0 || completion > 0
+}
+
+func parseUSD(s string) float64 {
+	f, err := strconv.ParseFloat(strings.TrimSpace(s), 64)
+	if err != nil {
+		return 0
+	}
+	return f * 1e6
+}
+
 // ModelInfo is one entry from GET /models.
 type ModelInfo struct {
-	ID                 string   `json:"id"`
-	Name               string   `json:"name,omitempty"`
-	SupportedParams    []string `json:"supported_parameters,omitempty"`
-	Architecture       *struct {
+	ID              string   `json:"id"`
+	Name            string   `json:"name,omitempty"`
+	SupportedParams []string `json:"supported_parameters,omitempty"`
+	Architecture    *struct {
 		Modality string `json:"modality,omitempty"`
 	} `json:"architecture,omitempty"`
+	Pricing *struct {
+		Prompt         string `json:"prompt,omitempty"`
+		Completion     string `json:"completion,omitempty"`
+		InputCacheRead string `json:"input_cache_read,omitempty"`
+	} `json:"pricing,omitempty"`
 }
 
 type modelsListResponse struct {

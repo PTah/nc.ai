@@ -1,6 +1,7 @@
 // Edited by nc.ai 0.8.5.2 on macbook 2026-10-12 20:40:28
 // Edited by nc.ai 0.8.5.4 on new-admin-pc 2026-10-13 10:04:30
 // Edited by nc.ai 0.8.5.6 on macbook 2026-10-13 21:42:31
+// Edited by nc.ai 0.8.6.3 on Papasha 2026-10-16 14:15:46
 package main
 
 import (
@@ -2264,7 +2265,29 @@ func (a *App) ListOpenRouterModels() ModelCatalog {
 	if source != "api" {
 		return modelCatalog(openrouter.OrderModels(openrouter.FallbackModels()), source, errMsg, nil)
 	}
-	return modelCatalog(openrouter.OrderModels(openrouter.MergeCurated(openrouter.FilterCodingModels(items, 40))), source, "", nil)
+	ids := openrouter.OrderModels(openrouter.MergeCurated(openrouter.FilterCodingModels(items, 40)))
+	// Feed the selectable ids and their live prices into costing so the
+	// Model prices view lists every model the dropdown offers, not just the
+	// curated snapshot.
+	costing.SetOpenRouterCatalog(ids, openRouterPricesFrom(items))
+	return modelCatalog(ids, source, "", nil)
+}
+
+// openRouterPricesFrom converts the GET /models pricing into costing.Prices
+// (USD per 1M tokens); ids without a usable price are simply omitted.
+func openRouterPricesFrom(items []openrouter.ModelInfo) map[string]costing.Prices {
+	out := make(map[string]costing.Prices, len(items))
+	for _, m := range items {
+		if m.ID == "" {
+			continue
+		}
+		in, hit, comp, ok := m.PricePer1M()
+		if !ok {
+			continue
+		}
+		out[m.ID] = costing.Prices{InputMiss: in, InputHit: hit, Completion: comp}
+	}
+	return out
 }
 
 // PreferOpenRouterModel keeps the saved model when still available; else default flash.
