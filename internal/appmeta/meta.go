@@ -11,7 +11,7 @@ import "time"
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "0.8.7.2"
+	Version = "0.8.7.3"
 )
 
 // DeepSeekProRetireRFC3339 is the announced V4 Pro retirement instant, empty
@@ -57,18 +57,18 @@ func retiredAt(at time.Time, now time.Time) bool {
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
-	"OpenRouter: список моделей сверяется с живым каталогом — снятые модели (qwen3-coder-plus и подобные) больше не предлагаются",
-	"OpenRouter: сложные и длинные прогоны идут на qwen3-coder-next — она дешевле flash и крепче в tool calling",
-	"Ответы больше не обрываются молча: обрыв на цифре, скобке, кавычке или тире распознаётся и дописывается",
-	"Стоимость шага OpenRouter считается и в потоке; баланс OpenRouter и Z.ai обновляется сам раз в 5 минут",
+	"«Save settings» теперь честная кнопка: в шапке настроек видно, что не сохранено, а по наведению — полный список изменений и что кнопка пишет вообще",
+	"Смена провайдера, модели и темы сохраняется сразу; кнопка нужна для ключей и лимитов агента — теперь это явно написано",
+	"OpenRouter: список моделей сверяется с живым каталогом, сложные и длинные прогоны идут на qwen3-coder-next",
+	"Ответы не обрываются молча, а стоимость шага OpenRouter считается и в потоке",
 	"Рабочее пространство из нескольких папок и multitask (запросы идут параллельно) — на месте",
 }
 
 var HighlightsEN = []string{
-	"OpenRouter: the model list is checked against the live catalog — retired models (qwen3-coder-plus and friends) are no longer offered",
-	"OpenRouter: complex and long runs go to qwen3-coder-next — cheaper than flash and stronger at tool calling",
-	"Answers no longer get cut off silently: a digit, bracket, quote or dash at the end is detected and continued",
-	"OpenRouter step cost is counted in streaming too; OpenRouter and Z.ai balances refresh on their own every 5 minutes",
+	"\"Save settings\" is honest now: the settings header shows what is unsaved, and hovering lists the exact changes and what the button writes at all",
+	"Provider, model and theme changes save immediately; the button is for API keys and agent limits — and that is now stated",
+	"OpenRouter: the model list is checked against the live catalog, complex and long runs go to qwen3-coder-next",
+	"Answers no longer get cut off silently, and OpenRouter step cost is counted in streaming too",
 	"Multi-folder workspace and Multitask (requests run in parallel) stay in place",
 }
 

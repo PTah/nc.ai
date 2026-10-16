@@ -2875,6 +2875,7 @@ export default function App() {
       LocalBuildHash().then((h) => setLocalBuildHash(String(h || ''))).catch(() => undefined)
       GetSettings().then((s) => {
         if (!s) return
+        savedConfigRef.current = s as unknown as Record<string, any>
         const provider = parseProvider(s.activeProvider)
         setActiveProvider(provider)
         setDeepseekKeySet(Boolean(s.deepseekKeySet))
@@ -4822,6 +4823,108 @@ export default function App() {
     void SaveDeepSeekModel(next)
   }
 
+  // Raw config as it was last loaded or saved. Needed to tell which button-only
+  // settings really changed: «Save settings» is the only writer for API keys,
+  // agent limits and subagent limits, while provider/model/theme controls save
+  // themselves on change and therefore never show up as pending.
+  const savedConfigRef = useRef<Record<string, any> | null>(null)
+
+  /**
+   * pendingSettingsChanges lists what the «Save settings» button would write
+   * differently from the last saved config. Both sides are normalised exactly the
+   * way saveSettings() does it, so the list never shows a phantom change.
+   */
+  function pendingSettingsChanges(): string[] {
+    const s = savedConfigRef.current
+    if (!s) return []
+    const out: string[] = []
+    const num = (v: unknown): number => {
+      const n = Number(v)
+      return Number.isFinite(n) ? n : NaN
+    }
+    const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v))
+    const differs = (a: number, b: number): boolean => (Number.isNaN(a) && Number.isNaN(b) ? false : a !== b)
+
+    for (const [label, value] of [
+      ['ключ DeepSeek', deepseekKey],
+      ['ключ Z.ai', zaiKey],
+      ['ключ OpenRouter', openrouterKey],
+      ['ключ Qwen', qwenKey],
+      ['ключ Yandex', yandexKey],
+      ['ключ Custom', localKey],
+    ] as const) {
+      if (value.trim()) out.push(label)
+    }
+
+    // Лимит шагов агента: -1 = без лимита, 0/пусто на диске → 120.
+    {
+      const write = (v: number) => (v < 0 ? -1 : Number(v) || 120)
+      const raw = num(s.agentMaxSteps)
+      const snap = Number.isFinite(raw) && raw !== 0 ? raw : 120
+      if (differs(write(maxSteps), write(snap))) out.push('лимит шагов агента')
+    }
+    // Предупреждение о шагах: 0 в поле = предупреждения выключены (-1 на диске).
+    {
+      const write = (v: number) => (v > 0 ? Number(v) : -1)
+      const raw = num(s.agentWarnSteps)
+      const snap = Number.isFinite(raw) && raw !== 0 ? (raw < 0 ? 0 : raw) : 120
+      if (differs(write(warnSteps), write(snap))) out.push('предупреждение о шагах')
+    }
+    // Стоп при простое: выключено → -1, иначе 1..240 минут.
+    {
+      const write = (off: boolean, mins: number) => (off ? -1 : clamp(Number(mins) || 10, 1, 240))
+      const raw = num(s.agentStallMinutes)
+      const snapOff = Number.isFinite(raw) && raw <= 0
+      const snapMin = Number.isFinite(raw) && raw > 0 ? raw : 10
+      if (differs(write(stallOff, stallMinutes), write(snapOff, snapMin))) out.push('стоп при простое')
+    }
+    // Повторы запросов и бюджет: 0 отключает, отсутствие значения на диске → дефолт.
+    {
+      const rawC = num(s.agentRetryCount)
+      const snapC = Number.isFinite(rawC) && rawC > 0 ? rawC : 3
+      if (differs(clamp(Number(retryCount) || 0, 0, 10), clamp(snapC, 0, 10))) out.push('повторы запросов')
+      const rawB = num(s.agentRetryBudgetSec)
+      const snapB = Number.isFinite(rawB) && rawB > 0 ? rawB : 180
+      if (differs(clamp(Number(retryBudgetSec) || 0, 0, 900), clamp(snapB, 0, 900))) {
+        out.push('бюджет повторов')
+      }
+    }
+    // HTTP/2 keepalive: 0 в поле = выключено.
+    {
+      const write = (v: number) => clamp(Number(v) || 0, -1, 120)
+      const raw = num(s.http2PingSec)
+      const snap = Number.isFinite(raw) && raw !== 0 ? raw : 20
+      if (differs(write(http2PingSec), write(snap))) out.push('HTTP/2 ping')
+    }
+    // Лимиты подагентов: 0/пусто на диске → 12 шагов и 3 за прогон.
+    {
+      const rawS = num(s.subagentsMaxSteps)
+      const snapS = Number.isFinite(rawS) && rawS > 0 ? rawS : 12
+      if (differs(clamp(Number(subagentsMaxSteps) || 12, 1, 60), clamp(snapS, 1, 60))) {
+        out.push('шаги подагента')
+      }
+      const rawP = num(s.subagentsMaxPerRun)
+      const snapP = Number.isFinite(rawP) && rawP > 0 ? rawP : 3
+      if (differs(clamp(Number(subagentsMaxPerRun) || 3, 1, 10), clamp(snapP, 1, 10))) {
+        out.push('подагентов за прогон')
+      }
+    }
+    return out
+  }
+
+  /** Область действия кнопки — чтобы тултип был честным даже без изменений. */
+  const saveSettingsScope =
+    'Кнопка перезаписывает: ключи провайдеров, активного провайдера, модели и эндпоинты, ' +
+    'Auto-модели, подагентов, лимиты агента, стоп при простое, повторы, HTTP/2 ping, ' +
+    'зеркало обновлений, терминал, тему и шрифты. То, что сохраняется сразу (провайдер, ' +
+    'модель, тема, терминал), в списке изменений не появляется.'
+
+  const pendingSettings = pendingSettingsChanges()
+  const saveSettingsTooltip =
+    pendingSettings.length > 0
+      ? `Будет сохранено: ${pendingSettings.join(', ')}.\n\n${saveSettingsScope}`
+      : `Изменений нет.\n\n${saveSettingsScope}`
+
   async function saveSettings() {
     if (deepseekKey.trim()) {
       await SaveDeepSeekKey(deepseekKey.trim())
@@ -4903,6 +5006,13 @@ export default function App() {
     await SaveTheme(theme)
     await SaveUiFont(uiFont)
     await SaveMonoFont(monoFont)
+    // Свежий конфиг = новый базис для списка «что не сохранено».
+    try {
+      const fresh = await GetSettings()
+      if (fresh) savedConfigRef.current = fresh as unknown as Record<string, any>
+    } catch {
+      /* ignore */
+    }
     if (activeSessionId) setSessionItems(activeSessionId, (m) => [...m, {kind: 'system', content: 'Settings saved'}])
   }
 
@@ -6238,9 +6348,16 @@ export default function App() {
             <div className="nc-settings-head">
               <div className="nc-section-label">Settings</div>
               <div className="nc-settings-head-actions">
-                <button type="button" onClick={saveSettings}>Save settings</button>
+                <button type="button" title={saveSettingsTooltip} onClick={saveSettings}>
+                  {pendingSettings.length > 0 ? `Save settings (${pendingSettings.length})` : 'Save settings'}
+                </button>
                 <button type="button" onClick={() => setSettingsVisible(false)}>Close</button>
               </div>
+              {pendingSettings.length > 0 ? (
+                <p className="nc-help" title={saveSettingsTooltip}>
+                  Не сохранено: {pendingSettings.join(', ')}
+                </p>
+              ) : null}
             </div>
             <div className="nc-section-label">Provider</div>
             <label>
