@@ -67,6 +67,9 @@ type App struct {
 	// перезапускал клиент посреди работы.
 	runMarkerLock sync.Mutex
 	activeRuns    map[string]int
+	// runProjects — проект прогона (key: sessionID+"/"+runID). Events несут его
+	// в UI, чтобы вопрос/ответ из другого проекта можно было показать в его чате.
+	runProjects map[string]string
 	// runActive is true while an agent run is in flight: the local health probe
 	// must not send its own generation and compete for the model slot.
 	runActive bool
@@ -129,6 +132,7 @@ func NewApp() *App {
 		history:            []llm.Message{},
 		cancels:            map[string]context.CancelFunc{},
 		runGens:            map[string]uint64{},
+		runProjects:        map[string]string{},
 		sessionStickyModel: map[string]string{},
 		pendingApprove:     map[string]chan bool{},
 		pendingAsk:         map[string]chan string{},
@@ -1194,6 +1198,13 @@ func (a *App) emitFor(sessionID string, evt agent.Event) {
 func (a *App) emitRun(sessionID, runID string, evt agent.Event) {
 	evt.SessionID = sessionID
 	evt.RunID = runID
+	// Проект прогона: UI по нему понимает, что событие пришло из другого
+	// проекта/чата, и переключается туда (см. RunAgentInSession).
+	if evt.Project == "" && sessionID != "" {
+		a.mu.Lock()
+		evt.Project = a.runProjects[sessionID+"/"+runID]
+		a.mu.Unlock()
+	}
 	a.emit(evt)
 }
 
@@ -3620,6 +3631,14 @@ func (a *App) RunAgentInSession(sessionID, runID, userMessage string, attachment
 	a.runGens[runKey]++
 	gen := a.runGens[runKey]
 	a.mu.Unlock()
+	// Проект приколот к прогону: события несут его в UI, чтобы вопрос или ответ
+	// из другого проекта открывался в своём чате, а не поверх чужого разговора.
+	a.mu.Lock()
+	if a.runProjects == nil {
+		a.runProjects = map[string]string{}
+	}
+	a.runProjects[runKey] = projKey
+	a.mu.Unlock()
 	// Маркер активного прогона ставится внутри горутины прогона (ниже): build.sh
 	// читает running.json и не перезапускает клиент поверх работающего агента.
 	// Раньше маркер ставился и снимался здесь, в синхронной части, а сам прогон
@@ -3888,6 +3907,7 @@ func (a *App) RunAgentInSession(sessionID, runID, userMessage string, attachment
 				a.history = newHist
 			}
 			delete(a.cancels, runKey)
+			delete(a.runProjects, runKey)
 		}
 		a.mu.Unlock()
 		if !current {

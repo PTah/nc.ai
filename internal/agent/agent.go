@@ -157,6 +157,10 @@ type Event struct {
 	// Reason — почему вызов требует подтверждения (например, команда заходит в
 	// другой проект). Пусто — обычное подтверждение опасного инструмента.
 	Reason string `json:"reason,omitempty"`
+	// Project — проект, которому принадлежит прогон. Нужен UI: вопрос или ответ
+	// может прийти из другого проекта/чата, и тогда надо переключиться туда,
+	// иначе диалог висит поверх чужого разговора и непонятно, о чём речь.
+	Project string `json:"project,omitempty"`
 }
 
 type EmitFunc func(Event)
@@ -1266,46 +1270,67 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 	messages = append(messages, llm.UserText(
 		"Stop using tools now. Summarize what you already found/did and give the best final answer to the user in their language. If something is unfinished, say exactly what remains.",
 	))
-	wrapModel := r.resolveModel(max, emit)
-	req := &llm.ChatRequest{
-		Messages:        messages,
-		Thinking:        map[string]any{"type": "enabled"},
-		ReasoningEffort: "high",
-		Stream:          true,
-		Model:           wrapModel,
-	}
-	resp, streamed, err := r.chat(runCtx, req, emit)
-	if err != nil {
-		if serr := stallErr(); serr != nil {
-			return messages, serr
+	// Финальный ответ тоже может обрываться на полуслове (finish_reason=length или
+	// просто обрезанный поток). Раньше этот путь отдавал текст как есть, и обрыв
+	// выглядел как законченный ответ — основной цикл обрыв дописывает, а здесь
+	// проверки не было вообще. Петля ограничена теми же maxLengthContinues.
+	for wrapContinues := 0; ; wrapContinues++ {
+		wrapModel := r.resolveModel(max, emit)
+		req := &llm.ChatRequest{
+			Messages:        messages,
+			Thinking:        map[string]any{"type": "enabled"},
+			ReasoningEffort: "high",
+			Stream:          true,
+			Model:           wrapModel,
 		}
-		emit(Event{Type: "error", Content: fmt.Sprintf("лимит шагов (%d); финальный ответ не получен: %v", max, err)})
-		return messages, err
-	}
-	r.reportUsage(billingModel(resp.Model, wrapModel), resp.Usage)
-	if len(resp.Choices) == 0 {
-		emit(Event{Type: "error", Content: fmt.Sprintf("лимит шагов (%d); пустой финальный ответ", max)})
-		return messages, fmt.Errorf("max agent steps (%d) exceeded", max)
-	}
-	msg := resp.Choices[0].Message
-	msg.Role = "assistant"
-	llm.SplitThinkMessage(&msg)
-	messages = append(messages, msg)
-	if !streamed {
-		if strings.TrimSpace(msg.ReasoningContent) != "" {
-			emit(Event{Type: "reasoning", Content: msg.ReasoningContent})
+		resp, streamed, err := r.chat(runCtx, req, emit)
+		if err != nil {
+			if serr := stallErr(); serr != nil {
+				return messages, serr
+			}
+			emit(Event{Type: "error", Content: fmt.Sprintf("лимит шагов (%d); финальный ответ не получен: %v", max, err)})
+			return messages, err
 		}
-		if strings.TrimSpace(msg.Content) != "" {
-			emit(Event{Type: "delta", Content: msg.Content})
-			emit(Event{Type: "done", Content: "max_steps_wrapup"})
-			return messages, nil
+		r.reportUsage(billingModel(resp.Model, wrapModel), resp.Usage)
+		if len(resp.Choices) == 0 {
+			emit(Event{Type: "error", Content: fmt.Sprintf("лимит шагов (%d); пустой финальный ответ", max)})
+			return messages, fmt.Errorf("max agent steps (%d) exceeded", max)
 		}
-	} else if strings.TrimSpace(msg.Content) != "" {
-		emit(Event{Type: "done", Content: "max_steps_wrapup"})
-		return messages, nil
+		msg := resp.Choices[0].Message
+		msg.Role = "assistant"
+		llm.SplitThinkMessage(&msg)
+		messages = append(messages, msg)
+		finish := strings.TrimSpace(resp.Choices[0].FinishReason)
+		if !streamed {
+			if strings.TrimSpace(msg.ReasoningContent) != "" {
+				emit(Event{Type: "reasoning", Content: msg.ReasoningContent})
+			}
+			if strings.TrimSpace(msg.Content) != "" {
+				emit(Event{Type: "delta", Content: msg.Content})
+			}
+		}
+		if strings.TrimSpace(msg.Content) == "" {
+			emit(Event{Type: "error", Content: fmt.Sprintf("лимит шагов агента (%d) — модель не дала финальный текст", max)})
+			return messages, fmt.Errorf("max agent steps (%d) exceeded", max)
+		}
+		if finish != "length" && (r.isLocal() || !looksTruncated(msg.Content)) {
+			break
+		}
+		if wrapContinues >= maxLengthContinues {
+			emit(Event{Type: "notice", Content: fmt.Sprintf(
+				"Финальный ответ обрывается даже после %d продолжений — показываю как есть (скажите «продолжи», и я допишу).",
+				maxLengthContinues,
+			)})
+			break
+		}
+		emit(Event{Type: "notice", Content: fmt.Sprintf(
+			"Финальный ответ упёрся в лимит длины — дописываю с места обрыва (%d/%d).",
+			wrapContinues+1, maxLengthContinues,
+		)})
+		messages = append(messages, llm.UserText(lengthContinueNudge))
 	}
-	emit(Event{Type: "error", Content: fmt.Sprintf("лимит шагов агента (%d) — модель не дала финальный текст", max)})
-	return messages, fmt.Errorf("max agent steps (%d) exceeded", max)
+	emit(Event{Type: "done", Content: "max_steps_wrapup"})
+	return messages, nil
 }
 
 // longStepThreshold — с какого лимита шаг может считаться долгим. Сам по себе
