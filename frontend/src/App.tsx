@@ -308,6 +308,8 @@ type AgentEvent = {
   parentCallId?: string
   /** Почему вызов требует подтверждения (например, команда заходит в другой проект). */
   reason?: string
+  /** Проект, которому принадлежит прогон: по нему UI переключается на нужный чат. */
+  project?: string
 }
 
 type UsageSnapshot = {
@@ -1738,6 +1740,7 @@ function parseAgentEvent(...args: unknown[]): AgentEvent | null {
       callId: eventText(inner.callId ?? inner.CallID ?? inner.CallId),
       runId: eventText(inner.runId ?? inner.RunID ?? inner.RunId),
       reason: eventText(inner.reason ?? inner.Reason),
+      project: eventText(inner.project ?? inner.Project),
     }
   }
   return null
@@ -1917,6 +1920,13 @@ export default function App() {
   activeProviderRef.current = activeProvider
   const activeProjectRef = useRef<Project | null>(null)
   activeProjectRef.current = active
+  // Переключение проекта/чата для обработчика agent:event: он регистрируется один
+  // раз и захватывает замыкание первого рендера, поэтому напрямую звать функции
+  // нельзя — они бы видели устаревшее состояние. Отсюда ref-обёртки.
+  const openProjectRef = useRef<(path: string) => Promise<void>>(async () => {})
+  const switchSessionRef = useRef<(id: string) => Promise<void>>(async () => {})
+  openProjectRef.current = openProject
+  switchSessionRef.current = switchSession
   const [deepseekKey, setDeepseekKey] = useState('')
   const [zaiKey, setZaiKey] = useState('')
   const [openrouterKey, setOpenrouterKey] = useState('')
@@ -3100,6 +3110,23 @@ export default function App() {
           }
           if (!sid) return
           if (ev.type === 'tool_ask') {
+            // Вопрос мог прийти из другого проекта или чата (прогон там ещё идёт).
+            // Переключаемся туда: иначе диалог висит поверх чужого разговора и
+            // непонятно, о чём вообще речь.
+            const askProject = String(ev.project || '').trim()
+            const shownProject = activeProjectRef.current?.path || ''
+            if (askProject && askProject !== shownProject) {
+              void (async () => {
+                try {
+                  await openProjectRef.current(askProject)
+                  await switchSessionRef.current(sid)
+                } catch {
+                  /* переключение не критично — диалог покажем всё равно */
+                }
+              })()
+            } else if (sid && sid !== activeSessionRef.current) {
+              void switchSessionRef.current(sid).catch(() => undefined)
+            }
             setToolAsk({
               sessionId: sid,
               callId: String(ev.callId || ''),
