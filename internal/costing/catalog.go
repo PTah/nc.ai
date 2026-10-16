@@ -1,8 +1,10 @@
+// Edited by nc.ai 0.8.6.3 on Papasha 2026-10-16 14:14:43
 package costing
 
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"notcursor.ai/app/internal/appmeta"
@@ -63,13 +65,6 @@ func Catalog() []ModelPrice {
 		{Provider: "Z.ai", Model: "glm-5", InputUSD: 1.0, OutputUSD: 3.2, CacheHitUSD: 0.2, Strength: 32},
 		{Provider: "Z.ai", Model: "glm-5.3", InputUSD: 1.4, OutputUSD: 4.4, CacheHitUSD: 0.26, Strength: 45, Note: "flagship"},
 
-		{Provider: "OpenRouter", Model: "qwen/qwen3-coder-next", InputUSD: 0.12, OutputUSD: 0.80, Strength: 14, Note: "mid-market; :floor may be cheaper"},
-		{Provider: "OpenRouter", Model: "qwen/qwen3-coder-flash", InputUSD: 0.195, OutputUSD: 0.975, Strength: 16, Note: "Auto default"},
-		{Provider: "OpenRouter", Model: "qwen/qwen3-coder-30b-a3b-instruct", InputUSD: 0.07, OutputUSD: 0.28, Strength: 17},
-		{Provider: "OpenRouter", Model: "qwen/qwen3-vl-8b-instruct", InputUSD: 0.117, OutputUSD: 0.455, Strength: 19, Note: "vision"},
-		{Provider: "OpenRouter", Model: "qwen/qwen3-coder", InputUSD: 0.30, OutputUSD: 1.00, Strength: 28, Note: "Auto complex"},
-		{Provider: "OpenRouter", Model: "qwen/qwen3-coder-plus", InputUSD: 0.65, OutputUSD: 3.25, Strength: 42, Note: "strongest curated coder"},
-
 		{Provider: "Qwen (DashScope)", Model: "qwen-turbo", InputUSD: 0.05, OutputUSD: 0.20, CacheHitUSD: 0.02, Strength: 12, Note: "fastest/cheapest"},
 		{Provider: "Qwen (DashScope)", Model: "qwen-plus", InputUSD: 0.40, OutputUSD: 1.20, CacheHitUSD: 0.16, Strength: 20, Note: "balanced · Auto default"},
 		{Provider: "Qwen (DashScope)", Model: "qwen3-coder-flash", InputUSD: 0.20, OutputUSD: 0.80, CacheHitUSD: 0.08, Strength: 22, Note: "coding, fast"},
@@ -83,6 +78,9 @@ func Catalog() []ModelPrice {
 		{Provider: "Yandex AI Studio", Model: "qwen3-235b-a22b-fp8", InputUSD: 0.50, OutputUSD: 1.50, Strength: 40, Note: "coding / Auto complex"},
 		{Provider: "Yandex AI Studio", Model: "gpt-oss-120b", InputUSD: 0.40, OutputUSD: 1.20, Strength: 36},
 	}
+	// OpenRouter rows are dynamic: they mirror the provider's selectable catalog
+	// and its live prices (see SetOpenRouterCatalog), not a hand-picked snapshot.
+	rows = append(rows, openRouterRows()...)
 	if appmeta.DeepSeekProRetired(time.Now()) {
 		kept := rows[:0]
 		for _, r := range rows {
@@ -99,5 +97,77 @@ func Catalog() []ModelPrice {
 		}
 		return rows[i].Model < rows[j].Model
 	})
+	return rows
+}
+
+// openRouterStaticRows is the curated OpenRouter rate card shown until a real
+// catalog has been read (or when the provider is used without a key).
+func openRouterStaticRows() []ModelPrice {
+	return []ModelPrice{
+		{Provider: "OpenRouter", Model: "qwen/qwen3-coder-next", InputUSD: 0.12, OutputUSD: 0.80, Strength: 14, Note: "mid-market; :floor may be cheaper"},
+		{Provider: "OpenRouter", Model: "qwen/qwen3-coder-flash", InputUSD: 0.195, OutputUSD: 0.975, Strength: 16, Note: "Auto default"},
+		{Provider: "OpenRouter", Model: "qwen/qwen3-coder-30b-a3b-instruct", InputUSD: 0.07, OutputUSD: 0.28, Strength: 17},
+		{Provider: "OpenRouter", Model: "qwen/qwen3-vl-8b-instruct", InputUSD: 0.117, OutputUSD: 0.455, Strength: 19, Note: "vision"},
+		{Provider: "OpenRouter", Model: "qwen/qwen3-coder", InputUSD: 0.30, OutputUSD: 1.00, Strength: 28, Note: "Auto complex"},
+		{Provider: "OpenRouter", Model: "qwen/qwen3-coder-plus", InputUSD: 0.65, OutputUSD: 3.25, Strength: 42, Note: "strongest curated coder"},
+	}
+}
+
+// openRouterRows builds Model-price rows for every selectable OpenRouter model
+// from the live price sheet, ordered weak → strong by price.
+func openRouterRows() []ModelPrice {
+	ids := openRouterCatalog()
+	if len(ids) == 0 {
+		return openRouterStaticRows()
+	}
+	notes := map[string]string{}
+	for _, r := range openRouterStaticRows() {
+		if r.Note != "" {
+			notes[r.Model] = r.Note
+		}
+	}
+	prices := liveOpenRouterPrices()
+	seen := map[string]bool{}
+	rows := make([]ModelPrice, 0, len(ids))
+	for _, id := range ids {
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		p, ok := prices[id]
+		if !ok {
+			if base := strings.TrimSuffix(id, ":floor"); base != id {
+				p, ok = prices[base]
+			}
+		}
+		if !ok || (p.InputMiss <= 0 && p.Completion <= 0) {
+			continue
+		}
+		note := notes[id]
+		if note == "" {
+			note = notes[strings.TrimSuffix(id, ":floor")]
+		}
+		rows = append(rows, ModelPrice{
+			Provider:    "OpenRouter",
+			Model:       id,
+			InputUSD:    p.InputMiss,
+			OutputUSD:   p.Completion,
+			CacheHitUSD: p.InputHit,
+			Note:        note,
+		})
+	}
+	sort.SliceStable(rows, func(i, j int) bool {
+		if rows[i].InputUSD != rows[j].InputUSD {
+			return rows[i].InputUSD < rows[j].InputUSD
+		}
+		if rows[i].OutputUSD != rows[j].OutputUSD {
+			return rows[i].OutputUSD < rows[j].OutputUSD
+		}
+		return rows[i].Model < rows[j].Model
+	})
+	for i := range rows {
+		// Interleave the live rows among the other providers by price (weak → strong).
+		rows[i].Strength = 12 + i
+	}
 	return rows
 }
