@@ -1,3 +1,4 @@
+// Edited by nc.ai 0.8.7.1 on Papasha 2026-10-16 16:30:25
 package costing
 
 import (
@@ -47,17 +48,11 @@ var builtinOpenRouterSheet = map[string]Prices{
 	"qwen/qwen3-coder": {
 		InputMiss: 0.30, InputHit: 0.30, Completion: 1.00,
 	},
-	"qwen/qwen3-coder-plus": {
-		InputMiss: 0.65, InputHit: 0.65, Completion: 3.25,
-	},
 	"qwen/qwen3-coder-next": {
 		InputMiss: 0.12, InputHit: 0.12, Completion: 0.80,
 	},
 	"qwen/qwen3-vl-8b-instruct": {
 		InputMiss: 0.117, InputHit: 0.117, Completion: 0.455,
-	},
-	"qwen/qwen3-vl-32b-instruct": {
-		InputMiss: 0.104, InputHit: 0.104, Completion: 0.416,
 	},
 }
 

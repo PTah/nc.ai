@@ -54,8 +54,10 @@ func TestCatalogKeepsCuratedFirstAndCapsMedia(t *testing.T) {
 	}
 	cat := Catalog(items, 1)
 
-	if len(cat) == 0 || cat[0].ID != CuratedModels[0] {
-		t.Fatalf("curated model must come first, got %+v", cat)
+	// Only curated ids present in the live catalog survive, so the first row is
+	// the curated model that the live answer actually has.
+	if len(cat) == 0 || cat[0].ID != "qwen/qwen3-coder" {
+		t.Fatalf("live curated model must come first, got %+v", cat)
 	}
 	if !cat[0].Tools {
 		t.Fatal("curated coding models are tool-capable")
@@ -68,6 +70,47 @@ func TestCatalogKeepsCuratedFirstAndCapsMedia(t *testing.T) {
 	}
 	if len(images) != 1 {
 		t.Fatalf("media buckets must be capped at 1, got %v", images)
+	}
+	for _, it := range cat {
+		if it.ID == "qwen/qwen3-coder-flash" {
+			t.Fatal("curated id missing from the live catalog must be dropped")
+		}
+	}
+}
+
+func TestCatalogDoesNotPromoteToolLessCurated(t *testing.T) {
+	// The live entry exists but advertises no tools: it must not be presented as
+	// a curated agent model. It may still be listed under its own category (the
+	// UI warns about exactly such models), but never promoted to Tools=true.
+	items := []ModelInfo{
+		mkModel("qwen/qwen3-coder-next", "text->text"),
+		mkModel("qwen/qwen3-coder-flash", "text->text", "tools"),
+	}
+	cat := Catalog(items, 5)
+	if len(cat) == 0 || cat[0].ID != "qwen/qwen3-coder-flash" || !cat[0].Tools {
+		t.Fatalf("tool-capable curated model must lead the list, got %+v", cat)
+	}
+	for _, it := range cat {
+		if it.ID == "qwen/qwen3-coder-next" && it.Tools {
+			t.Fatal("tool-less curated model must not be marked tool-capable")
+		}
+	}
+}
+
+func TestCatalogFallbackKeepsCurated(t *testing.T) {
+	// No live data (no key / request failed): nothing can be verified, so the
+	// curated list is shown as-is.
+	cat := Catalog(nil, 0)
+	if len(cat) != len(CuratedModels) {
+		t.Fatalf("fallback must keep every curated id, got %d of %d", len(cat), len(CuratedModels))
+	}
+	for i, it := range cat {
+		if it.ID != CuratedModels[i] {
+			t.Fatalf("fallback order changed at %d: got %q want %q", i, it.ID, CuratedModels[i])
+		}
+		if !it.Tools {
+			t.Fatalf("fallback curated entries are assumed tool-capable: %q", it.ID)
+		}
 	}
 }
 

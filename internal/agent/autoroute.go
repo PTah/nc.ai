@@ -1,3 +1,4 @@
+// Edited by nc.ai 0.8.7.1 on Papasha 2026-10-16 16:30:20
 package agent
 
 import (
@@ -114,13 +115,17 @@ func PickZaiModel(in RouteInput) RouteDecision {
 //
 // Priority:
 //  1. Any image → qwen3-vl
-//  2. Long tool run / complex prompt / many paths → qwen3-coder:floor
+//  2. Long tool run / complex prompt / many paths → qwen3-coder-next
 //  3. Otherwise → qwen3-coder-flash:floor
+//
+// The long-run step threshold is 4 (not 8): qwen3-coder-next is cheaper than
+// qwen3-coder-flash, so reaching the stronger model earlier costs nothing and
+// keeps multi-step runs off the weakest tool-caller.
 func PickOpenRouterModel(in RouteInput) RouteDecision {
 	if in.HasImages {
 		return RouteDecision{Model: ModelORVision, Reason: "image"}
 	}
-	if in.Step >= 8 {
+	if in.Step >= 4 {
 		return RouteDecision{Model: ModelORStrong, Reason: "long-run"}
 	}
 	if in.HintPathCount >= 4 || isComplexTask(in.UserText) {

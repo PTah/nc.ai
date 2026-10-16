@@ -123,27 +123,52 @@ type CatalogItem struct {
 
 // Catalog builds the Settings list: the curated agent models first (they are
 // known-good for tool calling), then the live catalogue grouped by category.
+//
+// Curated ids are validated against the live answer — OpenRouter retires models
+// silently (qwen/qwen3-coder-plus is gone), and a curated entry that no longer
+// exists must not stay selectable. Suffixed variants (:floor) never appear in
+// /models, so they are checked through their base id. Without live data (no key /
+// request failed) nothing can be verified, so the whole curated list is shown.
+//
 // maxPerCategory caps each non-coding bucket so the list stays usable; coding
 // models are always kept in full.
 func Catalog(items []ModelInfo, maxPerCategory int) []CatalogItem {
 	if maxPerCategory <= 0 {
 		maxPerCategory = 50
 	}
+	byID := make(map[string]ModelInfo, len(items))
+	for _, m := range items {
+		if id := strings.TrimSpace(m.ID); id != "" {
+			byID[id] = m
+		}
+	}
+	hasLive := len(items) > 0
+
 	out := make([]CatalogItem, 0, len(items))
 	seen := map[string]bool{}
-
-	// Curated ids may be missing from /models (variants like ":floor"); they are
-	// still the models the Auto-routing picks, so they must stay selectable.
 	for _, id := range CuratedModels {
+		id = strings.TrimSpace(id)
 		if id == "" || seen[id] {
 			continue
 		}
+		base := id
+		if i := strings.LastIndex(id, ":"); i > 0 {
+			base = id[:i]
+		}
+		if hasLive {
+			m, ok := byID[base]
+			if !ok {
+				continue // модель снята с каталога
+			}
+			if !SupportsTools(m) {
+				continue // без tools агент на ней не поедет
+			}
+			seen[id] = true
+			out = append(out, CatalogItem{ID: id, Category: CategoryOf(m), Tools: true})
+			continue
+		}
 		seen[id] = true
-		out = append(out, CatalogItem{
-			ID:       id,
-			Category: CategoryCoding,
-			Tools:    true,
-		})
+		out = append(out, CatalogItem{ID: id, Category: CategoryCoding, Tools: true})
 	}
 
 	perCategory := map[string]int{}

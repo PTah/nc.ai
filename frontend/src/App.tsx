@@ -422,13 +422,14 @@ const ZAI_MODELS_FALLBACK = [
 ] as const
 
 const OPENROUTER_MODELS_FALLBACK = [
-  'qwen/qwen3-coder-flash:floor',
   'qwen/qwen3-coder-flash',
-  'qwen/qwen3-coder-30b-a3b-instruct:floor',
-  'qwen/qwen3-coder:floor',
-  'qwen/qwen3-coder',
-  'qwen/qwen3-coder-plus:floor',
+  'qwen/qwen3-coder-flash:floor',
+  'qwen/qwen3-coder-next',
   'qwen/qwen3-coder-next:floor',
+  'qwen/qwen3-coder',
+  'qwen/qwen3-coder:floor',
+  'qwen/qwen3-coder-30b-a3b-instruct',
+  'qwen/qwen3-coder-30b-a3b-instruct:floor',
   'qwen/qwen3-vl-8b-instruct',
 ] as const
 
