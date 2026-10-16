@@ -124,13 +124,27 @@ type modelsListResponse struct {
 }
 
 type apiRequest struct {
-	Model       string         `json:"model"`
-	Messages    []llm.Message  `json:"messages"`
-	Tools       []llm.ToolSpec `json:"tools,omitempty"`
-	ToolChoice  any            `json:"tool_choice,omitempty"`
-	Stream      bool           `json:"stream"`
-	Temperature *float64       `json:"temperature,omitempty"`
-	MaxTokens   *int           `json:"max_tokens,omitempty"`
+	Model         string         `json:"model"`
+	Messages      []llm.Message  `json:"messages"`
+	Tools         []llm.ToolSpec `json:"tools,omitempty"`
+	ToolChoice    any            `json:"tool_choice,omitempty"`
+	Stream        bool           `json:"stream"`
+	StreamOptions *streamOptions `json:"stream_options,omitempty"`
+	Temperature   *float64       `json:"temperature,omitempty"`
+	MaxTokens     *int           `json:"max_tokens,omitempty"`
+}
+
+// streamOptions просит OpenRouter прислать usage (и стоимость) последним чанком
+// SSE — без него в потоке нечем считать цену шага.
+type streamOptions struct {
+	IncludeUsage bool `json:"include_usage"`
+}
+
+func includeUsage(stream bool) *streamOptions {
+	if !stream {
+		return nil
+	}
+	return &streamOptions{IncludeUsage: true}
 }
 
 func (c *Client) setAppHeaders(req *http.Request) {
@@ -317,12 +331,13 @@ func (c *Client) chat(ctx context.Context, req *llm.ChatRequest, stream bool, on
 	}
 
 	payload := apiRequest{
-		Model:      model,
-		Messages:   req.Messages,
-		Tools:      req.Tools,
-		ToolChoice: req.ToolChoice,
-		Stream:     stream,
-		MaxTokens:  req.MaxTokens,
+		Model:         model,
+		Messages:      req.Messages,
+		Tools:         req.Tools,
+		ToolChoice:    req.ToolChoice,
+		Stream:        stream,
+		StreamOptions: includeUsage(stream),
+		MaxTokens:     req.MaxTokens,
 	}
 	if req.Temperature != nil {
 		payload.Temperature = req.Temperature
