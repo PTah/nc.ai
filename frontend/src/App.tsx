@@ -6,6 +6,7 @@
 // Edited by nc.ai 0.8.6.2 on new-admin-pc 2026-10-14 11:08:06
 // Edited by nc.ai 0.8.6.3 on Papasha 2026-10-16 14:11:12
 // Edited by nc.ai 0.8.7.7 on macbook 2026-10-16 22:21:22
+// Edited by nc.ai 0.8.7.7 on Papasha 2026-10-16 22:57:44
 import {FormEvent, MouseEvent as ReactMouseEvent, useCallback, useEffect, useRef, useState} from 'react'
 import {Terminal} from '@xterm/xterm'
 import {FitAddon} from '@xterm/addon-fit'
@@ -312,6 +313,8 @@ type AgentEvent = {
   reason?: string
   /** Проект, которому принадлежит прогон: по нему UI переключается на нужный чат. */
   project?: string
+  /** Длина итогового текста ответа по данным бэкенда (символов). */
+  answerLen?: number
 }
 
 type UsageSnapshot = {
@@ -1758,6 +1761,7 @@ function parseAgentEvent(...args: unknown[]): AgentEvent | null {
       runId: eventText(inner.runId ?? inner.RunID ?? inner.RunId),
       reason: eventText(inner.reason ?? inner.Reason),
       project: eventText(inner.project ?? inner.Project),
+      answerLen: Number(inner.answerLen ?? inner.AnswerLen ?? 0) || 0,
     }
   }
   return null
@@ -3387,6 +3391,32 @@ export default function App() {
           } else if (ev.type === 'reconnect') {
             apply((prev) => [...prev, {kind: 'system', content: ev.content || 'reconnecting…'}])
           } else if (ev.type === 'done' || ev.type === 'persist') {
+            // Хвост ответа мог не доехать до элемента чата (последний чанк): на
+            // завершении доводим элемент из буфера дельт — только в сторону роста,
+            // чтобы не затереть более длинный текст. Нужен только для done.
+            const buf = ev.type === 'done' ? assistantBuf.current[key] || '' : ''
+            if (buf) {
+              apply((prev) => {
+                for (let i = prev.length - 1; i >= 0; i--) {
+                  const it = prev[i]
+                  if (it.kind !== 'assistant') continue
+                  if (it.content.length >= buf.length) return prev
+                  const copy = [...prev]
+                  copy[i] = {...it, content: buf}
+                  return copy
+                }
+                return prev
+              })
+            }
+            // Диагностика доставки: бэкенд сообщает длину ответа, сравниваем с тем,
+            // что реально дошло. Расхождение = потеря на пути к чату, а не в модели.
+            const declared = ev.type === 'done' ? Number(ev.answerLen || 0) : 0
+            if (declared > 0 && buf.length + 20 < declared) {
+              apply((prev) => [...prev, {
+                kind: 'system',
+                content: `⚠ Диагностика: бэкенд выдал ${declared} симв., до чата дошло ${buf.length}. Текст целиком есть у модели — это потеря при доставке, сообщите разработчику.`,
+              }])
+            }
             closeReasoningIn(key, apply)
             finishRunUI(sid, runId)
             if (ev.type === 'done' && noWorkLeft(sid)) playEndSound()
