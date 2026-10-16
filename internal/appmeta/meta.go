@@ -11,7 +11,7 @@ import "time"
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "0.8.7.0"
+	Version = "0.8.7.1"
 )
 
 // DeepSeekProRetireRFC3339 is the announced V4 Pro retirement instant, empty
@@ -57,18 +57,18 @@ func retiredAt(at time.Time, now time.Time) bool {
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
+	"Ответы больше не обрываются молча: обрыв на цифре, открытой скобке, кавычке или тире тоже распознаётся и дописывается",
+	"Стоимость шага OpenRouter считается и в потоке — отправляем stream_options.include_usage, как и было задумано",
 	"Остаток баланса OpenRouter и Z.ai обновляется сам раз в 5 минут, как у DeepSeek — красный «topup» виден без ручного Refresh",
-	"Каталог OpenRouter теперь весь: список моделей разбит по категориям (Кодинг / Рассуждения / Общие чаты / Картинки / Аудио / Видео) с фильтром по группе",
-	"Приложение предупреждает, если модель не для кода: медиа-модель, отсутствие tool calling или запрос «нарисуй картинку» на кодинг-модели",
-	"Эскалация на сильную модель при затыке работает не только у DeepSeek: у OpenRouter, Z.ai, Qwen и Yandex тоже",
+	"Каталог OpenRouter целиком: категории (Кодинг / Картинки / Аудио / Видео…) с фильтром и предупреждениями о неверной модели",
 	"Рабочее пространство из нескольких папок и multitask (запросы идут параллельно) — на месте",
 }
 
 var HighlightsEN = []string{
+	"Answers no longer get cut off silently: a digit, open bracket, quote or dash at the end is now detected and continued",
+	"OpenRouter step cost is now counted in streaming — stream_options.include_usage is sent, as designed",
 	"OpenRouter and Z.ai balances refresh on their own every 5 minutes, like DeepSeek — the red \"topup\" shows up without a manual Refresh",
-	"The whole OpenRouter catalog is listed now: models are grouped by category (Coding / Reasoning / General / Images / Audio / Video) with a per-group filter",
-	"The app warns when the model is wrong for the job: a media model, no tool calling, or \"draw a picture\" asked of a coding model",
-	"Mid-run escalation to a stronger model is no longer DeepSeek-only: OpenRouter, Z.ai, Qwen and Yandex escalate too",
+	"The whole OpenRouter catalog is listed: categories (Coding / Images / Audio / Video…) with a filter and wrong-model warnings",
 	"Multi-folder workspace and Multitask (requests run in parallel) stay in place",
 }
 

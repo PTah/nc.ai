@@ -1391,7 +1391,7 @@ func longStepNotice(name, argsJSON string) string {
 // их обрабатывают ветка length и проверка пустого ответа).
 func looksTruncated(s string) bool {
 	r := []rune(strings.TrimRight(s, " \t"))
-	if len(r) < 200 {
+	if len(r) < 2 {
 		return false
 	}
 	// Незакрытый код-спан (`…`) или ```-блок: ответ оборвался внутри кода.
@@ -1400,16 +1400,24 @@ func looksTruncated(s string) bool {
 		return true
 	}
 	last := r[len(r)-1]
+	// Оборвалось на цифре («…в строке 12», «…файлов: 4») — цифра не завершает
+	// осмысленную фразу.
+	if unicode.IsDigit(last) {
+		return true
+	}
+	// Оборвалось на открывающей скобке/кавычке/тире — явный незакрытый хвост.
+	switch last {
+	case '(', '[', '{', '<', '"', '\'', '«', '—', '–':
+		return true
+	}
 	if !unicode.IsLetter(last) {
 		return false
 	}
-	prev := r[len(r)-2]
-	if unicode.IsLetter(prev) || unicode.IsDigit(prev) {
-		return true
+	// Буква на конце: длинный ответ оборвался на середине слова («…содержит»).
+	// Короткие «ок/да» не трогаем — в них нечему обрываться.
+	if len(r) < 200 {
+		return false
 	}
-	// Остался случай «последняя буква после пробела» — ответ обрывается на
-	// однобуквенном слове («… менял и», «… в», «… с»). Союз/предлог не может
-	// завершать предложение, значит это тоже обрыв.
 	return true
 }
 
