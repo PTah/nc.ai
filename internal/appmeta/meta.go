@@ -11,7 +11,7 @@ import "time"
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "0.8.7.4"
+	Version = "0.8.7.5"
 )
 
 // DeepSeekProRetireRFC3339 is the announced V4 Pro retirement instant, empty
@@ -57,18 +57,18 @@ func retiredAt(at time.Time, now time.Time) bool {
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
-	"Финальный ответ в конце длинного прогона больше не обрывается на полуслове — этот путь тоже распознаёт обрыв и дописывает хвост",
-	"Вопрос от агента из другого проекта или чата сам открывает нужный проект и чат: окно больше не висит поверх чужого разговора",
-	"«Save settings» показывает, что не сохранено, и что кнопка пишет вообще",
-	"OpenRouter: список моделей сверяется с живым каталогом, сложные и длинные прогоны идут на qwen3-coder-next",
+	"Индикатор «идёт работа» видно и без анимации: при выключенных эффектах Windows кольцо у проекта пульсирует, а имя проекта помечено акцентом",
+	"Финальный ответ в конце длинного прогона больше не обрывается на полуслове",
+	"Вопрос от агента из другого проекта или чата сам открывает нужный проект и чат",
+	"OpenRouter: список моделей сверяется с живым каталогом, сложные прогоны идут на qwen3-coder-next",
 	"Рабочее пространство из нескольких папок и multitask (запросы идут параллельно) — на месте",
 }
 
 var HighlightsEN = []string{
-	"The final answer at the end of a long run no longer stops mid-sentence — that path detects a cut-off and continues too",
-	"A question from the agent in another project or chat now opens that project and chat itself: the dialog no longer hangs over a different conversation",
-	"\"Save settings\" shows what is unsaved and what the button writes at all",
-	"OpenRouter: the model list is checked against the live catalog, complex and long runs go to qwen3-coder-next",
+	"The \"work in progress\" marker is visible without animation too: with Windows effects off the project ring pulses, and the project name is accented",
+	"The final answer at the end of a long run no longer stops mid-sentence",
+	"A question from the agent in another project or chat opens that project and chat itself",
+	"OpenRouter: the model list is checked against the live catalog, complex runs go to qwen3-coder-next",
 	"Multi-folder workspace and Multitask (requests run in parallel) stay in place",
 }
 
