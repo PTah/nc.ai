@@ -4,6 +4,7 @@
 <!-- Edited by nc.ai 0.8.5.5 on macbook 2026-10-13 21:22:17 -->
 <!-- Edited by nc.ai 0.8.6.2 on new-admin-pc 2026-10-14 11:08:29 -->
 <!-- Edited by nc.ai 0.8.6.3 on Papasha 2026-10-16 14:20:43 -->
+<!-- Edited by nc.ai 0.8.7.7 on macbook 2026-10-16 22:22:13 -->
 # NotCursor.ai
 
 AI-агент для работы с кодом в отдельном окне: чат, дерево проекта, редактор и настоящий терминал.
@@ -15,7 +16,7 @@ AI-агент для работы с кодом в отдельном окне: 
 Keychain / Windows Credential Manager), история чатов — локально. Наружу уходит только запрос к
 тому провайдеру LLM, которого вы выбрали сами.
 
-**Версия:** `0.8.7.7` · **На выходе:** `build/bin/NotCursor.exe` (Windows) и `build/bin/NotCursor.app` (macOS)
+**Версия:** `0.8.7.8` · **На выходе:** `build/bin/NotCursor.exe` (Windows) и `build/bin/NotCursor.app` (macOS)
 
 ## Быстрый старт
 

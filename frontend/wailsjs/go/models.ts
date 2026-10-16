@@ -1003,6 +1003,7 @@ export namespace update {
 	    buildHash?: string;
 	    localHash?: string;
 	    source?: string;
+	    mirrorError?: string;
 	    error?: string;
 	
 	    static createFrom(source: any = {}) {
@@ -1025,6 +1026,7 @@ export namespace update {
 	        this.buildHash = source["buildHash"];
 	        this.localHash = source["localHash"];
 	        this.source = source["source"];
+	        this.mirrorError = source["mirrorError"];
 	        this.error = source["error"];
 	    }
 	}

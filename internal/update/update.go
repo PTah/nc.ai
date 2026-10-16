@@ -33,7 +33,6 @@ import (
 const RepoSlug = "PTah/nc.ai"
 
 const (
-	apiLatest = "https://api.github.com/repos/" + RepoSlug + "/releases/latest"
 	// ReleasePage — куда попадёт пользователь, если предпочтёт скачать руками.
 	ReleasePage = "https://github.com/" + RepoSlug + "/releases/latest"
 
@@ -48,6 +47,10 @@ const (
 	apiAttempts   = 3
 	apiRetryDelay = 700 * time.Millisecond
 )
+
+// apiLatest — релизный API GitHub. Переменная, а не константа: тесты подменяют
+// её httptest-сервером и проверяют фолбэк с зеркала без похода в сеть.
+var apiLatest = "https://api.github.com/repos/" + RepoSlug + "/releases/latest"
 
 // Asset — один файл релиза.
 type Asset struct {
@@ -86,7 +89,12 @@ type Info struct {
 	LocalHash    string `json:"localHash,omitempty"`
 	// Source — откуда взяли релиз: SourceGitHub или SourceMirror (Settings → Обновления).
 	Source string `json:"source,omitempty"`
-	Error  string `json:"error,omitempty"`
+	// MirrorError — почему не получилось взять релиз с зеркала. Заполняется,
+	// только когда зеркало настроено, но ответ пришёл с GitHub: без этой строки
+	// фолбэк был невидим (инцидент 16.10.2026 22:14:54 — проверка молча ушла на
+	// GitHub, и обновление качалось с него вместо быстрого LAN).
+	MirrorError string `json:"mirrorError,omitempty"`
+	Error       string `json:"error,omitempty"`
 }
 
 // Client — HTTP-клиент с разумными таймаутами (проверка идёт на старте).
@@ -432,35 +440,43 @@ func DecideAvailability(remoteVsLocal int, buildDiffers bool) (available, sameVe
 }
 
 // latestReleaseWithMirror берёт последний релиз: сначала с настроенного зеркала
-// (если оно есть), при любой ошибке — с GitHub, как раньше.
-func latestReleaseWithMirror(ctx context.Context, goos, goarch string) (*Release, string, error) {
+// (если оно есть), при любой ошибке — с GitHub, как раньше. Отдельно возвращаем
+// причину отказа зеркала: без неё фолбэк на GitHub выглядит как «качалось
+// откуда-то медленно» и незаметен ни в логе, ни в интерфейсе.
+func latestReleaseWithMirror(ctx context.Context, goos, goarch string) (*Release, string, error, error) {
+	var mirrorErr error
 	if m := currentMirror(); m != nil {
-		if rel, err := latestFromMirror(ctx, m); err == nil {
-			return rel, SourceMirror, nil
+		rel, err := latestFromMirror(ctx, m)
+		if err == nil {
+			return rel, SourceMirror, nil, nil
 		}
+		mirrorErr = err
 	}
 	rel, err := LatestRelease(ctx)
 	if err != nil {
 		// api.github.com может быть недоступен (блокировка, DPI), а github.com
 		// открывается — тогда берём тег из редиректа страницы релизов.
 		if fb, ferr := releaseByRedirect(ctx, goos, goarch); ferr == nil {
-			return fb, SourceGitHub, nil
+			return fb, SourceGitHub, mirrorErr, nil
 		}
-		return nil, "", err
+		return nil, "", mirrorErr, err
 	}
-	return rel, SourceGitHub, nil
+	return rel, SourceGitHub, mirrorErr, nil
 }
 
 // Check сравнивает текущую версию с последним релизом и подбирает файл.
 // Ошибка сети возвращается как есть — вызывающий решает, показывать ли её.
 func Check(ctx context.Context, current, goos, goarch string) (Info, error) {
 	info := Info{Current: current, URL: ReleasePage, LocalHash: LocalExeHash()}
-	rel, source, err := latestReleaseWithMirror(ctx, goos, goarch)
+	rel, source, mirrorErr, err := latestReleaseWithMirror(ctx, goos, goarch)
 	if err != nil {
 		info.Error = err.Error()
 		return info, err
 	}
 	info.Source = source
+	if mirrorErr != nil {
+		info.MirrorError = mirrorErr.Error()
+	}
 	info.Latest = strings.TrimPrefix(rel.Tag, "v")
 	info.Notes = strings.TrimSpace(rel.Body)
 	if rel.HTMLURL != "" {
