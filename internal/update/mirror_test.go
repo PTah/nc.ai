@@ -133,3 +133,102 @@ func TestMirrorTokenSentWhenConfigured(t *testing.T) {
 		t.Fatalf("Authorization = %q, хотели token secret-token", gotAuth)
 	}
 }
+
+// Короткий сбой своего Gitea (перезапуск, заливка релиза) не должен уводить
+// обновление на GitHub: зеркало опрашиваем несколькими раундами.
+func TestLatestFromMirrorRetriesBeforeGivingUp(t *testing.T) {
+	defer ConfigureMirror(nil)
+
+	var hits int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		if hits <= 2 { // первый раунд: и /releases/latest, и список — мимо
+			http.NotFound(w, r)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(Release{Tag: "v0.8.7.8", Assets: []Asset{{Name: "nc.ai-0.8.7.8-macos-arm64.zip"}}})
+	}))
+	defer srv.Close()
+
+	ConfigureMirror(&Mirror{BaseURL: srv.URL + "/PapaTramp/nc.ai"})
+	rel, err := latestFromMirror(context.Background(), currentMirror())
+	if err != nil {
+		t.Fatalf("второй раунд должен был спасти: %v", err)
+	}
+	if rel.Tag != "v0.8.7.8" {
+		t.Fatalf("тег = %q", rel.Tag)
+	}
+	if hits != 3 {
+		t.Fatalf("запросов к зеркалу = %d, хотели 3 (2 неудачи + успех)", hits)
+	}
+}
+
+// Фолбэк на GitHub обязан быть виден: без причины отказа зеркала он выглядит
+// как «обновление почему-то качалось медленно» (инцидент 16.10.2026 22:14:54).
+func TestLatestReleaseWithMirrorReportsMirrorError(t *testing.T) {
+	defer ConfigureMirror(nil)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/releases") {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte(`{"tag_name":"v0.9.9","assets":[]}`))
+	}))
+	defer srv.Close()
+	withTestClient(t, srv)
+	oldLatest := apiLatest
+	apiLatest = srv.URL + "/latest"
+	t.Cleanup(func() { apiLatest = oldLatest })
+
+	ConfigureMirror(&Mirror{BaseURL: srv.URL + "/PapaTramp/nc.ai"})
+	rel, source, mirrorErr, err := latestReleaseWithMirror(context.Background(), "darwin", "arm64")
+	if err != nil {
+		t.Fatalf("latestReleaseWithMirror: %v", err)
+	}
+	if source != SourceGitHub {
+		t.Fatalf("источник = %q, хотели %q", source, SourceGitHub)
+	}
+	if mirrorErr == nil {
+		t.Fatal("причина отказа зеркала потеряна — фолбэк снова будет невидим")
+	}
+	if rel.Tag != "v0.9.9" {
+		t.Fatalf("тег = %q", rel.Tag)
+	}
+}
+
+// Check обязан донести причину отказа зеркала до интерфейса и лога.
+func TestCheckSurfacesMirrorError(t *testing.T) {
+	defer ConfigureMirror(nil)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/releases") {
+			http.NotFound(w, r)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(Release{
+			Tag:    "v0.9.9",
+			Assets: []Asset{{Name: "nc.ai-0.9.9-macos-arm64.zip"}},
+		})
+	}))
+	defer srv.Close()
+	withTestClient(t, srv)
+	oldLatest := apiLatest
+	apiLatest = srv.URL + "/latest"
+	t.Cleanup(func() { apiLatest = oldLatest })
+
+	ConfigureMirror(&Mirror{BaseURL: srv.URL + "/PapaTramp/nc.ai"})
+	info, err := Check(context.Background(), "0.8.7.8", "darwin", "arm64")
+	if err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	if info.Source != SourceGitHub {
+		t.Fatalf("источник = %q", info.Source)
+	}
+	if info.MirrorError == "" {
+		t.Fatal("info.MirrorError пуст — в логе и UI причина не появится")
+	}
+	if !info.Available {
+		t.Fatal("новая версия с GitHub должна предлагаться к установке")
+	}
+}

@@ -2,6 +2,7 @@
 // Edited by nc.ai 0.8.5.4 on new-admin-pc 2026-10-13 10:04:30
 // Edited by nc.ai 0.8.5.6 on macbook 2026-10-13 21:42:31
 // Edited by nc.ai 0.8.6.3 on Papasha 2026-10-16 14:15:46
+// Edited by nc.ai 0.8.7.7 on macbook 2026-10-16 22:21:12
 package main
 
 import (
@@ -256,6 +257,11 @@ func (a *App) checkUpdate() update.Info {
 	ctx, cancel := context.WithTimeout(a.ctx, 60*time.Second)
 	defer cancel()
 	info, _ := update.Check(ctx, appmeta.Version, stdruntime.GOOS, stdruntime.GOARCH)
+	if info.MirrorError != "" {
+		// Зеркало настроено, но ответ пришёл с GitHub: пишем причину, иначе
+		// фолбэк не виден и медленное скачивание выглядит необъяснимым.
+		a.logAgentLine(fmt.Sprintf("update mirror failed err=%s (source=%s)", info.MirrorError, info.Source))
+	}
 	if info.Source != "" {
 		a.logAgentLine(fmt.Sprintf("update check source=%s latest=%s available=%t", info.Source, info.Latest, info.Available))
 	}

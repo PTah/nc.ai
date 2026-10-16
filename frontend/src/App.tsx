@@ -5,6 +5,7 @@
 // Edited by nc.ai 0.8.5.5 on macbook 2026-10-13 21:20:40
 // Edited by nc.ai 0.8.6.2 on new-admin-pc 2026-10-14 11:08:06
 // Edited by nc.ai 0.8.6.3 on Papasha 2026-10-16 14:11:12
+// Edited by nc.ai 0.8.7.7 on macbook 2026-10-16 22:21:22
 import {FormEvent, MouseEvent as ReactMouseEvent, useCallback, useEffect, useRef, useState} from 'react'
 import {Terminal} from '@xterm/xterm'
 import {FitAddon} from '@xterm/addon-fit'
@@ -949,6 +950,21 @@ function friendlyUpdateError(raw: string): string {
   ].some((sign) => t.includes(sign))
   if (!netish) return raw
   return 'нет связи с GitHub (api.github.com недоступен или не отвечает). Можно скачать релиз вручную: https://github.com/PTah/nc.ai/releases/latest'
+}
+
+/**
+ * Откуда взялось обновление. При включённом зеркале это важно: если оно не
+ * ответило, фолбэк уходит на GitHub и качается заметно медленнее — раньше это
+ * было совсем не видно ни в баннере, ни в настройках.
+ */
+function updateSourceNote(info: Record<string, any> | null | undefined): string {
+  const src = info && typeof info.source === 'string' ? info.source : ''
+  if (src === 'mirror') return ' Источник: своё зеркало (LAN).'
+  if (src !== 'github') return ''
+  const err = typeof info?.mirrorError === 'string' ? info.mirrorError : ''
+  return err
+    ? ` Источник: GitHub — зеркало не ответило (${err}), скачивание будет медленнее.`
+    : ' Источник: GitHub.'
 }
 
 /** Деньги в долларах: 0.0123 → «$0.0123». */
@@ -1907,6 +1923,10 @@ export default function App() {
   const [updateMirrorUrl, setUpdateMirrorUrl] = useState('')
   const [updateMirrorToken, setUpdateMirrorToken] = useState('')
   const [updateMirrorHasToken, setUpdateMirrorHasToken] = useState(false)
+  // Откуда пришла последняя проверка обновлений и почему не с зеркала —
+  // иначе фолбэк на GitHub не виден (Settings → Обновления).
+  const [updateCheckSource, setUpdateCheckSource] = useState('')
+  const [updateMirrorError, setUpdateMirrorError] = useState('')
   const updatePercent =
     updateProgress.total > 0
       ? Math.min(100, Math.round((updateProgress.done / updateProgress.total) * 100))
@@ -3410,6 +3430,8 @@ export default function App() {
         const rec = info && typeof info === 'object' ? (info as Record<string, any>) : null
         if (!rec || rec.available !== true) return
         setUpdateInfo(rec)
+        setUpdateCheckSource(typeof rec.source === 'string' ? rec.source : '')
+        setUpdateMirrorError(typeof rec.mirrorError === 'string' ? rec.mirrorError : '')
         setUpdateDismissed(false)
         setUpdatePhase('idle')
         setUpdateError('')
@@ -5231,6 +5253,8 @@ export default function App() {
     setUpdateError('')
     try {
       const info = (await CheckUpdate()) as unknown as Record<string, any>
+      setUpdateCheckSource(typeof info?.source === 'string' ? info.source : '')
+      setUpdateMirrorError(typeof info?.mirrorError === 'string' ? info.mirrorError : '')
       if (info && info.available === true) {
         setUpdateInfo(info)
         setUpdateDismissed(false)
@@ -5860,14 +5884,17 @@ export default function App() {
                     : updatePhase === 'downloading'
                       ? `Скачиваю ${String(updateInfo.latest)}… ${updatePercent}%`
                       : updateInfo.sameVersion
-                        ? `Версия ${String(updateInfo.latest)} та же, но на GitHub другая сборка: ваш файл ${
+                        ? `Версия ${String(updateInfo.latest)} та же, но ${
+                            updateInfo.source === 'mirror' ? 'на зеркале' : 'на GitHub'
+                          } другая сборка: ваш файл ${
                             updateInfo.localHash ? String(updateInfo.localHash).slice(0, 12) : '?'
-                          }, на GitHub ${
+                          }, там ${
                             updateInfo.buildHash ? String(updateInfo.buildHash).slice(0, 12) : '?'
                           }${updateInfo.assetSize ? ` (скачать ${fmtBytes(Number(updateInfo.assetSize))})` : ''}.`
                         : `Доступна новая версия ${String(updateInfo.latest)} (у вас ${String(updateInfo.current)}${
                             updateInfo.assetSize ? `; скачать ${fmtBytes(Number(updateInfo.assetSize))}` : ''
                           }).`}
+                  {updateSourceNote(updateInfo)}
                   {updateError ? ` ${updateError}` : ''}
                   {updatePhase === 'idle' && anyRunActive
                     ? ' Идёт прогон: обновление остановит приложение и потеряет ответ — дождитесь конца или нажмите «Стоп».'
@@ -7705,9 +7732,21 @@ export default function App() {
               хранятся только на этой машине (токен — в системном хранилище секретов), у других пользователей
               поле пустое и работает GitHub.
             </p>
+            <p className="nc-help">
+              Если зеркало не ответило, обновление уедет на GitHub — а это медленнее. Источник последней
+              проверки виден ниже и в баннере обновления.
+            </p>
             <button type="button" className="nc-ghost" onClick={() => void checkUpdatesNow()}>
               Проверить обновления
             </button>
+            {updateCheckSource ? (
+              <p className="nc-help">
+                Последняя проверка: {updateCheckSource === 'mirror' ? 'своё зеркало' : 'GitHub'}
+                {updateMirrorError
+                  ? ` · зеркало не ответило — ${updateMirrorError}`
+                  : ''}
+              </p>
+            ) : null}
             {updateError ? <p className="nc-help">{updateError}</p> : null}
             <div className="nc-section-label">Shell</div>
             <p className="nc-help">

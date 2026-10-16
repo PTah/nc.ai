@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"time"
 )
 
 // Mirror — необязательный личный источник релизов: домашний Gitea владельца
@@ -35,6 +36,17 @@ type Mirror struct {
 const (
 	SourceGitHub = "github"
 	SourceMirror = "mirror"
+)
+
+// mirrorRounds/mirrorRoundDelay/mirrorTimeout — сколько раз и как долго опрашиваем
+// зеркало, прежде чем уйти на GitHub. Одиночный сбой домашнего Gitea (заливка
+// релиза, перезапуск) не должен уводить скачивание на медленный GitHub:
+// 16.10.2026 22:14:54 проверка молча ушла на GitHub, и 7 МБ тянулись с него
+// вместо 0,17 с по LAN.
+const (
+	mirrorRounds     = 2
+	mirrorRoundDelay = 600 * time.Millisecond
+	mirrorTimeout    = 20 * time.Second
 )
 
 var (
@@ -149,6 +161,8 @@ func rewriteMirrorAssets(m *Mirror, rel *Release) {
 
 // latestFromMirror берёт последний релиз с зеркала. Gitea отдаёт тот же JSON,
 // что GitHub, поэтому структуры общие; отдельно разбираемся только со ссылками.
+// Опрашиваем зеркало mirrorRounds раундов, прежде чем вернуть ошибку: короткий
+// сбой своего сервера не должен отправлять за обновлением на GitHub.
 func latestFromMirror(ctx context.Context, m *Mirror) (*Release, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -156,16 +170,38 @@ func latestFromMirror(ctx context.Context, m *Mirror) (*Release, error) {
 	if m == nil {
 		return nil, errors.New("зеркало не настроено")
 	}
-	actx, cancel := context.WithTimeout(ctx, apiTimeout)
-	defer cancel()
+	var lastErr error
+	for round := 0; round < mirrorRounds; round++ {
+		if round > 0 {
+			select {
+			case <-ctx.Done():
+				return nil, lastErr
+			case <-time.After(mirrorRoundDelay):
+			}
+		}
+		actx, cancel := context.WithTimeout(ctx, mirrorTimeout)
+		rel, err := mirrorOnce(actx, m)
+		cancel()
+		if err == nil {
+			return rel, nil
+		}
+		lastErr = err
+	}
+	if lastErr == nil {
+		lastErr = errors.New("зеркало: нет ответа")
+	}
+	return nil, lastErr
+}
 
-	rel, err := mirrorRelease(actx, m, mirrorAPI(m, "/latest"))
+// mirrorOnce — один раунд опроса зеркала: /releases/latest, при неудаче — список.
+func mirrorOnce(ctx context.Context, m *Mirror) (*Release, error) {
+	rel, err := mirrorRelease(ctx, m, mirrorAPI(m, "/latest"))
 	if err == nil {
 		return rel, nil
 	}
 	// /releases/latest может быть недоступен (старая версия Gitea) — берём
 	// список и выбираем самый свежий непустой релиз.
-	list, lerr := mirrorReleaseList(actx, m)
+	list, lerr := mirrorReleaseList(ctx, m)
 	if lerr != nil {
 		return nil, err
 	}
