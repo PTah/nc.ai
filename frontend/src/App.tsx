@@ -3607,9 +3607,14 @@ export default function App() {
       const loaded: ChatItem[] = Array.isArray(parsed) && parsed.length > 0
         ? parsed as ChatItem[]
         : [{kind: 'system', content: 'Чат с агентом. История пуста — задайте задачу. Можно вставить скриншот (Ctrl+V) или перетащить файл.'}]
-      const staged = activeId && busyBySessionRef.current[activeId]
-        ? {items: loaded, changed: false}
-        : markInterruptedSteps(loaded)
+      // У идущего прогона текст в памяти свежее, чем на диске: запись отложенная,
+      // и disk-версия отстаёт на чанк (а то и на половину ответа). Раньше сюда
+      // подставлялся disk-вариант, и переход в идущий чат откатывал ответ к
+      // последнему сохранённому чанку — в чате оставался обрыв посреди фразы.
+      const hasLive = Boolean(activeId && busyBySessionRef.current[activeId])
+      const liveItems = activeId ? itemsBySessionRef.current[activeId] : undefined
+      const base = hasLive && liveItems && liveItems.length > 0 ? liveItems : loaded
+      const staged = hasLive ? {items: base, changed: false} : markInterruptedSteps(base)
       if (staged.changed) setInterruptedSeen(true)
       const chatItems = staged.items
       setSessions(list)
@@ -3644,9 +3649,11 @@ export default function App() {
       const loadedItems: ChatItem[] = Array.isArray(parsed) && parsed.length > 0
         ? parsed as ChatItem[]
         : [{kind: 'system', content: 'Новый чат. Задайте задачу или вставьте файл/скриншот.'}]
-      const staged = busyBySessionRef.current[id]
-        ? {items: loadedItems, changed: false}
-        : markInterruptedSteps(loadedItems)
+      // См. restoreChat: диск не должен затирать чат, в котором идёт прогон.
+      const hasLive = Boolean(busyBySessionRef.current[id])
+      const liveItems = itemsBySessionRef.current[id]
+      const base = hasLive && liveItems && liveItems.length > 0 ? liveItems : loadedItems
+      const staged = hasLive ? {items: base, changed: false} : markInterruptedSteps(base)
       if (staged.changed) setInterruptedSeen(true)
       const chatItems = staged.items
       setActiveSessionId(id)
