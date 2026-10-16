@@ -497,9 +497,27 @@ export namespace main {
 	        this.itemsJson = source["itemsJson"];
 	    }
 	}
+	export class ModelGroup {
+	    category: string;
+	    label: string;
+	    models: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new ModelGroup(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.category = source["category"];
+	        this.label = source["label"];
+	        this.models = source["models"];
+	    }
+	}
 	export class ModelLabel {
 	    id: string;
 	    label: string;
+	    category?: string;
+	    tools?: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new ModelLabel(source);
@@ -509,10 +527,13 @@ export namespace main {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
 	        this.label = source["label"];
+	        this.category = source["category"];
+	        this.tools = source["tools"];
 	    }
 	}
 	export class ModelCatalog {
 	    models: ModelLabel[];
+	    groups?: ModelGroup[];
 	    source: string;
 	    error: string;
 	
@@ -523,6 +544,7 @@ export namespace main {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.models = this.convertValues(source["models"], ModelLabel);
+	        this.groups = this.convertValues(source["groups"], ModelGroup);
 	        this.source = source["source"];
 	        this.error = source["error"];
 	    }
@@ -545,6 +567,7 @@ export namespace main {
 		    return a;
 		}
 	}
+	
 	
 	export class UsageStats {
 	    provider: string;
