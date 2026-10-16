@@ -161,6 +161,10 @@ type Event struct {
 	// может прийти из другого проекта/чата, и тогда надо переключиться туда,
 	// иначе диалог висит поверх чужого разговора и непонятно, о чём речь.
 	Project string `json:"project,omitempty"`
+	// AnswerLen — длина итогового текста ответа в символах. В событии done она
+	// нужна, чтобы UI мог сверить её с тем, что реально доехало до чата: хвост
+	// ответа может теряться на пути (тогда видно обрыв, хотя модель дописала).
+	AnswerLen int `json:"answerLen,omitempty"`
 }
 
 type EmitFunc func(Event)
@@ -1249,7 +1253,7 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 						"Ответ не помещается в лимит длины даже после %d продолжений — показываю как есть (скажите «продолжи», и я допишу).",
 						maxLengthContinues,
 					)})
-					emit(Event{Type: "done", Content: finish})
+					emit(Event{Type: "done", Content: finish, AnswerLen: len([]rune(msg.Content))})
 					return messages, nil
 				}
 				lengthContinues++
@@ -1260,7 +1264,7 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 				messages = append(messages, llm.UserText(lengthContinueNudge))
 				continue
 			}
-			emit(Event{Type: "done", Content: finish})
+			emit(Event{Type: "done", Content: finish, AnswerLen: len([]rune(msg.Content))})
 			return messages, nil
 		}
 	}
@@ -1274,6 +1278,7 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 	// просто обрезанный поток). Раньше этот путь отдавал текст как есть, и обрыв
 	// выглядел как законченный ответ — основной цикл обрыв дописывает, а здесь
 	// проверки не было вообще. Петля ограничена теми же maxLengthContinues.
+	wrapLen := 0
 	for wrapContinues := 0; ; wrapContinues++ {
 		wrapModel := r.resolveModel(max, emit)
 		req := &llm.ChatRequest{
@@ -1300,6 +1305,7 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 		msg.Role = "assistant"
 		llm.SplitThinkMessage(&msg)
 		messages = append(messages, msg)
+		wrapLen = len([]rune(msg.Content))
 		finish := strings.TrimSpace(resp.Choices[0].FinishReason)
 		if !streamed {
 			if strings.TrimSpace(msg.ReasoningContent) != "" {
@@ -1329,7 +1335,7 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 		)})
 		messages = append(messages, llm.UserText(lengthContinueNudge))
 	}
-	emit(Event{Type: "done", Content: "max_steps_wrapup"})
+	emit(Event{Type: "done", Content: "max_steps_wrapup", AnswerLen: wrapLen})
 	return messages, nil
 }
 

@@ -5,6 +5,7 @@
 // Edited by nc.ai 0.8.6.3 on new-admin-pc 2026-10-14 11:08:20
 // Edited by nc.ai 0.8.6.3 on Papasha 2026-10-16 14:20:34
 // Edited by nc.ai 0.8.7.7 on macbook 2026-10-16 22:22:13
+// Edited by nc.ai 0.8.7.7 on Papasha 2026-10-16 22:59:27
 package appmeta
 
 import "time"
@@ -58,18 +59,18 @@ func retiredAt(at time.Time, now time.Time) bool {
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
-	"Обновление больше не обрывает прогон: пока идёт работа, кнопка «Скачать и перезапустить» заблокирована — раньше установка убивала прогон и теряла несохранённый ответ",
-	"Замок проекта стал цветным: закрытый — красный, открытый — зелёный, с бликом; при наведении закрытый подрагивает, открытый качает дужкой",
-	"Индикаторы двигаются даже в RDP-сессии: системный флаг reduced-motion больше не выключает вращение кольца и анимацию замка",
-	"Финальный ответ в конце длинного прогона больше не обрывается на полуслове — этот путь тоже распознаёт обрыв",
+	"Хвост ответа больше не теряется: на завершении прогона текст доводится из буфера, а если часть всё же не доехала — приложение пишет в чат диагностику с числами",
+	"Релизы Windows и macOS больше не затирают друг друга: релизный скрипт доливает ассеты к существующему релизу вместо пересоздания",
+	"Ответ на длинном прогоне больше не обрывается на полуслове, а обновление не ставится, пока идёт работа",
+	"Замок проекта цветной (красный/зелёный) и анимируется при наведении; индикаторы двигаются даже в RDP-сессии",
 	"Рабочее пространство из нескольких папок и multitask (запросы идут параллельно) — на месте",
 }
 
 var HighlightsEN = []string{
-	"An update no longer kills a run: while work is in progress the \"Download and restart\" button is disabled — installing used to abort the run and lose the unsaved answer",
-	"The project lock is colourful now: red when locked, green when open, with a gloss; on hover the locked one rattles, the open one swings its shackle",
-	"Indicators animate even in an RDP session: the system reduced-motion flag no longer kills the ring spin and the lock animation",
-	"The final answer at the end of a long run no longer stops mid-sentence — that path detects a cut-off too",
+	"The tail of an answer is no longer lost: at run completion the text is completed from the stream buffer, and if part of it never arrived the app writes a diagnostic with the numbers into the chat",
+	"Windows and macOS releases no longer wipe each other: the release script uploads assets into the existing release instead of recreating it",
+	"A long-run answer no longer stops mid-sentence, and an update is not installed while work is in progress",
+	"The project lock is colourful (red/green) and animates on hover; indicators animate even in an RDP session",
 	"Multi-folder workspace and Multitask (requests run in parallel) stay in place",
 }
 

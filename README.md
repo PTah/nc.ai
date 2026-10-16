@@ -5,6 +5,7 @@
 <!-- Edited by nc.ai 0.8.6.2 on new-admin-pc 2026-10-14 11:08:29 -->
 <!-- Edited by nc.ai 0.8.6.3 on Papasha 2026-10-16 14:20:43 -->
 <!-- Edited by nc.ai 0.8.7.7 on macbook 2026-10-16 22:22:13 -->
+<!-- Edited by nc.ai 0.8.7.7 on Papasha 2026-10-16 23:00:49 -->
 # NotCursor.ai
 
 AI-агент для работы с кодом в отдельном окне: чат, дерево проекта, редактор и настоящий терминал.
