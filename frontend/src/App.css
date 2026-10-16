@@ -1734,15 +1734,18 @@ mark.nc-find-mark.nc-find-current {
 .nc-project-lock:hover .nc-lock-open .nc-lock-shackle {
   animation: nc-lock-swing 1.2s ease-in-out infinite;
 }
-/* Просили не анимировать: движение убираем, но наведение всё равно видно — замок
-   становится ярче. */
+/* Система говорит «не анимировать» (в Windows так делает RDP-сессия, даже если в
+   настройках анимация включена). Движение не убираем — иначе значок, который просили
+   оживить, в RDP просто не двигается; замедляем вдвое и добавляем яркости. */
 @media (prefers-reduced-motion: reduce) {
-  .nc-project-lock:hover .nc-lock-locked,
+  .nc-project-lock:hover .nc-lock-locked {
+    animation: nc-lock-rattle 2.4s ease-in-out infinite;
+  }
   .nc-project-lock:hover .nc-lock-open .nc-lock-shackle {
-    animation: none;
+    animation: nc-lock-swing 2.4s ease-in-out infinite;
   }
   .nc-project-lock:hover .nc-lock {
-    filter: brightness(1.2) saturate(1.25);
+    filter: brightness(1.15) saturate(1.2);
   }
 }
 .nc-projects .nc-list li .nc-project-lock.on {
