@@ -1,3 +1,4 @@
+// Edited by nc.ai 0.8.6.4 on Papasha 2026-10-16 15:43:59
 package agent
 
 import (
@@ -92,9 +93,16 @@ func (t *escalateTracker) noteToolResults(outs []llm.Message) (failStreak bool) 
 	return t.consecutiveToolFailures >= 2
 }
 
-// escalateEnabled is DeepSeek Auto-models with a live Pro model.
+// escalateEnabled is true when Auto-models is on and the provider has a stronger
+// model to bump to: DeepSeek Pro, glm-5.3, qwen-max, qwen3-235b, qwen3-coder.
 func (r *Runner) escalateEnabled() bool {
-	if r == nil || !r.AutoModels || !r.isDeepSeek() {
+	if r == nil || !r.AutoModels {
+		return false
+	}
+	if r.isOpenRouter() || r.isZai() || r.isQwen() || r.isYandex() {
+		return true
+	}
+	if !r.isDeepSeek() {
 		return false
 	}
 	return !appmeta.DeepSeekProRetired(time.Now())
@@ -105,18 +113,83 @@ func (r *Runner) isDeepSeek() bool {
 	return p == "" || p == "deepseek"
 }
 
+// strongModel is the "smarter" model for the active provider: the one a stalled
+// run is bumped to.
 func (r *Runner) strongModel() string {
-	return ModelPro
+	switch {
+	case r.isOpenRouter():
+		return ModelORStrong
+	case r.isZai():
+		return ModelZaiStrong
+	case r.isQwen():
+		return ModelQwenStrong
+	case r.isYandex():
+		return ModelYandexStrong
+	default:
+		return ModelPro
+	}
 }
 
+// isWeakAutoModel reports whether model is the provider's cheap default, i.e.
+// the one worth replacing when the run gets stuck.
 func (r *Runner) isWeakAutoModel(model string) bool {
 	m := strings.TrimSpace(model)
 	if m == "" {
 		return true
 	}
+	switch {
+	case r.isOpenRouter():
+		base := strings.ToLower(strings.TrimSuffix(m, ":floor"))
+		return base == "qwen/qwen3-coder-flash" || base == "qwen/qwen3-coder-30b-a3b-instruct"
+	case r.isZai():
+		return strings.EqualFold(m, ModelZaiFree)
+	case r.isQwen():
+		return strings.EqualFold(m, ModelQwenFast) || strings.EqualFold(m, ModelQwenPlus)
+	case r.isYandex():
+		return strings.EqualFold(m, ModelYandexDefault) || strings.EqualFold(m, ModelYandexFast)
+	}
 	return strings.EqualFold(m, ModelFlash) ||
 		strings.EqualFold(m, "deepseek-v4-flash") ||
 		strings.EqualFold(m, "deepseek-v4-flash-vision-exp")
+}
+
+// providerLabel names the model a stalled run is bumped to, for the chat line.
+func (r *Runner) providerLabel() string {
+	switch {
+	case r.isOpenRouter():
+		return "OpenRouter " + ModelORStrong
+	case r.isZai():
+		return "Z.ai " + ModelZaiStrong
+	case r.isQwen():
+		return "Qwen " + ModelQwenStrong
+	case r.isYandex():
+		return "Yandex " + ModelYandexStrong
+	default:
+		return "DeepSeek Pro"
+	}
+}
+
+// escalateNoticeRU is the chat line for a mid-run bump on the active provider.
+// keep: escalateNotice (below) stays the DeepSeek wording used by the tests.
+func (r *Runner) escalateNoticeRU(reason string) string {
+	if r == nil || r.isDeepSeek() {
+		return escalateNotice(reason)
+	}
+	label := r.providerLabel()
+	switch reason {
+	case "user-pro":
+		return fmt.Sprintf("Режим сильной модели (%s) по запросу (/pro).", label)
+	case "escalate-dup-tool":
+		return fmt.Sprintf("Поднял на %s: повтор одного и того же tool call.", label)
+	case "escalate-tool-fail":
+		return fmt.Sprintf("Поднял на %s: два провала инструментов подряд.", label)
+	case "escalate-empty":
+		return fmt.Sprintf("Поднял на %s: пустой ответ модели.", label)
+	case "escalate-invalid-tool":
+		return fmt.Sprintf("Поднял на %s: битый / невалидный tool call.", label)
+	default:
+		return fmt.Sprintf("Поднял на %s (%s).", label, reason)
+	}
 }
 
 // shouldBypassSticky drops a weak session sticky when the new turn looks hard or /pro.

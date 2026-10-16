@@ -143,12 +143,14 @@ func (c *Client) setAppHeaders(req *http.Request) {
 	req.Header.Set("X-Title", AppTitle) // legacy alias still accepted
 }
 
-// ListModels calls GET /models (optionally filtered to tool-capable ids).
+// ListModels calls GET /models. The whole catalogue is fetched (not only
+// tool-capable ids): Settings groups it by category, and non-coding models are
+// exactly the ones the UI has to warn about. Tools support is read per model.
 func (c *Client) ListModels(ctx context.Context) ([]ModelInfo, error) {
 	if c.apiKey == "" {
 		return nil, fmt.Errorf("openrouter: api key is empty")
 	}
-	url := c.baseURL + "/models?supported_parameters=tools"
+	url := c.baseURL + "/models"
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err

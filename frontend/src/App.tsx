@@ -638,20 +638,100 @@ function catalogNoteKey(providerId: string): string {
 type ProviderCatalog = {
   ids: string[]
   labels: Record<string, string>
+  categories: Record<string, string>
+  tools: Record<string, boolean>
+  groups: CatalogGroup[]
   source: string
   error: string
 }
 
-function readCatalog(res: {models?: {id?: string; label?: string}[] | null; source?: string; error?: string} | null | undefined): ProviderCatalog {
+/** CatalogGroup is one category bucket from the provider (OpenRouter). */
+type CatalogGroup = {
+  category: string
+  label: string
+  models: string[]
+}
+
+function readCatalog(res: {
+  models?: {id?: string; label?: string; category?: string; tools?: boolean}[] | null
+  groups?: {category?: string; label?: string; models?: string[]}[] | null
+  source?: string
+  error?: string
+} | null | undefined): ProviderCatalog {
   const ids: string[] = []
   const labels: Record<string, string> = {}
+  const categories: Record<string, string> = {}
+  const tools: Record<string, boolean> = {}
   for (const row of asList(res?.models)) {
     const id = String(row?.id || '').trim()
     if (!id || ids.includes(id)) continue
     ids.push(id)
     labels[id] = String(row?.label || '').trim() || id
+    const cat = String(row?.category || '').trim()
+    if (cat) categories[id] = cat
+    tools[id] = Boolean(row?.tools)
   }
-  return {ids, labels, source: String(res?.source || ''), error: String(res?.error || '')}
+  const groups: CatalogGroup[] = []
+  for (const g of asList(res?.groups)) {
+    const category = String(g?.category || '').trim()
+    const models = asList(g?.models).map((m) => String(m || '').trim()).filter(Boolean)
+    if (!category || models.length === 0) continue
+    groups.push({category, label: String(g?.label || '').trim() || category, models})
+  }
+  return {ids, labels, categories, tools, groups, source: String(res?.source || ''), error: String(res?.error || '')}
+}
+
+/** CATEGORY_LABEL_RU mirrors the server-side labels for chat warnings. */
+const CATEGORY_LABEL_RU: Record<string, string> = {
+  coding: 'Кодинг',
+  reasoning: 'Рассуждения',
+  general: 'Общие чаты',
+  image: 'Картинки',
+  audio: 'Аудио',
+  video: 'Видео',
+  other: 'Прочее',
+}
+
+/** IMAGE_REQUEST_RE spots «нарисуй картинку» style asks in RU/EN. */
+const IMAGE_REQUEST_RE =
+  /(нарису|сгенерируй\s+(?:картин|изображ|график|постер|иллюстрац)|сделай\s+(?:картин|изображ)|картинк|изображение|иллюстрац|\bdraw\b|\bimage\s+of\b|generate\s+an?\s+image|\bmidjourney\b|\bflux\b)/i
+
+/**
+ * modelFitWarning explains, in one line, why the picked OpenRouter model is a bad
+ * fit for the work at hand — or returns '' when there is nothing to warn about.
+ * The project runs a coding agent, so a non-coding model is only worth keeping
+ * when the user deliberately wants it (the list shows them, grouped).
+ */
+function modelFitWarning(
+  id: string,
+  category: string,
+  toolsOK: boolean,
+  userText: string,
+): string {
+  const model = id.trim()
+  if (!model) return ''
+  const cat = category || 'general'
+  const looksLikeImage = IMAGE_REQUEST_RE.test(userText)
+  const parts: string[] = []
+  if (cat === 'image' || cat === 'audio' || cat === 'video') {
+    const label = CATEGORY_LABEL_RU[cat] || cat
+    parts.push(
+      `«${label}» — эта модель работает с медиа и не подходит для кодинга: агент не сможет править файлы и запускать команды.`,
+    )
+  } else if (!toolsOK) {
+    parts.push('Модель не поддерживает tool calling — агент (файлы, команды, граф) на ней не заработает.')
+  } else if (cat !== 'coding' && cat !== 'reasoning') {
+    parts.push(
+      `Категория «${CATEGORY_LABEL_RU[cat] || cat}» — для кодинга лучше модель из группы «Кодинг»: она точнее на правках и дешевле на длинных прогонах.`,
+    )
+  }
+  if (looksLikeImage && cat !== 'image' && cat !== 'video') {
+    parts.push(
+      'По запросу похоже, что нужна генерация картинки — текстом её не сделать, нужна модель из группы «Картинки».',
+    )
+  }
+  if (parts.length === 0) return ''
+  return `⚠ ${model}: ${parts.join(' ')}`
 }
 
 // joinProjectPath renders "parent/name" for the create-project preview, using
@@ -1873,6 +1953,12 @@ export default function App() {
   const [zaiEndpoint, setZaiEndpoint] = useState<ZaiEndpointId>('paas')
   const [zaiModels, setZaiModels] = useState<string[]>([...ZAI_MODELS_FALLBACK])
   const [openrouterModels, setOpenrouterModels] = useState<string[]>([...OPENROUTER_MODELS_FALLBACK])
+  // Category buckets from the provider catalog (OpenRouter): the Settings list
+  // renders them as optgroups, and the filter narrows the list to one group.
+  const [openrouterGroups, setOpenrouterGroups] = useState<CatalogGroup[]>([])
+  const [openrouterTools, setOpenrouterTools] = useState<Record<string, boolean>>({})
+  const [openrouterCategories, setOpenrouterCategories] = useState<Record<string, string>>({})
+  const [orCategoryFilter, setOrCategoryFilter] = useState<string>('all')
   const [qwenModels, setQwenModels] = useState<string[]>([...QWEN_MODELS_FALLBACK])
   const [yandexModels, setYandexModels] = useState<string[]>([...YANDEX_MODELS_FALLBACK])
   const [zaiBalance, setZaiBalance] = useState<{ok: boolean; availableUsd: number; detail: string; source: string} | null>(null)
@@ -2739,11 +2825,23 @@ export default function App() {
     }
     refreshPeak()
     const peakTimer = window.setInterval(refreshPeak, 60_000)
-    // Баланс DeepSeek обновляем периодически: раньше он брался только на старте,
+    // Баланс обновляем периодически: раньше он брался только на старте,
     // при смене провайдера и по Test connect/Refresh balance — и красный
     // «topup < $1» мог не успеть появиться во время долгой сессии.
+    // Провайдеры с API остатка: DeepSeek, OpenRouter, Z.ai — опрашиваем тот,
+    // что выбран сейчас, чтобы не тратить лишние запросы.
     const balTimer = window.setInterval(() => {
-      if (activeProviderRef.current === 'deepseek') void refreshDeepSeekBalance()
+      switch (activeProviderRef.current) {
+        case 'deepseek':
+          void refreshDeepSeekBalance()
+          break
+        case 'openrouter':
+          void refreshOpenRouterBalance()
+          break
+        case 'zai':
+          void refreshZaiBalance()
+          break
+      }
     }, 5 * 60_000)
     try {
       AppInfo().then((v) => setInfo(v as typeof info)).catch(() => undefined)
@@ -4405,6 +4503,9 @@ export default function App() {
       if (opts?.notify) notifyModelsToChat('openrouter', note, cat.ids)
       if (cat.ids.length === 0) return cat.ids
       setOpenrouterModels(cat.ids)
+      setOpenrouterGroups(cat.groups)
+      setOpenrouterTools(cat.tools)
+      setOpenrouterCategories(cat.categories)
       if (opts?.applyPreferred) {
         let next = ''
         try {
@@ -5016,6 +5117,18 @@ export default function App() {
     if (!text && atts.length === 0) return
     setInput('', sid)
     setPendingAtts([], sid)
+    // Предупреждаем о несоответствии модели задаче до отправки: агент — для кода,
+    // а «нарисуй картинку» на кодинг-модели не сработает.
+    if (activeProviderRef.current === 'openrouter') {
+      const cat = openrouterCategories[openrouterModel] || 'coding'
+      const warn = modelFitWarning(
+        openrouterModel,
+        cat,
+        openrouterTools[openrouterModel] ?? true,
+        text,
+      )
+      if (warn) setSessionItems(sid, (m) => [...m, {kind: 'system', content: warn}])
+    }
     const res = await runAgent(sid, text, atts)
     if (res === 'busy' || res === 'invalid') {
       // Пока чат занят, новый вопрос ждёт в очереди. На 'error' вопрос уже в
@@ -6308,9 +6421,20 @@ export default function App() {
                   Endpoint: <code>https://openrouter.ai/api/v1</code>.
                 </p>
                 <label>
+                  Категория
+                  <select value={orCategoryFilter} onChange={(e) => setOrCategoryFilter(e.target.value)}>
+                    <option value="all">Все категории</option>
+                    {openrouterGroups.map((g) => (
+                      <option key={g.category} value={g.category}>
+                        {g.label} ({g.models.length})
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
                   Model
                   <select
-                    value={openrouterModels.includes(openrouterModel) ? openrouterModel : openrouterModel}
+                    value={openrouterModel}
                     onChange={(e) => {
                       const next = e.target.value
                       setOpenrouterModel(next)
@@ -6321,11 +6445,44 @@ export default function App() {
                       void SaveOpenRouterModel(next)
                     }}
                   >
-                    {modelOptions(openrouterModels, openrouterModel).map((m) => (
-                      <option key={m} value={m}>{m}</option>
-                    ))}
+                    {openrouterGroups.length > 0
+                      ? (() => {
+                          const groups = openrouterGroups
+                            .filter((g) => orCategoryFilter === 'all' || g.category === orCategoryFilter)
+                            .map((g) => ({...g, models: g.models.filter((m) => openrouterModels.includes(m))}))
+                            .filter((g) => g.models.length > 0)
+                          const selectedListed = groups.some((g) => g.models.includes(openrouterModel))
+                          return (
+                            <>
+                              {!selectedListed && openrouterModel ? (
+                                <optgroup label="Выбрано сейчас">
+                                  <option value={openrouterModel}>{openrouterModel}</option>
+                                </optgroup>
+                              ) : null}
+                              {groups.map((g) => (
+                                <optgroup key={g.category} label={g.label}>
+                                  {g.models.map((m) => (
+                                    <option key={m} value={m}>{m}</option>
+                                  ))}
+                                </optgroup>
+                              ))}
+                            </>
+                          )
+                        })()
+                      : modelOptions(openrouterModels, openrouterModel).map((m) => (
+                          <option key={m} value={m}>{m}</option>
+                        ))}
                   </select>
                 </label>
+                {(() => {
+                  const warn = modelFitWarning(
+                    openrouterModel,
+                    openrouterCategories[openrouterModel] || 'coding',
+                    openrouterTools[openrouterModel] ?? true,
+                    '',
+                  )
+                  return warn ? <p className="nc-help">{warn}</p> : null
+                })()}
                 <label>
                   Custom model id
                   <input
@@ -6352,8 +6509,9 @@ export default function App() {
                   </p>
                 )}
                 <p className="nc-help">
-                  Для агента нужны модели с tool calling (qwen3-coder*).{' '}
-                  <code>qwen/qwen-2.5-coder-32b-instruct</code> сейчас без tools — не для agent loop.
+                  Список из API сгруппирован по категориям (Кодинг / Рассуждения / Общие чаты / Картинки /
+                  Аудио / Видео). Для агента нужны модели с tool calling — обычно это группа «Кодинг»;
+                  медиа-модели в списке только для полноты, работать агентом они не могут.
                   Стоимость берём из <code>usage.cost</code> ответа OpenRouter, когда есть.
                 </p>
                 <label>
