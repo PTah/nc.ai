@@ -416,14 +416,6 @@ textarea { resize: none; }
 @keyframes nc-spin {
   to { transform: rotate(360deg); }
 }
-/* Система просит не анимировать. Вращение убираем, но индикатор работы обязан
-   оставаться заметным: раньше кольцо становилось ровным замкнутым кругом, и
-   «идёт работа» читалось как «ничего не происходит». Вместо вращения — медленное
-   затухание (без поворота, без вестибулярного раздражителя) и цвет акцента. */
-@keyframes nc-work-pulse {
-  0%, 100% { opacity: 0.25; }
-  50% { opacity: 1; }
-}
 /* Галочка «работа завершена» в названии чата. */
 .nc-done {
   display: inline-block;
@@ -471,12 +463,15 @@ textarea { resize: none; }
 .nc-rules-list li {
   margin: 2px 0;
 }
+/* Система просит не анимировать (Windows «Эффекты анимации» выкл.). Вращение всё
+   равно оставляем: без него кольцо с разрывом замирает на одном месте и выглядит
+   как «зависший на полпути» индикатор, а не как идущая работа. Компромисс —
+   вращаем вдвое медленнее и красим в акцент, чтобы кольцо читалось живым. */
 @media (prefers-reduced-motion: reduce) {
   .nc-spin {
-    border-width: 2.5px;
     border-color: var(--accent, currentColor);
     border-top-color: transparent;
-    animation: nc-work-pulse 1.4s ease-in-out infinite;
+    animation: nc-spin 1.6s linear infinite;
   }
 }
 .nc-title { font-weight: 700; font-size: 0.95rem; }
