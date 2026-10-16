@@ -303,6 +303,11 @@ func (a *App) LocalBuildHash() string {
 // InstallUpdate скачивает и ставит обновление, после чего завершает приложение:
 // подмену файлов и перезапуск делает отдельный процесс-подменщик, поэтому
 // приложению обязательно надо выйти (иначе exe/.app останутся занятыми).
+//
+// Установка завершает приложение, а прогон агента живёт в этом же процессе:
+// обновление во время работы обрывало его и теряло уже сгенерированный, но ещё
+// не сохранённый ответ (в чате оставались только системные строки). Поэтому при
+// живом прогоне установку не запускаем, а просим дождаться конца или нажать «Стоп».
 func (a *App) InstallUpdate() error {
 	info, ok := a.cachedUpdate()
 	if !ok {
@@ -313,6 +318,12 @@ func (a *App) InstallUpdate() error {
 			return fmt.Errorf("не удалось проверить обновления (%s). Проверьте связь с GitHub или скачайте файл вручную: %s", info.Error, update.ReleasePage)
 		}
 		return fmt.Errorf("обновлений нет — установлена последняя версия (%s)", info.Current)
+	}
+	if busy := a.runningSessions(); len(busy) > 0 {
+		return fmt.Errorf(
+			"идёт прогон (%d шт.) — обновление остановит приложение, а вместе с ним и прогон: ответ будет потерян. Дождитесь завершения или нажмите «Стоп», затем повторите",
+			len(busy),
+		)
 	}
 	stage, err := update.Install(a.ctx, info, func(done, total int64) {
 		runtime.EventsEmit(a.ctx, "update:progress", map[string]any{"done": done, "total": total})
@@ -330,6 +341,22 @@ func (a *App) InstallUpdate() error {
 		runtime.Quit(a.ctx)
 	}()
 	return nil
+}
+
+// runningSessions returns the ids of sessions that have a live agent run right now.
+func (a *App) runningSessions() []string {
+	if a == nil {
+		return nil
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	out := make([]string, 0, len(a.activeRuns))
+	for sid, n := range a.activeRuns {
+		if n > 0 {
+			out = append(out, sid)
+		}
+	}
+	return out
 }
 
 // applyDeepSeekStartupDefaults: DeepSeek → flash model + Auto-Models on.

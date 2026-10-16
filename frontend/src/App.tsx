@@ -5862,9 +5862,18 @@ export default function App() {
                             updateInfo.assetSize ? `; скачать ${fmtBytes(Number(updateInfo.assetSize))}` : ''
                           }).`}
                   {updateError ? ` ${updateError}` : ''}
+                  {updatePhase === 'idle' && anyRunActive
+                    ? ' Идёт прогон: обновление остановит приложение и потеряет ответ — дождитесь конца или нажмите «Стоп».'
+                    : ''}
                 </span>
                 {updatePhase === 'idle' && (
-                  <button type="button" className="nc-ghost nc-update-btn" onClick={() => void startUpdate()}>
+                  <button
+                    type="button"
+                    className="nc-ghost nc-update-btn"
+                    disabled={anyRunActive}
+                    title={anyRunActive ? 'Идёт прогон — обновление оборвёт его и потеряет ответ' : undefined}
+                    onClick={() => void startUpdate()}
+                  >
                     {updateInfo.assetFound ? 'Скачать и перезапустить' : 'Открыть релиз'}
                   </button>
                 )}

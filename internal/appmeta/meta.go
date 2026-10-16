@@ -57,18 +57,18 @@ func retiredAt(at time.Time, now time.Time) bool {
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
-	"Замок проекта стал цветным: закрытый — красный, открытый — зелёный, с бликом на корпусе; при наведении закрытый подрагивает, открытый качает дужкой",
-	"Индикаторы двигаются даже в RDP-сессии: раньше системный флаг reduced-motion (в RDP его ставит Windows) выключал вращение кольца и анимацию замка",
-	"Финальный ответ в конце длинного прогона больше не обрывается на полуслове",
-	"Вопрос от агента из другого проекта или чата сам открывает нужный проект и чат",
+	"Обновление больше не обрывает прогон: пока идёт работа, кнопка «Скачать и перезапустить» заблокирована — раньше установка убивала прогон и теряла несохранённый ответ",
+	"Замок проекта стал цветным: закрытый — красный, открытый — зелёный, с бликом; при наведении закрытый подрагивает, открытый качает дужкой",
+	"Индикаторы двигаются даже в RDP-сессии: системный флаг reduced-motion больше не выключает вращение кольца и анимацию замка",
+	"Финальный ответ в конце длинного прогона больше не обрывается на полуслове — этот путь тоже распознаёт обрыв",
 	"Рабочее пространство из нескольких папок и multitask (запросы идут параллельно) — на месте",
 }
 
 var HighlightsEN = []string{
-	"The project lock is colourful now: red when locked, green when open, with a gloss on the body; on hover the locked one rattles, the open one swings its shackle",
-	"Indicators animate even in an RDP session: the system reduced-motion flag (set by Windows over RDP) used to kill the ring spin and the lock animation",
-	"The final answer at the end of a long run no longer stops mid-sentence",
-	"A question from the agent in another project or chat opens that project and chat itself",
+	"An update no longer kills a run: while work is in progress the \"Download and restart\" button is disabled — installing used to abort the run and lose the unsaved answer",
+	"The project lock is colourful now: red when locked, green when open, with a gloss; on hover the locked one rattles, the open one swings its shackle",
+	"Indicators animate even in an RDP session: the system reduced-motion flag no longer kills the ring spin and the lock animation",
+	"The final answer at the end of a long run no longer stops mid-sentence — that path detects a cut-off too",
 	"Multi-folder workspace and Multitask (requests run in parallel) stay in place",
 }
 
