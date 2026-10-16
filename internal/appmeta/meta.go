@@ -11,7 +11,7 @@ import "time"
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "0.8.7.5"
+	Version = "0.8.7.6"
 )
 
 // DeepSeekProRetireRFC3339 is the announced V4 Pro retirement instant, empty
@@ -57,18 +57,18 @@ func retiredAt(at time.Time, now time.Time) bool {
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
-	"Индикатор «идёт работа» видно и без анимации: при выключенных эффектах Windows кольцо у проекта пульсирует, а имя проекта помечено акцентом",
+	"Замок проекта — аккуратные SVG-иконки вместо эмодзи: закрытый виден всегда, пока проект на замке, открытый — по наведению; цвет берётся из темы",
+	"Индикатор «идёт работа» видно и без анимации: кольцо пульсирует, имя проекта акцентировано",
 	"Финальный ответ в конце длинного прогона больше не обрывается на полуслове",
 	"Вопрос от агента из другого проекта или чата сам открывает нужный проект и чат",
-	"OpenRouter: список моделей сверяется с живым каталогом, сложные прогоны идут на qwen3-coder-next",
 	"Рабочее пространство из нескольких папок и multitask (запросы идут параллельно) — на месте",
 }
 
 var HighlightsEN = []string{
-	"The \"work in progress\" marker is visible without animation too: with Windows effects off the project ring pulses, and the project name is accented",
+	"The project lock is a crisp SVG icon now instead of an emoji: the closed lock stays visible while the project is locked, the open one shows on hover, and the colour follows the theme",
+	"The \"work in progress\" marker is visible without animation too: the ring pulses, the project name is accented",
 	"The final answer at the end of a long run no longer stops mid-sentence",
 	"A question from the agent in another project or chat opens that project and chat itself",
-	"OpenRouter: the model list is checked against the live catalog, complex runs go to qwen3-coder-next",
 	"Multi-folder workspace and Multitask (requests run in parallel) stay in place",
 }
 

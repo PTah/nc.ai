@@ -1706,7 +1706,12 @@ mark.nc-find-mark.nc-find-current {
   opacity: 0;
 }
 .nc-projects .nc-list li:hover .nc-project-lock {
-  opacity: 0.6;
+  opacity: 0.8;
+}
+.nc-projects .nc-list li .nc-project-lock svg {
+  display: block;
+  width: 13px;
+  height: 13px;
 }
 .nc-projects .nc-list li .nc-project-lock.on {
   opacity: 1;
@@ -1733,6 +1738,13 @@ mark.nc-find-mark.nc-find-current {
 }
 .nc-locked-banner button {
   margin-left: auto;
+}
+/* Замок в баннере — тем же янтарным, что и рамка предупреждения. */
+.nc-locked-banner svg {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  color: #d08a00;
 }
 
 /* Restart notice: why the app (re)started (update / unclean exit). */

@@ -157,6 +157,7 @@ import {EventsOn, EventsOff, ClipboardSetText, BrowserOpenURL, Quit} from '../wa
 import BrandMark from './BrandMark'
 import Markdown from './Markdown'
 import ProjectIcon from './ProjectIcon'
+import LockIcon from './LockIcon'
 import {applyChatFindMarks, clearChatFindMarks, focusChatFindHit, type ChatFindHit} from './chatFind'
 import {fmtDate, fmtDateTime} from './datetime'
 
@@ -5660,7 +5661,7 @@ export default function App() {
                     void toggleProjectLock(p.path, !p.locked)
                   }}
                 >
-                  {p.locked ? '🔒' : '🔓'}
+                  <LockIcon locked={Boolean(p.locked)} />
                 </button>
                 <button
                   type="button"
@@ -6231,7 +6232,8 @@ export default function App() {
               )}
               {active?.locked && (
                 <div className="nc-locked-banner" role="status">
-                  <span>🔒 Проект «{active.name}» на замке — отправка сообщений и запуск агента запрещены.</span>
+                  <LockIcon locked />
+                  <span>Проект «{active.name}» на замке — отправка сообщений и запуск агента запрещены.</span>
                   <button type="button" className="nc-ghost" onClick={() => void toggleProjectLock(active.path, false)}>Снять замок</button>
                 </div>
               )}
