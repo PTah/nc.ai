@@ -11,7 +11,7 @@ import "time"
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "0.8.7.6"
+	Version = "0.8.7.7"
 )
 
 // DeepSeekProRetireRFC3339 is the announced V4 Pro retirement instant, empty
@@ -57,7 +57,7 @@ func retiredAt(at time.Time, now time.Time) bool {
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
-	"Замок проекта — аккуратные SVG-иконки вместо эмодзи: закрытый виден всегда, пока проект на замке, открытый — по наведению; цвет берётся из темы",
+	"Замок проекта стал цветным: закрытый — красный, открытый — зелёный, с бликом на корпусе; при наведении закрытый подрагивает, открытый качает дужкой",
 	"Индикатор «идёт работа» видно и без анимации: кольцо пульсирует, имя проекта акцентировано",
 	"Финальный ответ в конце длинного прогона больше не обрывается на полуслове",
 	"Вопрос от агента из другого проекта или чата сам открывает нужный проект и чат",
@@ -65,7 +65,7 @@ var HighlightsRU = []string{
 }
 
 var HighlightsEN = []string{
-	"The project lock is a crisp SVG icon now instead of an emoji: the closed lock stays visible while the project is locked, the open one shows on hover, and the colour follows the theme",
+	"The project lock is colourful now: red when locked, green when open, with a gloss on the body; on hover the locked one rattles, the open one swings its shackle",
 	"The \"work in progress\" marker is visible without animation too: the ring pulses, the project name is accented",
 	"The final answer at the end of a long run no longer stops mid-sentence",
 	"A question from the agent in another project or chat opens that project and chat itself",
