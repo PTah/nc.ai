@@ -1,3 +1,4 @@
+<!-- Edited by nc.ai 0.8.7.1 on Papasha 2026-10-16 16:32:24 -->
 # OpenRouter — протокол обмена
 
 **Docs:** https://openrouter.ai/docs/api_reference/overview  
@@ -45,9 +46,15 @@ X-Title: NotCursor.ai   # legacy alias, still accepted
 | Model id | Назначение |
 |---|---|
 | `qwen/qwen3-coder-flash:floor` | дефолт / Auto default |
-| `qwen/qwen3-coder:floor` | Auto complex / long-run |
+| `qwen/qwen3-coder-next` | Auto complex / long-run (и цель эскалации) |
 | `qwen/qwen3-vl-8b-instruct` | vision |
-| `qwen/qwen3-coder-plus`, `…-next`, `…-30b-a3b-instruct` | ручной выбор |
+| `qwen/qwen3-coder`, `qwen/qwen3-coder-30b-a3b-instruct` | ручной выбор |
+
+`:floor` — самый дешёвый апстрим, а не самый надёжный: на дефолте это экономия,
+для сложных прогонов сильная модель берётся без суффикса.
+
+Курированный список сверяется с `GET /models`: id, которого в каталоге больше нет
+(например, снятый `qwen/qwen3-coder-plus`) или у которого нет `tools`, в список не попадает.
 
 `qwen/qwen-2.5-coder-32b-instruct` **без tools** — не для agent loop.
 

@@ -104,12 +104,11 @@ func Catalog() []ModelPrice {
 // catalog has been read (or when the provider is used without a key).
 func openRouterStaticRows() []ModelPrice {
 	return []ModelPrice{
-		{Provider: "OpenRouter", Model: "qwen/qwen3-coder-next", InputUSD: 0.12, OutputUSD: 0.80, Strength: 14, Note: "mid-market; :floor may be cheaper"},
+		{Provider: "OpenRouter", Model: "qwen/qwen3-coder-next", InputUSD: 0.12, OutputUSD: 0.80, Strength: 28, Note: "Auto complex"},
 		{Provider: "OpenRouter", Model: "qwen/qwen3-coder-flash", InputUSD: 0.195, OutputUSD: 0.975, Strength: 16, Note: "Auto default"},
 		{Provider: "OpenRouter", Model: "qwen/qwen3-coder-30b-a3b-instruct", InputUSD: 0.07, OutputUSD: 0.28, Strength: 17},
 		{Provider: "OpenRouter", Model: "qwen/qwen3-vl-8b-instruct", InputUSD: 0.117, OutputUSD: 0.455, Strength: 19, Note: "vision"},
-		{Provider: "OpenRouter", Model: "qwen/qwen3-coder", InputUSD: 0.30, OutputUSD: 1.00, Strength: 28, Note: "Auto complex"},
-		{Provider: "OpenRouter", Model: "qwen/qwen3-coder-plus", InputUSD: 0.65, OutputUSD: 3.25, Strength: 42, Note: "strongest curated coder"},
+		{Provider: "OpenRouter", Model: "qwen/qwen3-coder", InputUSD: 0.30, OutputUSD: 1.00, Strength: 26, Note: "coder"},
 	}
 }
 

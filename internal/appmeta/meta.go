@@ -11,7 +11,7 @@ import "time"
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "0.8.7.1"
+	Version = "0.8.7.2"
 )
 
 // DeepSeekProRetireRFC3339 is the announced V4 Pro retirement instant, empty
@@ -57,18 +57,18 @@ func retiredAt(at time.Time, now time.Time) bool {
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
-	"Ответы больше не обрываются молча: обрыв на цифре, открытой скобке, кавычке или тире тоже распознаётся и дописывается",
-	"Стоимость шага OpenRouter считается и в потоке — отправляем stream_options.include_usage, как и было задумано",
-	"Остаток баланса OpenRouter и Z.ai обновляется сам раз в 5 минут, как у DeepSeek — красный «topup» виден без ручного Refresh",
-	"Каталог OpenRouter целиком: категории (Кодинг / Картинки / Аудио / Видео…) с фильтром и предупреждениями о неверной модели",
+	"OpenRouter: список моделей сверяется с живым каталогом — снятые модели (qwen3-coder-plus и подобные) больше не предлагаются",
+	"OpenRouter: сложные и длинные прогоны идут на qwen3-coder-next — она дешевле flash и крепче в tool calling",
+	"Ответы больше не обрываются молча: обрыв на цифре, скобке, кавычке или тире распознаётся и дописывается",
+	"Стоимость шага OpenRouter считается и в потоке; баланс OpenRouter и Z.ai обновляется сам раз в 5 минут",
 	"Рабочее пространство из нескольких папок и multitask (запросы идут параллельно) — на месте",
 }
 
 var HighlightsEN = []string{
-	"Answers no longer get cut off silently: a digit, open bracket, quote or dash at the end is now detected and continued",
-	"OpenRouter step cost is now counted in streaming — stream_options.include_usage is sent, as designed",
-	"OpenRouter and Z.ai balances refresh on their own every 5 minutes, like DeepSeek — the red \"topup\" shows up without a manual Refresh",
-	"The whole OpenRouter catalog is listed: categories (Coding / Images / Audio / Video…) with a filter and wrong-model warnings",
+	"OpenRouter: the model list is checked against the live catalog — retired models (qwen3-coder-plus and friends) are no longer offered",
+	"OpenRouter: complex and long runs go to qwen3-coder-next — cheaper than flash and stronger at tool calling",
+	"Answers no longer get cut off silently: a digit, bracket, quote or dash at the end is detected and continued",
+	"OpenRouter step cost is counted in streaming too; OpenRouter and Z.ai balances refresh on their own every 5 minutes",
 	"Multi-folder workspace and Multitask (requests run in parallel) stay in place",
 }
 

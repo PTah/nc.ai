@@ -22,8 +22,10 @@ const (
 	DefaultBaseURL = "https://openrouter.ai/api/v1"
 	// DefaultModel is a cheap coding model with tool calling (:floor → lowest price).
 	DefaultModel = "qwen/qwen3-coder-flash:floor"
-	// StrongModel for Auto-models complex / long agent runs.
-	StrongModel = "qwen/qwen3-coder:floor"
+	// StrongModel for Auto-models complex / long agent runs. No :floor here: that
+	// suffix picks the cheapest upstream, and cheap upstreams are exactly where
+	// tool calling gets flaky.
+	StrongModel = "qwen/qwen3-coder-next"
 	// VisionModel for multimodal turns (tools + vision).
 	VisionModel = "qwen/qwen3-vl-8b-instruct"
 
@@ -33,19 +35,21 @@ const (
 
 // CuratedModels are coding / agent-oriented defaults shown when /models is unavailable.
 // Prefer models that advertise tools support; :floor picks the cheapest live provider.
+//
+// Keep only ids that exist in GET /models and support tools: the list is prepended
+// to the live catalog, so a dead id here would stay selectable forever (that is how
+// qwen/qwen3-coder-plus and qwen3-vl-32b-instruct hung around after OpenRouter
+// dropped them). Catalog() re-checks every entry against the live answer anyway.
 var CuratedModels = []string{
 	"qwen/qwen3-coder-flash",
 	"qwen/qwen3-coder-flash:floor",
-	"qwen/qwen3-coder-30b-a3b-instruct",
-	"qwen/qwen3-coder-30b-a3b-instruct:floor",
-	"qwen/qwen3-coder",
-	"qwen/qwen3-coder:floor",
-	"qwen/qwen3-coder-plus",
-	"qwen/qwen3-coder-plus:floor",
 	"qwen/qwen3-coder-next",
 	"qwen/qwen3-coder-next:floor",
+	"qwen/qwen3-coder",
+	"qwen/qwen3-coder:floor",
+	"qwen/qwen3-coder-30b-a3b-instruct",
+	"qwen/qwen3-coder-30b-a3b-instruct:floor",
 	"qwen/qwen3-vl-8b-instruct",
-	"qwen/qwen3-vl-32b-instruct",
 }
 
 // Client talks to OpenRouter OpenAI-compatible Chat Completions API.
