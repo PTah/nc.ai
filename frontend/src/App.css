@@ -416,6 +416,14 @@ textarea { resize: none; }
 @keyframes nc-spin {
   to { transform: rotate(360deg); }
 }
+/* Система просит не анимировать. Вращение убираем, но индикатор работы обязан
+   оставаться заметным: раньше кольцо становилось ровным замкнутым кругом, и
+   «идёт работа» читалось как «ничего не происходит». Вместо вращения — медленное
+   затухание (без поворота, без вестибулярного раздражителя) и цвет акцента. */
+@keyframes nc-work-pulse {
+  0%, 100% { opacity: 0.25; }
+  50% { opacity: 1; }
+}
 /* Галочка «работа завершена» в названии чата. */
 .nc-done {
   display: inline-block;
@@ -464,7 +472,12 @@ textarea { resize: none; }
   margin: 2px 0;
 }
 @media (prefers-reduced-motion: reduce) {
-  .nc-spin { animation: none; border-top-color: currentColor; }
+  .nc-spin {
+    border-width: 2.5px;
+    border-color: var(--accent, currentColor);
+    border-top-color: transparent;
+    animation: nc-work-pulse 1.4s ease-in-out infinite;
+  }
 }
 .nc-title { font-weight: 700; font-size: 0.95rem; }
 .nc-sub, .nc-muted { color: var(--muted); font-size: 0.75rem; }
@@ -1230,6 +1243,12 @@ mark.nc-find-mark.nc-find-current {
    «думающий» проект было видно и с открытым другим проектом (см. isProjectRunning). */
 .nc-list li .nc-project-btn.busy {
   border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+/* Имя работающего проекта — акцентом: работа должна читаться даже без анимации
+   (у кого включено «не анимировать») и даже если кольцо не бросилось в глаза. */
+.nc-list li .nc-project-btn.busy .nc-project-name {
+  color: var(--accent);
+  font-weight: 600;
 }
 .nc-projects-foot {
   display: flex;
