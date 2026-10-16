@@ -11,7 +11,7 @@ import "time"
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "0.8.6.4"
+	Version = "0.8.7.0"
 )
 
 // DeepSeekProRetireRFC3339 is the announced V4 Pro retirement instant, empty
@@ -57,18 +57,18 @@ func retiredAt(at time.Time, now time.Time) bool {
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
-	"«Refresh models» показывает «Обновление…», а результат опроса — список моделей — пишется прямо в чат",
-	"Model prices: у OpenRouter цены на все модели из списка провайдера, а не только на курированные",
-	"Клик по проекту сразу ставит курсор в поле ввода — можно сразу печатать запрос",
-	"MCP-граф доступен с первого шага; старт, стоп и ошибки серверов пишутся в agent.log",
+	"Остаток баланса OpenRouter и Z.ai обновляется сам раз в 5 минут, как у DeepSeek — красный «topup» виден без ручного Refresh",
+	"Каталог OpenRouter теперь весь: список моделей разбит по категориям (Кодинг / Рассуждения / Общие чаты / Картинки / Аудио / Видео) с фильтром по группе",
+	"Приложение предупреждает, если модель не для кода: медиа-модель, отсутствие tool calling или запрос «нарисуй картинку» на кодинг-модели",
+	"Эскалация на сильную модель при затыке работает не только у DeepSeek: у OpenRouter, Z.ai, Qwen и Yandex тоже",
 	"Рабочее пространство из нескольких папок и multitask (запросы идут параллельно) — на месте",
 }
 
 var HighlightsEN = []string{
-	"\"Refresh models\" shows \"Updating…\" and the poll result — the model list — lands in the chat",
-	"Model prices: OpenRouter now lists rates for every model in the provider catalog, not just the curated ones",
-	"Clicking a project drops the cursor right into the input, ready to type",
-	"The MCP graph is available from the first step; server start, stop and errors go to agent.log",
+	"OpenRouter and Z.ai balances refresh on their own every 5 minutes, like DeepSeek — the red \"topup\" shows up without a manual Refresh",
+	"The whole OpenRouter catalog is listed now: models are grouped by category (Coding / Reasoning / General / Images / Audio / Video) with a per-group filter",
+	"The app warns when the model is wrong for the job: a media model, no tool calling, or \"draw a picture\" asked of a coding model",
+	"Mid-run escalation to a stronger model is no longer DeepSeek-only: OpenRouter, Z.ai, Qwen and Yandex escalate too",
 	"Multi-folder workspace and Multitask (requests run in parallel) stay in place",
 }
 

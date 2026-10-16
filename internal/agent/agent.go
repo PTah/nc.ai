@@ -1,4 +1,5 @@
 // Edited by nc.ai 0.8.3.3 on new-admin-pc 2026-10-12 10:06:16
+// Edited by nc.ai 0.8.6.4 on Papasha 2026-10-16 15:44:03
 package agent
 
 import (
@@ -977,7 +978,7 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 	go prog.heartbeat(ctx, emit)
 	emit(Event{Type: "progress", Content: prog.payload("start")})
 	if r.ForcePro && r.escalateEnabled() {
-		emit(Event{Type: "notice", Content: escalateNotice("user-pro")})
+		emit(Event{Type: "notice", Content: r.escalateNoticeRU("user-pro")})
 	}
 
 	// Watchdog «затыка»: шаг без признаков жизни дольше StallLimit обрывается,
@@ -1102,7 +1103,7 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 			}
 		}
 		if brokenToolJSON && r.escalateEnabled() && r.isWeakAutoModel(model) {
-			if r.bumpToStrong(emit, "escalate-invalid-tool", escalateNotice("escalate-invalid-tool")) {
+			if r.bumpToStrong(emit, "escalate-invalid-tool", r.escalateNoticeRU("escalate-invalid-tool")) {
 				if streamed {
 					emit(Event{Type: "delta_clear"})
 				}
@@ -1146,7 +1147,7 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 				watch.onPhase("tool", detail)
 			}
 			if esc.noteToolCalls(msg.ToolCalls) {
-				_ = r.bumpToStrong(emit, "escalate-dup-tool", escalateNotice("escalate-dup-tool"))
+				_ = r.bumpToStrong(emit, "escalate-dup-tool", r.escalateNoticeRU("escalate-dup-tool"))
 			}
 			outs, err := r.execTools(runCtx, msg.ToolCalls, emit)
 			if err != nil {
@@ -1157,7 +1158,7 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 				return messages, err
 			}
 			if esc.noteToolResults(outs) {
-				_ = r.bumpToStrong(emit, "escalate-tool-fail", escalateNotice("escalate-tool-fail"))
+				_ = r.bumpToStrong(emit, "escalate-tool-fail", r.escalateNoticeRU("escalate-tool-fail"))
 			}
 			messages = append(messages, outs...)
 			if rem := r.todoStaleReminder(msg.ToolCalls); rem != "" {
@@ -1221,7 +1222,7 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 					continue
 				}
 				if !escalateEmptyDone && r.escalateEnabled() && r.isWeakAutoModel(model) {
-					if r.bumpToStrong(emit, "escalate-empty", escalateNotice("escalate-empty")) {
+					if r.bumpToStrong(emit, "escalate-empty", r.escalateNoticeRU("escalate-empty")) {
 						escalateEmptyDone = true
 						if streamed {
 							emit(Event{Type: "delta_clear"})

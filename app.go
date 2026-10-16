@@ -2062,9 +2062,20 @@ func (a *App) ProbeLocalHealth() map[string]any {
 
 // ModelLabel is one selectable model: the id goes to the API, the label goes to
 // the UI (DeepSeek ids are opaque — "deepseek-flash" is V4.1 Flash).
+// Category/Tools are filled for providers with a big mixed catalogue (OpenRouter)
+// so the list can be grouped and the UI can warn about a mismatched pick.
 type ModelLabel struct {
-	ID    string `json:"id"`
-	Label string `json:"label"`
+	ID       string `json:"id"`
+	Label    string `json:"label"`
+	Category string `json:"category,omitempty"`
+	Tools    bool   `json:"tools,omitempty"`
+}
+
+// ModelGroup is one category bucket of a catalog, ready for the UI (optgroups).
+type ModelGroup struct {
+	Category string   `json:"category"`
+	Label    string   `json:"label"`
+	Models   []string `json:"models"`
 }
 
 // ModelCatalog is what Settings → "Refresh models" gets back: the selectable
@@ -2075,8 +2086,36 @@ type ModelLabel struct {
 // or "error" (the request failed and the built-in catalog is shown instead).
 type ModelCatalog struct {
 	Models []ModelLabel `json:"models"`
+	Groups []ModelGroup `json:"groups,omitempty"`
 	Source string       `json:"source"`
 	Error  string       `json:"error"`
+}
+
+// modelCatalogGroups builds the UI answer for a catalog that carries categories
+// (OpenRouter): ordered rows plus the same ids grouped per category.
+func modelCatalogGroups(catalog []openrouter.CatalogItem, source, errMsg string) ModelCatalog {
+	models := make([]ModelLabel, 0, len(catalog))
+	for _, it := range catalog {
+		id := strings.TrimSpace(it.ID)
+		if id == "" {
+			continue
+		}
+		models = append(models, ModelLabel{
+			ID:       id,
+			Label:    id,
+			Category: it.Category,
+			Tools:    it.Tools,
+		})
+	}
+	groups := make([]ModelGroup, 0, len(openrouter.CategoryOrder))
+	for _, g := range openrouter.GroupIDs(catalog) {
+		groups = append(groups, ModelGroup{
+			Category: g.Category,
+			Label:    openrouter.CategoryLabelRU(g.Category),
+			Models:   g.Models,
+		})
+	}
+	return ModelCatalog{Models: models, Groups: groups, Source: source, Error: errMsg}
 }
 
 // modelCatalog builds the UI answer for a provider. display maps an API id to a
@@ -2247,11 +2286,15 @@ func (a *App) GetZaiBalance() zai.AccountBalance {
 	return bal
 }
 
-// ListOpenRouterModels returns curated + coding tool models from OpenRouter.
+// ListOpenRouterModels returns the whole OpenRouter catalogue in the order and
+// grouping Settings shows it: curated agent models first, then the rest by
+// category (coding / reasoning / general / pictures / audio / video). Every row
+// carries its category and whether it supports tools, so the UI can group the
+// list and warn when the picked model does not fit the task.
 func (a *App) ListOpenRouterModels() ModelCatalog {
 	key := a.cfg.APIKey(config.ProviderOpenRouter)
 	if key == "" {
-		return modelCatalog(openrouter.OrderModels(openrouter.FallbackModels()), "no-key", "", nil)
+		return modelCatalogGroups(openrouter.Catalog(nil, 0), "no-key", "")
 	}
 	client := openrouter.New(key, a.cfg.Get().OpenRouterModel)
 	ctx := a.ctx
@@ -2263,14 +2306,18 @@ func (a *App) ListOpenRouterModels() ModelCatalog {
 	items, err := client.ListModels(ctx)
 	source, errMsg := catalogSource(err, len(items))
 	if source != "api" {
-		return modelCatalog(openrouter.OrderModels(openrouter.FallbackModels()), source, errMsg, nil)
+		return modelCatalogGroups(openrouter.Catalog(nil, 0), source, errMsg)
 	}
-	ids := openrouter.OrderModels(openrouter.MergeCurated(openrouter.FilterCodingModels(items, 40)))
+	catalog := openrouter.Catalog(items, 50)
+	ids := make([]string, 0, len(catalog))
+	for _, it := range catalog {
+		ids = append(ids, it.ID)
+	}
 	// Feed the selectable ids and their live prices into costing so the
 	// Model prices view lists every model the dropdown offers, not just the
 	// curated snapshot.
 	costing.SetOpenRouterCatalog(ids, openRouterPricesFrom(items))
-	return modelCatalog(ids, source, "", nil)
+	return modelCatalogGroups(catalog, source, "")
 }
 
 // openRouterPricesFrom converts the GET /models pricing into costing.Prices
