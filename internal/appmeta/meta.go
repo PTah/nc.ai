@@ -12,7 +12,7 @@ import "time"
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "0.8.7.8"
+	Version = "0.8.7.9"
 )
 
 // DeepSeekProRetireRFC3339 is the announced V4 Pro retirement instant, empty

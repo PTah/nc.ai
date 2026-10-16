@@ -1199,6 +1199,9 @@ func firstLineOf(s string, limit int) string {
 }
 
 func (a *App) logAgentLine(line string) {
+	// В лог пишем то же, что показываем в чате: пароли и логины из окна ввода
+	// не должны оседать ни в транскрипте, ни в agent.log.
+	line = redact.Display(line)
 	dir, err := os.UserConfigDir()
 	if err != nil {
 		return
@@ -3603,6 +3606,14 @@ func (a *App) RunAgentWithAttachments(userMessage string, attachments []agent.At
 // модели). Теперь проект определяется по самой сессии, а запуск без открытого
 // чата падает с внятной ошибкой вместо молчаливой подмены.
 func (a *App) RunAgentInSession(sessionID, runID, userMessage string, attachments []agent.Attachment) error {
+	// Логины и пароли, присланные в окне ввода, запоминаем: дальше они маскируются
+	// в отображаемом тексте, логах и транскрипте (модель по-прежнему получает
+	// оригинал). Инцидент 16.10.2026: пароль из чата уехал в переписку внутри
+	// команды, которую агент составил.
+	redact.Remember(redact.Secrets(userMessage)...)
+	for _, at := range attachments {
+		redact.Remember(redact.Secrets(at.Text)...)
+	}
 	if err := a.requireProviderReady(); err != nil {
 		return err
 	}

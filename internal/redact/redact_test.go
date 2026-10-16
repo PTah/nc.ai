@@ -1,3 +1,4 @@
+// Edited by nc.ai 0.8.7.7 on macbook 2026-10-16 22:51:13
 package redact
 
 import (
@@ -57,9 +58,9 @@ func TestDisplayMasksJSONToolArgs(t *testing.T) {
 
 func TestStringMasksURLCredsAndBasic(t *testing.T) {
 	cases := map[string]string{
-		"https://user:pass@example.com/repo":                            "https://***@example.com/repo",
-		"git clone https://papatramp:secret@git.papatramp.ru/x.git":     "git clone https://***@git.papatramp.ru/x.git",
-		"Authorization: Basic dXNlcjpwYXNz":                             "Authorization: Basic ***",
+		"https://user:pass@example.com/repo":                        "https://***@example.com/repo",
+		"git clone https://papatramp:secret@git.papatramp.ru/x.git": "git clone https://***@git.papatramp.ru/x.git",
+		"Authorization: Basic dXNlcjpwYXNz":                         "Authorization: Basic ***",
 	}
 	for in, want := range cases {
 		if got := String(in); got != want {
@@ -98,4 +99,71 @@ func containsAny(s string, needles ...string) bool {
 		}
 	}
 	return false
+}
+
+// resetRemembered нужен тестам: список значений общий для процесса.
+func resetRemembered() {
+	rememberMu.Lock()
+	defer rememberMu.Unlock()
+	remembered = nil
+	seenSecret = map[string]bool{}
+}
+
+func TestSecretsFromFreeFormMessage(t *testing.T) {
+	got := Secrets("логин vasya83 и пароль hunter2secret, внеси его в файл logins")
+	want := []string{"vasya83", "hunter2secret"}
+	if len(got) != len(want) {
+		t.Fatalf("Secrets = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("Secrets = %v, want %v", got, want)
+		}
+	}
+}
+
+func TestSecretsIgnoresPlainRussian(t *testing.T) {
+	if got := Secrets("внеси его в файл logins и добавь проверку бэкапов"); len(got) != 0 {
+		t.Fatalf("в обычной фразе нет секретов, а нашли %v", got)
+	}
+}
+
+// Главное требование: то, что пользователь прислал в окне ввода, не должно
+// появляться в переписке — даже если агент повторит значение без имени и флагов.
+func TestDisplayHidesValuesFromUserMessage(t *testing.T) {
+	resetRemembered()
+	defer resetRemembered()
+
+	msg := "логин vasya83 и пароль hunter2secret"
+	Remember(Secrets(msg)...)
+
+	if got := Display(msg); containsAny(got, "vasya83", "hunter2secret") {
+		t.Fatalf("сообщение пользователя показано без маски: %q", got)
+	}
+	cmd := `printf '%s\n' "192.168.1.10|22|vasya83|hunter2secret|home gitea" > ~/CursorRules/local/logins`
+	if got := Display(cmd); containsAny(got, "vasya83", "hunter2secret") {
+		t.Fatalf("значения из окна ввода уехали в команду: %q", got)
+	}
+	// Модель по-прежнему получает оригинал: String не трогает запомненное.
+	if got := String(cmd); !strings.Contains(got, "hunter2secret") {
+		t.Fatalf("String не должен маскировать значения для модели: %q", got)
+	}
+}
+
+func TestDisplayHidesJSONAndFlagValuesFromUserMessage(t *testing.T) {
+	resetRemembered()
+	defer resetRemembered()
+
+	Remember(Secrets(`{"user":"vasya83","password":"hunter2secret"}`)...)
+	Remember(Secrets("заходи с --password hunter2secret и логином vasya83")...)
+
+	for _, in := range []string{
+		"логин vasya83, пароль hunter2secret",
+		`curl -u vasya83:hunter2secret http://host/`,
+		"поля: vasya83 | hunter2secret",
+	} {
+		if got := Display(in); containsAny(got, "vasya83", "hunter2secret") {
+			t.Fatalf("Display leaked в %q -> %q", in, got)
+		}
+	}
 }
