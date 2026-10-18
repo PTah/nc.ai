@@ -8,6 +8,7 @@
 // Edited by nc.ai 0.8.7.7 on macbook 2026-10-16 22:21:22
 // Edited by nc.ai 0.8.7.7 on Papasha 2026-10-16 22:57:44
 // Edited by nc.ai 0.8.8.0 on macbook 2026-10-18 19:13:02
+// Edited by nc.ai 0.8.8.0 on new-admin-pc 2026-10-19 08:01:50
 import {FormEvent, MouseEvent as ReactMouseEvent, useCallback, useEffect, useRef, useState} from 'react'
 import {Terminal} from '@xterm/xterm'
 import {FitAddon} from '@xterm/addon-fit'
@@ -131,6 +132,7 @@ import {
   ResetNetworkStats,
   SaveShowTerminal,
   GetEndSound,
+  GetAskSound,
   SaveEndSound,
   GetProviderNews,
   MarkProviderNewsRead,
@@ -2024,6 +2026,7 @@ export default function App() {
   const [endSound, setEndSound] = useState(true)
   const endSoundRef = useRef(true)
   const chimeRef = useRef<HTMLAudioElement | null>(null)
+  const askSoundRef = useRef<HTMLAudioElement | null>(null)
   useEffect(() => {
     endSoundRef.current = endSound
   }, [endSound])
@@ -2451,6 +2454,37 @@ export default function App() {
       .catch(() => undefined)
     return () => { alive = false }
   }, [])
+
+  // Attention pop: a big soap bubble bursting. Played whenever the app asks a
+  // question — tool approval, an out-of-project change, ask_user, or the close
+  // confirmation — so a blocking prompt never waits silently in the background.
+  const playAskSound = useCallback(() => {
+    const audio = askSoundRef.current
+    if (!audio) return
+    try {
+      audio.currentTime = 0
+      void audio.play()?.catch(() => undefined)
+    } catch { /* автовоспроизведение запрещено — вопрос всё равно на экране */ }
+  }, [])
+
+  // Load the attention clip once (embedded in the binary, same as the chime).
+  useEffect(() => {
+    let alive = true
+    GetAskSound()
+      .then((url) => {
+        if (!alive || !url) return
+        const audio = new Audio(url)
+        audio.preload = 'auto'
+        askSoundRef.current = audio
+      })
+      .catch(() => undefined)
+    return () => { alive = false }
+  }, [])
+
+  // Every fresh question modal (ask_user or a tool approval) gets one pop.
+  useEffect(() => {
+    if (toolAsk) playAskSound()
+  }, [toolAsk, playAskSound])
 
   // Shared "run is over" cleanup. A run may finish for a project that is not on
   // screen any more — then the transcript is saved right away, from that chat's
@@ -3092,6 +3126,7 @@ export default function App() {
     let offUpdateProgress: (() => void) | undefined
     let offUpdateInstall: (() => void) | undefined
     let offProjects: (() => void) | undefined
+    let offAskSound: (() => void) | undefined
     try {
       offAgent = EventsOn('agent:event', (...args: unknown[]) => {
         try {
@@ -3498,6 +3533,9 @@ export default function App() {
           setActive((cur) => (cur && list.some((p) => p.path === cur.path) ? cur : list[0] ?? cur))
         }).catch(() => undefined)
       })
+      // Native close confirmation is a question too — backend pings us to play
+      // the same attention pop before the OS dialog appears.
+      offAskSound = EventsOn('ask:sound', () => playAskSound())
     } catch {
       // runtime bindings not ready
     }
@@ -3517,12 +3555,14 @@ export default function App() {
         offUpdateProgress?.()
         offUpdateInstall?.()
         EventsOff('projects:changed')
+        EventsOff('ask:sound')
         offProjects?.()
+        offAskSound?.()
       } catch {
         /* ignore */
       }
     }
-  }, [setSessionItems, applyUsageStats, finishRunUI])
+  }, [setSessionItems, applyUsageStats, finishRunUI, playAskSound])
 
   useEffect(() => {
     if (chatFindOpen) return

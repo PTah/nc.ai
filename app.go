@@ -3,6 +3,7 @@
 // Edited by nc.ai 0.8.5.6 on macbook 2026-10-13 21:42:31
 // Edited by nc.ai 0.8.6.3 on Papasha 2026-10-16 14:15:46
 // Edited by nc.ai 0.8.7.7 on macbook 2026-10-16 22:21:12
+// Edited by nc.ai 0.8.8.0 on new-admin-pc 2026-10-19 08:01:34
 package main
 
 import (
@@ -525,6 +526,9 @@ func (a *App) beforeClose(ctx context.Context) (prevent bool) {
 	// а не закрывать молча: это выглядит как «вылет» и теряет набранное
 	// (инцидент 13.10.2026 21:48:16).
 	if a.hasActiveRuns() || a.hasPendingDraft() {
+		// Нативный диалог закрытия тоже «вопрос» — даём UI сигнал проиграть
+		// звук внимания (тот же «лопнувший пузырь», что и у остальных вопросов).
+		runtime.EventsEmit(a.ctx, "ask:sound")
 		res, err := runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
 			Type:          runtime.QuestionDialog,
 			Title:         "NotCursor",
@@ -1679,6 +1683,13 @@ func (a *App) MarkProviderNewsRead() error {
 // embedded into the binary, so both the macOS and the Windows build have it.
 func (a *App) GetEndSound() string {
 	return chime.DataURL()
+}
+
+// GetAskSound returns the built-in "attention" pop as a data URL. The UI plays
+// it when the app asks a question (tool approval, an out-of-project change,
+// ask_user, or the close confirmation). Embedded into the binary.
+func (a *App) GetAskSound() string {
+	return chime.PopDataURL()
 }
 
 // SaveLayoutSizes persists inner pane widths/heights (projects/tree/settings/terminal/chat column).

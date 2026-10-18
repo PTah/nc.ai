@@ -7,6 +7,7 @@
 // Edited by nc.ai 0.8.7.7 on macbook 2026-10-16 22:22:13
 // Edited by nc.ai 0.8.7.7 on Papasha 2026-10-16 22:59:27
 // Edited by nc.ai 0.8.8.0 on macbook 2026-10-18 19:23:36
+// Edited by nc.ai 0.8.8.2 on new-admin-pc 2026-10-19 08:03:00
 package appmeta
 
 import "time"
@@ -14,7 +15,7 @@ import "time"
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "0.8.8.1"
+	Version = "0.8.8.2"
 )
 
 // DeepSeekProRetireRFC3339 is the announced V4 Pro retirement instant, empty
@@ -60,19 +61,19 @@ func retiredAt(at time.Time, now time.Time) bool {
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
+	"Когда приложение задаёт вопрос — подтверждение изменения вне проекта, ask_user или закрытие — играет звук лопнувшего мыльного пузыря",
 	"Пояснения шагов в Settings → Agent: «Авто» — только значимые находки, «Всегда» — короткая строка на каждый шаг, «Никогда» — только результат",
 	"Прогон больше не обрывается, пока в списке задач остаются незакрытые пункты: агент доделывает их или снимает ненужные",
 	"Ответ не пропадает при параллельном вопросе: дорожки прогонов больше не теряют хвост на завершении",
 	"Шаги во время прогона свёрнуты в один блок «Думал и исследовал» вместо череды заголовков — меньше шума в чате",
-	"Рабочее пространство из нескольких папок и multitask (запросы идут параллельно) — на месте",
 }
 
 var HighlightsEN = []string{
+	"When the app asks a question — an out-of-project change approval, ask_user or the close prompt — it plays a soap-bubble pop",
 	"Step narration in Settings → Agent: \"Auto\" — only meaningful findings, \"Always\" — a short line per step, \"Never\" — result only",
 	"A run no longer stops while the task list still has open items: the agent finishes them or drops unneeded ones",
 	"Answers no longer vanish on a parallel question: run lanes no longer lose their tail at completion",
 	"Steps during a run are folded into one \"Thought and explored\" block instead of a chain of headers — less chat noise",
-	"Multi-folder workspace and Multitask (requests run in parallel) stay in place",
 }
 
 // UICopy is localized chrome for the Welcome splash.
