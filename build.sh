@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Edited by nc.ai 0.8.7.9 on macbook 2026-10-17 09:28:37
 # Build NotCursor.app for macOS (counterpart of build.ps1).
 # Output: build/bin/NotCursor.app (canonical). /tmp is only a staging area for codesign.
 # Usage:
@@ -26,6 +27,8 @@ UNIVERSAL=0
 COPY_TO=""
 INSTALL_DIR="${NC_INSTALL_DIR:-/Applications}"
 DO_INSTALL=1
+
+SIGN_ID="${NC_SIGN_ID:-}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -57,6 +60,15 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --no-install|-NoInstall) DO_INSTALL=0; shift ;;
+    --sign|-Sign)
+      if [[ $# -lt 2 || -z "${2:-}" ]]; then
+        echo "Missing identity after $1" >&2
+        exit 2
+      fi
+      SIGN_ID="$2"
+      shift 2
+      ;;
+    --sign=*|-Sign=*) SIGN_ID="${1#*=}"; shift ;;
     -h|--help)
       cat <<EOF
 Usage: ./build.sh [--no-restart] [--force-restart] [--universal] [--install-to DIR] [--no-install] [--copy-to DIR]
@@ -67,6 +79,11 @@ Usage: ./build.sh [--no-restart] [--force-restart] [--universal] [--install-to D
                    from there (default: /Applications, or \$NC_INSTALL_DIR).
   --no-install     Leave DIR untouched; artifact stays in build/bin.
   --copy-to DIR    Also copy NotCursor.app into DIR (e.g. network share).
+  --sign ID        Code-sign with a stable identity ID (default: \$NC_SIGN_ID, or a
+                   certificate with "NotCursor"/"nc.ai" in its name). Without one the
+                   build falls back to ad-hoc signing - the signature then changes on
+                   every build and macOS drops the "Local Network" permission, so the
+                   app can no longer reach the LAN (Gitea mirror): no route to host.
 
 Artifact: build/bin/NotCursor.app (plus ${INSTALL_DIR}/NotCursor.app by default)
 EOF
@@ -166,7 +183,30 @@ xattr -cr "${APP_PATH}" 2>/dev/null || true
 find "${APP_PATH}" -type f -exec xattr -c {} \; 2>/dev/null || true
 ditto --norsrc --noextattr --noacl "${APP_PATH}" "${STAGE_APP}"
 xattr -cr "${STAGE_APP}" 2>/dev/null || true
-codesign --force --deep --sign - "${STAGE_APP}"
+
+# Подпись. Ad-hoc подпись меняется при каждой сборке, а macOS привязывает к ней
+# разрешение «Локальная сеть»: после обновления приложение получает
+# "connect: no route to host" к домашнему Gitea, хотя curl с той же машины
+# работает, а тумблер в настройках включён. Поэтому ищем стабильный сертификат
+# (--sign ID, $NC_SIGN_ID или сертификат с NotCursor/nc.ai в имени) и подписываем им.
+if [[ -z "${SIGN_ID}" ]]; then
+  SIGN_ID="$(security find-identity -v -p codesigning 2>/dev/null \
+    | sed -n 's/^ *[0-9]*) [0-9A-Fa-f]* "\(.*\)"/\1/p' \
+    | grep -m1 -E 'NotCursor|nc\.ai' || true)"
+fi
+
+if [[ -n "${SIGN_ID}" ]]; then
+  echo "Codesign: ${SIGN_ID} (стабильная подпись)..."
+  codesign --force --deep --timestamp=none --sign "${SIGN_ID}" "${STAGE_APP}"
+else
+  echo "Signing (staging ${STAGE_DIR} -> ${APP_PATH})..."
+  codesign --force --deep --sign - "${STAGE_APP}"
+  echo "ВНИМАНИЕ: ad-hoc подпись меняется при каждой сборке — macOS перестанет сопоставлять"
+  echo "разрешение «Локальная сеть» с приложением, и NotCursor будет получать"
+  echo "'no route to host' к своим LAN-хостам (домашнее зеркало), хотя curl работает."
+  echo "Как завести стабильный сертификат: docs/build-and-release.md, раздел"
+  echo "«Подпись и «Локальная сеть» (macOS)»."
+fi
 rm -rf "${APP_PATH}"
 mkdir -p "${BIN_DIR}"
 ditto --norsrc --noextattr --noacl "${STAGE_APP}" "${APP_PATH}"
