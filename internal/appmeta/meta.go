@@ -6,6 +6,7 @@
 // Edited by nc.ai 0.8.6.3 on Papasha 2026-10-16 14:20:34
 // Edited by nc.ai 0.8.7.7 on macbook 2026-10-16 22:22:13
 // Edited by nc.ai 0.8.7.7 on Papasha 2026-10-16 22:59:27
+// Edited by nc.ai 0.8.8.0 on macbook 2026-10-18 19:23:36
 package appmeta
 
 import "time"
@@ -13,7 +14,7 @@ import "time"
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "0.8.8.0"
+	Version = "0.8.8.1"
 )
 
 // DeepSeekProRetireRFC3339 is the announced V4 Pro retirement instant, empty
@@ -59,18 +60,18 @@ func retiredAt(at time.Time, now time.Time) bool {
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
-	"Хвост ответа больше не теряется: на завершении прогона текст доводится из буфера, а если часть не доехала — в чат пишется диагностика с числами",
-	"Релизы Windows и macOS больше не затирают друг друга: релизный скрипт доливает ассеты к существующему релизу вместо пересоздания",
-	"Логины и пароли из окна ввода больше не попадают в чат: персональные данные вырезаются из логов",
-	"Замок проекта цветной (красный/зелёный) и анимируется при наведении; индикаторы двигаются даже в RDP-сессии",
+	"Пояснения шагов в Settings → Agent: «Авто» — только значимые находки, «Всегда» — короткая строка на каждый шаг, «Никогда» — только результат",
+	"Прогон больше не обрывается, пока в списке задач остаются незакрытые пункты: агент доделывает их или снимает ненужные",
+	"Ответ не пропадает при параллельном вопросе: дорожки прогонов больше не теряют хвост на завершении",
+	"Шаги во время прогона свёрнуты в один блок «Думал и исследовал» вместо череды заголовков — меньше шума в чате",
 	"Рабочее пространство из нескольких папок и multitask (запросы идут параллельно) — на месте",
 }
 
 var HighlightsEN = []string{
-	"The tail of an answer is no longer lost: at run completion the text is completed from the stream buffer, and if part of it never arrived the chat gets a diagnostic with the numbers",
-	"Windows and macOS releases no longer wipe each other: the release script uploads assets into the existing release instead of recreating it",
-	"Logins and passwords typed into the input no longer leak into the chat: personal data is stripped from logs",
-	"The project lock is colourful (red/green) and animates on hover; indicators animate even in an RDP session",
+	"Step narration in Settings → Agent: \"Auto\" — only meaningful findings, \"Always\" — a short line per step, \"Never\" — result only",
+	"A run no longer stops while the task list still has open items: the agent finishes them or drops unneeded ones",
+	"Answers no longer vanish on a parallel question: run lanes no longer lose their tail at completion",
+	"Steps during a run are folded into one \"Thought and explored\" block instead of a chain of headers — less chat noise",
 	"Multi-folder workspace and Multitask (requests run in parallel) stay in place",
 }
 

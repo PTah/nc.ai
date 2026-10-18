@@ -1371,6 +1371,7 @@ func (a *App) GetSettings() map[string]any {
 		"monoFont":             a.cfg.MonoFont(),
 		"agentMaxSteps":        a.cfg.MaxAgentSteps(),
 		"agentWarnSteps":       a.cfg.AgentWarnSteps(),
+		"agentNarration":       a.cfg.AgentNarrationMode(),
 		"agentStallMinutes":    int(a.cfg.AgentStallLimit().Minutes()),
 		"httpProtocol":         a.cfg.HTTPProtocolMode(),
 		"http2PingSec":         int(a.cfg.HTTP2Ping().Seconds()),
@@ -2748,6 +2749,13 @@ func (a *App) applyHTTPConfig() {
 	a.logAgentLine(fmt.Sprintf("llm http protocol=%s keepalive=%s", mode, ping))
 }
 
+// SaveAgentNarration выбирает режим пояснений агента (Settings → Agent):
+// "auto" — по обстановке (по умолчанию), "always" — рассказывать значимые шаги,
+// "never" — молчать и выдавать только результат.
+func (a *App) SaveAgentNarration(mode string) error {
+	return a.cfg.SetAgentNarrationMode(mode)
+}
+
 // SaveHTTPProtocol выбирает протокол для запросов к провайдерам:
 // "auto" — HTTP/2, если сервер умеет; "http11" — только HTTP/1.1 (h2 выключен).
 // Второй режим помогает, когда CDN/DPI рвут длинные SSE-потоки:
@@ -3774,6 +3782,7 @@ func (a *App) RunAgentInSession(sessionID, runID, userMessage string, attachment
 		Tools:               runTools,
 		MaxSteps:            a.cfg.MaxAgentSteps(),
 		WarnSteps:           a.cfg.AgentWarnSteps(),
+		Narration:           a.cfg.AgentNarrationMode(),
 		StallLimit:          a.cfg.AgentStallLimit(),
 		RetryCount:          a.cfg.AgentRetryCount(),
 		RetryBudget:         a.cfg.AgentRetryBudget(),

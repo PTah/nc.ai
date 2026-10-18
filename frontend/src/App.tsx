@@ -7,6 +7,7 @@
 // Edited by nc.ai 0.8.6.3 on Papasha 2026-10-16 14:11:12
 // Edited by nc.ai 0.8.7.7 on macbook 2026-10-16 22:21:22
 // Edited by nc.ai 0.8.7.7 on Papasha 2026-10-16 22:57:44
+// Edited by nc.ai 0.8.8.0 on macbook 2026-10-18 19:13:02
 import {FormEvent, MouseEvent as ReactMouseEvent, useCallback, useEffect, useRef, useState} from 'react'
 import {Terminal} from '@xterm/xterm'
 import {FitAddon} from '@xterm/addon-fit'
@@ -121,6 +122,7 @@ import {
   SaveAgentRetryCount,
   SaveAgentWarnSteps,
   SaveAgentStallMin,
+  SaveAgentNarration,
   ComposerDrafts,
   SaveComposerDraft,
   SaveComposerHeight,
@@ -1493,9 +1495,9 @@ function buildDisplayRows(items: ChatItem[], compact = false, finalVisible = tru
     rows.push({key: `i-${i}`, kind: 'item', item: m})
     i++
   }
-  const collapsed = collapseProcess(rows, compact)
-  // Свёрнутый виток нужен только у завершённого ответа: пока агент работает,
-  // шаги должны быть видны живьём.
+  const collapsed = collapseProcess(rows)
+  // Свёрнутый виток нужен только у завершённого ответа; живьём шаги остаются
+  // видны — но одним блоком «Думал и исследовал», без череды заголовков.
   return compact ? collapseTurnSteps(collapsed, finalVisible) : collapsed
 }
 
@@ -1508,9 +1510,12 @@ function isProcessRow(r: DisplayRow): boolean {
   return r.kind === 'tool_group' || (r.kind === 'item' && r.item.kind === 'reasoning')
 }
 
-/** Merge consecutive Thinking + Explored rows into one block once the run is done. */
-function collapseProcess(rows: DisplayRow[], compact: boolean): DisplayRow[] {
-  if (!compact) return rows
+/**
+ * Сливает подряд идущие «Думал» и «Исследовал» в один блок. Работает и живьём
+ * (иначе во время прогона висит череда заголовков «Думал / Исследовал / Думал»),
+ * и у завершённого витка.
+ */
+function collapseProcess(rows: DisplayRow[]): DisplayRow[] {
   const out: DisplayRow[] = []
   let i = 0
   while (i < rows.length) {
@@ -1520,7 +1525,7 @@ function collapseProcess(rows: DisplayRow[], compact: boolean): DisplayRow[] {
         group.push(rows[i])
         i++
       }
-      out.push({key: `proc-${i}`, kind: 'process', rows: group})
+      out.push({key: `proc-${group[0].key}`, kind: 'process', rows: group})
       continue
     }
     out.push(rows[i])
@@ -1710,6 +1715,17 @@ function ProcessGroup({
   useEffect(() => {
     if (autoOpen) setOpen(true)
   }, [autoOpen])
+  // Живьём виток шумный: «Думал», «Исследовал», «Думал»… Собираем все
+  // рассуждения в один блок, а все инструменты — в один, чтобы вместо череды
+  // заголовков осталось максимум два.
+  const reasoning: Extract<ChatItem, {kind: 'reasoning'}>[] = []
+  const tools: Extract<ChatItem, {kind: 'tool'}>[] = []
+  for (const r of rows) {
+    if (r.kind === 'item' && r.item.kind === 'reasoning') reasoning.push(r.item)
+    else if (r.kind === 'tool_group') tools.push(...r.tools)
+  }
+  const seconds = reasoning.reduce((sum, r) => sum + (r.seconds || 0), 0)
+  const reasoningText = reasoning.map((r) => r.content).filter(Boolean).join('\n\n')
   return (
     <details
       className="nc-msg process-group"
@@ -1722,15 +1738,10 @@ function ProcessGroup({
         <span className="nc-tool-name">{steps > 0 ? summarizeSteps(steps) : 'размышления'}</span>
       </summary>
       <div className="nc-process-body">
-        {rows.map((r, i) => {
-          if (r.kind === 'tool_group') {
-            return <ToolGroup key={i} summary={r.summary} tools={r.tools} />
-          }
-          if (r.kind === 'item' && r.item.kind === 'reasoning') {
-            return <ThinkingBlock key={i} content={r.item.content} seconds={r.item.seconds} collapsed />
-          }
-          return null
-        })}
+        {reasoningText ? (
+          <ThinkingBlock content={reasoningText} seconds={seconds || undefined} collapsed />
+        ) : null}
+        {tools.length > 0 ? <ToolGroup summary={summarizeTools(tools)} tools={tools} /> : null}
       </div>
     </details>
   )
@@ -2049,6 +2060,8 @@ export default function App() {
   const [deepseekPeak, setDeepseekPeak] = useState<{peak: boolean; tooltip: string}>({peak: false, tooltip: ''})
   const [maxSteps, setMaxSteps] = useState(120)
   const [warnSteps, setWarnSteps] = useState(120)
+  // Пояснения агента: auto — только значимые находки, always — каждый шаг, never — только результат.
+  const [narration, setNarration] = useState<'auto' | 'always' | 'never'>('auto')
   const [stallMinutes, setStallMinutes] = useState(10)
   const [stallOff, setStallOff] = useState(false)
   // Сеть (Settings → Network): протокол к провайдерам, повторы и диагностика.
@@ -2451,9 +2464,7 @@ export default function App() {
   useEffect(() => {
     itemsBySessionRef.current = itemsBySession
   }, [itemsBySession])
-  useEffect(() => {
-    runLanesRef.current = runLanes
-  }, [runLanes])
+
   useEffect(() => {
     progressAskedRef.current = progressAskedBySession
   }, [progressAskedBySession])
@@ -2535,10 +2546,16 @@ export default function App() {
 
   const setRunLaneItems = useCallback((sessionId: string, runId: string, updater: (prev: ChatItem[]) => ChatItem[]) => {
     if (!sessionId || !runId) return
-    setRunLanes((prev) => {
-      const lanes = prev[sessionId] || {}
-      return {...prev, [sessionId]: {...lanes, [runId]: updater(asList(lanes[runId]))}}
-    })
+    // runLanesRef — единственный источник правды по содержимому дорожек:
+    // обновляем его синхронно, а состояние зеркалим. Иначе finishRunLane,
+    // читая ref, синхронизированный через useEffect, мог получить устаревший
+    // снимок и «потерять» хвост ответа при завершении параллельного прогона.
+    const prev = runLanesRef.current
+    const lanes = prev[sessionId] || {}
+    const nextLanes = {...lanes, [runId]: updater(asList(lanes[runId]))}
+    const next = {...prev, [sessionId]: nextLanes}
+    runLanesRef.current = next
+    setRunLanes(next)
   }, [])
 
   // finishRunLane merges one finished run's lane into the session transcript and
@@ -2546,12 +2563,13 @@ export default function App() {
   // of the same chat are still running.
   const finishRunLane = useCallback((sessionId: string, runId: string) => {
     if (!sessionId) return
-    const lane = asList(runLanesRef.current[sessionId]?.[runId])
-    setRunLanes((prev) => {
-      const lanes = {...(prev[sessionId] || {})}
-      delete lanes[runId]
-      return {...prev, [sessionId]: lanes}
-    })
+    const prev = runLanesRef.current
+    const lane = asList(prev[sessionId]?.[runId])
+    const lanes = {...(prev[sessionId] || {})}
+    delete lanes[runId]
+    const next = {...prev, [sessionId]: lanes}
+    runLanesRef.current = next
+    setRunLanes(next)
     setRunOrder((prev) => ({...prev, [sessionId]: asList(prev[sessionId]).filter((id) => id !== runId)}))
     if (lane.length > 0) {
       setSessionItems(sessionId, (prev) => [...prev, ...lane])
@@ -2979,6 +2997,7 @@ export default function App() {
         if (typeof s.agentMaxSteps === 'number' && s.agentMaxSteps !== 0) setMaxSteps(s.agentMaxSteps)
         {
           const raw = s as Record<string, any>
+          setNarration(raw.agentNarration === 'always' ? 'always' : raw.agentNarration === 'never' ? 'never' : 'auto')
           setHttpProtocol(raw.httpProtocol === 'http11' ? 'http11' : 'auto')
           const ping = Number(raw.http2PingSec)
           setHttp2PingSec(Number.isFinite(ping) && ping !== 0 ? ping : 20)
@@ -5083,6 +5102,7 @@ export default function App() {
     await SaveAgentMaxSteps(unlimitedSteps ? -1 : (Number(maxSteps) || 120))
     await SaveAgentWarnSteps(warnSteps > 0 ? Number(warnSteps) : -1)
     await SaveAgentStallMin(stallOff ? -1 : Math.min(240, Math.max(1, Number(stallMinutes) || 10)))
+    await SaveAgentNarration(narration)
     await SaveHTTPProtocol(httpProtocol)
     await SaveHTTP2PingSec(Math.max(-1, Math.min(120, Number(http2PingSec) || 0)))
     await SaveUpdateMirror(updateMirrorOn, updateMirrorUrl, updateMirrorToken)
@@ -7572,6 +7592,29 @@ export default function App() {
               инструментов) дольше указанного времени, прогон обрывается, а в чат уходит разбор — на каком
               шаге встали, в какой фазе (ждём модель или висит инструмент) и что делать. По умолчанию
               10 минут.
+            </p>
+
+            <label>
+              Пояснять шаги
+              <select
+                value={narration}
+                onChange={(e) => {
+                  const next = e.target.value === 'always' ? 'always' : e.target.value === 'never' ? 'never' : 'auto'
+                  setNarration(next)
+                  void SaveAgentNarration(next)
+                }}
+              >
+                <option value="auto">Авто — только значимые находки</option>
+                <option value="always">Всегда — короткая строка на каждый шаг</option>
+                <option value="never">Никогда — только результат</option>
+              </select>
+            </label>
+            <p className="nc-help">
+              По умолчанию агент молчит, но пишет коротко, когда шаг даёт значимую находку:
+              подтверждён или снят диагноз, найдена причина, сменился подход, обнаружен риск.
+              «Всегда» — комментарий к каждому значимому шагу (как при разборе сети/маршрутов).
+              «Никогда» — только итог. Просьба «показывай промежуточные результаты» включает
+              пояснения в любом режиме.
             </p>
 
             <div className="nc-section-label">Network</div>

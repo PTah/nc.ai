@@ -102,6 +102,17 @@ const (
 	HTTPProtocolHTTP11 = "http11"
 )
 
+// Режимы пояснений агента (Settings → Agent → «Пояснять шаги»).
+const (
+	// NarrationAuto — по обстановке: короткая строка только для значимых
+	// находок (поставленный/снятый диагноз, найденная причина, смена подхода).
+	NarrationAuto = "auto"
+	// NarrationAlways — рассказывать каждый значимый шаг.
+	NarrationAlways = "always"
+	// NarrationNever — не пояснять шаги вообще, только итоговый результат.
+	NarrationNever = "never"
+)
+
 // HTTP/2 keepalive (Settings → Network): PING после стольких секунд тишины.
 const (
 	DefaultHTTP2PingSec = 20
@@ -192,6 +203,11 @@ type Settings struct {
 	// AgentWarnSteps is the step count after which a long run emits a warning
 	// notice (0 = default, negative = never warn).
 	AgentWarnSteps int `json:"agentWarnSteps,omitempty"`
+
+	// AgentNarration — насколько подробно агент комментирует ход работы:
+	// "" / "auto" (по обстановке: пояснять только значимые находки),
+	// "always" (короткая строка на каждый значимый шаг), "never" (только результат).
+	AgentNarration string `json:"agentNarration,omitempty"`
 
 	// AgentStallMin — сколько минут тишины на шаге терпим, прежде чем оборвать
 	// прогон с разбором. 0 = по умолчанию (DefaultAgentStallMin), -1 = выключено.
@@ -1600,6 +1616,34 @@ func NormalizeHTTPProtocol(mode string) string {
 		return HTTPProtocolHTTP11
 	default:
 		return HTTPProtocolAuto
+	}
+}
+
+// AgentNarrationMode — режим пояснений агента: NarrationAuto (по умолчанию),
+// NarrationAlways или NarrationNever.
+func (s *Store) AgentNarrationMode() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return NormalizeNarration(s.settings.AgentNarration)
+}
+
+// SetAgentNarrationMode сохраняет режим пояснений; неизвестное значение → auto.
+func (s *Store) SetAgentNarrationMode(mode string) error {
+	s.mu.Lock()
+	s.settings.AgentNarration = NormalizeNarration(mode)
+	s.mu.Unlock()
+	return s.Save()
+}
+
+// NormalizeNarration приводит значение к одному из известных режимов.
+func NormalizeNarration(mode string) string {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case NarrationAlways, "all", "verbose", "всегда":
+		return NarrationAlways
+	case NarrationNever, "off", "silent", "none", "никогда":
+		return NarrationNever
+	default:
+		return NarrationAuto
 	}
 }
 

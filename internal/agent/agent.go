@@ -1,5 +1,6 @@
 // Edited by nc.ai 0.8.3.3 on new-admin-pc 2026-10-12 10:06:16
 // Edited by nc.ai 0.8.6.4 on Papasha 2026-10-16 15:44:03
+// Edited by nc.ai 0.8.8.0 on macbook 2026-10-18 19:21:38
 package agent
 
 import (
@@ -72,10 +73,14 @@ Tools:
   is done, in the same batch as the work. Update as you go, not at the end: a list left
   in its initial state is a bug. When the work is finished, mark every remaining item
   completed or cancelled.
-- Post a short stage line (what is done, what comes next, plainly) only when the
-  user asked for interim results ("показывай промежуточные результаты") or when you
-  have been working for more than two minutes without giving any result. Otherwise
-  keep working silently: no status chatter, no "надо бы попробовать", no reasoning.
+- Narrate adaptively — never chatter, but do not swallow real findings:
+  - Default is silent: no status chatter, no "надо бы попробовать", no reasoning,
+    no tool-by-tool recap.
+  - Add one short plain line when a step yields a finding worth telling: a diagnosis
+    confirmed or ruled out, a root cause found, an approach changed, a risk found, or an
+    action that will affect the user (long/irreversible).
+  - Always narrate if the user asked for interim results ("показывай промежуточные результаты").
+  - Always give an interim line if you have been working >2 minutes with no output.
 - Use ask_user only when a real user decision is required — not for facts you can look up.
 - Warn BEFORE long work: if a step is known to take minutes (build, model download, indexing,
   large test run, vector/image processing), say so in one line before starting — what you are doing
@@ -186,6 +191,10 @@ type Runner struct {
 	// WarnSteps is the step count that triggers a "still working" notice
 	// (0 = default, negative = silent).
 	WarnSteps int
+	// Narration — режим пояснений (Settings → Agent): "auto" (по обстановке —
+	// только значимые находки), "always" (короткая строка на каждый значимый
+	// шаг), "never" (только итоговый результат). "" = auto.
+	Narration string
 	// ModelOverride forces a model for this run (e.g. vision / Auto pick).
 	ModelOverride string
 	// PreferredModel is used when AutoModels is off and ModelOverride is empty.
@@ -257,6 +266,9 @@ type Runner struct {
 	// todoIdle / todoNudges — счётчики напоминаний обновить ToDo (todo_nudge.go).
 	todoIdle   int
 	todoNudges int
+	// todoFinish — сколько раз за прогон просили продолжить незакрытый план,
+	// прежде чем принять ответ как есть (todo_nudge.go).
+	todoFinish int
 	// OnUsage, when set, is called after each provider response with the model
 	// that produced it and its token usage (usage may be nil for some providers).
 	OnUsage func(model string, u *llm.Usage)
@@ -537,6 +549,19 @@ func (r *Runner) systemPrompt() string {
 			"(3) read_file on the returned paths, (4) apply_patch. Do not ignore MCP results and re-scan blindly."
 		if h := strings.TrimSpace(r.MCPUsageHint); h != "" {
 			base += "\n" + h
+		}
+	}
+	if !r.subagentMode && !r.LocalLite {
+		switch strings.ToLower(strings.TrimSpace(r.Narration)) {
+		case "always":
+			base += "\n\nNarration (user setting = always): narrate your work. " +
+				"Before each tool batch write one short plain line about what you are about to do and why; " +
+				"after a batch that produced a finding write one short line with the finding. " +
+				"No fluff, no reasoning, no tool-name recaps. Skip narration only for a single trivial command."
+		case "never":
+			base += "\n\nNarration (user setting = never): do not narrate steps. " +
+				"No stage lines and no progress commentary — deliver only the final answer. " +
+				"Exception: if the user explicitly asks for interim results in this message, give the one short status line they asked for."
 		}
 	}
 	rules := strings.TrimSpace(r.RulesText)
@@ -1263,6 +1288,18 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 				)})
 				messages = append(messages, llm.UserText(lengthContinueNudge))
 				continue
+			}
+			// Ответ пришёл, но план не закрыт — не обрываем работу. Раньше
+			// любой ответ без tool_calls принимался как финальный, и прогон
+			// останавливался с висящими pending-пунктами в списке задач.
+			if content != "" && !brokenToolJSON && r.Depth == 0 && !r.subagentMode && !r.PlanMode {
+				if rem := r.todoFinishReminder(); rem != "" {
+					emit(Event{Type: "notice", Content: "План не закрыт — продолжаю по незавершённым пунктам."})
+					messages = append(messages, llm.UserText(rem))
+					watch.touch("продолжаю по плану")
+					watch.onPhase("model", "Жду ответ модели")
+					continue
+				}
 			}
 			emit(Event{Type: "done", Content: finish, AnswerLen: len([]rune(msg.Content))})
 			return messages, nil
