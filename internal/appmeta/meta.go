@@ -12,6 +12,8 @@
 // Edited by nc.ai 0.8.8.4 on new-admin-pc 2026-10-19 11:04:25
 // Edited by nc.ai 0.8.8.5 on new-admin-pc 2026-10-19 11:25:13
 // Edited by nc.ai 0.8.8.6 on new-admin-pc 2026-10-19 11:47:53
+// Edited by nc.ai 0.8.9.0 on Papasha 2026-10-19 15:52:10
+// Edited by nc.ai 0.8.8.6 on new-admin-pc 2026-10-19 15:53:48
 package appmeta
 
 import "time"
@@ -19,7 +21,7 @@ import "time"
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "0.8.8.6"
+	Version = "0.8.9.0"
 )
 
 // DeepSeekProRetireRFC3339 is the announced V4 Pro retirement instant, empty
@@ -65,19 +67,19 @@ func retiredAt(at time.Time, now time.Time) bool {
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
-	"Обновление без «троянного» PowerShell-дроппера: приложение само подменяет exe. «Не спрашивать» снимает всю пачку однотипных подтверждений",
-	"«Разрешить и не спрашивать» — для инструмента целиком (во всех чатах); после ответа возвращает в прежний чат",
-	"«этап»-карточки больше не показывают сырой JSON и сворачиваются под стрелку; инструменты — одним блоком «Исследовал»",
-	"Баланс DeepSeek в шапке подписан понятно: баланс (доступно) · бонус (подарочные) · пополнение (оплачено вами)",
-	"Когда приложение задаёт вопрос — подтверждение вне проекта, ask_user или закрытие — играет звук лопнувшего мыльного пузыря",
+	"Новый дизайн под macOS и Windows 11: стеклянная шапка, слоистые панели, мягкие тени и аккуратные разделители",
+	"Настройки получили липкую шапку и навигатор разделов — провайдеры, агент и MCP, сеть, интерфейс, обновления — в один клик",
+	"Переключатель светлой и тёмной темы и шестерёнка настроек переехали в шапку приложения",
+	"Пузырьки сообщений, вкладки, поле ввода и модальные окна перерисованы; несколько папок в рабочем пространстве и запросы, идущие параллельно, работают как раньше",
+	"Звук вопроса — пересинтезированный звонкий «Чпок!» вместо прежнего глухого",
 }
 
 var HighlightsEN = []string{
-	"Updates no longer use the trojan-like PowerShell dropper (the app swaps its own exe). \"Don't ask\" clears a whole batch of same-tool approvals",
-	"\"Allow and don't ask\" applies to the tool across all chats; after answering, the app returns you to the previous chat",
-	"Stage cards no longer show raw JSON and collapse under an arrow; tools fold into one \"Explored\" block",
-	"The DeepSeek balance in the header is labelled plainly: balance (available) · bonus (granted) · top-up (paid by you)",
-	"When the app asks a question — an out-of-project change approval, ask_user or the close prompt — it plays a soap-bubble pop",
+	"Redesigned for macOS and Windows 11: a glass header, layered panels, soft shadows and tidy dividers",
+	"Settings now have a sticky header and a section navigator — providers, agent & MCP, network, interface, updates — one click away",
+	"Light/dark toggle and the settings gear moved into the app header",
+	"Message bubbles, tabs, the composer and modals are redrawn; the multi-folder workspace and parallel requests behave exactly as before",
+	"The question sound is a re-synthesised, punchier pop instead of the previous dull one",
 }
 
 // UICopy is localized chrome for the Welcome splash.
