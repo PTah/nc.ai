@@ -14,6 +14,8 @@
 // Edited by nc.ai 0.8.8.6 on new-admin-pc 2026-10-19 11:47:53
 // Edited by nc.ai 0.8.9.0 on Papasha 2026-10-19 15:52:10
 // Edited by nc.ai 0.8.8.6 on new-admin-pc 2026-10-19 15:53:48
+// Edited by nc.ai 0.8.9.1 on Papasha 2026-10-19 16:10:00
+// Edited by nc.ai 0.8.9.0 on new-admin-pc 2026-10-19 16:05:50
 package appmeta
 
 import "time"
@@ -21,7 +23,7 @@ import "time"
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "0.8.9.0"
+	Version = "0.8.9.1"
 )
 
 // DeepSeekProRetireRFC3339 is the announced V4 Pro retirement instant, empty
@@ -69,17 +71,17 @@ func retiredAt(at time.Time, now time.Time) bool {
 var HighlightsRU = []string{
 	"Новый дизайн под macOS и Windows 11: стеклянная шапка, слоистые панели, мягкие тени и аккуратные разделители",
 	"Настройки получили липкую шапку и навигатор разделов — провайдеры, агент и MCP, сеть, интерфейс, обновления — в один клик",
-	"Переключатель светлой и тёмной темы и шестерёнка настроек переехали в шапку приложения",
+	"Переключатель светлой и тёмной темы и шестерёнка настроек — в шапке; повторный клик по шестерёнке закрывает настройки",
 	"Пузырьки сообщений, вкладки, поле ввода и модальные окна перерисованы; несколько папок в рабочем пространстве и запросы, идущие параллельно, работают как раньше",
-	"Звук вопроса — пересинтезированный звонкий «Чпок!» вместо прежнего глухого",
+	"Звук вопроса — настоящий звонкий «Чпок!» пробки вместо «Пиу»",
 }
 
 var HighlightsEN = []string{
 	"Redesigned for macOS and Windows 11: a glass header, layered panels, soft shadows and tidy dividers",
 	"Settings now have a sticky header and a section navigator — providers, agent & MCP, network, interface, updates — one click away",
-	"Light/dark toggle and the settings gear moved into the app header",
-	"Message bubbles, tabs, the composer and modals are redrawn; the multi-folder workspace and parallel requests behave exactly as before",
-	"The question sound is a re-synthesised, punchier pop instead of the previous dull one",
+	"Light/dark toggle and the settings gear live in the header; clicking the gear again closes settings",
+	"Message bubbles, tabs, the composer and modals are redrawn",
+	"The question sound is a real, punchy cork pop instead of the previous beep",
 }
 
 // UICopy is localized chrome for the Welcome splash.
