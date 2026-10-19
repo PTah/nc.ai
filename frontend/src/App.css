@@ -2190,6 +2190,9 @@ input[type="radio"]:focus-visible {
   border-bottom: 1px solid var(--glass-border);
   min-height: 52px;
   padding: 0.45rem 0.9rem;
+  /* Место под закреплённые справа иконки темы и настроек (см. .nc-top-sep-actions):
+     иначе длинный баланс сдвигал их на отдельную строку, и место зависело от темы. */
+  padding-right: 6rem;
   position: relative;
   z-index: 20;
 }
@@ -2222,7 +2225,16 @@ input[type="radio"]:focus-visible {
 /* ── Topbar quick icon buttons (settings gear + theme toggle) ────────── */
 .nc-top-sep-actions {
   display: flex; align-items: center; gap: 0.4rem;
-  flex: 0 0 auto; margin-left: 0.35rem;
+  /* Закреплены справа сверху, вне потока: перенос строки в .nc-top-controls
+     больше не утаскивает иконки на отдельную строку (проявлялось в светлой теме
+     при более длинном балансе). Позиционируем от .nc-topbar (position: relative). */
+  position: absolute;
+  top: 50%;
+  right: 0.9rem;
+  transform: translateY(-50%);
+  flex: 0 0 auto;
+  margin-left: 0;
+  z-index: 2;
 }
 .nc-top-icon-btn {
   width: 34px; height: 34px;
