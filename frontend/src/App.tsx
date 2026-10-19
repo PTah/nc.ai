@@ -2116,6 +2116,22 @@ export default function App() {
   const finishedRunKeysRef = useRef<Set<string>>(new Set())
   const activeSessionRef = useRef('')
   const noticeQueueRef = useRef<string[]>([])
+  // Куда вернуть пользователя после ответа на вопрос агента (tool_ask из
+  // другого проекта/чата переключает на себя — после ответа возвращаем назад).
+  const askReturnRef = useRef<{project: string; session: string} | null>(null)
+  const returnAfterAsk = useCallback(() => {
+    const back = askReturnRef.current
+    askReturnRef.current = null
+    if (!back || !back.session) return
+    const curProject = activeProjectRef.current?.path || ''
+    if (back.session === activeSessionRef.current && back.project === curProject) return
+    void (async () => {
+      try {
+        if (back.project && back.project !== curProject) await openProjectRef.current(back.project)
+        await switchSessionRef.current(back.session)
+      } catch { /* возврат не критичен */ }
+    })()
+  }, [])
   const lastRequestRef = useRef<{text: string; atts: PendingAtt[]} | null>(null)
   const lastModelRef = useRef<Record<string, string>>({})
   const busyBySessionRef = useRef<Record<string, boolean>>({})
@@ -3195,7 +3211,14 @@ export default function App() {
           if (ev.type === 'tool_ask') {
             // Вопрос мог прийти из другого проекта или чата (прогон там ещё идёт).
             // Переключаемся туда: иначе диалог висит поверх чужого разговора и
-            // непонятно, о чём вообще речь.
+            // непонятно, о чём вообще речь. Но запоминаем, где был пользователь,
+            // чтобы вернуть его туда после ответа.
+            if (!askReturnRef.current) {
+              askReturnRef.current = {
+                project: activeProjectRef.current?.path || '',
+                session: activeSessionRef.current || '',
+              }
+            }
             const askProject = String(ev.project || '').trim()
             const shownProject = activeProjectRef.current?.path || ''
             if (askProject && askProject !== shownProject) {
@@ -6307,7 +6330,7 @@ export default function App() {
                     args={toolAsk.args}
                     answer={askAnswer}
                     setAnswer={setAskAnswer}
-                    onDone={() => { setToolAsk(null); setAskAnswer('') }}
+                    onDone={() => { setToolAsk(null); setAskAnswer(''); returnAfterAsk() }}
                   />
                 ) : (
                   <>
@@ -6323,10 +6346,9 @@ export default function App() {
                     </p>
                     <pre className="nc-tool-ask-args">{toolAsk.args || '(no args)'}</pre>
                     <p className="nc-help">
-                      «Разрешить и не спрашивать» — только для этого инструмента и этого чата, до
-                      закрытия приложения (для run_terminal это отключает и проверку выхода за проект).
-                      Совсем без подтверждений внутри проекта — Settings → Agent → «Confirm dangerous
-                      tools».
+                      «Разрешить и не спрашивать» — для этого инструмента целиком, во всех чатах и
+                      проектах, до закрытия приложения (для run_terminal это отключает и проверку выхода
+                      за проект). Совсем без подтверждений — Settings → Agent → «Confirm dangerous tools».
                     </p>
                     <div className="nc-close-project-actions">
                       <button
@@ -6334,6 +6356,7 @@ export default function App() {
                         onClick={() => {
                           const ask = toolAsk
                           setToolAsk(null)
+                          returnAfterAsk()
                           ResolveToolApproval(ask.sessionId, ask.callId, true)
                         }}
                       >
@@ -6346,6 +6369,7 @@ export default function App() {
                         onClick={() => {
                           const ask = toolAsk
                           setToolAsk(null)
+                          returnAfterAsk()
                           AllowToolForSession(ask.sessionId, ask.name)
                           ResolveToolApproval(ask.sessionId, ask.callId, true)
                         }}
@@ -6358,6 +6382,7 @@ export default function App() {
                         onClick={() => {
                           const ask = toolAsk
                           setToolAsk(null)
+                          returnAfterAsk()
                           ResolveToolApproval(ask.sessionId, ask.callId, false)
                         }}
                       >

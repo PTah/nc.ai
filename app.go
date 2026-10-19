@@ -93,9 +93,9 @@ type App struct {
 	approveMu          sync.Mutex
 	pendingApprove     map[string]chan bool // key: sessionID+"/"+callID
 	pendingAsk         map[string]chan string
-	// allowTools — «разрешить и не спрашивать» для одного инструмента в одном
-	// чате (key: sessionID+"/"+tool). Сбрасывается, когда подтверждения снова
-	// включают в Settings, и живёт только до закрытия приложения.
+	// allowTools — «разрешить и не спрашивать»: инструменты, которые больше не
+	// подтверждаем ни в одном чате/проекте, до закрытия приложения (ключ — имя
+	// инструмента). Сбрасывается, когда подтверждения снова включают в Settings.
 	allowTools map[string]bool
 	sessionID  string
 	history    []llm.Message
@@ -2633,12 +2633,13 @@ func (a *App) clearAllowedTools() {
 }
 
 func toolAllowKey(sessionID, name string) string {
-	sid := strings.TrimSpace(sessionID)
 	tool := strings.TrimSpace(name)
-	if sid == "" || tool == "" {
+	if tool == "" {
 		return ""
 	}
-	return sid + "/" + tool
+	// Область — инструмент целиком (во всех чатах и проектах): иначе в соседнем
+	// чате тот же инструмент переспрашивается заново и «не спрашивать» не работает.
+	return tool
 }
 
 // scopeMutations сообщает, меняет ли вызов данные за границами проекта
