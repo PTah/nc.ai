@@ -415,6 +415,20 @@ const LOCAL_PRESETS: {id: string; label: string; url: string}[] = [
   {id: 'custom', label: 'Custom', url: ''},
 ]
 
+// Settings category quick-nav: maps a category id to the (possibly multiple)
+// section-label texts that belong to it. Only the active provider's section
+// is rendered, so "models" jumps to whichever is visible. Kept in sync with
+// the nc-section-label headers inside the settings aside.
+const SETTINGS_CATS: Record<string, string[]> = {
+  provider: ['Provider'],
+  models: ['DeepSeek', 'OpenRouter', 'Qwen (DashScope)', 'Yandex AI Studio', 'Custom servers', 'Z.ai'],
+  agent: ['Agent', 'MCP'],
+  network: ['Network'],
+  interface: ['Interface'],
+  updates: ['Обновления'],
+  system: ['Shell', 'Git & SSH', 'Cursor Rules', 'Новости провайдеров'],
+}
+
 const DEEPSEEK_MODELS = [
   'deepseek-flash',
 ] as const
@@ -1873,6 +1887,8 @@ export default function App() {
   const [showTree, setShowTree] = useState(true)
   const [showTerm, setShowTerm] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
+  // Settings category quick-nav (sticky pill bar at the top of the panel).
+  const [settingsCat, setSettingsCat] = useState<string>('provider')
   // Provider news digest (DeepSeek / Z.AI / OpenRouter / Qwen).
   const [news, setNews] = useState<ProviderNewsPayload | null>(null)
   const [newsBusy, setNewsBusy] = useState(false)
@@ -2894,6 +2910,21 @@ export default function App() {
     } catch {
       /* ignore */
     }
+  }, [])
+
+  // Settings → category quick-nav: clicking a pill scrolls the matching
+  // section label into view. We look up the label by its visible text, so no
+  // section markup needs to change. The labels match the Russian/English
+  // headers rendered in the settings panel (see the nc-section-label blocks).
+  const scrollToSettingsCat = useCallback((cat: string) => {
+    setSettingsCat(cat)
+    const labels = SETTINGS_CATS[cat]
+    if (!labels) return
+    const root = document.querySelector('.nc-settings')
+    if (!root) return
+    const nodes = Array.from(root.querySelectorAll<HTMLElement>('.nc-section-label'))
+    const target = nodes.find((n) => labels.includes(n.textContent?.trim() || ''))
+    if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }, [])
 
   const applyUiFont = useCallback(async (next: string) => {
@@ -5703,6 +5734,38 @@ export default function App() {
               </>
             )}
           </span>
+          <span className="nc-top-sep-actions">
+            <button
+              type="button"
+              className="nc-top-icon-btn"
+              onClick={() => void applyTheme(theme === 'dark' ? 'light' : 'dark')}
+              title={theme === 'dark' ? 'Светлая тема' : 'Тёмная тема'}
+              aria-label={theme === 'dark' ? 'Переключить на светлую тему' : 'Переключить на тёмную тему'}
+            >
+              {theme === 'dark' ? (
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <circle cx="12" cy="12" r="4" />
+                  <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
+                </svg>
+              ) : (
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+                </svg>
+              )}
+            </button>
+            <button
+              type="button"
+              className="nc-top-icon-btn"
+              onClick={() => setSettingsVisible(true)}
+              title="Настройки"
+              aria-label="Открыть настройки"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="3" />
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+              </svg>
+            </button>
+          </span>
         </div>
       </header>
       <div
@@ -6563,6 +6626,26 @@ export default function App() {
                 </p>
               ) : null}
             </div>
+            <nav className="nc-settings-nav" aria-label="Разделы настроек">
+              {([
+                ['provider', 'Провайдер'],
+                ['models', 'Модели и ключи'],
+                ['agent', 'Агент и MCP'],
+                ['network', 'Сеть'],
+                ['interface', 'Интерфейс'],
+                ['updates', 'Обновления'],
+                ['system', 'Система'],
+              ] as const).map(([cat, label]) => (
+                <button
+                  key={cat}
+                  type="button"
+                  data-active={settingsCat === cat ? 'true' : undefined}
+                  onClick={() => scrollToSettingsCat(cat)}
+                >
+                  {label}
+                </button>
+              ))}
+            </nav>
             <div className="nc-section-label">Provider</div>
             <label>
               Active

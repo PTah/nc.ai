@@ -1,54 +1,83 @@
 :root,
 [data-theme="dark"] {
   color-scheme: dark;
-  --bg: #121212;
-  --panel: #1a1a1a;
-  --panel-2: #151515;
-  --border: #2c2c2c;
-  --text: #e8e8e8;
-  --muted: #8d8d8d;
-  --accent: #3d8bfd;
-  --accent-2: #2f6fed;
-  --input-bg: #101010;
-  --composer-bg: #141414;
-  --msg-bg: #181818;
-  --msg-user: #1c2736;
-  --msg-assistant: #171717;
-  --msg-system: #221f14;
-  --msg-tool: #121816;
-  --msg-file: #141820;
-  --msg-status: #1a1a1a;
-  --think-border: #2a2a3a;
-  --think-text: #c4c4e8;
+  /* ── Base surfaces (layered, macOS/Win11 dark) ──────────────────────── */
+  --bg: #1a1a1d;
+  --panel: #232327;
+  --panel-2: #2a2a2e;
+  --elevated: #323237;
+  --border: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.16);
+  --hairline: rgba(255, 255, 255, 0.10);
+  --text: #ececef;
+  --muted: #9b9ba3;
+  --fg: #ececef;
+  --hover-bg: rgba(255, 255, 255, 0.06);
+  --ghost-hover: rgba(255, 255, 255, 0.06);
+  /* ── Accent (refined system blue) ───────────────────────────────────── */
+  --accent: #4c9cff;
+  --accent-2: #2f7df0;
+  --accent-weak: rgba(76, 156, 255, 0.16);
+  --accent-fg: #ffffff;
+  /* ── Inputs / composer / messages ───────────────────────────────────── */
+  --input-bg: #1d1d20;
+  --composer-bg: #202024;
+  --msg-bg: #242428;
+  --msg-user: #26303f;
+  --msg-assistant: #1f1f23;
+  --msg-system: #2a2517;
+  --msg-tool: #1c2724;
+  --msg-file: #1b2330;
+  --msg-status: #202024;
+  /* ── Reasoning / thinking ───────────────────────────────────────────── */
+  --think-border: rgba(140, 150, 220, 0.28);
+  --think-text: #c6c6ee;
   --think-sum: #9aa0d8;
-  --think-body-bg: #14141c;
-  --think-body-text: #c8c8ea;
-  --tab-bg: #101010;
-  --tab-active-bg: #1c2430;
-  --tab-active-border: #456;
-  --tab-x-hover: #333;
-  --tree-dir: #cfd8ff;
-  --tree-file: #ddd;
-  --tool-title: #dce8dc;
-  --tool-icon-ok: #7dca8e;
-  --tool-icon-fail: #e88;
-  --tool-icon-run: #8af;
-  --tool-pre-bg: #0e0e0e;
-  --att-bg: #101010;
-  --att-rm-bg: #333;
-  --att-rm-border: #555;
-  --term-bg: #0d0d0d;
-  --cost: #8ee59b;
-  --cost-total: #9ab;
-  --pill-ok: #8ee59b;
-  --pill-ok-border: #2a5;
-  --crash: #ffb4b4;
-  --brand-ring: rgba(255, 255, 255, 0.06);
-  --brand-glow: rgba(61, 220, 255, 0.18);
-  --brand-bg: #0a0c0e;
-  --ghost-hover: #222;
+  --think-body-bg: #1f1f28;
+  --think-body-text: #cacaf0;
+  /* ── Tabs ───────────────────────────────────────────────────────────── */
+  --tab-bg: #1d1d20;
+  --tab-active-bg: rgba(76, 156, 255, 0.14);
+  --tab-active-border: rgba(76, 156, 255, 0.55);
+  --tab-x-hover: rgba(255, 255, 255, 0.10);
+  /* ── Tree ───────────────────────────────────────────────────────────── */
+  --tree-dir: #c9d4ff;
+  --tree-file: #d8d8de;
+  /* ── Tool cards ─────────────────────────────────────────────────────── */
+  --tool-title: #dceedc;
+  --tool-icon-ok: #6fd08a;
+  --tool-icon-fail: #f08a8a;
+  --tool-icon-run: #79b3ff;
+  --tool-pre-bg: #151518;
+  /* ── Attachments ───────────────────────────────────────────────────── */
+  --att-bg: #1d1d20;
+  --att-rm-bg: #3a3a40;
+  --att-rm-border: #55555c;
+  /* ── Terminal ──────────────────────────────────────────────────────── */
+  --term-bg: #0d0d0f;
+  /* ── Cost / pills ──────────────────────────────────────────────────── */
+  --cost: #7fe6a0;
+  --cost-total: #9aa6b8;
+  --pill-ok: #7fe6a0;
+  --pill-ok-border: rgba(127, 230, 160, 0.5);
+  --danger: #f08a8a;
+  --crash: #ff9d9d;
+  /* ── Brand ─────────────────────────────────────────────────────────── */
+  --brand-ring: rgba(255, 255, 255, 0.08);
+  --brand-glow: rgba(76, 200, 255, 0.20);
+  --brand-bg: #0d1014;
   --k: #8ab4ff;
-  --font-ui: "Segoe UI", system-ui, sans-serif;
+  /* ── Glass + elevation (modern layer) ──────────────────────────────── */
+  --glass-bg: rgba(34, 34, 38, 0.72);
+  --glass-border: rgba(255, 255, 255, 0.10);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.28);
+  --shadow-md: 0 6px 18px rgba(0, 0, 0, 0.34);
+  --shadow-lg: 0 22px 60px rgba(0, 0, 0, 0.55);
+  --ring: 0 0 0 3px rgba(76, 156, 255, 0.40);
+  --radius-sm: 8px;
+  --radius: 12px;
+  --radius-lg: 16px;
+  --font-ui: "Segoe UI", system-ui, -apple-system, sans-serif;
   --font-mono: Menlo, Consolas, "Courier New", monospace;
   font-family: var(--font-ui);
 }
@@ -65,53 +94,82 @@
 
 [data-theme="light"] {
   color-scheme: light;
-  --bg: #f3f3f3;
-  --panel: #f8f8f8;
+  /* ── Base surfaces (layered, macOS/Win11 light) ──────────────────────── */
+  --bg: #f3f4f6;
+  --panel: #fbfbfd;
   --panel-2: #ffffff;
-  --border: #e4e4e4;
-  --text: #1e1e1e;
-  --muted: #6b6b6b;
-  --accent: #0078d4;
-  --accent-2: #005fa3;
+  --elevated: #ffffff;
+  --border: rgba(0, 0, 0, 0.08);
+  --border-strong: rgba(0, 0, 0, 0.14);
+  --hairline: rgba(0, 0, 0, 0.10);
+  --text: #1c1d20;
+  --muted: #525968;
+  --fg: #1c1d20;
+  --hover-bg: rgba(0, 0, 0, 0.045);
+  --ghost-hover: rgba(0, 0, 0, 0.045);
+  /* ── Accent (refined system blue) ───────────────────────────────────── */
+  --accent: #0a84ff;
+  --accent-2: #0066e0;
+  --accent-weak: rgba(10, 132, 255, 0.12);
+  --accent-fg: #ffffff;
+  /* ── Inputs / composer / messages ───────────────────────────────────── */
   --input-bg: #ffffff;
   --composer-bg: #ffffff;
   --msg-bg: #ffffff;
   --msg-user: #eaf3ff;
-  --msg-assistant: #fafafa;
+  --msg-assistant: #fafafc;
   --msg-system: #fff8e8;
-  --msg-tool: #f3faf5;
+  --msg-tool: #f1faf4;
   --msg-file: #f4f6fa;
-  --msg-status: #f5f5f5;
+  --msg-status: #f5f5f7;
+  /* ── Reasoning / thinking ───────────────────────────────────────────── */
   --think-border: #dde0ef;
   --think-text: #4a4f7a;
   --think-sum: #5a6299;
   --think-body-bg: #f5f6fb;
   --think-body-text: #3f4468;
-  --tab-bg: #ffffff;
-  --tab-active-bg: #e8f2fc;
-  --tab-active-border: #8ab4d9;
-  --tab-x-hover: #e8e8e8;
+  /* ── Tabs ───────────────────────────────────────────────────────────── */
+  --tab-bg: #f3f4f6;
+  --tab-active-bg: rgba(10, 132, 255, 0.10);
+  --tab-active-border: rgba(10, 132, 255, 0.45);
+  --tab-x-hover: #e8e8ec;
+  /* ── Tree ───────────────────────────────────────────────────────────── */
   --tree-dir: #2f5f9a;
-  --tree-file: #333;
+  --tree-file: #333333;
+  /* ── Tool cards ─────────────────────────────────────────────────────── */
   --tool-title: #1f3d28;
   --tool-icon-ok: #2d8a4e;
   --tool-icon-fail: #c44;
   --tool-icon-run: #2a6fd0;
-  --tool-pre-bg: #f0f0f0;
+  --tool-pre-bg: #f2f3f5;
+  /* ── Attachments ───────────────────────────────────────────────────── */
   --att-bg: #ffffff;
-  --att-rm-bg: #eee;
-  --att-rm-border: #ccc;
+  --att-rm-bg: #ececef;
+  --att-rm-border: #d4d4d8;
+  /* ── Terminal ──────────────────────────────────────────────────────── */
   --term-bg: #1e1e1e;
+  /* ── Cost / pills ──────────────────────────────────────────────────── */
   --cost: #1a7f37;
   --cost-total: #5a6a7a;
   --pill-ok: #1a7f37;
-  --pill-ok-border: #3a8;
+  --pill-ok-border: rgba(26, 127, 55, 0.45);
+  --danger: #c62828;
   --crash: #b00020;
+  /* ── Brand ─────────────────────────────────────────────────────────── */
   --brand-ring: rgba(0, 0, 0, 0.08);
-  --brand-glow: rgba(0, 120, 212, 0.15);
+  --brand-glow: rgba(10, 132, 255, 0.16);
   --brand-bg: #eef3f8;
-  --ghost-hover: #ececec;
   --k: #005fa3;
+  /* ── Glass + elevation (modern layer) ──────────────────────────────── */
+  --glass-bg: rgba(248, 249, 251, 0.72);
+  --glass-border: rgba(0, 0, 0, 0.06);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 6px 18px rgba(0, 0, 0, 0.10);
+  --shadow-lg: 0 22px 60px rgba(0, 0, 0, 0.18);
+  --ring: 0 0 0 3px rgba(10, 132, 255, 0.30);
+  --radius-sm: 8px;
+  --radius: 12px;
+  --radius-lg: 16px;
 }
 
 * { box-sizing: border-box; }
@@ -2048,6 +2106,420 @@ mark.nc-find-mark.nc-find-current {
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 0.4rem;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   MODERN LAYER — refined macOS / Windows 11 polish
+   Appended after the base styles; wins by source order for equal specificity.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ── Font smoothing & letter-spacing ─────────────────────────────────── */
+.nc-app {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  letter-spacing: 0.005em;
+}
+
+/* ── Modern scrollbars (thin, rounded, auto-fade) ─────────────────────── */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--muted) 45%, transparent) transparent;
+}
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--muted) 35%, transparent);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--muted) 60%, transparent);
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-corner { background: transparent; }
+
+/* ── Primary buttons (refined accent) ─────────────────────────────────── */
+button {
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--accent) 92%, #fff) 0%,
+    var(--accent) 100%);
+  border: 1px solid color-mix(in srgb, var(--accent) 80%, #000);
+  color: var(--accent-fg, #fff);
+  border-radius: var(--radius-sm);
+  padding: 0.42rem 0.85rem;
+  font-weight: 600;
+  font-size: 0.82rem;
+  line-height: 1.2;
+  cursor: pointer;
+  transition: filter .12s ease, transform .08s ease, box-shadow .12s ease, background .14s ease;
+  box-shadow: 0 1px 0 color-mix(in srgb, #fff 20%, transparent) inset, 0 1px 2px rgba(0,0,0,.16);
+}
+button:hover { filter: brightness(1.08); }
+button:active { transform: translateY(1px); filter: brightness(0.96); }
+button:focus-visible { outline: none; box-shadow: var(--ring), 0 1px 2px rgba(0,0,0,.16); }
+button:disabled { opacity: 0.5; cursor: default; filter: none; transform: none; box-shadow: none; }
+
+/* ── Text inputs / selects (refined focus ring) ──────────────────────── */
+input, textarea, select {
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--input-bg);
+  transition: border-color .12s ease, box-shadow .12s ease, background .14s ease;
+}
+input:not([type="checkbox"]):not([type="radio"]):focus,
+textarea:focus,
+select:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  box-shadow: var(--ring);
+}
+input[type="checkbox"]:focus-visible,
+input[type="radio"]:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+  border-radius: 4px;
+}
+
+/* ── Topbar: glass / vibrancy ─────────────────────────────────────────── */
+.nc-topbar {
+  background: var(--glass-bg);
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  border-bottom: 1px solid var(--glass-border);
+  min-height: 52px;
+  padding: 0.45rem 0.9rem;
+  position: relative;
+  z-index: 20;
+}
+.nc-topbar .nc-ghost {
+  background: color-mix(in srgb, var(--panel-2) 55%, transparent);
+  border-color: var(--border);
+  box-shadow: none;
+  font-weight: 600;
+}
+.nc-topbar .nc-ghost:hover { background: var(--hover-bg); filter: none; }
+.nc-topbar .nc-ghost:active { transform: translateY(0); }
+.nc-top-brand strong { font-size: 0.95rem; letter-spacing: -0.01em; }
+.nc-top-field select {
+  background-color: color-mix(in srgb, var(--panel) 75%, transparent);
+  border-color: var(--border);
+  font-weight: 500;
+}
+.nc-topbar .nc-pill {
+  background: color-mix(in srgb, var(--panel) 75%, transparent);
+  backdrop-filter: blur(6px);
+  font-weight: 600;
+}
+.nc-cost {
+  background: color-mix(in srgb, var(--panel) 75%, transparent);
+  backdrop-filter: blur(6px);
+  border-color: var(--border);
+  font-weight: 600;
+}
+
+/* ── Topbar quick icon buttons (settings gear + theme toggle) ────────── */
+.nc-top-sep-actions {
+  display: flex; align-items: center; gap: 0.4rem;
+  flex: 0 0 auto; margin-left: 0.35rem;
+}
+.nc-top-icon-btn {
+  width: 34px; height: 34px;
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 0; border-radius: 9px;
+  background: color-mix(in srgb, var(--panel-2) 55%, transparent);
+  border: 1px solid var(--border);
+  color: var(--text);
+  box-shadow: none;
+  cursor: pointer;
+  transition: background .12s ease, color .12s ease, transform .08s ease, border-color .12s ease;
+}
+.nc-top-icon-btn:hover {
+  background: var(--hover-bg);
+  filter: none;
+  color: var(--accent);
+  border-color: var(--border-strong);
+}
+.nc-top-icon-btn:active { transform: translateY(1px); }
+.nc-top-icon-btn:focus-visible { outline: none; box-shadow: var(--ring); }
+.nc-top-icon-btn svg { width: 17px; height: 17px; display: block; }
+
+/* ── Panels: subtle layered elevation ────────────────────────────────── */
+.nc-projects, .nc-tree, .nc-settings {
+  background: var(--panel);
+  border-color: var(--border);
+}
+.nc-main { background: var(--panel-2); }
+.nc-chat-head, .nc-term-head {
+  background: color-mix(in srgb, var(--panel) 65%, transparent);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+}
+
+/* ── Sidebar / project list (Finder / Explorer vibe) ──────────────────── */
+.nc-list button {
+  border-radius: var(--radius-sm);
+  margin: 1px 0;
+  padding: 0.42rem 0.5rem;
+  transition: background .1s ease, color .1s ease;
+  box-shadow: none;
+  background: transparent;
+  border-color: transparent;
+}
+.nc-list li.active button {
+  background: var(--accent-weak);
+  border-color: transparent;
+  color: var(--text);
+}
+.nc-list li.active button .nc-project-name { color: var(--accent); font-weight: 600; }
+.nc-list button:hover { background: var(--hover-bg); border-color: transparent; }
+
+/* ── Ghost / secondary buttons (refined) ──────────────────────────────── */
+.nc-ghost {
+  background: color-mix(in srgb, var(--panel-2) 55%, transparent);
+  border-color: var(--border);
+  color: var(--text);
+  font-weight: 600;
+  box-shadow: none;
+  border-radius: var(--radius-sm);
+  transition: background .12s ease, border-color .12s ease, transform .08s ease, color .12s ease;
+}
+.nc-ghost:hover {
+  background: var(--hover-bg);
+  border-color: var(--border-strong);
+  filter: none;
+}
+.nc-ghost:active { transform: translateY(1px); filter: none; }
+.nc-ghost:focus-visible { outline: none; box-shadow: var(--ring); }
+.nc-ghost.on {
+  background: var(--accent-weak);
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
+  color: var(--accent);
+}
+.nc-danger {
+  background: linear-gradient(180deg, #d9483a, #c0392b);
+  border-color: #a93226;
+  box-shadow: 0 1px 0 color-mix(in srgb, #fff 18%, transparent) inset, 0 1px 2px rgba(0,0,0,.2);
+}
+
+/* ── Tabs (refined, rounded, active indicator) ───────────────────────── */
+.nc-tabs { gap: 0.3rem; padding: 0.15rem 0; }
+.nc-tab {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  padding: 0.3rem 0.6rem;
+  font-weight: 500;
+  transition: background .12s ease, color .12s ease, border-color .12s ease, box-shadow .12s ease;
+}
+.nc-tab:hover { background: var(--hover-bg); border-color: transparent; }
+.nc-tab.active {
+  background: color-mix(in srgb, var(--panel-2) 90%, transparent);
+  border-color: var(--border);
+  color: var(--text);
+  box-shadow: var(--shadow-sm);
+}
+.nc-tab.busy { border-color: color-mix(in srgb, #3a6 70%, transparent); }
+.nc-tab.add { background: transparent; box-shadow: none; }
+
+/* ── Message bubbles (refined) ────────────────────────────────────────── */
+.nc-msg {
+  border-radius: var(--radius);
+  border-color: var(--border);
+  box-shadow: var(--shadow-sm);
+  padding: 0.7rem 0.9rem;
+}
+.nc-msg.user {
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--msg-user) 94%, var(--accent) 4%),
+    var(--msg-user));
+  border-color: color-mix(in srgb, var(--accent) 22%, var(--border));
+  margin-left: 8%;
+}
+.nc-msg.assistant { background: var(--msg-assistant); }
+.nc-role { font-weight: 700; letter-spacing: 0.08em; }
+
+/* ── Composer (floating card) ─────────────────────────────────────────── */
+.nc-composer {
+  border-radius: var(--radius);
+  border-color: var(--border);
+  box-shadow: var(--shadow-md);
+  background: var(--composer-bg);
+  transition: border-color .14s ease, box-shadow .14s ease;
+}
+.nc-composer:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  box-shadow: var(--ring), var(--shadow-md);
+}
+.nc-composer-wrap {
+  background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--panel) 40%, transparent));
+  border-top: 1px solid var(--border);
+}
+
+/* ── Pills (refined) ──────────────────────────────────────────────────── */
+.nc-pill { font-weight: 600; border-radius: 999px; }
+.nc-pill.ok { background: color-mix(in srgb, var(--pill-ok) 16%, transparent); }
+
+/* ── Cards: run status / ask dock / queue ─────────────────────────────── */
+.nc-run-status, .nc-queue-pending, .nc-ask-dock {
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+  border-color: var(--border);
+}
+.nc-ask-dock { border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); }
+.nc-ask-dock h2 { font-weight: 700; }
+
+/* ── Modals (refined) ──────────────────────────────────────────────────── */
+.nc-modal {
+  border-radius: var(--radius-lg);
+  border-color: var(--border);
+  box-shadow: var(--shadow-lg);
+  background: var(--panel);
+}
+.nc-modal-backdrop {
+  background: color-mix(in srgb, var(--bg) 60%, transparent);
+  backdrop-filter: blur(10px) saturate(140%);
+  -webkit-backdrop-filter: blur(10px) saturate(140%);
+}
+.nc-ctx-menu {
+  border-radius: 12px;
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-lg);
+  background: var(--elevated);
+  padding: 0.3rem;
+}
+.nc-ctx-menu button { border-radius: 6px; box-shadow: none; background: transparent; border: 0; }
+.nc-ctx-menu button:hover { background: var(--accent-weak); filter: none; }
+.nc-app-menu {
+  border-radius: 12px;
+  box-shadow: var(--shadow-lg);
+  border-color: var(--border-strong);
+  background: var(--elevated);
+}
+.nc-app-menu button { box-shadow: none; background: transparent; border: 0; border-radius: 6px; }
+.nc-app-menu button:hover { background: var(--hover-bg); filter: none; }
+
+/* ── Settings: sticky head + category quick-nav ──────────────────────── */
+.nc-settings {
+  background: var(--panel);
+  border-color: var(--border);
+}
+.nc-settings-head {
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  backdrop-filter: blur(8px);
+  position: sticky; top: 0; z-index: 5;
+  padding: 0.55rem 0.1rem 0.55rem;
+  margin-bottom: 0.3rem;
+  border-bottom: 1px solid var(--border);
+}
+.nc-settings-head .nc-section-label {
+  font-size: 0.82rem; color: var(--text);
+  text-transform: none; letter-spacing: 0;
+  font-weight: 700;
+}
+.nc-settings-head-actions button { border-radius: var(--radius-sm); font-weight: 600; }
+.nc-settings-head-actions button:last-child {
+  background: color-mix(in srgb, var(--panel-2) 55%, transparent);
+  color: var(--text);
+  border-color: var(--border);
+  box-shadow: none;
+}
+.nc-settings-head-actions button:last-child:hover { background: var(--hover-bg); filter: none; }
+
+.nc-settings-nav {
+  display: flex; flex-wrap: wrap; gap: 0.3rem;
+  padding: 0.45rem 0 0.6rem;
+  margin-bottom: 0.5rem;
+  border-bottom: 1px solid var(--border);
+}
+.nc-settings-nav button {
+  width: auto; margin: 0;
+  padding: 0.3rem 0.65rem;
+  font-size: 0.74rem; font-weight: 600;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--panel-2) 55%, transparent);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  box-shadow: none;
+  transition: background .12s ease, color .12s ease, border-color .12s ease;
+}
+.nc-settings-nav button:hover { background: var(--hover-bg); color: var(--text); filter: none; }
+.nc-settings-nav button[data-active="true"] {
+  background: var(--accent-weak);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  color: var(--accent);
+}
+
+.nc-settings .nc-section-label {
+  scroll-margin-top: 4.2rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  padding-bottom: 0.15rem;
+  border-bottom: 1px solid var(--border);
+  margin-top: 1rem;
+}
+.nc-settings label { font-size: 0.8rem; margin-bottom: 0.85rem; gap: 0.3rem; }
+.nc-settings label > :first-child { font-weight: 600; color: var(--text); }
+/* A touch more breathing room between form rows so settings reads airy, not dense. */
+.nc-settings .nc-help { margin-bottom: 0.75rem; }
+.nc-settings .nc-section-label + label { margin-top: 0.25rem; }
+.nc-settings .nc-section-label { margin-top: 1.15rem; }
+
+/* ── MCP / tool cards (refined) ───────────────────────────────────────── */
+.nc-mcp-card, .nc-msg.subagent {
+  border-radius: 10px;
+  border-color: var(--border);
+  background: color-mix(in srgb, var(--panel-2) 55%, transparent);
+  box-shadow: var(--shadow-sm);
+}
+
+/* ── Restart / update notices (refined) ──────────────────────────────── */
+.nc-restart-note {
+  border-radius: 10px;
+  border-left: 3px solid var(--accent);
+  box-shadow: var(--shadow-sm);
+}
+
+/* ── Find bar (refined) ──────────────────────────────────────────────── */
+.nc-find-input { border-radius: var(--radius-sm); }
+
+/* ── Brand mark (refined ring) ───────────────────────────────────────── */
+.nc-brand-mark {
+  border-radius: 10px;
+  box-shadow: 0 0 0 1px var(--brand-ring), 0 0 18px var(--brand-glow), var(--shadow-sm);
+}
+
+/* ── Welcome / prices CTA refined ────────────────────────────────────── */
+.nc-welcome-go {
+  border-radius: var(--radius-sm);
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--accent) 94%, #fff) 0%,
+    var(--accent) 100%);
+  box-shadow: 0 1px 0 color-mix(in srgb, #fff 22%, transparent) inset, 0 8px 22px color-mix(in srgb, var(--accent) 35%, transparent);
+  font-weight: 700;
+  transition: filter .12s ease, transform .08s ease;
+}
+.nc-welcome-go:hover { filter: brightness(1.07); transform: translateY(-1px); }
+.nc-welcome-go:active { transform: translateY(0); filter: brightness(0.97); }
+
+/* ── Subtle entrance for newly mounted modals ────────────────────────── */
+@keyframes nc-modal-in {
+  from { opacity: 0; transform: translateY(6px) scale(0.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.nc-modal { animation: nc-modal-in 0.16s ease-out; }
+
+/* ── Reduced motion ──────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  button, .nc-ghost, .nc-tab, .nc-composer, input, textarea, select,
+  .nc-top-icon-btn, .nc-settings-nav button, .nc-welcome-go {
+    transition: none !important;
+  }
+  .nc-modal { animation: none; }
 }
 
 
