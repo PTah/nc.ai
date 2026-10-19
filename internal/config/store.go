@@ -1,4 +1,5 @@
 // Edited by nc.ai 0.8.5.2 on macbook 2026-10-12 20:40:10
+// Edited by nc.ai 0.8.9.0 on new-admin-pc 2026-10-19 16:20:35
 package config
 
 import (
@@ -244,6 +245,11 @@ type Settings struct {
 	// ToolConfirm asks the user before dangerous tools (write_file, run_terminal,
 	// git_push, ssh_exec). Default true when unset on first run — see ToolConfirmEnabled.
 	ToolConfirm *bool `json:"toolConfirm,omitempty"`
+
+	// AllowedTools — инструменты, для которых пользователь сказал «Разрешить и
+	// не спрашивать». Хранятся на диске, чтобы не спрашивать заново после
+	// каждого перезапуска приложения (раньше список жил только в памяти).
+	AllowedTools []string `json:"allowedTools,omitempty"`
 
 	// PlanMode: explore-only (no writes/shell/git push/ssh).
 	PlanMode bool `json:"planMode,omitempty"`
@@ -1005,6 +1011,23 @@ func (s *Store) SetToolConfirm(on bool) error {
 	s.mu.Lock()
 	v := on
 	s.settings.ToolConfirm = &v
+	s.mu.Unlock()
+	return s.Save()
+}
+
+// AllowedToolNames returns tools remembered as «Разрешить и не спрашивать».
+func (s *Store) AllowedToolNames() []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]string, 0, len(s.settings.AllowedTools))
+	out = append(out, s.settings.AllowedTools...)
+	return out
+}
+
+// SetAllowedToolNames persists the «Разрешить и не спрашивать» tool list.
+func (s *Store) SetAllowedToolNames(names []string) error {
+	s.mu.Lock()
+	s.settings.AllowedTools = append([]string(nil), names...)
 	s.mu.Unlock()
 	return s.Save()
 }
