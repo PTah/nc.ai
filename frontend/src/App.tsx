@@ -979,6 +979,13 @@ function fmtUsd(c: number): string {
   return `$${Number(c || 0).toFixed(4)}`
 }
 
+/** Баланс в долларах: целые суммы без лишних нулей, мелкие — до 3 знаков. */
+function fmtBal(c: number): string {
+  const v = Number(c || 0)
+  if (v === 0) return '$0.00'
+  return `$${v.toFixed(Math.abs(v) >= 1 ? 2 : 3)}`
+}
+
 function cacheHitPct(hit: number, miss: number): number | null {
   const h = Math.max(0, hit || 0)
   const m = Math.max(0, miss || 0)
@@ -1474,7 +1481,7 @@ function TodoPanel({todos, expand, busy, onContext}: {todos: TodoItem[]; expand?
   )
 }
 
-/** Collapse consecutive completed tools; when compact, even a single tool becomes a summary group. */
+/** Consecutive completed tools collapse into one summary group (both live and finished). */
 function buildDisplayRows(items: ChatItem[], compact = false, finalVisible = true): DisplayRow[] {
   const rows: DisplayRow[] = []
   let i = 0
@@ -1487,11 +1494,7 @@ function buildDisplayRows(items: ChatItem[], compact = false, finalVisible = tru
         group.push(list[i] as Extract<ChatItem, {kind: 'tool'}>)
         i++
       }
-      if (!compact && group.length === 1) {
-        rows.push({key: `t-${i - 1}`, kind: 'item', item: group[0]})
-      } else {
-        rows.push({key: `g-${i - group.length}`, kind: 'tool_group', tools: group, summary: summarizeTools(group)})
-      }
+      rows.push({key: `g-${i - group.length}`, kind: 'tool_group', tools: group, summary: summarizeTools(group)})
       continue
     }
     rows.push({key: `i-${i}`, kind: 'item', item: m})
@@ -3285,7 +3288,18 @@ export default function App() {
             const asked = Boolean(progressAskedRef.current[sid])
             const silent = Date.now() - (lastOutputAtRef.current[key] || Date.now()) >= SILENT_PROGRESS_MS
             if (parsed.phase !== 'heartbeat' && parsed.phase !== 'start' && (asked || silent)) {
-              apply((prev) => [...prev, {kind: 'progress', content: parsed.text}])
+              // Не копим «этап»-карточки: очередная заменяет предыдущую —
+              // текст этапа и так содержит накопительные итоги.
+              apply((prev) => {
+                const copy = prev.slice()
+                const last = copy[copy.length - 1]
+                if (last && last.kind === 'progress') {
+                  copy[copy.length - 1] = {kind: 'progress', content: parsed.text}
+                } else {
+                  copy.push({kind: 'progress', content: parsed.text})
+                }
+                return copy
+              })
             }
           } else if (ev.type === 'tool_start') {
             closeReasoningIn(key, apply)
@@ -5617,7 +5631,9 @@ export default function App() {
                 }
                 return `Провайдер DeepSeek · чат: ${usage.chatInputTokens} in / ${usage.chatOutputTokens} out (${fmtUsd(usage.chatCostUsd)}) · total DeepSeek: ${usage.inputTokens} in / ${usage.outputTokens} out (${fmtUsd(usage.costUsd)})` +
                   cacheLine +
-                  (usage.balanceDetail ? ` · ${usage.balanceDetail}` : '')
+                  (usage.balanceOk
+                    ? ` · баланс ${fmtBal(usage.balanceUsd)} (бонус ${fmtBal(usage.balanceGranted)} + пополнение ${fmtBal(usage.balanceToppedUp)})`
+                    : '')
               })()
             }
           >
@@ -5641,25 +5657,25 @@ export default function App() {
             {showBalance && (
               <>
                 <span className="nc-cost-sep">·</span>
-                <span className="nc-cost-bal" title={usage.balanceDetail || 'Refresh balance в Settings'}>
+                <span className="nc-cost-bal" title="Баланс DeepSeek = бонус (подарочные средства) + пополнение (оплачено вами). Меньше $1 пополнения — работа скоро остановится.">
                   {usage.balanceOk
                     ? (activeProvider === 'deepseek' && usage.balanceDetail
                       ? (
                         <>
-                          <span>bal {fmtUsd(usage.balanceUsd)}</span>
+                          <span title="Доступно сейчас — сумма бонуса и пополнения">баланс {fmtBal(usage.balanceUsd)}</span>
                           <span className="nc-cost-sep">·</span>
-                          <span>grant {fmtUsd(usage.balanceGranted)}</span>
+                          <span title="Бонус — бесплатные средства от DeepSeek, тратятся первыми">бонус {fmtBal(usage.balanceGranted)}</span>
                           <span className="nc-cost-sep">·</span>
                           <span
                             className={usage.balanceToppedUp < 1 ? 'nc-bal-low' : ''}
-                            title={usage.balanceToppedUp < 1 ? 'Пополнение DeepSeek меньше $1 — работа скоро остановится' : undefined}
+                            title={usage.balanceToppedUp < 1 ? 'Пополнение меньше $1 — работа скоро остановится' : 'Пополнение — оплаченные вами средства'}
                           >
-                            topup {fmtUsd(usage.balanceToppedUp)}
+                            пополнение {fmtBal(usage.balanceToppedUp)}
                           </span>
                         </>
                       )
-                      : `bal ${fmtUsd(usage.balanceUsd)}`)
-                    : 'bal —'}
+                      : `баланс ${fmtBal(usage.balanceUsd)}`)
+                    : 'баланс —'}
                 </span>
               </>
             )}
@@ -6121,10 +6137,10 @@ export default function App() {
                     return <IntermediateGroup key={row.key} rows={row.rows} steps={row.steps} expand={expandSignal} />
                   }
                   if (row.kind === 'process') {
-                    return <ProcessGroup key={row.key} rows={row.rows} expand={expandSignal} autoOpen={busy && isLastRow} />
+                    return <ProcessGroup key={row.key} rows={row.rows} expand={expandSignal} />
                   }
                   if (row.kind === 'tool_group') {
-                    return <ToolGroup key={row.key} summary={row.summary} tools={row.tools} expand={expandSignal} autoOpen={busy && isLastRow} />
+                    return <ToolGroup key={row.key} summary={row.summary} tools={row.tools} expand={expandSignal} />
                   }
                   if (row.kind === 'todos') {
                     return <TodoPanel key={row.key} todos={todos} expand={expandSignal} busy={false} onContext={openTodoCtx} />
@@ -6671,7 +6687,7 @@ export default function App() {
                 {dsBalance && (
                   <p className="nc-help">
                     {dsBalance.ok
-                      ? `Баланс: ${dsBalance.detail || `total ${fmtUsd(dsBalance.availableUsd)} · grant ${fmtUsd(dsBalance.grantedUsd)} · topup ${fmtUsd(dsBalance.toppedUpUsd)}`}`
+                      ? `Баланс DeepSeek: доступно ${fmtBal(dsBalance.availableUsd)} (бонус ${fmtBal(dsBalance.grantedUsd)} + пополнение ${fmtBal(dsBalance.toppedUpUsd)})${dsBalance.detail.includes('insufficient') ? ' · недостаточно средств' : ''}`
                       : dsBalance.detail || 'Баланс недоступен через API'}
                     {' '}
                     <span title="platform.deepseek.com/usage">GET /user/balance</span>
