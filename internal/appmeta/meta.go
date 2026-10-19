@@ -26,7 +26,7 @@ import "time"
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "0.8.9.3"
+	Version = "0.8.9.4"
 )
 
 // DeepSeekProRetireRFC3339 is the announced V4 Pro retirement instant, empty
@@ -72,7 +72,7 @@ func retiredAt(at time.Time, now time.Time) bool {
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
-	"«Разрешить и не спрашивать» запоминается насовсем: список лежит в настройках и переживает перезапуск — подтверждения больше не всплывают каждый прогон",
+	"Кнопки разделов в настройках закреплены сверху: «Интерфейс», «Система» и другие переключаются без прокрутки наверх",
 	"Второй экземпляр приложения больше не открывается: одно окно, без гонки за settings.json и черновики",
 	"Иконки темы и настроек закреплены справа в шапке: больше не уезжают на отдельную строку при длинном балансе — в тёмной и светлой теме одинаково",
 	"Новый дизайн под macOS и Windows 11: стеклянная шапка, слоистые панели, мягкие тени; переключатель темы и шестерёнка в шапке",
@@ -80,7 +80,7 @@ var HighlightsRU = []string{
 }
 
 var HighlightsEN = []string{
-	"\"Allow and don't ask again\" is remembered for good: stored in settings and survives a restart, so approvals no longer pop up every run",
+	"Settings section buttons are pinned to the top: switching between Interface, System and the rest no longer requires scrolling back up",
 	"A second app instance no longer opens: one window, no race over settings.json and drafts",
 	"Theme and settings icons are pinned to the top-right of the header: they no longer drop onto a separate row when the balance is long — identical in dark and light themes",
 	"Redesigned for macOS and Windows 11: glass header, layered panels, soft shadows; theme toggle and gear live in the header",

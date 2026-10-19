@@ -2418,10 +2418,16 @@ input[type="radio"]:focus-visible {
   background: var(--panel);
   border-color: var(--border);
 }
+/* Шапка и быстрый переход по разделам — один закреплённый сверху блок:
+   при прокрутке настроек кнопки разделов остаются на виду. */
+.nc-settings-topbar {
+  position: sticky; top: 0; z-index: 5;
+  background: var(--panel);
+  margin-bottom: 0.55rem;
+}
 .nc-settings-head {
   background: color-mix(in srgb, var(--panel) 88%, transparent);
   backdrop-filter: blur(8px);
-  position: sticky; top: 0; z-index: 5;
   padding: 0.55rem 0.1rem 0.55rem;
   margin-bottom: 0.3rem;
   border-bottom: 1px solid var(--border);
@@ -2443,7 +2449,7 @@ input[type="radio"]:focus-visible {
 .nc-settings-nav {
   display: flex; flex-wrap: wrap; gap: 0.3rem;
   padding: 0.45rem 0 0.6rem;
-  margin-bottom: 0.5rem;
+  margin-bottom: 0;
   border-bottom: 1px solid var(--border);
 }
 .nc-settings-nav button {
@@ -2465,7 +2471,8 @@ input[type="radio"]:focus-visible {
 }
 
 .nc-settings .nc-section-label {
-  scroll-margin-top: 4.2rem;
+  /* Закреплённая шапка с навигацией (~6rem) не должна накрывать выбранный раздел. */
+  scroll-margin-top: 7rem;
   font-size: 0.7rem;
   font-weight: 700;
   letter-spacing: 0.04em;
