@@ -9,6 +9,7 @@
 // Edited by nc.ai 0.8.8.0 on macbook 2026-10-18 19:23:36
 // Edited by nc.ai 0.8.8.2 on new-admin-pc 2026-10-19 08:03:00
 // Edited by nc.ai 0.8.8.3 on new-admin-pc 2026-10-19 10:40:10
+// Edited by nc.ai 0.8.8.4 on new-admin-pc 2026-10-19 11:04:25
 package appmeta
 
 import "time"
@@ -16,7 +17,7 @@ import "time"
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "0.8.8.3"
+	Version = "0.8.8.4"
 )
 
 // DeepSeekProRetireRFC3339 is the announced V4 Pro retirement instant, empty
@@ -62,16 +63,16 @@ func retiredAt(at time.Time, now time.Time) bool {
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
+	"«этап»-карточки больше не показывают сырой JSON и сворачиваются под стрелку; инструменты — одним блоком «Исследовал»",
 	"Баланс DeepSeek в шапке подписан понятно: баланс (доступно) · бонус (подарочные) · пополнение (оплачено вами)",
-	"Прогон показывает один сворачиваемый блок «Исследовал», текущий шаг и последний этап вместо простыни строк; «этап»-карточки больше не копятся",
 	"Когда приложение задаёт вопрос — подтверждение изменения вне проекта, ask_user или закрытие — играет звук лопнувшего мыльного пузыря",
 	"Пояснения шагов в Settings → Agent: «Авто» — только значимые находки, «Всегда» — короткая строка на каждый шаг, «Никогда» — только результат",
 	"Прогон больше не обрывается, пока в списке задач остаются незакрытые пункты: агент доделывает их или снимает ненужные",
 }
 
 var HighlightsEN = []string{
+	"Stage cards no longer show raw JSON and collapse under an arrow; tools fold into one \"Explored\" block",
 	"The DeepSeek balance in the header is labelled plainly: balance (available) · bonus (granted) · top-up (paid by you)",
-	"A run shows one collapsible \"Explored\" block, the current step and the latest stage instead of a wall of lines; stage cards no longer pile up",
 	"When the app asks a question — an out-of-project change approval, ask_user or the close prompt — it plays a soap-bubble pop",
 	"Step narration in Settings → Agent: \"Auto\" — only meaningful findings, \"Always\" — a short line per step, \"Never\" — result only",
 	"A run no longer stops while the task list still has open items: the agent finishes them or drops unneeded ones",

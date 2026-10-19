@@ -1649,11 +1649,12 @@ function IntermediateRow({row}: {row: DisplayRow}) {
     )
   }
   if (m.kind === 'progress') {
+    const first = (m.content || '').split('\n')[0] || 'этап'
     return (
-      <div className="nc-msg progress">
-        <div className="nc-role">этап</div>
-        <pre>{m.content}</pre>
-      </div>
+      <details className="nc-msg progress">
+        <summary className="nc-progress-sum">{first}</summary>
+        <pre className="nc-progress-body">{m.content}</pre>
+      </details>
     )
   }
   return (
@@ -3277,9 +3278,8 @@ export default function App() {
             } catch {
               parsed = null
             }
-            if (!parsed && ev.content) {
-              parsed = {phase: 'step', text: ev.content, elapsed: '', seconds: 0, step: 0, total: 0, tools: 0, done: '', current: '', action: '', task: ''}
-            }
+            // Сырой ev.content никогда не показываем: это всегда JSON от Go.
+            // Если разобрать не удалось — просто пропускаем событие.
             if (!parsed) return
             setProgressBySession((prev) => ({...prev, [sid]: parsed as RunProgressInfo}))
             // Heartbeats only refresh the live status line; milestones are the
@@ -6177,11 +6177,12 @@ export default function App() {
                     )
                   }
                   if (m.kind === 'progress') {
+                    const first = (m.content || '').split('\n')[0] || 'этап'
                     return (
-                      <div key={row.key} className="nc-msg progress">
-                        <div className="nc-role">этап</div>
-                        <pre>{m.content}</pre>
-                      </div>
+                      <details key={row.key} className="nc-msg progress">
+                        <summary className="nc-progress-sum">{first}</summary>
+                        <pre className="nc-progress-body">{m.content}</pre>
+                      </details>
                     )
                   }
                   return (
