@@ -9,6 +9,7 @@
 // Edited by nc.ai 0.8.7.7 on Papasha 2026-10-16 22:57:44
 // Edited by nc.ai 0.8.8.0 on macbook 2026-10-18 19:13:02
 // Edited by nc.ai 0.8.8.0 on new-admin-pc 2026-10-19 08:01:50
+// Edited by nc.ai 0.8.9.2 on macbook 2026-10-19 20:43:46
 import {FormEvent, MouseEvent as ReactMouseEvent, useCallback, useEffect, useRef, useState} from 'react'
 import {Terminal} from '@xterm/xterm'
 import {FitAddon} from '@xterm/addon-fit'
@@ -6613,6 +6614,7 @@ export default function App() {
         {showSettings && (
           <aside className="nc-settings">
             <div className="nc-vsplit leading" onMouseDown={(e) => beginResize('settings', e)} />
+            <div className="nc-settings-topbar">
             <div className="nc-settings-head">
               <div className="nc-section-label">Settings</div>
               <div className="nc-settings-head-actions">
@@ -6647,6 +6649,7 @@ export default function App() {
                 </button>
               ))}
             </nav>
+            </div>
             <div className="nc-section-label">Provider</div>
             <label>
               Active
