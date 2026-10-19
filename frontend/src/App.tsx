@@ -8,6 +8,7 @@
 // Edited by nc.ai 0.8.7.7 on macbook 2026-10-16 22:21:22
 // Edited by nc.ai 0.8.7.7 on Papasha 2026-10-16 22:57:44
 // Edited by nc.ai 0.8.8.0 on macbook 2026-10-18 19:13:02
+// Edited by nc.ai 0.8.8.0 on new-admin-pc 2026-10-19 08:01:50
 import {FormEvent, MouseEvent as ReactMouseEvent, useCallback, useEffect, useRef, useState} from 'react'
 import {Terminal} from '@xterm/xterm'
 import {FitAddon} from '@xterm/addon-fit'
@@ -131,6 +132,7 @@ import {
   ResetNetworkStats,
   SaveShowTerminal,
   GetEndSound,
+  GetAskSound,
   SaveEndSound,
   GetProviderNews,
   MarkProviderNewsRead,
@@ -412,6 +414,20 @@ const LOCAL_PRESETS: {id: string; label: string; url: string}[] = [
   {id: 'lemonade', label: 'Lemonade (AMD)', url: 'http://127.0.0.1:8000/api/v1'},
   {id: 'custom', label: 'Custom', url: ''},
 ]
+
+// Settings category quick-nav: maps a category id to the (possibly multiple)
+// section-label texts that belong to it. Only the active provider's section
+// is rendered, so "models" jumps to whichever is visible. Kept in sync with
+// the nc-section-label headers inside the settings aside.
+const SETTINGS_CATS: Record<string, string[]> = {
+  provider: ['Provider'],
+  models: ['DeepSeek', 'OpenRouter', 'Qwen (DashScope)', 'Yandex AI Studio', 'Custom servers', 'Z.ai'],
+  agent: ['Agent', 'MCP'],
+  network: ['Network'],
+  interface: ['Interface'],
+  updates: ['Обновления'],
+  system: ['Shell', 'Git & SSH', 'Cursor Rules', 'Новости провайдеров'],
+}
 
 const DEEPSEEK_MODELS = [
   'deepseek-flash',
@@ -977,6 +993,13 @@ function fmtUsd(c: number): string {
   return `$${Number(c || 0).toFixed(4)}`
 }
 
+/** Баланс в долларах: целые суммы без лишних нулей, мелкие — до 3 знаков. */
+function fmtBal(c: number): string {
+  const v = Number(c || 0)
+  if (v === 0) return '$0.00'
+  return `$${v.toFixed(Math.abs(v) >= 1 ? 2 : 3)}`
+}
+
 function cacheHitPct(hit: number, miss: number): number | null {
   const h = Math.max(0, hit || 0)
   const m = Math.max(0, miss || 0)
@@ -1472,7 +1495,7 @@ function TodoPanel({todos, expand, busy, onContext}: {todos: TodoItem[]; expand?
   )
 }
 
-/** Collapse consecutive completed tools; when compact, even a single tool becomes a summary group. */
+/** Consecutive completed tools collapse into one summary group (both live and finished). */
 function buildDisplayRows(items: ChatItem[], compact = false, finalVisible = true): DisplayRow[] {
   const rows: DisplayRow[] = []
   let i = 0
@@ -1485,11 +1508,7 @@ function buildDisplayRows(items: ChatItem[], compact = false, finalVisible = tru
         group.push(list[i] as Extract<ChatItem, {kind: 'tool'}>)
         i++
       }
-      if (!compact && group.length === 1) {
-        rows.push({key: `t-${i - 1}`, kind: 'item', item: group[0]})
-      } else {
-        rows.push({key: `g-${i - group.length}`, kind: 'tool_group', tools: group, summary: summarizeTools(group)})
-      }
+      rows.push({key: `g-${i - group.length}`, kind: 'tool_group', tools: group, summary: summarizeTools(group)})
       continue
     }
     rows.push({key: `i-${i}`, kind: 'item', item: m})
@@ -1644,11 +1663,12 @@ function IntermediateRow({row}: {row: DisplayRow}) {
     )
   }
   if (m.kind === 'progress') {
+    const first = (m.content || '').split('\n')[0] || 'этап'
     return (
-      <div className="nc-msg progress">
-        <div className="nc-role">этап</div>
-        <pre>{m.content}</pre>
-      </div>
+      <details className="nc-msg progress">
+        <summary className="nc-progress-sum">{first}</summary>
+        <pre className="nc-progress-body">{m.content}</pre>
+      </details>
     )
   }
   return (
@@ -1867,6 +1887,8 @@ export default function App() {
   const [showTree, setShowTree] = useState(true)
   const [showTerm, setShowTerm] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
+  // Settings category quick-nav (sticky pill bar at the top of the panel).
+  const [settingsCat, setSettingsCat] = useState<string>('provider')
   // Provider news digest (DeepSeek / Z.AI / OpenRouter / Qwen).
   const [news, setNews] = useState<ProviderNewsPayload | null>(null)
   const [newsBusy, setNewsBusy] = useState(false)
@@ -2024,6 +2046,7 @@ export default function App() {
   const [endSound, setEndSound] = useState(true)
   const endSoundRef = useRef(true)
   const chimeRef = useRef<HTMLAudioElement | null>(null)
+  const askSoundRef = useRef<HTMLAudioElement | null>(null)
   useEffect(() => {
     endSoundRef.current = endSound
   }, [endSound])
@@ -2109,6 +2132,22 @@ export default function App() {
   const finishedRunKeysRef = useRef<Set<string>>(new Set())
   const activeSessionRef = useRef('')
   const noticeQueueRef = useRef<string[]>([])
+  // Куда вернуть пользователя после ответа на вопрос агента (tool_ask из
+  // другого проекта/чата переключает на себя — после ответа возвращаем назад).
+  const askReturnRef = useRef<{project: string; session: string} | null>(null)
+  const returnAfterAsk = useCallback(() => {
+    const back = askReturnRef.current
+    askReturnRef.current = null
+    if (!back || !back.session) return
+    const curProject = activeProjectRef.current?.path || ''
+    if (back.session === activeSessionRef.current && back.project === curProject) return
+    void (async () => {
+      try {
+        if (back.project && back.project !== curProject) await openProjectRef.current(back.project)
+        await switchSessionRef.current(back.session)
+      } catch { /* возврат не критичен */ }
+    })()
+  }, [])
   const lastRequestRef = useRef<{text: string; atts: PendingAtt[]} | null>(null)
   const lastModelRef = useRef<Record<string, string>>({})
   const busyBySessionRef = useRef<Record<string, boolean>>({})
@@ -2451,6 +2490,37 @@ export default function App() {
       .catch(() => undefined)
     return () => { alive = false }
   }, [])
+
+  // Attention pop: a big soap bubble bursting. Played whenever the app asks a
+  // question — tool approval, an out-of-project change, ask_user, or the close
+  // confirmation — so a blocking prompt never waits silently in the background.
+  const playAskSound = useCallback(() => {
+    const audio = askSoundRef.current
+    if (!audio) return
+    try {
+      audio.currentTime = 0
+      void audio.play()?.catch(() => undefined)
+    } catch { /* автовоспроизведение запрещено — вопрос всё равно на экране */ }
+  }, [])
+
+  // Load the attention clip once (embedded in the binary, same as the chime).
+  useEffect(() => {
+    let alive = true
+    GetAskSound()
+      .then((url) => {
+        if (!alive || !url) return
+        const audio = new Audio(url)
+        audio.preload = 'auto'
+        askSoundRef.current = audio
+      })
+      .catch(() => undefined)
+    return () => { alive = false }
+  }, [])
+
+  // Every fresh question modal (ask_user or a tool approval) gets one pop.
+  useEffect(() => {
+    if (toolAsk) playAskSound()
+  }, [toolAsk, playAskSound])
 
   // Shared "run is over" cleanup. A run may finish for a project that is not on
   // screen any more — then the transcript is saved right away, from that chat's
@@ -2842,6 +2912,21 @@ export default function App() {
     }
   }, [])
 
+  // Settings → category quick-nav: clicking a pill scrolls the matching
+  // section label into view. We look up the label by its visible text, so no
+  // section markup needs to change. The labels match the Russian/English
+  // headers rendered in the settings panel (see the nc-section-label blocks).
+  const scrollToSettingsCat = useCallback((cat: string) => {
+    setSettingsCat(cat)
+    const labels = SETTINGS_CATS[cat]
+    if (!labels) return
+    const root = document.querySelector('.nc-settings')
+    if (!root) return
+    const nodes = Array.from(root.querySelectorAll<HTMLElement>('.nc-section-label'))
+    const target = nodes.find((n) => labels.includes(n.textContent?.trim() || ''))
+    if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [])
+
   const applyUiFont = useCallback(async (next: string) => {
     const id = normalizeUiFont(next)
     setUiFont(id)
@@ -3092,6 +3177,7 @@ export default function App() {
     let offUpdateProgress: (() => void) | undefined
     let offUpdateInstall: (() => void) | undefined
     let offProjects: (() => void) | undefined
+    let offAskSound: (() => void) | undefined
     try {
       offAgent = EventsOn('agent:event', (...args: unknown[]) => {
         try {
@@ -3156,7 +3242,14 @@ export default function App() {
           if (ev.type === 'tool_ask') {
             // Вопрос мог прийти из другого проекта или чата (прогон там ещё идёт).
             // Переключаемся туда: иначе диалог висит поверх чужого разговора и
-            // непонятно, о чём вообще речь.
+            // непонятно, о чём вообще речь. Но запоминаем, где был пользователь,
+            // чтобы вернуть его туда после ответа.
+            if (!askReturnRef.current) {
+              askReturnRef.current = {
+                project: activeProjectRef.current?.path || '',
+                session: activeSessionRef.current || '',
+              }
+            }
             const askProject = String(ev.project || '').trim()
             const shownProject = activeProjectRef.current?.path || ''
             if (askProject && askProject !== shownProject) {
@@ -3239,9 +3332,8 @@ export default function App() {
             } catch {
               parsed = null
             }
-            if (!parsed && ev.content) {
-              parsed = {phase: 'step', text: ev.content, elapsed: '', seconds: 0, step: 0, total: 0, tools: 0, done: '', current: '', action: '', task: ''}
-            }
+            // Сырой ev.content никогда не показываем: это всегда JSON от Go.
+            // Если разобрать не удалось — просто пропускаем событие.
             if (!parsed) return
             setProgressBySession((prev) => ({...prev, [sid]: parsed as RunProgressInfo}))
             // Heartbeats only refresh the live status line; milestones are the
@@ -3250,7 +3342,18 @@ export default function App() {
             const asked = Boolean(progressAskedRef.current[sid])
             const silent = Date.now() - (lastOutputAtRef.current[key] || Date.now()) >= SILENT_PROGRESS_MS
             if (parsed.phase !== 'heartbeat' && parsed.phase !== 'start' && (asked || silent)) {
-              apply((prev) => [...prev, {kind: 'progress', content: parsed.text}])
+              // Не копим «этап»-карточки: очередная заменяет предыдущую —
+              // текст этапа и так содержит накопительные итоги.
+              apply((prev) => {
+                const copy = prev.slice()
+                const last = copy[copy.length - 1]
+                if (last && last.kind === 'progress') {
+                  copy[copy.length - 1] = {kind: 'progress', content: parsed.text}
+                } else {
+                  copy.push({kind: 'progress', content: parsed.text})
+                }
+                return copy
+              })
             }
           } else if (ev.type === 'tool_start') {
             closeReasoningIn(key, apply)
@@ -3498,6 +3601,9 @@ export default function App() {
           setActive((cur) => (cur && list.some((p) => p.path === cur.path) ? cur : list[0] ?? cur))
         }).catch(() => undefined)
       })
+      // Native close confirmation is a question too — backend pings us to play
+      // the same attention pop before the OS dialog appears.
+      offAskSound = EventsOn('ask:sound', () => playAskSound())
     } catch {
       // runtime bindings not ready
     }
@@ -3517,12 +3623,14 @@ export default function App() {
         offUpdateProgress?.()
         offUpdateInstall?.()
         EventsOff('projects:changed')
+        EventsOff('ask:sound')
         offProjects?.()
+        offAskSound?.()
       } catch {
         /* ignore */
       }
     }
-  }, [setSessionItems, applyUsageStats, finishRunUI])
+  }, [setSessionItems, applyUsageStats, finishRunUI, playAskSound])
 
   useEffect(() => {
     if (chatFindOpen) return
@@ -5577,7 +5685,9 @@ export default function App() {
                 }
                 return `Провайдер DeepSeek · чат: ${usage.chatInputTokens} in / ${usage.chatOutputTokens} out (${fmtUsd(usage.chatCostUsd)}) · total DeepSeek: ${usage.inputTokens} in / ${usage.outputTokens} out (${fmtUsd(usage.costUsd)})` +
                   cacheLine +
-                  (usage.balanceDetail ? ` · ${usage.balanceDetail}` : '')
+                  (usage.balanceOk
+                    ? ` · баланс ${fmtBal(usage.balanceUsd)} (бонус ${fmtBal(usage.balanceGranted)} + пополнение ${fmtBal(usage.balanceToppedUp)})`
+                    : '')
               })()
             }
           >
@@ -5601,28 +5711,60 @@ export default function App() {
             {showBalance && (
               <>
                 <span className="nc-cost-sep">·</span>
-                <span className="nc-cost-bal" title={usage.balanceDetail || 'Refresh balance в Settings'}>
+                <span className="nc-cost-bal" title="Баланс DeepSeek = бонус (подарочные средства) + пополнение (оплачено вами). Меньше $1 пополнения — работа скоро остановится.">
                   {usage.balanceOk
                     ? (activeProvider === 'deepseek' && usage.balanceDetail
                       ? (
                         <>
-                          <span>bal {fmtUsd(usage.balanceUsd)}</span>
+                          <span title="Доступно сейчас — сумма бонуса и пополнения">баланс {fmtBal(usage.balanceUsd)}</span>
                           <span className="nc-cost-sep">·</span>
-                          <span>grant {fmtUsd(usage.balanceGranted)}</span>
+                          <span title="Бонус — бесплатные средства от DeepSeek, тратятся первыми">бонус {fmtBal(usage.balanceGranted)}</span>
                           <span className="nc-cost-sep">·</span>
                           <span
                             className={usage.balanceToppedUp < 1 ? 'nc-bal-low' : ''}
-                            title={usage.balanceToppedUp < 1 ? 'Пополнение DeepSeek меньше $1 — работа скоро остановится' : undefined}
+                            title={usage.balanceToppedUp < 1 ? 'Пополнение меньше $1 — работа скоро остановится' : 'Пополнение — оплаченные вами средства'}
                           >
-                            topup {fmtUsd(usage.balanceToppedUp)}
+                            пополнение {fmtBal(usage.balanceToppedUp)}
                           </span>
                         </>
                       )
-                      : `bal ${fmtUsd(usage.balanceUsd)}`)
-                    : 'bal —'}
+                      : `баланс ${fmtBal(usage.balanceUsd)}`)
+                    : 'баланс —'}
                 </span>
               </>
             )}
+          </span>
+          <span className="nc-top-sep-actions">
+            <button
+              type="button"
+              className="nc-top-icon-btn"
+              onClick={() => void applyTheme(theme === 'dark' ? 'light' : 'dark')}
+              title={theme === 'dark' ? 'Светлая тема' : 'Тёмная тема'}
+              aria-label={theme === 'dark' ? 'Переключить на светлую тему' : 'Переключить на тёмную тему'}
+            >
+              {theme === 'dark' ? (
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <circle cx="12" cy="12" r="4" />
+                  <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
+                </svg>
+              ) : (
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+                </svg>
+              )}
+            </button>
+            <button
+              type="button"
+              className="nc-top-icon-btn"
+              onClick={() => setSettingsVisible(true)}
+              title="Настройки"
+              aria-label="Открыть настройки"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="3" />
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+              </svg>
+            </button>
           </span>
         </div>
       </header>
@@ -6081,10 +6223,10 @@ export default function App() {
                     return <IntermediateGroup key={row.key} rows={row.rows} steps={row.steps} expand={expandSignal} />
                   }
                   if (row.kind === 'process') {
-                    return <ProcessGroup key={row.key} rows={row.rows} expand={expandSignal} autoOpen={busy && isLastRow} />
+                    return <ProcessGroup key={row.key} rows={row.rows} expand={expandSignal} />
                   }
                   if (row.kind === 'tool_group') {
-                    return <ToolGroup key={row.key} summary={row.summary} tools={row.tools} expand={expandSignal} autoOpen={busy && isLastRow} />
+                    return <ToolGroup key={row.key} summary={row.summary} tools={row.tools} expand={expandSignal} />
                   }
                   if (row.kind === 'todos') {
                     return <TodoPanel key={row.key} todos={todos} expand={expandSignal} busy={false} onContext={openTodoCtx} />
@@ -6121,11 +6263,12 @@ export default function App() {
                     )
                   }
                   if (m.kind === 'progress') {
+                    const first = (m.content || '').split('\n')[0] || 'этап'
                     return (
-                      <div key={row.key} className="nc-msg progress">
-                        <div className="nc-role">этап</div>
-                        <pre>{m.content}</pre>
-                      </div>
+                      <details key={row.key} className="nc-msg progress">
+                        <summary className="nc-progress-sum">{first}</summary>
+                        <pre className="nc-progress-body">{m.content}</pre>
+                      </details>
                     )
                   }
                   return (
@@ -6250,7 +6393,7 @@ export default function App() {
                     args={toolAsk.args}
                     answer={askAnswer}
                     setAnswer={setAskAnswer}
-                    onDone={() => { setToolAsk(null); setAskAnswer('') }}
+                    onDone={() => { setToolAsk(null); setAskAnswer(''); returnAfterAsk() }}
                   />
                 ) : (
                   <>
@@ -6266,10 +6409,9 @@ export default function App() {
                     </p>
                     <pre className="nc-tool-ask-args">{toolAsk.args || '(no args)'}</pre>
                     <p className="nc-help">
-                      «Разрешить и не спрашивать» — только для этого инструмента и этого чата, до
-                      закрытия приложения (для run_terminal это отключает и проверку выхода за проект).
-                      Совсем без подтверждений внутри проекта — Settings → Agent → «Confirm dangerous
-                      tools».
+                      «Разрешить и не спрашивать» — для этого инструмента целиком, во всех чатах и
+                      проектах, до закрытия приложения (для run_terminal это отключает и проверку выхода
+                      за проект). Совсем без подтверждений — Settings → Agent → «Confirm dangerous tools».
                     </p>
                     <div className="nc-close-project-actions">
                       <button
@@ -6277,6 +6419,7 @@ export default function App() {
                         onClick={() => {
                           const ask = toolAsk
                           setToolAsk(null)
+                          returnAfterAsk()
                           ResolveToolApproval(ask.sessionId, ask.callId, true)
                         }}
                       >
@@ -6289,6 +6432,7 @@ export default function App() {
                         onClick={() => {
                           const ask = toolAsk
                           setToolAsk(null)
+                          returnAfterAsk()
                           AllowToolForSession(ask.sessionId, ask.name)
                           ResolveToolApproval(ask.sessionId, ask.callId, true)
                         }}
@@ -6301,6 +6445,7 @@ export default function App() {
                         onClick={() => {
                           const ask = toolAsk
                           setToolAsk(null)
+                          returnAfterAsk()
                           ResolveToolApproval(ask.sessionId, ask.callId, false)
                         }}
                       >
@@ -6481,6 +6626,26 @@ export default function App() {
                 </p>
               ) : null}
             </div>
+            <nav className="nc-settings-nav" aria-label="Разделы настроек">
+              {([
+                ['provider', 'Провайдер'],
+                ['models', 'Модели и ключи'],
+                ['agent', 'Агент и MCP'],
+                ['network', 'Сеть'],
+                ['interface', 'Интерфейс'],
+                ['updates', 'Обновления'],
+                ['system', 'Система'],
+              ] as const).map(([cat, label]) => (
+                <button
+                  key={cat}
+                  type="button"
+                  data-active={settingsCat === cat ? 'true' : undefined}
+                  onClick={() => scrollToSettingsCat(cat)}
+                >
+                  {label}
+                </button>
+              ))}
+            </nav>
             <div className="nc-section-label">Provider</div>
             <label>
               Active
@@ -6631,7 +6796,7 @@ export default function App() {
                 {dsBalance && (
                   <p className="nc-help">
                     {dsBalance.ok
-                      ? `Баланс: ${dsBalance.detail || `total ${fmtUsd(dsBalance.availableUsd)} · grant ${fmtUsd(dsBalance.grantedUsd)} · topup ${fmtUsd(dsBalance.toppedUpUsd)}`}`
+                      ? `Баланс DeepSeek: доступно ${fmtBal(dsBalance.availableUsd)} (бонус ${fmtBal(dsBalance.grantedUsd)} + пополнение ${fmtBal(dsBalance.toppedUpUsd)})${dsBalance.detail.includes('insufficient') ? ' · недостаточно средств' : ''}`
                       : dsBalance.detail || 'Баланс недоступен через API'}
                     {' '}
                     <span title="platform.deepseek.com/usage">GET /user/balance</span>

@@ -3,6 +3,7 @@
 // Edited by nc.ai 0.8.5.6 on macbook 2026-10-13 21:42:31
 // Edited by nc.ai 0.8.6.3 on Papasha 2026-10-16 14:15:46
 // Edited by nc.ai 0.8.7.7 on macbook 2026-10-16 22:21:12
+// Edited by nc.ai 0.8.8.0 on new-admin-pc 2026-10-19 08:01:34
 package main
 
 import (
@@ -91,10 +92,11 @@ type App struct {
 	sessionStickyModel map[string]string
 	approveMu          sync.Mutex
 	pendingApprove     map[string]chan bool // key: sessionID+"/"+callID
+	pendingApproveName map[string]string    // same key -> tool name
 	pendingAsk         map[string]chan string
-	// allowTools — «разрешить и не спрашивать» для одного инструмента в одном
-	// чате (key: sessionID+"/"+tool). Сбрасывается, когда подтверждения снова
-	// включают в Settings, и живёт только до закрытия приложения.
+	// allowTools — «разрешить и не спрашивать»: инструменты, которые больше не
+	// подтверждаем ни в одном чате/проекте, до закрытия приложения (ключ — имя
+	// инструмента). Сбрасывается, когда подтверждения снова включают в Settings.
 	allowTools map[string]bool
 	sessionID  string
 	history    []llm.Message
@@ -136,6 +138,7 @@ func NewApp() *App {
 		runProjects:        map[string]string{},
 		sessionStickyModel: map[string]string{},
 		pendingApprove:     map[string]chan bool{},
+		pendingApproveName: map[string]string{},
 		pendingAsk:         map[string]chan string{},
 		allowTools:         map[string]bool{},
 	}
@@ -525,6 +528,9 @@ func (a *App) beforeClose(ctx context.Context) (prevent bool) {
 	// а не закрывать молча: это выглядит как «вылет» и теряет набранное
 	// (инцидент 13.10.2026 21:48:16).
 	if a.hasActiveRuns() || a.hasPendingDraft() {
+		// Нативный диалог закрытия тоже «вопрос» — даём UI сигнал проиграть
+		// звук внимания (тот же «лопнувший пузырь», что и у остальных вопросов).
+		runtime.EventsEmit(a.ctx, "ask:sound")
 		res, err := runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
 			Type:          runtime.QuestionDialog,
 			Title:         "NotCursor",
@@ -1681,6 +1687,13 @@ func (a *App) GetEndSound() string {
 	return chime.DataURL()
 }
 
+// GetAskSound returns the built-in "attention" pop as a data URL. The UI plays
+// it when the app asks a question (tool approval, an out-of-project change,
+// ask_user, or the close confirmation). Embedded into the binary.
+func (a *App) GetAskSound() string {
+	return chime.PopDataURL()
+}
+
 // SaveLayoutSizes persists inner pane widths/heights (projects/tree/settings/terminal/chat column).
 func (a *App) SaveLayoutSizes(projectsW, treeW, settingsW, terminalH, chatMaxW int) error {
 	return a.cfg.SetLayoutSizes(projectsW, treeW, settingsW, terminalH, chatMaxW)
@@ -2592,6 +2605,7 @@ func (a *App) ResolveUserAsk(sessionID, callID, answer string) {
 // него до закрытия приложения (или до повторного включения подтверждений).
 func (a *App) AllowToolForSession(sessionID, name string) {
 	key := toolAllowKey(sessionID, name)
+	a.logAgentLine(fmt.Sprintf("[approve] store name=%q key=%q", name, key))
 	if key == "" {
 		return
 	}
@@ -2600,6 +2614,20 @@ func (a *App) AllowToolForSession(sessionID, name string) {
 		a.allowTools = map[string]bool{}
 	}
 	a.allowTools[key] = true
+	// Разрешаем заодно все уже висящие подтверждения этого же инструмента:
+	// агент мог отправить несколько опасных вызовов одним пакетом — иначе после
+	// «не спрашивать» всплыли бы ещё несколько таких же диалогов.
+	for k, tool := range a.pendingApproveName {
+		if tool != key {
+			continue
+		}
+		if ch := a.pendingApprove[k]; ch != nil {
+			select {
+			case ch <- true:
+			default:
+			}
+		}
+	}
 	a.approveMu.Unlock()
 }
 
@@ -2622,12 +2650,13 @@ func (a *App) clearAllowedTools() {
 }
 
 func toolAllowKey(sessionID, name string) string {
-	sid := strings.TrimSpace(sessionID)
 	tool := strings.TrimSpace(name)
-	if sid == "" || tool == "" {
+	if tool == "" {
 		return ""
 	}
-	return sid + "/" + tool
+	// Область — инструмент целиком (во всех чатах и проектах): иначе в соседнем
+	// чате тот же инструмент переспрашивается заново и «не спрашивать» не работает.
+	return tool
 }
 
 // scopeMutations сообщает, меняет ли вызов данные за границами проекта
@@ -2661,11 +2690,13 @@ func (a *App) waitToolApproval(ctx context.Context, sessionID, callID, name, arg
 		}
 	}
 	a.pendingApprove[key] = ch
+	a.pendingApproveName[key] = name
 	a.approveMu.Unlock()
 	defer func() {
 		a.approveMu.Lock()
 		if a.pendingApprove[key] == ch {
 			delete(a.pendingApprove, key)
+			delete(a.pendingApproveName, key)
 		}
 		a.approveMu.Unlock()
 	}()
@@ -3845,9 +3876,11 @@ func (a *App) RunAgentInSession(sessionID, runID, userMessage string, attachment
 	// ApproveTool is always wired; it decides per call whether a prompt is
 	// needed, so toggling "Confirm dangerous tools" applies immediately.
 	runner.ApproveTool = func(ctx context.Context, callID, name, argsJSON, reason string) (bool, error) {
-		if a.toolAllowed(sid, name) {
+		allowed := a.toolAllowed(sid, name)
+		a.logAgentLine(fmt.Sprintf("[approve] name=%q allowed=%v confirm=%v reason=%q", name, allowed, a.cfg.ToolConfirmEnabled(), reason))
+		if allowed {
 			// Пользователь уже сказал «разрешить и не спрашивать» для этого
-			// инструмента в этом чате.
+			// инструмента.
 			return true, nil
 		}
 		if !a.cfg.ToolConfirmEnabled() {

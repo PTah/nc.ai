@@ -7,6 +7,13 @@
 // Edited by nc.ai 0.8.7.7 on macbook 2026-10-16 22:22:13
 // Edited by nc.ai 0.8.7.7 on Papasha 2026-10-16 22:59:27
 // Edited by nc.ai 0.8.8.0 on macbook 2026-10-18 19:23:36
+// Edited by nc.ai 0.8.8.2 on new-admin-pc 2026-10-19 08:03:00
+// Edited by nc.ai 0.8.8.3 on new-admin-pc 2026-10-19 10:40:10
+// Edited by nc.ai 0.8.8.4 on new-admin-pc 2026-10-19 11:04:25
+// Edited by nc.ai 0.8.8.5 on new-admin-pc 2026-10-19 11:25:13
+// Edited by nc.ai 0.8.8.6 on new-admin-pc 2026-10-19 11:47:53
+// Edited by nc.ai 0.8.9.0 on Papasha 2026-10-19 15:52:10
+// Edited by nc.ai 0.8.8.6 on new-admin-pc 2026-10-19 15:53:48
 package appmeta
 
 import "time"
@@ -14,7 +21,7 @@ import "time"
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "0.8.8.1"
+	Version = "0.8.9.0"
 )
 
 // DeepSeekProRetireRFC3339 is the announced V4 Pro retirement instant, empty
@@ -60,19 +67,19 @@ func retiredAt(at time.Time, now time.Time) bool {
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
-	"Пояснения шагов в Settings → Agent: «Авто» — только значимые находки, «Всегда» — короткая строка на каждый шаг, «Никогда» — только результат",
-	"Прогон больше не обрывается, пока в списке задач остаются незакрытые пункты: агент доделывает их или снимает ненужные",
-	"Ответ не пропадает при параллельном вопросе: дорожки прогонов больше не теряют хвост на завершении",
-	"Шаги во время прогона свёрнуты в один блок «Думал и исследовал» вместо череды заголовков — меньше шума в чате",
-	"Рабочее пространство из нескольких папок и multitask (запросы идут параллельно) — на месте",
+	"Новый дизайн под macOS и Windows 11: стеклянная шапка, слоистые панели, мягкие тени и аккуратные разделители",
+	"Настройки получили липкую шапку и навигатор разделов — провайдеры, агент и MCP, сеть, интерфейс, обновления — в один клик",
+	"Переключатель светлой и тёмной темы и шестерёнка настроек переехали в шапку приложения",
+	"Пузырьки сообщений, вкладки, поле ввода и модальные окна перерисованы; несколько папок в рабочем пространстве и запросы, идущие параллельно, работают как раньше",
+	"Звук вопроса — пересинтезированный звонкий «Чпок!» вместо прежнего глухого",
 }
 
 var HighlightsEN = []string{
-	"Step narration in Settings → Agent: \"Auto\" — only meaningful findings, \"Always\" — a short line per step, \"Never\" — result only",
-	"A run no longer stops while the task list still has open items: the agent finishes them or drops unneeded ones",
-	"Answers no longer vanish on a parallel question: run lanes no longer lose their tail at completion",
-	"Steps during a run are folded into one \"Thought and explored\" block instead of a chain of headers — less chat noise",
-	"Multi-folder workspace and Multitask (requests run in parallel) stay in place",
+	"Redesigned for macOS and Windows 11: a glass header, layered panels, soft shadows and tidy dividers",
+	"Settings now have a sticky header and a section navigator — providers, agent & MCP, network, interface, updates — one click away",
+	"Light/dark toggle and the settings gear moved into the app header",
+	"Message bubbles, tabs, the composer and modals are redrawn; the multi-folder workspace and parallel requests behave exactly as before",
+	"The question sound is a re-synthesised, punchier pop instead of the previous dull one",
 }
 
 // UICopy is localized chrome for the Welcome splash.
