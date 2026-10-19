@@ -92,6 +92,7 @@ type App struct {
 	sessionStickyModel map[string]string
 	approveMu          sync.Mutex
 	pendingApprove     map[string]chan bool // key: sessionID+"/"+callID
+	pendingApproveName map[string]string    // same key -> tool name
 	pendingAsk         map[string]chan string
 	// allowTools — «разрешить и не спрашивать»: инструменты, которые больше не
 	// подтверждаем ни в одном чате/проекте, до закрытия приложения (ключ — имя
@@ -137,6 +138,7 @@ func NewApp() *App {
 		runProjects:        map[string]string{},
 		sessionStickyModel: map[string]string{},
 		pendingApprove:     map[string]chan bool{},
+		pendingApproveName: map[string]string{},
 		pendingAsk:         map[string]chan string{},
 		allowTools:         map[string]bool{},
 	}
@@ -2603,6 +2605,7 @@ func (a *App) ResolveUserAsk(sessionID, callID, answer string) {
 // него до закрытия приложения (или до повторного включения подтверждений).
 func (a *App) AllowToolForSession(sessionID, name string) {
 	key := toolAllowKey(sessionID, name)
+	a.logAgentLine(fmt.Sprintf("[approve] store name=%q key=%q", name, key))
 	if key == "" {
 		return
 	}
@@ -2611,6 +2614,20 @@ func (a *App) AllowToolForSession(sessionID, name string) {
 		a.allowTools = map[string]bool{}
 	}
 	a.allowTools[key] = true
+	// Разрешаем заодно все уже висящие подтверждения этого же инструмента:
+	// агент мог отправить несколько опасных вызовов одним пакетом — иначе после
+	// «не спрашивать» всплыли бы ещё несколько таких же диалогов.
+	for k, tool := range a.pendingApproveName {
+		if tool != key {
+			continue
+		}
+		if ch := a.pendingApprove[k]; ch != nil {
+			select {
+			case ch <- true:
+			default:
+			}
+		}
+	}
 	a.approveMu.Unlock()
 }
 
@@ -2673,11 +2690,13 @@ func (a *App) waitToolApproval(ctx context.Context, sessionID, callID, name, arg
 		}
 	}
 	a.pendingApprove[key] = ch
+	a.pendingApproveName[key] = name
 	a.approveMu.Unlock()
 	defer func() {
 		a.approveMu.Lock()
 		if a.pendingApprove[key] == ch {
 			delete(a.pendingApprove, key)
+			delete(a.pendingApproveName, key)
 		}
 		a.approveMu.Unlock()
 	}()
@@ -3857,9 +3876,11 @@ func (a *App) RunAgentInSession(sessionID, runID, userMessage string, attachment
 	// ApproveTool is always wired; it decides per call whether a prompt is
 	// needed, so toggling "Confirm dangerous tools" applies immediately.
 	runner.ApproveTool = func(ctx context.Context, callID, name, argsJSON, reason string) (bool, error) {
-		if a.toolAllowed(sid, name) {
+		allowed := a.toolAllowed(sid, name)
+		a.logAgentLine(fmt.Sprintf("[approve] name=%q allowed=%v confirm=%v reason=%q", name, allowed, a.cfg.ToolConfirmEnabled(), reason))
+		if allowed {
 			// Пользователь уже сказал «разрешить и не спрашивать» для этого
-			// инструмента в этом чате.
+			// инструмента.
 			return true, nil
 		}
 		if !a.cfg.ToolConfirmEnabled() {

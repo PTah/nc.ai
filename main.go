@@ -1,11 +1,15 @@
+// Edited by nc.ai 0.8.8.5 on new-admin-pc 2026-10-19 11:40:05
 package main
 
 import (
 	"embed"
+	"os"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+
+	"notcursor.ai/app/internal/update"
 )
 
 //go:embed all:frontend/dist
@@ -19,6 +23,11 @@ const (
 )
 
 func main() {
+	// Режим самоприменения обновления: тот же бинарь вызван с --apply-update,
+	// подменяет exe и перезапускает приложение — без PowerShell/Bypass.
+	if update.ApplyUpdate(os.Args[1:]) {
+		return
+	}
 	app := NewApp()
 	_ = app.cfg.Load()
 	s := app.cfg.Get()

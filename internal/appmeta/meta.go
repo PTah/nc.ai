@@ -11,6 +11,7 @@
 // Edited by nc.ai 0.8.8.3 on new-admin-pc 2026-10-19 10:40:10
 // Edited by nc.ai 0.8.8.4 on new-admin-pc 2026-10-19 11:04:25
 // Edited by nc.ai 0.8.8.5 on new-admin-pc 2026-10-19 11:25:13
+// Edited by nc.ai 0.8.8.6 on new-admin-pc 2026-10-19 11:47:53
 package appmeta
 
 import "time"
@@ -18,7 +19,7 @@ import "time"
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "0.8.8.5"
+	Version = "0.8.8.6"
 )
 
 // DeepSeekProRetireRFC3339 is the announced V4 Pro retirement instant, empty
@@ -64,19 +65,19 @@ func retiredAt(at time.Time, now time.Time) bool {
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
-	"«Разрешить и не спрашивать» — для инструмента целиком (во всех чатах); после ответа приложение возвращает в прежний чат",
+	"Обновление без «троянного» PowerShell-дроппера: приложение само подменяет exe. «Не спрашивать» снимает всю пачку однотипных подтверждений",
+	"«Разрешить и не спрашивать» — для инструмента целиком (во всех чатах); после ответа возвращает в прежний чат",
 	"«этап»-карточки больше не показывают сырой JSON и сворачиваются под стрелку; инструменты — одним блоком «Исследовал»",
 	"Баланс DeepSeek в шапке подписан понятно: баланс (доступно) · бонус (подарочные) · пополнение (оплачено вами)",
-	"Когда приложение задаёт вопрос — подтверждение изменения вне проекта, ask_user или закрытие — играет звук лопнувшего мыльного пузыря",
-	"Пояснения шагов в Settings → Agent: «Авто» — только значимые находки, «Всегда» — короткая строка на каждый шаг, «Никогда» — только результат",
+	"Когда приложение задаёт вопрос — подтверждение вне проекта, ask_user или закрытие — играет звук лопнувшего мыльного пузыря",
 }
 
 var HighlightsEN = []string{
+	"Updates no longer use the trojan-like PowerShell dropper (the app swaps its own exe). \"Don't ask\" clears a whole batch of same-tool approvals",
 	"\"Allow and don't ask\" applies to the tool across all chats; after answering, the app returns you to the previous chat",
 	"Stage cards no longer show raw JSON and collapse under an arrow; tools fold into one \"Explored\" block",
 	"The DeepSeek balance in the header is labelled plainly: balance (available) · bonus (granted) · top-up (paid by you)",
 	"When the app asks a question — an out-of-project change approval, ask_user or the close prompt — it plays a soap-bubble pop",
-	"Step narration in Settings → Agent: \"Auto\" — only meaningful findings, \"Always\" — a short line per step, \"Never\" — result only",
 }
 
 // UICopy is localized chrome for the Welcome splash.

@@ -1,3 +1,4 @@
+// Edited by nc.ai 0.8.8.5 on new-admin-pc 2026-10-19 11:39:50
 //go:build windows
 
 package update
@@ -8,95 +9,22 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"syscall"
 	"time"
 )
 
-// swapScript ждёт выхода приложения, подменяет exe и запускает новую версию.
-// Файл занят, пока процесс жив, поэтому порядок именно такой: ждём/снимаем
-// процесс, только потом переименовываем старый exe и копируем новый. Если
-// копирование не удалось (например, каталог только для чтения), возвращаем
-// на место старый exe и всё равно запускаем приложение.
-const swapScript = `param(
-  [Parameter(Mandatory=$true)][int]$TargetPid,
-  [Parameter(Mandatory=$true)][string]$NewExe,
-  [Parameter(Mandatory=$true)][string]$AppExe,
-  [string]$Log
-)
-$ErrorActionPreference = 'Continue'
-function Note([string]$m) {
-  if (-not $Log) { return }
-  try { Add-Content -LiteralPath $Log -Value ("{0} {1}" -f (Get-Date -Format o), $m) -ErrorAction Stop } catch {}
-}
-Note "swap start pid=$TargetPid new=$NewExe app=$AppExe"
-try { Wait-Process -Id $TargetPid -Timeout 45 -ErrorAction Stop } catch { Note "wait ended: $($_.Exception.Message)" }
-if (Get-Process -Id $TargetPid -ErrorAction SilentlyContinue) {
-  Note "stopping pid $TargetPid"
-  Stop-Process -Id $TargetPid -Force -ErrorAction SilentlyContinue
-  Start-Sleep -Milliseconds 500
-}
-Start-Sleep -Milliseconds 800
-$old = "$AppExe.old"
-Remove-Item -LiteralPath $old -Force -ErrorAction SilentlyContinue
-if (Test-Path -LiteralPath $AppExe) {
-  Move-Item -LiteralPath $AppExe -Destination $old -Force -ErrorAction SilentlyContinue
-  if (Test-Path -LiteralPath $AppExe) { Note "move to .old failed, will try overwrite" } else { Note "moved aside" }
-}
-$replaced = $false
-try {
-  Copy-Item -LiteralPath $NewExe -Destination $AppExe -Force -ErrorAction Stop
-  $replaced = $true
-  Note "exe replaced"
-} catch {
-  Note ("copy failed: " + $_.Exception.Message)
-}
-if (-not $replaced -and (Test-Path -LiteralPath $old)) {
-  Move-Item -LiteralPath $old -Destination $AppExe -Force -ErrorAction SilentlyContinue
-  Note "restored previous exe"
-}
-if (-not (Test-Path -LiteralPath $AppExe)) {
-  Note "FATAL: AppExe missing after swap"
-  exit 1
-}
-Unblock-File -LiteralPath $AppExe -ErrorAction SilentlyContinue
-$dir = Split-Path -Parent $AppExe
-$started = $false
-for ($i = 0; $i -lt 3 -and -not $started; $i++) {
-  try {
-    $p = Start-Process -FilePath $AppExe -WorkingDirectory $dir -PassThru -ErrorAction Stop
-    if ($p -and $p.Id) {
-      Start-Sleep -Milliseconds 700
-      if (Get-Process -Id $p.Id -ErrorAction SilentlyContinue) {
-        Note ("started ok pid=$($p.Id) attempt=$($i+1)")
-        $started = $true
-        break
-      }
-      Note ("process exited immediately pid=$($p.Id) attempt=$($i+1)")
-    }
-  } catch {
-    Note ("Start-Process failed attempt=$($i+1): $($_.Exception.Message)")
-  }
-  Start-Sleep -Seconds 1
-}
-if (-not $started) { Note "FATAL: could not relaunch application" }
-Start-Sleep -Seconds 2
-if ($replaced) { Remove-Item -LiteralPath $old -Force -ErrorAction SilentlyContinue }
-Note "swap done"
-`
-
-// spawnSwap пишет скрипт подмены и запускает его отдельным процессом вне Job
-// приложения, чтобы он пережил Quit и смог подменить exe + перезапустить UI.
+// spawnSwap запускает «самоприменение» обновления тем же бинарём с флагом
+// --apply-update: он дождётся выхода приложения, подменит exe и перезапустит его.
+//
+// Никакого PowerShell / -ExecutionPolicy Bypass / временных .ps1 — именно на эту
+// связку («скрытый дроппер») реагирует эвристика антивируса
+// (Trojan:Win32/Bearfoos.A!ml). Теперь подмену делает сам NotCursor.exe.
 func spawnSwap(stage, unpacked, appExe string) error {
 	return spawnSwapFor(stage, unpacked, appExe, os.Getpid())
 }
 
 const (
-	// createNoWindow — «тихая» консоль без окна.
-	//
-	// DETACHED_PROCESS (0x8) здесь использовать нельзя: PowerShell 5.1 с этим
-	// флагом стартует и умирает, не выполнив ни одной строки скрипта — ни
-	// swap.log, ни подмены exe (проверено тестом TestSwapLaunchesHelperProcess).
+	// createNoWindow — «тихая» консоль без окна (для GUI-билда не критично).
 	createNoWindow = 0x08000000
 	// createNewProcessGroup — свой процесс-группа, чтобы Ctrl+C в консоли
 	// приложения не задел подменщика.
@@ -127,28 +55,16 @@ func spawnSwapFor(stage, unpacked, appExe string, targetPid int) error {
 	if !ok {
 		return errors.New("в архиве обновления не найден NotCursor.exe")
 	}
-	script := filepath.Join(stage, "swap.ps1")
-	// UTF-8 с BOM: PowerShell 5.1 иначе читает .ps1 как ANSI (правило проекта).
-	if err := os.WriteFile(script, append([]byte{0xEF, 0xBB, 0xBF}, swapScript...), 0o644); err != nil {
-		return err
-	}
-	logPath := filepath.Join(stage, "swap.log")
-	errPath := filepath.Join(stage, "swap.err")
-	errFile, err := os.Create(errPath)
-	if err != nil {
-		return err
-	}
-	defer errFile.Close()
-
-	cmd := exec.Command("powershell.exe",
-		"-NoProfile", "-WindowStyle", "Hidden", "-ExecutionPolicy", "Bypass", "-File", script,
-		"-TargetPid", fmt.Sprint(targetPid),
-		"-NewExe", newExe,
-		"-AppExe", appExe,
-		"-Log", logPath,
+	logPath := filepath.Join(stage, "apply.log")
+	cmd := exec.Command(newExe,
+		applyUpdateFlag,
+		"--wait-pid", fmt.Sprint(targetPid),
+		"--new", newExe,
+		"--target", appExe,
+		"--log", logPath,
 	)
 	cmd.Dir = stage
-	cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, nil, errFile
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, nil, nil
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		CreationFlags: createNoWindow | createNewProcessGroup | createBreakawayFromJob,
 		HideWindow:    true,
@@ -159,23 +75,18 @@ func spawnSwapFor(stage, unpacked, appExe string, targetPid int) error {
 	pid := cmd.Process.Pid
 	_ = cmd.Process.Release()
 
-	// Подменщик должен дойти до первой строки (она пишет swap.log). Если он умер
-	// сразу — сообщаем причину из swap.err, а не оставляем «скачал, но ничего не
-	// произошло»: в этом случае приложение не будет закрыто.
+	// Подменщик должен дойти до первой строки лога. Если он умер сразу — не
+	// закрываем приложение впустую, а сообщаем, что подмена не запустилась.
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		if fi, statErr := os.Stat(logPath); statErr == nil && fi.Size() > 0 {
 			return nil
 		}
 		if !processAlive(pid) {
-			msg, _ := os.ReadFile(errPath)
-			if len(msg) == 0 {
-				msg = []byte("подменщик не оставил сообщений")
-			}
-			return fmt.Errorf("подмена не запустилась: %s", strings.TrimSpace(string(msg)))
+			return errors.New("подменщик не запустился")
 		}
 		time.Sleep(150 * time.Millisecond)
 	}
-	// Процесс жив, просто ещё не дошёл до записи в лог — не мешаем ему.
+	// Живой, просто ещё не записал лог — не мешаем.
 	return nil
 }
