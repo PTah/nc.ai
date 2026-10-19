@@ -95,8 +95,9 @@ type App struct {
 	pendingApproveName map[string]string    // same key -> tool name
 	pendingAsk         map[string]chan string
 	// allowTools — «разрешить и не спрашивать»: инструменты, которые больше не
-	// подтверждаем ни в одном чате/проекте, до закрытия приложения (ключ — имя
-	// инструмента). Сбрасывается, когда подтверждения снова включают в Settings.
+	// подтверждаем ни в одном чате/проекте (ключ — имя инструмента). Список
+	// лежит в settings.json и переживает перезапуск; сбрасывается, когда
+	// подтверждения снова включают в Settings.
 	allowTools map[string]bool
 	sessionID  string
 	history    []llm.Message
@@ -144,6 +145,20 @@ func NewApp() *App {
 	}
 }
 
+// reloadAllowedTools подтягивает «разрешить и не спрашивать» из settings.json:
+// список живёт на диске, поэтому не сбрасывается при перезапуске приложения.
+func (a *App) reloadAllowedTools() {
+	names := a.cfg.AllowedToolNames()
+	a.approveMu.Lock()
+	a.allowTools = make(map[string]bool, len(names))
+	for _, name := range names {
+		if name = strings.TrimSpace(name); name != "" {
+			a.allowTools[name] = true
+		}
+	}
+	a.approveMu.Unlock()
+}
+
 // setRunActive отмечает, что идёт прогон агента: health-проба локального сервера
 // в это время не должна слать свой generation и отбирать слот у модели.
 func (a *App) setRunActive(on bool) {
@@ -171,6 +186,7 @@ func (a *App) startup(ctx context.Context) {
 	// Прошлый процесс не оставил прогонов: маркер мог остаться только при падении.
 	a.clearStaleRunMarker()
 	_ = a.cfg.Load()
+	a.reloadAllowedTools()
 	a.applyHTTPConfig()
 	a.detectStartupNotice()
 	a.applyDeepSeekStartupDefaults()
@@ -2601,8 +2617,8 @@ func (a *App) ResolveUserAsk(sessionID, callID, answer string) {
 }
 
 // AllowToolForSession запоминает «разрешить и не спрашивать» для одного
-// инструмента в одном чате: диалог подтверждения больше не повторяется для
-// него до закрытия приложения (или до повторного включения подтверждений).
+// инструмента во всех чатах: диалог подтверждения больше не повторяется для
+// него и после перезапуска (или до повторного включения подтверждений).
 func (a *App) AllowToolForSession(sessionID, name string) {
 	key := toolAllowKey(sessionID, name)
 	a.logAgentLine(fmt.Sprintf("[approve] store name=%q key=%q", name, key))
@@ -2628,7 +2644,15 @@ func (a *App) AllowToolForSession(sessionID, name string) {
 			}
 		}
 	}
+	names := make([]string, 0, len(a.allowTools))
+	for k := range a.allowTools {
+		names = append(names, k)
+	}
 	a.approveMu.Unlock()
+	sort.Strings(names)
+	if a.cfg != nil {
+		_ = a.cfg.SetAllowedToolNames(names)
+	}
 }
 
 // toolAllowed — пользователь уже разрешил этот инструмент в этом чате.
@@ -2647,6 +2671,9 @@ func (a *App) clearAllowedTools() {
 	a.approveMu.Lock()
 	a.allowTools = map[string]bool{}
 	a.approveMu.Unlock()
+	if a.cfg != nil {
+		_ = a.cfg.SetAllowedToolNames(nil)
+	}
 }
 
 func toolAllowKey(sessionID, name string) string {

@@ -16,6 +16,8 @@
 // Edited by nc.ai 0.8.8.6 on new-admin-pc 2026-10-19 15:53:48
 // Edited by nc.ai 0.8.9.1 on Papasha 2026-10-19 16:10:00
 // Edited by nc.ai 0.8.9.0 on new-admin-pc 2026-10-19 16:05:50
+// Edited by nc.ai 0.8.9.2 on Papasha 2026-10-19 16:24:00
+// Edited by nc.ai 0.8.9.0 on new-admin-pc 2026-10-19 16:22:02
 package appmeta
 
 import "time"
@@ -23,7 +25,7 @@ import "time"
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "0.8.9.1"
+	Version = "0.8.9.2"
 )
 
 // DeepSeekProRetireRFC3339 is the announced V4 Pro retirement instant, empty
@@ -69,19 +71,19 @@ func retiredAt(at time.Time, now time.Time) bool {
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
-	"Новый дизайн под macOS и Windows 11: стеклянная шапка, слоистые панели, мягкие тени и аккуратные разделители",
-	"Настройки получили липкую шапку и навигатор разделов — провайдеры, агент и MCP, сеть, интерфейс, обновления — в один клик",
-	"Переключатель светлой и тёмной темы и шестерёнка настроек — в шапке; повторный клик по шестерёнке закрывает настройки",
+	"«Разрешить и не спрашивать» запоминается насовсем: список лежит в настройках и переживает перезапуск — подтверждения больше не всплывают каждый прогон",
+	"Второй экземпляр приложения больше не открывается: одно окно, без гонки за settings.json и черновики",
+	"Шестерёнка настроек — тумблер: повторный клик закрывает панель; звук вопроса — настоящий звонкий «Чпок!»",
+	"Новый дизайн под macOS и Windows 11: стеклянная шапка, слоистые панели, мягкие тени; переключатель темы и шестерёнка в шапке",
 	"Пузырьки сообщений, вкладки, поле ввода и модальные окна перерисованы; несколько папок в рабочем пространстве и запросы, идущие параллельно, работают как раньше",
-	"Звук вопроса — настоящий звонкий «Чпок!» пробки вместо «Пиу»",
 }
 
 var HighlightsEN = []string{
-	"Redesigned for macOS and Windows 11: a glass header, layered panels, soft shadows and tidy dividers",
-	"Settings now have a sticky header and a section navigator — providers, agent & MCP, network, interface, updates — one click away",
-	"Light/dark toggle and the settings gear live in the header; clicking the gear again closes settings",
-	"Message bubbles, tabs, the composer and modals are redrawn",
-	"The question sound is a real, punchy cork pop instead of the previous beep",
+	"\"Allow and don't ask again\" is remembered for good: stored in settings and survives a restart, so approvals no longer pop up every run",
+	"A second app instance no longer opens: one window, no race over settings.json and drafts",
+	"The settings gear toggles the panel: a second click closes it; the question sound is a real cork pop",
+	"Redesigned for macOS and Windows 11: glass header, layered panels, soft shadows; theme toggle and gear live in the header",
+	"Message bubbles, tabs, the composer and modals are redrawn; the multi-folder workspace and parallel requests behave as before",
 }
 
 // UICopy is localized chrome for the Welcome splash.

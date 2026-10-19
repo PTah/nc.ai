@@ -6410,8 +6410,9 @@ export default function App() {
                     <pre className="nc-tool-ask-args">{toolAsk.args || '(no args)'}</pre>
                     <p className="nc-help">
                       «Разрешить и не спрашивать» — для этого инструмента целиком, во всех чатах и
-                      проектах, до закрытия приложения (для run_terminal это отключает и проверку выхода
-                      за проект). Совсем без подтверждений — Settings → Agent → «Confirm dangerous tools».
+                      проектах; запоминается и после перезапуска приложения (для run_terminal это
+                      отключает и проверку выхода за проект). Сбросить — выключить и снова включить
+                      «Confirm dangerous tools» в Settings → Agent.
                     </p>
                     <div className="nc-close-project-actions">
                       <button
@@ -6428,7 +6429,7 @@ export default function App() {
                       <button
                         type="button"
                         className="nc-ghost"
-                        title={`Больше не спрашивать про ${toolAsk.name} в этом чате`}
+                        title={`Больше не спрашивать про ${toolAsk.name} во всех чатах`}
                         onClick={() => {
                           const ask = toolAsk
                           setToolAsk(null)
