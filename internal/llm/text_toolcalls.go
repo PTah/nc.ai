@@ -3,17 +3,37 @@ package llm
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 	"unicode"
 )
 
+// XML-ish tool dumps some OpenRouter upstreams paste into content instead of
+// structured tool_calls, e.g.:
+//
+//	<function=web_search>
+//	<parameter=query>ОГЭ 2025</parameter>
+//	</function>
+//
+// Optional wrappers <tool_call>…</tool_call> are stripped.
+var (
+	xmlToolCallWrapRE = regexp.MustCompile(`(?is)^\s*<tool_call>\s*|\s*</tool_call>\s*$`)
+	xmlFunctionRE     = regexp.MustCompile(`(?is)<function\s*=\s*([A-Za-z0-9_.\-]+)>(.*?)</function>`)
+	xmlParameterRE    = regexp.MustCompile(`(?is)<parameter\s*=\s*([A-Za-z0-9_.\-]+)>\s*(.*?)\s*</parameter>`)
+	xmlFunctionOpenRE = regexp.MustCompile(`(?is)<function\s*=\s*[A-Za-z0-9_.\-]+>`)
+)
+
 // LooksLikeBrokenToolJSON reports content that looks like a tool-call dump
 // (local models often paste JSON into the chat) but is not valid/complete enough
-// to promote — typically truncated or looped garbage.
+// to promote — typically truncated or looped garbage. Also covers XML-ish
+// <function=…> dumps that cannot be promoted.
 func LooksLikeBrokenToolJSON(content string) bool {
 	text := strings.TrimSpace(stripCodeFences(content))
 	if text == "" {
 		return false
+	}
+	if looksLikeBrokenXMLToolMarkup(text) {
+		return true
 	}
 	start := strings.IndexByte(text, '{')
 	if start < 0 {
@@ -35,6 +55,19 @@ func LooksLikeBrokenToolJSON(content string) bool {
 	return true
 }
 
+// looksLikeBrokenXMLToolMarkup is true when content has <function=…> markup
+// that is truncated or otherwise not promoteable.
+func looksLikeBrokenXMLToolMarkup(text string) bool {
+	norm := stripXMLToolCallWrappers(text)
+	if !xmlFunctionOpenRE.MatchString(norm) {
+		return false
+	}
+	if _, ok := parseXMLFunctionToolCalls(norm, nil); ok {
+		return false
+	}
+	return true
+}
+
 // PromoteTextToolCalls recovers tool calls that local models (Ollama etc.)
 // often emit as plain JSON in message.content instead of structured tool_calls.
 // Returns true if ToolCalls were filled from content.
@@ -44,6 +77,7 @@ func LooksLikeBrokenToolJSON(content string) bool {
 //	{"name":"git_status","arguments":{}}
 //	{"name":"ask_user","arguments":{"question":"…"}}
 //	{"type":"function","function":{"name":"…","arguments":"…"}}
+//	<function=web_search><parameter=query>…</parameter></function>
 //
 // known, if non-nil, restricts promotion to those tool names (recommended).
 func PromoteTextToolCalls(msg *Message, known map[string]bool) bool {
@@ -56,11 +90,103 @@ func PromoteTextToolCalls(msg *Message, known map[string]bool) bool {
 	}
 	calls, ok := parseTextToolCalls(raw, known)
 	if !ok || len(calls) == 0 {
+		calls, ok = parseXMLFunctionToolCalls(stripXMLToolCallWrappers(stripCodeFences(raw)), known)
+	}
+	if !ok || len(calls) == 0 {
 		return false
 	}
 	msg.ToolCalls = calls
 	msg.Content = ""
 	return true
+}
+
+func stripXMLToolCallWrappers(s string) string {
+	s = strings.TrimSpace(s)
+	for {
+		next := strings.TrimSpace(xmlToolCallWrapRE.ReplaceAllString(s, ""))
+		if next == s {
+			return s
+		}
+		s = next
+	}
+}
+
+// parseXMLFunctionToolCalls promotes Hermes/Qwen-style XML function blocks.
+// The whole content (after wrappers) must be one or more <function=…> blocks;
+// any leftover prose rejects the promote (same rule as JSON).
+func parseXMLFunctionToolCalls(raw string, known map[string]bool) ([]ToolCall, bool) {
+	text := strings.TrimSpace(raw)
+	if text == "" || !xmlFunctionOpenRE.MatchString(text) {
+		return nil, false
+	}
+	matches := xmlFunctionRE.FindAllStringSubmatchIndex(text, -1)
+	if len(matches) == 0 {
+		return nil, false
+	}
+	// Leading preamble before the first <function=…> must be empty or a short cue.
+	first := matches[0][0]
+	lead := strings.TrimSpace(text[:first])
+	if lead != "" && !isToolCallPreamble(lead) {
+		return nil, false
+	}
+	calls := make([]ToolCall, 0, len(matches))
+	cursor := first
+	for i, m := range matches {
+		if m[0] < cursor {
+			return nil, false
+		}
+		gap := strings.TrimSpace(text[cursor:m[0]])
+		if gap != "" {
+			return nil, false
+		}
+		name := text[m[2]:m[3]]
+		body := text[m[4]:m[5]]
+		if known != nil && !known[name] {
+			return nil, false
+		}
+		args := xmlParametersToJSON(body)
+		calls = append(calls, ToolCall{
+			ID:   fmt.Sprintf("call_xml_%d", i+1),
+			Type: "function",
+			Function: FunctionCall{
+				Name:      name,
+				Arguments: args,
+			},
+		})
+		cursor = m[1]
+	}
+	rest := strings.TrimSpace(text[cursor:])
+	if rest != "" {
+		return nil, false
+	}
+	return calls, len(calls) > 0
+}
+
+func xmlParametersToJSON(body string) string {
+	params := xmlParameterRE.FindAllStringSubmatch(body, -1)
+	if len(params) == 0 {
+		inner := strings.TrimSpace(body)
+		if inner == "" {
+			return "{}"
+		}
+		// Bare body without <parameter=> — treat as single "query"/"input" is too
+		// guessy; keep empty object so the tool can return a clear validation error.
+		return "{}"
+	}
+	obj := make(map[string]string, len(params))
+	for _, p := range params {
+		key := strings.TrimSpace(p[1])
+		val := strings.TrimSpace(p[2])
+		if key == "" {
+			continue
+		}
+		obj[key] = val
+	}
+	b, err := json.Marshal(obj)
+	if err != nil {
+		return "{}"
+	}
+	return string(b)
 }
 
 // KnownToolNames builds a lookup set from OpenAI-shaped tool specs.

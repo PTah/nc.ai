@@ -143,3 +143,83 @@ func TestLooksLikeBrokenToolJSON(t *testing.T) {
 		t.Fatal("prose is not broken tool JSON")
 	}
 }
+
+func TestPromoteTextToolCallsXMLFunction(t *testing.T) {
+	known := map[string]bool{"web_search": true}
+	raw := `<function=web_search> <parameter=query> ОГЭ 2025 задания математика </parameter> </function> </tool_call>`
+	msg := Message{Role: "assistant", Content: raw}
+	if !PromoteTextToolCalls(&msg, known) {
+		t.Fatal("expected XML promote")
+	}
+	if msg.Content != "" {
+		t.Fatalf("content should be cleared, got %q", msg.Content)
+	}
+	if len(msg.ToolCalls) != 1 || msg.ToolCalls[0].Function.Name != "web_search" {
+		t.Fatalf("%+v", msg.ToolCalls)
+	}
+	if !strings.Contains(msg.ToolCalls[0].Function.Arguments, "ОГЭ 2025") {
+		t.Fatalf("args=%s", msg.ToolCalls[0].Function.Arguments)
+	}
+	if !strings.Contains(msg.ToolCalls[0].Function.Arguments, `"query"`) {
+		t.Fatalf("args=%s", msg.ToolCalls[0].Function.Arguments)
+	}
+}
+
+func TestPromoteTextToolCallsXMLWrapped(t *testing.T) {
+	known := map[string]bool{"read_file": true, "web_search": true}
+	raw := `<tool_call>
+<function=read_file>
+<parameter=path>internal/llm/text_toolcalls.go</parameter>
+</function>
+</tool_call>`
+	msg := Message{Role: "assistant", Content: raw}
+	if !PromoteTextToolCalls(&msg, known) {
+		t.Fatal("expected wrapped XML promote")
+	}
+	if msg.ToolCalls[0].Function.Name != "read_file" {
+		t.Fatalf("%+v", msg.ToolCalls[0])
+	}
+	if !strings.Contains(msg.ToolCalls[0].Function.Arguments, "text_toolcalls.go") {
+		t.Fatalf("args=%s", msg.ToolCalls[0].Function.Arguments)
+	}
+}
+
+func TestPromoteTextToolCallsXMLMultiple(t *testing.T) {
+	known := map[string]bool{"web_search": true, "fetch_url": true}
+	raw := `<function=web_search><parameter=query>a</parameter></function>
+<function=fetch_url><parameter=url>https://example.com</parameter></function>`
+	msg := Message{Role: "assistant", Content: raw}
+	if !PromoteTextToolCalls(&msg, known) {
+		t.Fatal("expected multi XML promote")
+	}
+	if len(msg.ToolCalls) != 2 {
+		t.Fatalf("calls=%d", len(msg.ToolCalls))
+	}
+	if msg.ToolCalls[1].Function.Name != "fetch_url" {
+		t.Fatalf("%+v", msg.ToolCalls[1])
+	}
+}
+
+func TestPromoteTextToolCallsXMLRejectsProse(t *testing.T) {
+	known := map[string]bool{"web_search": true}
+	// Long lead (>40 runes) or trailing text after </function> — not a pure tool dump.
+	msg := Message{Role: "assistant", Content: `Сейчас я поищу это в интернете и расскажу, что нашёл. <function=web_search><parameter=query>x</parameter></function>`}
+	if PromoteTextToolCalls(&msg, known) {
+		t.Fatal("should not promote long prose+xml")
+	}
+	msg2 := Message{Role: "assistant", Content: `<function=web_search><parameter=query>x</parameter></function> и вот что нашлось.`}
+	if PromoteTextToolCalls(&msg2, known) {
+		t.Fatal("should not promote xml+trailing prose")
+	}
+}
+
+func TestLooksLikeBrokenXMLToolMarkup(t *testing.T) {
+	truncated := `<function=web_search> <parameter=query> ОГЭ 2025`
+	if !LooksLikeBrokenToolJSON(truncated) {
+		t.Fatal("truncated XML tool markup should look broken")
+	}
+	ok := `<function=web_search><parameter=query>ok</parameter></function>`
+	if LooksLikeBrokenToolJSON(ok) {
+		t.Fatal("valid XML tool markup is not broken")
+	}
+}
