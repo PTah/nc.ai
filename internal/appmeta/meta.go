@@ -26,7 +26,7 @@ import "time"
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "0.8.9.5"
+	Version = "0.8.9.6"
 )
 
 // DeepSeekProRetireRFC3339 is the announced V4 Pro retirement instant, empty
@@ -73,7 +73,7 @@ func retiredAt(at time.Time, now time.Time) bool {
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
 	"Кнопки разделов в настройках закреплены сверху: «Интерфейс», «Система» и другие переключаются без прокрутки наверх",
-	"Второй экземпляр приложения больше не открывается: одно окно, без гонки за settings.json и черновики",
+	"Подсказка у баланса в шапке показывает активного провайдера (OpenRouter, Z.ai, DeepSeek), а не всегда «Баланс DeepSeek»",
 	"Иконки темы и настроек закреплены справа в шапке: больше не уезжают на отдельную строку при длинном балансе — в тёмной и светлой теме одинаково",
 	"Новый дизайн под macOS и Windows 11: стеклянная шапка, слоистые панели, мягкие тени; переключатель темы и шестерёнка в шапке",
 	"Пузырьки сообщений, вкладки, поле ввода и модальные окна перерисованы; несколько папок в рабочем пространстве и запросы, идущие параллельно, работают как раньше",
@@ -81,7 +81,7 @@ var HighlightsRU = []string{
 
 var HighlightsEN = []string{
 	"Settings section buttons are pinned to the top: switching between Interface, System and the rest no longer requires scrolling back up",
-	"A second app instance no longer opens: one window, no race over settings.json and drafts",
+	"The balance tooltip in the header names the active provider (OpenRouter, Z.ai, DeepSeek) instead of always saying \"DeepSeek balance\"",
 	"Theme and settings icons are pinned to the top-right of the header: they no longer drop onto a separate row when the balance is long — identical in dark and light themes",
 	"Redesigned for macOS and Windows 11: glass header, layered panels, soft shadows; theme toggle and gear live in the header",
 	"Message bubbles, tabs, the composer and modals are redrawn; the multi-folder workspace and parallel requests behave as before",
