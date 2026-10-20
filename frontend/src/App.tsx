@@ -5712,7 +5712,18 @@ export default function App() {
             {showBalance && (
               <>
                 <span className="nc-cost-sep">·</span>
-                <span className="nc-cost-bal" title="Баланс DeepSeek = бонус (подарочные средства) + пополнение (оплачено вами). Меньше $1 пополнения — работа скоро остановится.">
+                <span
+                  className="nc-cost-bal"
+                  title={
+                    activeProvider === 'deepseek'
+                      ? 'Баланс DeepSeek = бонус (подарочные средства) + пополнение (оплачено вами). Меньше $1 пополнения — работа скоро остановится.'
+                      : activeProvider === 'openrouter'
+                        ? 'Баланс OpenRouter — доступные кредиты на ключе. Тратятся только при запросах через OpenRouter; деньги DeepSeek не расходуются.'
+                        : activeProvider === 'zai'
+                          ? 'Баланс Z.ai (GLM) — доступные средства и гранты. Тратятся только при запросах через Z.ai.'
+                          : 'Доступный баланс активного провайдера'
+                  }
+                >
                   {usage.balanceOk
                     ? (activeProvider === 'deepseek' && usage.balanceDetail
                       ? (
