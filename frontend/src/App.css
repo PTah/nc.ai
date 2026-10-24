@@ -856,6 +856,8 @@ mark.nc-find-mark.nc-find-current {
   display: flex;
   gap: 0.25rem;
   flex-shrink: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 .nc-queue-card-actions button {
   font-size: 0.78rem;

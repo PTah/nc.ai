@@ -10,6 +10,7 @@
 // Edited by nc.ai 0.8.8.0 on macbook 2026-10-18 19:13:02
 // Edited by nc.ai 0.8.8.0 on new-admin-pc 2026-10-19 08:01:50
 // Edited by nc.ai 0.8.9.2 on macbook 2026-10-19 20:43:46
+// Edited by nc.ai 0.8.9.6 on Papasha 2026-10-24 16:55:21
 import {FormEvent, MouseEvent as ReactMouseEvent, useCallback, useEffect, useRef, useState} from 'react'
 import {Terminal} from '@xterm/xterm'
 import {FitAddon} from '@xterm/addon-fit'
@@ -1244,6 +1245,26 @@ function AskUserDialog({
       </div>
     </>
   )
+}
+
+/**
+ * growLastAssistant дотягивает последний ответ в транскрипте до буфера дельт.
+ * Буфер обновляется синхронно на каждой дельте, поэтому он не короче элемента
+ * чата: если последний чанк (или несколько) не успел доехать до элемента, текст
+ * дописывается отсюда на завершении прогона (done) и при обрыве (error). Только
+ * в сторону роста — более длинный текст в чате не затирается.
+ */
+function growLastAssistant(items: ChatItem[], buf: string): ChatItem[] {
+  if (!buf) return items
+  for (let i = items.length - 1; i >= 0; i--) {
+    const it = items[i]
+    if (it.kind !== 'assistant') continue
+    if (it.content.length >= buf.length) return items
+    const copy = [...items]
+    copy[i] = {...it, content: buf}
+    return copy
+  }
+  return items
 }
 
 /**
@@ -3518,19 +3539,7 @@ export default function App() {
             // завершении доводим элемент из буфера дельт — только в сторону роста,
             // чтобы не затереть более длинный текст. Нужен только для done.
             const buf = ev.type === 'done' ? assistantBuf.current[key] || '' : ''
-            if (buf) {
-              apply((prev) => {
-                for (let i = prev.length - 1; i >= 0; i--) {
-                  const it = prev[i]
-                  if (it.kind !== 'assistant') continue
-                  if (it.content.length >= buf.length) return prev
-                  const copy = [...prev]
-                  copy[i] = {...it, content: buf}
-                  return copy
-                }
-                return prev
-              })
-            }
+            if (buf) apply((prev) => growLastAssistant(prev, buf))
             // Диагностика доставки: бэкенд сообщает длину ответа, сравниваем с тем,
             // что реально дошло. Расхождение = потеря на пути к чату, а не в модели.
             const declared = ev.type === 'done' ? Number(ev.answerLen || 0) : 0
@@ -3547,6 +3556,11 @@ export default function App() {
             void applyUsageStats()
             if (activeProviderRef.current === 'deepseek') void refreshDeepSeekBalance()
           } else if (ev.type === 'error') {
+            // Обрыв или отмена посреди ответа: уже показанный текст должен остаться
+            // в чате, поэтому сначала дотягиваем элемент из буфера дельт, потом
+            // закрываем прогон и пишем ошибку.
+            const errBuf = assistantBuf.current[key] || ''
+            if (errBuf) apply((prev) => growLastAssistant(prev, errBuf))
             finishRunUI(sid, runId)
             const errContent = ev.content || 'unknown'
             const canceled = /context canceled|context cancelled/i.test(errContent)
@@ -5477,6 +5491,39 @@ export default function App() {
     if (res === 'invalid') setQueue((q) => [...q, msg], sid)
   }
 
+  /**
+   * «Отправить» на карточке очереди: запрос поднимается в начало очереди и уходит
+   * сразу, как только освободится чат (следующим его забирает flushQueue). Если
+   * чат уже свободен — отправляется немедленно. Параллельный запуск — отдельная
+   * кнопка, здесь он не подразумевается.
+   */
+  async function sendQueuedNext(id: string) {
+    const sid = activeSessionId
+    if (!sid) return
+    const msg = queue.find((q) => q.id === id)
+    if (!msg) return
+    setQueue((q) => [msg, ...asList(q).filter((x) => x.id !== id)], sid)
+    const res = await runAgent(sid, msg.text, msg.atts)
+    if (res === 'started') setQueue((q) => q.filter((x) => x.id !== id), sid)
+  }
+
+  /**
+   * «Изменить» на карточке очереди: запрос возвращается в поле ввода вместе с
+   * вложениями и убирается из очереди — дальше человек правит текст и отправляет
+   * обычным способом. Курсор ставится в конец.
+   */
+  function editQueued(id: string) {
+    const sid = activeSessionId
+    if (!sid) return
+    const msg = queue.find((q) => q.id === id)
+    if (!msg) return
+    setQueue((q) => q.filter((x) => x.id !== id), sid)
+    setInput(msg.text, sid)
+    setPendingAtts(asList(msg.atts), sid)
+    stickToBottomRef.current = true
+    focusComposer()
+  }
+
   function dismissQueued(id: string) {
     setQueue((q) => q.filter((x) => x.id !== id))
   }
@@ -6374,6 +6421,22 @@ export default function App() {
                         {q.text || (q.atts.length ? `(вложения: ${q.atts.length})` : '(пусто)')}
                       </div>
                       <div className="nc-queue-card-actions">
+                        <button
+                          type="button"
+                          className="nc-ghost"
+                          title="Отправить первым: уйдёт сразу, как только освободится чат (если чат свободен — немедленно)"
+                          onClick={() => void sendQueuedNext(q.id)}
+                        >
+                          Отправить
+                        </button>
+                        <button
+                          type="button"
+                          className="nc-ghost"
+                          title="Вернуть запрос в поле ввода и поправить текст (вложения сохранятся)"
+                          onClick={() => editQueued(q.id)}
+                        >
+                          Изменить
+                        </button>
                         <button
                           type="button"
                           className="nc-ghost"
