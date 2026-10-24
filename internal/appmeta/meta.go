@@ -19,6 +19,7 @@
 // Edited by nc.ai 0.8.9.2 on Papasha 2026-10-19 16:24:00
 // Edited by nc.ai 0.8.9.0 on new-admin-pc 2026-10-19 16:22:02
 // Edited by nc.ai 0.8.9.2 on macbook 2026-10-19 20:37:39
+// Edited by nc.ai 0.8.9.6 on Papasha 2026-10-24 16:55:51
 package appmeta
 
 import "time"
@@ -26,7 +27,7 @@ import "time"
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "0.8.9.6"
+	Version = "0.8.9.7"
 )
 
 // DeepSeekProRetireRFC3339 is the announced V4 Pro retirement instant, empty
@@ -72,19 +73,19 @@ func retiredAt(at time.Time, now time.Time) bool {
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
+	"Запрос, вставший в очередь, можно поправить, отправить первым или запустить параллельно — на карточке очереди три действия",
+	"Если ответ оборвался ошибкой или отменой, показанный текст остаётся в чате: последние чанки доводятся из буфера дельт",
 	"Кнопки разделов в настройках закреплены сверху: «Интерфейс», «Система» и другие переключаются без прокрутки наверх",
 	"Подсказка у баланса в шапке показывает активного провайдера (OpenRouter, Z.ai, DeepSeek), а не всегда «Баланс DeepSeek»",
-	"Иконки темы и настроек закреплены справа в шапке: больше не уезжают на отдельную строку при длинном балансе — в тёмной и светлой теме одинаково",
-	"Новый дизайн под macOS и Windows 11: стеклянная шапка, слоистые панели, мягкие тени; переключатель темы и шестерёнка в шапке",
-	"Пузырьки сообщений, вкладки, поле ввода и модальные окна перерисованы; несколько папок в рабочем пространстве и запросы, идущие параллельно, работают как раньше",
+	"Рабочее пространство из нескольких папок и запросы, идущие параллельно, работают как раньше",
 }
 
 var HighlightsEN = []string{
+	"A queued request can be edited, sent first or started in parallel — three actions on the queue card",
+	"If an answer dies with an error or a cancel, the text already shown stays in the chat: the last chunks are completed from the delta buffer",
 	"Settings section buttons are pinned to the top: switching between Interface, System and the rest no longer requires scrolling back up",
 	"The balance tooltip in the header names the active provider (OpenRouter, Z.ai, DeepSeek) instead of always saying \"DeepSeek balance\"",
-	"Theme and settings icons are pinned to the top-right of the header: they no longer drop onto a separate row when the balance is long — identical in dark and light themes",
-	"Redesigned for macOS and Windows 11: glass header, layered panels, soft shadows; theme toggle and gear live in the header",
-	"Message bubbles, tabs, the composer and modals are redrawn; the multi-folder workspace and parallel requests behave as before",
+	"The multi-folder workspace and parallel requests behave as before",
 }
 
 // UICopy is localized chrome for the Welcome splash.
