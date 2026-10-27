@@ -1,5 +1,6 @@
 <!-- Created by nc.ai 0.8.7.7 on Papasha 2026-10-16 20:38:11 -->
 <!-- Edited by nc.ai 0.8.7.9 on macbook 2026-10-17 09:28:57 -->
+<!-- Edited by nc.ai 0.8.9.7 on new-admin-pc 2026-10-28 09:56:37 -->
 # Сборка, установка и релиз
 
 Как из исходников получить установленное приложение и выпустить версию: сборка, установка
@@ -176,6 +177,61 @@ gh release upload vX.Y.Z --clobber build/dist/nc.ai-X.Y.Z-windows-amd64.zip \
 gh release list --limit 3
 gh release view vX.Y.Z --json tagName,name,assets
 ```
+
+## GitHub-зеркало: снимки вместо обычного push (вариант B)
+
+На GitHub нельзя сделать `git push github master`: там лежит **санитизированная история снимков**
+(`mirror: NotCursor <sha> (example)`, ссылки на `github.com/PTah`, внутренние IP заменены,
+автор в `wails.json` — `jdoe`). Наш `master` от неё разошёлся, поэтому push отклоняется как
+non-fast-forward. Это не проблема прав и не проблема сети.
+
+Политика: **GitHub обновляется только скриптом** `%USERPROFILE%\CursorRules\scripts\Publish-GithubOrphan.ps1`
+в режиме append (один санитизированный коммит поверх `github/master`, без force). History на GitHub
+остаётся цепочкой снимков — это осознанный выбор в пользу санитизации публичного дерева.
+
+```powershell
+# после обычного push в home и example
+powershell -NoProfile -ExecutionPolicy Bypass -File `
+  "$env:USERPROFILE\CursorRules\scripts\Publish-GithubOrphan.ps1" `
+  -SourceRepo "D:\Soft\Git\nc.ai" -Branch master -Version X.Y.Z
+```
+
+`-Branch` обязателен для репозиториев с веткой `master`: раньше скрипт был зашит на `main` и падал
+на `git archive main`. Без `-Branch` скрипт берёт текущую ветку исходного репозитория и проверяет,
+что она существует.
+
+Скрипт печатает `branch: …`, выводит сообщение коммита (оно берётся из HEAD и санитизируется) и в
+конце одну из строк: `OK -> … (append)` (норма), `(unchanged, no commit)` (нечего публиковать) или
+`(initial)` (ветки на GitHub ещё нет). `-Orphan` — только осознанный rewrite истории, не для обычной
+публикации.
+
+**Теги на GitHub отдельные.** Локальный тег — аннотированный на нашем коммите, на GitHub — легковесный
+на коммите-снимке (так было и раньше: `v0.8.9.7` локально указывает на `243ff94`, на GitHub — на
+`088826d`). Совпадение имён важно, совпадение коммитов — нет.
+
+```powershell
+git tag -a vX.Y.Z -m "NotCursor X.Y.Z"
+git push home vX.Y.Z
+git push example vX.Y.Z
+
+# тег на GitHub — на коммит снимка (его печатает скрипт при push)
+gh api -X POST repos/PTah/nc.ai/git/refs `
+  -f ref=refs/tags/vX.Y.Z -f sha=<mirror-commit-sha>
+gh release create vX.Y.Z --repo PTah/nc.ai --title "NotCursor X.Y.Z" `
+  --notes-file docs/releases/vX.Y.Z.md --latest `
+  build/dist/nc.ai-X.Y.Z-windows-amd64.zip build/dist/nc.ai-X.Y.Z-windows-amd64.zip.sha256
+```
+
+Релиз в Gitea (`home`) — через API, тег должен быть уже запушен:
+
+```powershell
+# POST /api/v1/repos/jdoe/nc.ai/releases  { tag_name, name, body, draft=false }
+# затем POST .../releases/{id}/assets?name=<file>  (multipart, поле file)
+# повторная заливка: сначала DELETE одноимённого ассета, иначе появится дубль
+```
+
+Креды — `%USERPROFILE%\CursorRules\local\jdoe-gitea.conf` (Basic auth, пользователь
+`jdoe`), в репозиторий не попадают.
 
 ## Подпись и «Локальная сеть» (macOS)
 
