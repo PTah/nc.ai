@@ -131,7 +131,7 @@ var langRules = map[string][]rule{
 	"cs":  rulesCSharp,
 	"ps1": rulesPS, "psm1": rulesPS,
 	"sh": rulesSh, "bash": rulesSh, "zsh": rulesSh,
-	"rs":  rulesRust,
+	"rs":   rulesRust,
 	"java": rulesJVM, "kt": rulesJVM, "kts": rulesJVM, "scala": rulesJVM, "groovy": rulesJVM,
 	"rb": rulesRuby,
 }
@@ -141,11 +141,11 @@ var langExt = map[string]string{
 	".go": "go",
 	".ts": "ts", ".tsx": "tsx", ".js": "js", ".jsx": "jsx", ".mjs": "mjs", ".cjs": "cjs",
 	".vue": "vue", ".svelte": "svelte",
-	".py": "py",
-	".cs": "cs",
+	".py":  "py",
+	".cs":  "cs",
 	".ps1": "ps1", ".psm1": "psm1",
 	".sh": "sh", ".bash": "bash", ".zsh": "zsh",
-	".rs": "rs",
+	".rs":   "rs",
 	".java": "java", ".kt": "kt", ".kts": "kts", ".scala": "scala", ".groovy": "groovy",
 	".rb": "rb",
 }

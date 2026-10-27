@@ -17,6 +17,7 @@ import (
 	"notcursor.ai/app/internal/mcp"
 	"notcursor.ai/app/internal/netx"
 	"notcursor.ai/app/internal/projindex"
+	"notcursor.ai/app/internal/projmem"
 	"notcursor.ai/app/internal/shell"
 	"notcursor.ai/app/internal/sshx"
 	"notcursor.ai/app/internal/workspace"
@@ -115,7 +116,7 @@ func ReadOnlyTool(name string) bool {
 func SubagentDefaultTool(name string) bool {
 	switch name {
 	case "read_file", "list_dir", "find_files", "glob", "grep",
-		"find_symbol", "project_search",
+		"find_symbol", "project_search", "recall",
 		"git_status", "git_diff", "git_log", "get_env_info":
 		return true
 	default:
@@ -332,6 +333,43 @@ func (r *Registry) Execute(ctx context.Context, call llm.ToolCall) (string, erro
 			return fmt.Sprintf("(no symbol matched %q — try project_search with the concept, then grep)", pattern), nil
 		}
 		return projindex.FormatHits(hits), nil
+	case "remember":
+		text, _ := args["text"].(string)
+		if strings.TrimSpace(text) == "" {
+			text, _ = args["note"].(string)
+		}
+		root, err := r.projectRoot()
+		if err != nil {
+			return "", err
+		}
+		n, rerr := projmem.Default().Remember(root, text, stringSlice(args["refs"]))
+		if rerr != nil {
+			return "", rerr
+		}
+		return fmt.Sprintf("remembered %s: %s", n.ID, n.Text), nil
+	case "recall":
+		root, err := r.projectRoot()
+		if err != nil {
+			return "", err
+		}
+		notes := projmem.Default().Recall(root, stringArg(args, "query"), intArg(args, "limit"))
+		if len(notes) == 0 {
+			return "(project memory is empty for this query — save a fact with remember)", nil
+		}
+		return projmem.FormatNotes(root, notes), nil
+	case "forget":
+		root, err := r.projectRoot()
+		if err != nil {
+			return "", err
+		}
+		id := stringArg(args, "id")
+		if id == "" {
+			id = stringArg(args, "text")
+		}
+		if !projmem.Default().Forget(root, id) {
+			return "", fmt.Errorf("no such note: %s", id)
+		}
+		return "forgotten " + id, nil
 	case "project_search":
 		query, _ := args["query"].(string)
 		if strings.TrimSpace(query) == "" {
@@ -522,15 +560,20 @@ func stringArg(args map[string]any, key string) string {
 // projectIndex returns the cached symbol index of the run's project. The store
 // re-parses only files that changed, so calling it per tool call is cheap.
 func (r *Registry) projectIndex() (*projindex.Index, error) {
-	ws := r.ws()
-	if ws == nil {
-		return nil, fmt.Errorf("no active workspace")
-	}
-	root, err := ws.ActiveRoot()
+	root, err := r.projectRoot()
 	if err != nil {
 		return nil, err
 	}
 	return projindex.Default().Get(root)
+}
+
+// projectRoot is the absolute path of the run's project.
+func (r *Registry) projectRoot() (string, error) {
+	ws := r.ws()
+	if ws == nil {
+		return "", fmt.Errorf("no active workspace")
+	}
+	return ws.ActiveRoot()
 }
 
 // filterHits keeps hits under a path prefix (the tools' optional `path` arg).
@@ -703,7 +746,7 @@ func filterToolSpecs(all []llm.ToolSpec, plan, lite, explore bool) []llm.ToolSpe
 func ExploreTool(name string) bool {
 	switch name {
 	case "read_file", "list_dir", "glob", "grep", "find_files",
-		"find_symbol", "project_search",
+		"find_symbol", "project_search", "remember", "recall",
 		"git_status", "git_diff", "git_log",
 		"ask_user", "get_env_info":
 		return true
@@ -717,7 +760,7 @@ func LiteTool(name string) bool {
 	switch name {
 	case "read_file", "write_file", "apply_patch",
 		"list_dir", "glob", "grep", "find_files",
-		"find_symbol", "project_search",
+		"find_symbol", "project_search", "remember", "recall",
 		"git_status", "git_diff", "git_log",
 		"ask_user", "get_env_info":
 		return true
@@ -829,6 +872,32 @@ func allToolSpecs() []llm.ToolSpec {
 				"limit": map[string]any{"type": "integer", "description": "Max hits (default 25)"},
 			},
 			"required": []string{"query"},
+		}),
+		fn("remember", "Store one durable fact about this project so the next run does not rediscover it: where a thing lives, a decision and why, a gotcha. One short line plus the paths it refers to. Same text updates the existing note instead of duplicating it.", map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"text": map[string]any{"type": "string", "description": "The fact, one line, e.g. «Порт NDIS = hex от строки Windows NDIS, разбор в internal/netx/ndis.go»"},
+				"refs": map[string]any{
+					"type":        "array",
+					"items":       map[string]any{"type": "string"},
+					"description": "Workspace paths this fact is about (they are re-checked for changes)",
+				},
+			},
+			"required": []string{"text"},
+		}),
+		fn("recall", "Read project facts saved by previous runs (optionally filtered). Notes marked stale refer to files changed after the note was written — verify before relying on them.", map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"query": map[string]any{"type": "string", "description": "Optional filter, e.g. ndis or online offline"},
+				"limit": map[string]any{"type": "integer", "description": "Max notes (default 20)"},
+			},
+		}),
+		fn("forget", "Drop a stored project fact by the id shown in recall.", map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"id":   map[string]any{"type": "string", "description": "Note id from recall"},
+				"text": map[string]any{"type": "string", "description": "Or the exact note text"},
+			},
 		}),
 		fn("get_env_info", "OS, arch, shell, workspace root, and available toolchain versions (go/node/python).", map[string]any{
 			"type":       "object",

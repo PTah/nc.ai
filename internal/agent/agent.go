@@ -66,6 +66,7 @@ Tools:
 - NEVER invent file paths. Confirm via list_dir, glob, find_files, or grep before read_file.
 - Prefer glob for path patterns (**/*.go). find_files for fuzzy names. grep for content (regex). Do not use the shell for rg/find.
 - Layout questions («where does X live», «what handles Y»): the <project_map> brief plus find_symbol / project_search answer them in one call. Do not restart with a blind grep on every turn; grep only when the index misses, and read the file before editing it.
+- Check <project_memory> before a long search: those are facts previous runs already paid for. When you learn something durable (where a thing lives, a gotcha, a decision and why), call remember once with the paths instead of re-deriving it next time.
 - For large files, call read_file with start_line/end_line. Output lines are numbered (N|); never copy those numbers into apply_patch or write_file.
 - Prefer apply_patch for partial edits; write_file only for new files or full rewrites.
 - Use delete_file for removals and move_file for renames (do not rm/mv via shell).
@@ -227,6 +228,10 @@ type Runner struct {
 	// ProjectMap is a compact directory tree injected after the system prompt
 	// (cache-friendly warm context; see docs/TODO-cache-phase5.md).
 	ProjectMap string
+	// MemoryText is the stored project memory (facts saved by previous runs),
+	// snapshotted at run start so a remember mid-run cannot shift the cached
+	// prefix. Empty when nothing is stored.
+	MemoryText string
 	// IDEContext is the active editor file + cursor, injected per turn (not cached).
 	IDEContext string
 	// PlanMode restricts mutating tools and appends PlanModePrompt.
@@ -607,6 +612,13 @@ func (r *Runner) buildMessages(prior []llm.Message, userMsg llm.Message) []llm.M
 				"Project brief (root, packages, entry points, biggest files) + compressed workspace tree (names only). "+
 				"The brief and find_symbol / project_search answer layout questions — check them first, grep only when they miss. "+
 				"Read a file before editing it.",
+		))
+	}
+	if mem := strings.TrimSpace(r.MemoryText); mem != "" {
+		messages = append(messages, llm.UserText(
+			"<project_memory>\n"+mem+"\n</project_memory>\n"+
+				"Facts saved by previous runs in this project. Trust them for layout and decisions; "+
+				"a note marked as changed since points at a file that moved on — verify that one before relying.",
 		))
 	}
 	messages = append(messages, prior...)
