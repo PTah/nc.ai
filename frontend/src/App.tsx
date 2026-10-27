@@ -11,6 +11,7 @@
 // Edited by nc.ai 0.8.8.0 on new-admin-pc 2026-10-19 08:01:50
 // Edited by nc.ai 0.8.9.2 on macbook 2026-10-19 20:43:46
 // Edited by nc.ai 0.8.9.6 on Papasha 2026-10-24 16:55:21
+// Edited by nc.ai 0.8.9.7 on new-admin-pc 2026-10-28 09:22:39
 import {FormEvent, MouseEvent as ReactMouseEvent, useCallback, useEffect, useRef, useState} from 'react'
 import {Terminal} from '@xterm/xterm'
 import {FitAddon} from '@xterm/addon-fit'
@@ -6363,42 +6364,6 @@ export default function App() {
                   </div>
                 )}
                 {busy && todosVisible && todoFlowAt === undefined && <TodoPanel todos={todos} expand={expandSignal} busy={busy} onContext={openTodoCtx} />}
-                {(items.some((i) => i.kind === 'reasoning' || i.kind === 'tool') || todos.length > 0) && (
-                  <div className="nc-thread-actions">
-                    <label className="nc-chat-model" title="Модель этого чата: пусто — Auto/по настройкам. Эскалация во время работы на другие чаты не распространяется.">
-                      <select
-                        value={activeChatModel}
-                        disabled={busy}
-                        onChange={(e) => void saveChatModel(e.target.value)}
-                      >
-                        <option value="">Auto (по настройкам)</option>
-                        {activeProvider === 'zai'
-                          ? modelOptions(zaiModels, zaiModel).map((m) => (<option key={m} value={m}>{m}</option>))
-                          : activeProvider === 'openrouter'
-                            ? modelOptions(openrouterModels, openrouterModel).map((m) => (<option key={m} value={m}>{m}</option>))
-                            : activeProvider === 'qwen'
-                              ? modelOptions(qwenModels, qwenModel).map((m) => (<option key={m} value={m}>{m}</option>))
-                              : activeProvider === 'yandex'
-                                ? modelOptions(yandexModels, yandexModel).map((m) => (<option key={m} value={m}>{m}</option>))
-                                : isLocalProvider(activeProvider)
-                                  ? modelOptions(localModels, localModel).map((m) => (<option key={m} value={m}>{m}</option>))
-                                  : modelOptions(deepseekModels, deepseekModel).map((m) => (<option key={m} value={m}>{deepseekModelLabels[m] || m}</option>))}
-                      </select>
-                    </label>
-                    <button
-                      type="button"
-                      className="nc-expand-all"
-                      title={allBlocksOpen ? 'Свернуть все блоки активности' : 'Развернуть все блоки активности'}
-                      onClick={() => {
-                        const next = !allBlocksOpen
-                        setAllBlocksOpen(next)
-                        setExpandSignal((s) => ({open: next, n: s.n + 1}))
-                      }}
-                    >
-                      {allBlocksOpen ? 'Свернуть всё' : 'Развернуть всё'}
-                    </button>
-                  </div>
-                )}
                 <div aria-hidden className="nc-thread-end" />
               </div>
             </div>
@@ -6636,6 +6601,42 @@ export default function App() {
                       }}
                     />
                     <span className="nc-hint">Enter — отправить · картинки → vision</span>
+                    {(items.some((i) => i.kind === 'reasoning' || i.kind === 'tool') || todos.length > 0) && (
+                      <div className="nc-composer-tools">
+                        <label className="nc-chat-model" title="Модель этого чата: пусто — Auto/по настройкам. Эскалация во время работы на другие чаты не распространяется.">
+                          <select
+                            value={activeChatModel}
+                            disabled={busy}
+                            onChange={(e) => void saveChatModel(e.target.value)}
+                          >
+                            <option value="">Auto (по настройкам)</option>
+                            {activeProvider === 'zai'
+                              ? modelOptions(zaiModels, zaiModel).map((m) => (<option key={m} value={m}>{m}</option>))
+                              : activeProvider === 'openrouter'
+                                ? modelOptions(openrouterModels, openrouterModel).map((m) => (<option key={m} value={m}>{m}</option>))
+                                : activeProvider === 'qwen'
+                                  ? modelOptions(qwenModels, qwenModel).map((m) => (<option key={m} value={m}>{m}</option>))
+                                  : activeProvider === 'yandex'
+                                    ? modelOptions(yandexModels, yandexModel).map((m) => (<option key={m} value={m}>{m}</option>))
+                                    : isLocalProvider(activeProvider)
+                                      ? modelOptions(localModels, localModel).map((m) => (<option key={m} value={m}>{m}</option>))
+                                      : modelOptions(deepseekModels, deepseekModel).map((m) => (<option key={m} value={m}>{deepseekModelLabels[m] || m}</option>))}
+                          </select>
+                        </label>
+                        <button
+                          type="button"
+                          className="nc-expand-all"
+                          title={allBlocksOpen ? 'Свернуть все блоки активности' : 'Развернуть все блоки активности'}
+                          onClick={() => {
+                            const next = !allBlocksOpen
+                            setAllBlocksOpen(next)
+                            setExpandSignal((s) => ({open: next, n: s.n + 1}))
+                          }}
+                        >
+                          {allBlocksOpen ? 'Свернуть всё' : 'Развернуть всё'}
+                        </button>
+                      </div>
+                    )}
                   </div>
                   <button type="submit" disabled={Boolean(active?.locked) || (!input.trim() && pendingAtts.length === 0)}>{busy ? 'Send' : 'Send'}</button>
                 </div>

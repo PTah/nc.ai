@@ -483,10 +483,14 @@ textarea { resize: none; }
   font-weight: 700;
   font-size: 0.8rem;
 }
-.nc-thread-actions {
+/* Кнопки «Авто (по настройкам)» и «Развернуть всё» закреплены в полосе композера,
+   рядом с Attach — чтобы не уезжали вместе с прокруткой ленты. */
+.nc-composer-tools {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 0.4rem;
+  min-width: 0;
+  flex-wrap: wrap;
 }
 .nc-chat-model select {
   font-size: 0.72rem;
@@ -962,8 +966,6 @@ mark.nc-find-mark.nc-find-current {
 .nc-msg-action.copied { color: var(--accent, #4c9aff); }
 .nc-msg-action-icon { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.2; stroke-linecap: round; stroke-linejoin: round; }
 .nc-msg-action-text { font-size: 0.72rem; }
-/* "Развернуть всё / Свернуть всё" under the answer stream. */
-.nc-thread-actions { display: flex; justify-content: center; margin: 0.35rem 0 0.2rem; }
 .nc-expand-all {
   font-size: 0.72rem; padding: 0.2rem 0.6rem; border-radius: 999px;
   border: 1px solid var(--border); background: transparent; color: var(--muted);

@@ -12,10 +12,14 @@ import (
 	"strings"
 	"time"
 
+	"notcursor.ai/app/internal/chatstore"
 	"notcursor.ai/app/internal/gitx"
+	"notcursor.ai/app/internal/history"
 	"notcursor.ai/app/internal/llm"
 	"notcursor.ai/app/internal/mcp"
 	"notcursor.ai/app/internal/netx"
+	"notcursor.ai/app/internal/projindex"
+	"notcursor.ai/app/internal/projmem"
 	"notcursor.ai/app/internal/shell"
 	"notcursor.ai/app/internal/sshx"
 	"notcursor.ai/app/internal/workspace"
@@ -39,6 +43,9 @@ type Registry struct {
 	AskUser func(ctx context.Context, callID, question string, options []string) (string, error)
 	// MCPCall routes mcp__<server>__<tool> to the MCP manager. nil = MCP disabled.
 	MCPCall func(ctx context.Context, prefixedName, argsJSON string) (string, error)
+	// Chats is the chat store; history_search reads past transcripts of the run's
+	// project from it. nil = history search unavailable.
+	Chats *chatstore.Store
 }
 
 // ForRun returns a per-run copy of the registry bound to root. PlanMode, the
@@ -101,6 +108,7 @@ func DangerousTool(name string) bool {
 func ReadOnlyTool(name string) bool {
 	switch name {
 	case "read_file", "list_dir", "find_files", "glob", "grep", "get_env_info",
+		"find_symbol", "project_search", "recall", "history_search",
 		"git_status", "git_diff", "git_log", "command_status", "web_search", "fetch_url", "read_lints":
 		return true
 	default:
@@ -113,6 +121,7 @@ func ReadOnlyTool(name string) bool {
 func SubagentDefaultTool(name string) bool {
 	switch name {
 	case "read_file", "list_dir", "find_files", "glob", "grep",
+		"find_symbol", "project_search", "recall", "history_search",
 		"git_status", "git_diff", "git_log", "get_env_info":
 		return true
 	default:
@@ -312,6 +321,88 @@ func (r *Registry) Execute(ctx context.Context, call llm.ToolCall) (string, erro
 		return out, nil
 	case "get_env_info":
 		return r.envInfo(), nil
+	case "find_symbol":
+		pattern, _ := args["name"].(string)
+		if strings.TrimSpace(pattern) == "" {
+			pattern, _ = args["query"].(string)
+		}
+		if strings.TrimSpace(pattern) == "" {
+			return "", fmt.Errorf("name is required")
+		}
+		idx, err := r.projectIndex()
+		if err != nil {
+			return "", err
+		}
+		hits := filterHits(idx.FindSymbol(pattern, intArg(args, "limit")), stringArg(args, "path"))
+		if len(hits) == 0 {
+			return fmt.Sprintf("(no symbol matched %q — try project_search with the concept, then grep)", pattern), nil
+		}
+		return projindex.FormatHits(hits), nil
+	case "history_search":
+		query, _ := args["query"].(string)
+		if strings.TrimSpace(query) == "" {
+			return "", fmt.Errorf("query is required")
+		}
+		project, err := r.chatProjectKey()
+		if err != nil {
+			return "", err
+		}
+		hits := history.New(r.Chats).Search(project, query, intArg(args, "limit"))
+		if len(hits) == 0 {
+			return "(no past chat in this project matched — try other words, or recall)", nil
+		}
+		return history.Format(hits), nil
+	case "remember":
+		text, _ := args["text"].(string)
+		if strings.TrimSpace(text) == "" {
+			text, _ = args["note"].(string)
+		}
+		root, err := r.projectRoot()
+		if err != nil {
+			return "", err
+		}
+		n, rerr := projmem.Default().Remember(root, text, stringSlice(args["refs"]))
+		if rerr != nil {
+			return "", rerr
+		}
+		return fmt.Sprintf("remembered %s: %s", n.ID, n.Text), nil
+	case "recall":
+		root, err := r.projectRoot()
+		if err != nil {
+			return "", err
+		}
+		notes := projmem.Default().Recall(root, stringArg(args, "query"), intArg(args, "limit"))
+		if len(notes) == 0 {
+			return "(project memory is empty for this query — save a fact with remember)", nil
+		}
+		return projmem.FormatNotes(root, notes), nil
+	case "forget":
+		root, err := r.projectRoot()
+		if err != nil {
+			return "", err
+		}
+		id := stringArg(args, "id")
+		if id == "" {
+			id = stringArg(args, "text")
+		}
+		if !projmem.Default().Forget(root, id) {
+			return "", fmt.Errorf("no such note: %s", id)
+		}
+		return "forgotten " + id, nil
+	case "project_search":
+		query, _ := args["query"].(string)
+		if strings.TrimSpace(query) == "" {
+			return "", fmt.Errorf("query is required")
+		}
+		idx, err := r.projectIndex()
+		if err != nil {
+			return "", err
+		}
+		hits := filterHits(idx.Search(query, intArg(args, "limit")), stringArg(args, "path"))
+		if len(hits) == 0 {
+			return fmt.Sprintf("(no index hit for %q — fall back to grep)", query), nil
+		}
+		return projindex.FormatHits(hits), nil
 	case "run_terminal":
 		if r.PlanMode {
 			return "", fmt.Errorf("plan mode: run_terminal is disabled")
@@ -480,6 +571,58 @@ func intArg(args map[string]any, key string) int {
 	}
 }
 
+func stringArg(args map[string]any, key string) string {
+	s, _ := args[key].(string)
+	return strings.TrimSpace(s)
+}
+
+// projectIndex returns the cached symbol index of the run's project. The store
+// re-parses only files that changed, so calling it per tool call is cheap.
+func (r *Registry) projectIndex() (*projindex.Index, error) {
+	root, err := r.projectRoot()
+	if err != nil {
+		return nil, err
+	}
+	return projindex.Default().Get(root)
+}
+
+// projectRoot is the absolute path of the run's project.
+func (r *Registry) projectRoot() (string, error) {
+	ws := r.ws()
+	if ws == nil {
+		return "", fmt.Errorf("no active workspace")
+	}
+	return ws.ActiveRoot()
+}
+
+// chatProjectKey is the key the chat store uses for this project: the run's
+// pinned project root, which is exactly what RunAgentInSession passes to
+// chatstore. Falls back to the active root outside a pinned run.
+func (r *Registry) chatProjectKey() (string, error) {
+	if r == nil {
+		return "", fmt.Errorf("no registry")
+	}
+	if key := strings.TrimSpace(r.WSRoot); key != "" {
+		return key, nil
+	}
+	return r.projectRoot()
+}
+
+// filterHits keeps hits under a path prefix (the tools' optional `path` arg).
+func filterHits(hits []projindex.Hit, prefix string) []projindex.Hit {
+	prefix = strings.Trim(strings.TrimSpace(prefix), "/")
+	if prefix == "" || prefix == "." {
+		return hits
+	}
+	out := make([]projindex.Hit, 0, len(hits))
+	for _, h := range hits {
+		if h.File == prefix || strings.HasPrefix(h.File, prefix+"/") {
+			out = append(out, h)
+		}
+	}
+	return out
+}
+
 func stringSlice(v any) []string {
 	switch x := v.(type) {
 	case []string:
@@ -635,6 +778,7 @@ func filterToolSpecs(all []llm.ToolSpec, plan, lite, explore bool) []llm.ToolSpe
 func ExploreTool(name string) bool {
 	switch name {
 	case "read_file", "list_dir", "glob", "grep", "find_files",
+		"find_symbol", "project_search", "remember", "recall", "history_search",
 		"git_status", "git_diff", "git_log",
 		"ask_user", "get_env_info":
 		return true
@@ -648,6 +792,7 @@ func LiteTool(name string) bool {
 	switch name {
 	case "read_file", "write_file", "apply_patch",
 		"list_dir", "glob", "grep", "find_files",
+		"find_symbol", "project_search", "remember", "recall", "history_search",
 		"git_status", "git_diff", "git_log",
 		"ask_user", "get_env_info":
 		return true
@@ -741,6 +886,58 @@ func allToolSpecs() []llm.ToolSpec {
 				"multiline":      map[string]any{"type": "boolean", "description": "Let . match newlines"},
 			},
 			"required": []string{"query"},
+		}),
+		fn("find_symbol", "Find declarations by name in the project symbol index (Go AST, regex for other languages). Answers «where is X defined» in one call — prefer it over grep+read_file rounds. Substring by default; regex when the pattern has metacharacters. Read the file before editing it.", map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"name":  map[string]any{"type": "string", "description": "Symbol name or pattern, e.g. ProjectTree or ^New"},
+				"path":  map[string]any{"type": "string", "description": "Optional directory prefix, e.g. internal/agent"},
+				"limit": map[string]any{"type": "integer", "description": "Max hits (default 25, max 200)"},
+			},
+			"required": []string{"name"},
+		}),
+		fn("project_search", "Rank project symbols and files by a free-form query (identifier, doc comment, path). Use it when you know the concept but not the identifier — «где обработка online/offline», «hex от NDIS». One call usually replaces several grep rounds.", map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"query": map[string]any{"type": "string", "description": "Concept, several words are fine"},
+				"path":  map[string]any{"type": "string", "description": "Optional directory prefix"},
+				"limit": map[string]any{"type": "integer", "description": "Max hits (default 25)"},
+			},
+			"required": []string{"query"},
+		}),
+		fn("history_search", "Search past chats of this project (snippets + chat titles). Use it when the user says «мы это обсуждали», or before re-deriving a decision that was already made in an earlier chat.", map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"query": map[string]any{"type": "string", "description": "Words to look for, several are fine"},
+				"limit": map[string]any{"type": "integer", "description": "Max hits (default 8, max 50)"},
+			},
+			"required": []string{"query"},
+		}),
+		fn("remember", "Store one durable fact about this project so the next run does not rediscover it: where a thing lives, a decision and why, a gotcha. One short line plus the paths it refers to. Same text updates the existing note instead of duplicating it.", map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"text": map[string]any{"type": "string", "description": "The fact, one line, e.g. «Порт NDIS = hex от строки Windows NDIS, разбор в internal/netx/ndis.go»"},
+				"refs": map[string]any{
+					"type":        "array",
+					"items":       map[string]any{"type": "string"},
+					"description": "Workspace paths this fact is about (they are re-checked for changes)",
+				},
+			},
+			"required": []string{"text"},
+		}),
+		fn("recall", "Read project facts saved by previous runs (optionally filtered). Notes marked stale refer to files changed after the note was written — verify before relying on them.", map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"query": map[string]any{"type": "string", "description": "Optional filter, e.g. ndis or online offline"},
+				"limit": map[string]any{"type": "integer", "description": "Max notes (default 20)"},
+			},
+		}),
+		fn("forget", "Drop a stored project fact by the id shown in recall.", map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"id":   map[string]any{"type": "string", "description": "Note id from recall"},
+				"text": map[string]any{"type": "string", "description": "Or the exact note text"},
+			},
 		}),
 		fn("get_env_info", "OS, arch, shell, workspace root, and available toolchain versions (go/node/python).", map[string]any{
 			"type":       "object",

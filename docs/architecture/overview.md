@@ -1,3 +1,4 @@
+<!-- Edited by nc.ai 0.8.9.7 on new-admin-pc 2026-10-28 09:46:24 -->
 # Архитектура NotCursor.ai
 
 См. также [ТЗ](../TZ.md) и [протоколы](../exchange-protocols/README.md).
@@ -8,12 +9,16 @@ internal/
   app bindings             app.go / main.go — Wails façade, lifecycle, layout/geometry
   config/                  settings store (окно, layout, тема, провайдеры, ключи)
   workspace/               projects + sandbox FS + guard секретов
+  projindex/               карта проекта + индекс символов (go/ast, regex), кэш по size+mtime
+  projmem/                 память фактов проекта (remember/recall/forget) + «протухание» по mtime
+  history/                 поиск по прошлым чатам проекта (history_search)
   fsx/                     атомарная запись файлов (temp + rename + .bak)
   llm/                     canonical OpenAI types, Provider interface, общий shared слой
   llm/providers/
     deepseek/              DeepSeek (OpenAI-compatible)
     zai/                   Z.ai (glm-*, /models, balance, err mapping)
-  tools/                   registry + executor (read/write/patch/delete/grep/terminal/git/ssh/web)
+  tools/                   registry + executor (read/write/patch/delete/grep/terminal/git/ssh/web,
+                           find_symbol/project_search/remember/recall/forget/history_search)
   agent/                   tool loop + autoroute + retry + компакция + plan mode
   netx/                    SSRF-safe HTTP + web_search
   redact/                  маскирование секретов в tool output / events
@@ -34,6 +39,34 @@ internal/
 5. Tools исполняются локально (sandbox FS, PowerShell, git, ssh), результат — обратно в LLM.
 6. UI получает события `delta/reasoning/tool_start/tool_end/done/error/reconnect/persist/progress`.
 7. Итоговый транскрипт (items) пишет фронт, LLM-history — бэк в `chatstore`.
+
+### Память агента: порядок обращения к проекту (0.9.0)
+
+Модель не помнит ничего между прогонами, поэтому знания о проекте подаются послойно: сначала
+дешёвый контекст, потом инструмент, только потом «широкий» поиск по файлам.
+
+Порядок сборки сообщений (`agent.Runner.buildMessages`):
+
+1. system prompt — стабильный, чтобы провайдер держал prefix-cache;
+2. `<project_map>` — brief из `projindex` (модуль, пакеты, entry points, крупные файлы) плюс
+   `workspace.ProjectTree` в `<workspace_tree>`;
+3. `<project_memory>` — заметки `projmem`;
+4. стабильные rules, turn rules (path-scoped), prior history, текущее сообщение пользователя.
+
+`projectMap` и `MemoryText` считаются один раз в `App.RunAgentInSession`. Память намеренно не
+пересобирается в середине прогона: `remember` во время работы не должен менять уже отправленный
+prefix, иначе каждый шаг заново платит за весь контекст.
+
+Откуда инструменты берут данные:
+
+| Инструмент | Источник | Ключ |
+|---|---|---|
+| `find_symbol`, `project_search` | `projindex.Default()` — память процесса + файл кэша, инвалидация по `size+mtime` | `ws.ActiveRoot()` |
+| `remember`, `recall`, `forget` | `projmem.Default()` — config-каталог ОС, ключ — абсолютный путь проекта | `ws.ActiveRoot()` |
+| `history_search` | `history.New(Registry.Chats)` — живые и архивные чаты | `Registry.WSRoot` (проект запуска) |
+
+Бюджеты промпта: brief 1600 байт (700 на `LocalLite`), память 1200 (500). Подробности, форматы
+заметок и пути кэша — [docs/project-memory.md](../project-memory.md).
 
 ### Сессия, проект и очередь (важно)
 

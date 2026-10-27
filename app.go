@@ -39,6 +39,8 @@ import (
 	"notcursor.ai/app/internal/llm/providers/yandex"
 	"notcursor.ai/app/internal/llm/providers/zai"
 	"notcursor.ai/app/internal/mcp"
+	"notcursor.ai/app/internal/projindex"
+	"notcursor.ai/app/internal/projmem"
 	"notcursor.ai/app/internal/providernews"
 	"notcursor.ai/app/internal/redact"
 	"notcursor.ai/app/internal/rules"
@@ -198,6 +200,7 @@ func (a *App) startup(ctx context.Context) {
 		a.chats, _ = chatstore.New(base)
 	}
 	a.tools = tools.NewRegistry(a.ws, a.sshDir)
+	a.tools.Chats = a.chats
 	a.tools.Shell = shell.ResolveShell(a.cfg.Get().Shell)
 	a.mcp = mcp.NewManager()
 	a.mcp.OnEvent = func(msg string) { a.logAgentLine("mcp " + msg) }
@@ -3806,11 +3809,36 @@ func (a *App) RunAgentInSession(sessionID, runID, userMessage string, attachment
 
 	projectMap := ""
 	treeLimit := 350
+	briefBudget := 1600
 	if localLite {
 		treeLimit = 120
+		briefBudget = 700
 	}
-	if tree, err := a.ws.Scoped(projKey).ProjectTree(treeLimit); err == nil {
+	wsRun := a.ws.Scoped(projKey)
+	if tree, err := wsRun.ProjectTree(treeLimit); err == nil {
 		projectMap = tree
+	}
+	// Project brief: root/pkg/entry/big files from the symbol index. It answers
+	// the usual "where does X live" before the model spends a single tool call;
+	// the tree below stays as the literal path list.
+	memText := ""
+	if root, rerr := wsRun.ActiveRoot(); rerr == nil {
+		if idx, ierr := projindex.Default().Get(root); ierr == nil {
+			if brief := projindex.Brief(idx, briefBudget); brief != "" {
+				if projectMap != "" {
+					projectMap = brief + "\n\n<workspace_tree>\n" + projectMap + "\n</workspace_tree>"
+				} else {
+					projectMap = brief
+				}
+			}
+		}
+		// Facts saved by earlier runs: not a tool call, just context. Empty when
+		// nothing was remembered yet.
+		memBudget := 1200
+		if localLite {
+			memBudget = 500
+		}
+		memText = projmem.Brief(root, memBudget)
 	}
 
 	// Every run gets its own tool registry copy pinned to the run's project:
@@ -3850,6 +3878,7 @@ func (a *App) RunAgentInSession(sessionID, runID, userMessage string, attachment
 		TurnRulesText:       turnRulesText,
 		StickyModel:         sticky,
 		ProjectMap:          projectMap,
+		MemoryText:          memText,
 		IDEContext:          a.ideContextText(),
 		PlanMode:            a.cfg.PlanModeEnabled(),
 		AutoModels:          autoModels,

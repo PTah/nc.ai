@@ -20,6 +20,7 @@
 // Edited by nc.ai 0.8.9.0 on new-admin-pc 2026-10-19 16:22:02
 // Edited by nc.ai 0.8.9.2 on macbook 2026-10-19 20:37:39
 // Edited by nc.ai 0.8.9.6 on Papasha 2026-10-24 16:55:51
+// Edited by nc.ai 0.8.9.7 on new-admin-pc 2026-10-28 09:41:35
 package appmeta
 
 import "time"
@@ -27,7 +28,7 @@ import "time"
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "0.8.9.7"
+	Version = "0.9.0"
 )
 
 // DeepSeekProRetireRFC3339 is the announced V4 Pro retirement instant, empty
@@ -73,19 +74,19 @@ func retiredAt(at time.Time, now time.Time) bool {
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
-	"Запрос, вставший в очередь, можно поправить, отправить первым или запустить параллельно — на карточке очереди три действия",
-	"Если ответ оборвался ошибкой или отменой, показанный текст остаётся в чате: последние чанки доводятся из буфера дельт",
-	"Кнопки разделов в настройках закреплены сверху: «Интерфейс», «Система» и другие переключаются без прокрутки наверх",
-	"Подсказка у баланса в шапке показывает активного провайдера (OpenRouter, Z.ai, DeepSeek), а не всегда «Баланс DeepSeek»",
+	"Агент больше не начинает каждый чат с нуля: в промпт идёт карта проекта, а find_symbol и project_search находят «где лежит X» за один вызов вместо серии grep и read_file",
+	"Память фактов проекта: remember / recall хранят найденное между чатами, а если файл после записи изменился, заметка честно помечается как протухшая",
+	"history_search ищет по прошлым чатам этого проекта — «мы это обсуждали» отвечается из истории, а не пересказывается заново",
+	"«Авто (по настройкам)» и «Развернуть всё» закреплены в полосе ввода рядом с Attach и больше не уезжают при прокрутке ленты",
 	"Рабочее пространство из нескольких папок и запросы, идущие параллельно, работают как раньше",
 }
 
 var HighlightsEN = []string{
-	"A queued request can be edited, sent first or started in parallel — three actions on the queue card",
-	"If an answer dies with an error or a cancel, the text already shown stays in the chat: the last chunks are completed from the delta buffer",
-	"Settings section buttons are pinned to the top: switching between Interface, System and the rest no longer requires scrolling back up",
-	"The balance tooltip in the header names the active provider (OpenRouter, Z.ai, DeepSeek) instead of always saying \"DeepSeek balance\"",
-	"The multi-folder workspace and parallel requests behave as before",
+	"The agent no longer starts every chat from zero: the prompt carries a project map, and find_symbol / project_search answer \"where does X live\" in one call instead of a grep + read_file chain",
+	"Project memory: remember / recall keep what was learned between chats, and a note whose file changed afterwards is honestly marked stale",
+	"history_search searches past chats of this project — \"we discussed this\" is answered from history instead of being re-derived",
+	"\"Auto (from settings)\" and \"Expand all\" are pinned to the input bar next to Attach and no longer drift with the transcript scroll",
+	"Requests in parallel chats and the multi-folder workspace keep working as before",
 }
 
 // UICopy is localized chrome for the Welcome splash.
