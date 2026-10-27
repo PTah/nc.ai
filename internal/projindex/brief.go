@@ -98,7 +98,7 @@ func goPackages(idx *Index) []pkgInfo {
 		}
 		dir := path.Dir(f.Path)
 		if dir == "." {
-			dir = "(root)"
+			dir = "root"
 		}
 		p := byDir[dir]
 		if p == nil {

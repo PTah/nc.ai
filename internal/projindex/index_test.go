@@ -133,7 +133,7 @@ func TestBriefMentionsLayout(t *testing.T) {
 		t.Fatalf("build: %v", err)
 	}
 	brief := Brief(idx, 4000)
-	for _, want := range []string{"go example.com/demo", "(root)(demo,1f)", "cmd/app/main.go", "web/src 1", "index: find_symbol"} {
+	for _, want := range []string{"go example.com/demo", "root(demo,1f)", "cmd/app/main.go", "web/src 1", "index: find_symbol"} {
 		if !strings.Contains(brief, want) {
 			t.Fatalf("brief misses %q:\n%s", want, brief)
 		}

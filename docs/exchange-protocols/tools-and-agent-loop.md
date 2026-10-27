@@ -1,3 +1,4 @@
+<!-- Edited by nc.ai 0.8.9.7 on new-admin-pc 2026-10-28 09:46:47 -->
 # Tools и Agent Loop
 
 Это ядро агентного поведения NotCursor (как у Cursor / Cline).
@@ -62,6 +63,21 @@ User → [messages + tools] → Provider
 | `find_files` | `query` | нечёткое имя |
 | `glob` | `pattern`, optional `path`, `head_limit` | нет |
 | `grep` | `query` (regex), optional `path`, `path_glob`, `head_limit`, `context`/`before`/`after`, `output_mode` | нет |
+
+### Память проекта (0.9.0)
+
+| name | params | side effect |
+|---|---|---|
+| `find_symbol` | `name` (подстрока или regex), optional `path`, `limit` | нет; индекс символов проекта (`internal/projindex`), ответ `kind name — file:line · doc` |
+| `project_search` | `query`, optional `path`, `limit` | нет; скоринг по именам, doc-комментариям и путям, затем файлы |
+| `remember` | `text`, optional `refs[]` | пишет заметку в память проекта (`internal/projmem`), вне репозитория |
+| `recall` | optional `query`, `limit` | нет; заметки + пометка «файл изменён после записи» |
+| `forget` | `id` (или `text`) | удаляет заметку |
+| `history_search` | `query`, optional `limit` | нет; сообщения прошлых чатов проекта (`internal/history`) |
+
+`find_symbol`, `project_search`, `recall`, `history_search` — read-only: доступны в Plan mode, в
+наборах explore/lite и у субагентов. `remember`/`forget` меняют только память, не файлы проекта.
+Форматы, бюджеты и пути кэша — [docs/project-memory.md](../project-memory.md).
 
 ### Shell / jobs / UX
 
