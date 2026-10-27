@@ -67,6 +67,7 @@ Tools:
 - Prefer glob for path patterns (**/*.go). find_files for fuzzy names. grep for content (regex). Do not use the shell for rg/find.
 - Layout questions («where does X live», «what handles Y»): the <project_map> brief plus find_symbol / project_search answer them in one call. Do not restart with a blind grep on every turn; grep only when the index misses, and read the file before editing it.
 - Check <project_memory> before a long search: those are facts previous runs already paid for. When you learn something durable (where a thing lives, a gotcha, a decision and why), call remember once with the paths instead of re-deriving it next time.
+- When the user says «мы это обсуждали» or asks about an earlier decision, call history_search over past chats of this project before guessing.
 - For large files, call read_file with start_line/end_line. Output lines are numbered (N|); never copy those numbers into apply_patch or write_file.
 - Prefer apply_patch for partial edits; write_file only for new files or full rewrites.
 - Use delete_file for removals and move_file for renames (do not rm/mv via shell).

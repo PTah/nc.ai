@@ -12,7 +12,9 @@ import (
 	"strings"
 	"time"
 
+	"notcursor.ai/app/internal/chatstore"
 	"notcursor.ai/app/internal/gitx"
+	"notcursor.ai/app/internal/history"
 	"notcursor.ai/app/internal/llm"
 	"notcursor.ai/app/internal/mcp"
 	"notcursor.ai/app/internal/netx"
@@ -41,6 +43,9 @@ type Registry struct {
 	AskUser func(ctx context.Context, callID, question string, options []string) (string, error)
 	// MCPCall routes mcp__<server>__<tool> to the MCP manager. nil = MCP disabled.
 	MCPCall func(ctx context.Context, prefixedName, argsJSON string) (string, error)
+	// Chats is the chat store; history_search reads past transcripts of the run's
+	// project from it. nil = history search unavailable.
+	Chats *chatstore.Store
 }
 
 // ForRun returns a per-run copy of the registry bound to root. PlanMode, the
@@ -103,7 +108,7 @@ func DangerousTool(name string) bool {
 func ReadOnlyTool(name string) bool {
 	switch name {
 	case "read_file", "list_dir", "find_files", "glob", "grep", "get_env_info",
-		"find_symbol", "project_search",
+		"find_symbol", "project_search", "recall", "history_search",
 		"git_status", "git_diff", "git_log", "command_status", "web_search", "fetch_url", "read_lints":
 		return true
 	default:
@@ -116,7 +121,7 @@ func ReadOnlyTool(name string) bool {
 func SubagentDefaultTool(name string) bool {
 	switch name {
 	case "read_file", "list_dir", "find_files", "glob", "grep",
-		"find_symbol", "project_search", "recall",
+		"find_symbol", "project_search", "recall", "history_search",
 		"git_status", "git_diff", "git_log", "get_env_info":
 		return true
 	default:
@@ -333,6 +338,20 @@ func (r *Registry) Execute(ctx context.Context, call llm.ToolCall) (string, erro
 			return fmt.Sprintf("(no symbol matched %q — try project_search with the concept, then grep)", pattern), nil
 		}
 		return projindex.FormatHits(hits), nil
+	case "history_search":
+		query, _ := args["query"].(string)
+		if strings.TrimSpace(query) == "" {
+			return "", fmt.Errorf("query is required")
+		}
+		project, err := r.chatProjectKey()
+		if err != nil {
+			return "", err
+		}
+		hits := history.New(r.Chats).Search(project, query, intArg(args, "limit"))
+		if len(hits) == 0 {
+			return "(no past chat in this project matched — try other words, or recall)", nil
+		}
+		return history.Format(hits), nil
 	case "remember":
 		text, _ := args["text"].(string)
 		if strings.TrimSpace(text) == "" {
@@ -576,6 +595,19 @@ func (r *Registry) projectRoot() (string, error) {
 	return ws.ActiveRoot()
 }
 
+// chatProjectKey is the key the chat store uses for this project: the run's
+// pinned project root, which is exactly what RunAgentInSession passes to
+// chatstore. Falls back to the active root outside a pinned run.
+func (r *Registry) chatProjectKey() (string, error) {
+	if r == nil {
+		return "", fmt.Errorf("no registry")
+	}
+	if key := strings.TrimSpace(r.WSRoot); key != "" {
+		return key, nil
+	}
+	return r.projectRoot()
+}
+
 // filterHits keeps hits under a path prefix (the tools' optional `path` arg).
 func filterHits(hits []projindex.Hit, prefix string) []projindex.Hit {
 	prefix = strings.Trim(strings.TrimSpace(prefix), "/")
@@ -746,7 +778,7 @@ func filterToolSpecs(all []llm.ToolSpec, plan, lite, explore bool) []llm.ToolSpe
 func ExploreTool(name string) bool {
 	switch name {
 	case "read_file", "list_dir", "glob", "grep", "find_files",
-		"find_symbol", "project_search", "remember", "recall",
+		"find_symbol", "project_search", "remember", "recall", "history_search",
 		"git_status", "git_diff", "git_log",
 		"ask_user", "get_env_info":
 		return true
@@ -760,7 +792,7 @@ func LiteTool(name string) bool {
 	switch name {
 	case "read_file", "write_file", "apply_patch",
 		"list_dir", "glob", "grep", "find_files",
-		"find_symbol", "project_search", "remember", "recall",
+		"find_symbol", "project_search", "remember", "recall", "history_search",
 		"git_status", "git_diff", "git_log",
 		"ask_user", "get_env_info":
 		return true
@@ -870,6 +902,14 @@ func allToolSpecs() []llm.ToolSpec {
 				"query": map[string]any{"type": "string", "description": "Concept, several words are fine"},
 				"path":  map[string]any{"type": "string", "description": "Optional directory prefix"},
 				"limit": map[string]any{"type": "integer", "description": "Max hits (default 25)"},
+			},
+			"required": []string{"query"},
+		}),
+		fn("history_search", "Search past chats of this project (snippets + chat titles). Use it when the user says «мы это обсуждали», or before re-deriving a decision that was already made in an earlier chat.", map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"query": map[string]any{"type": "string", "description": "Words to look for, several are fine"},
+				"limit": map[string]any{"type": "integer", "description": "Max hits (default 8, max 50)"},
 			},
 			"required": []string{"query"},
 		}),

@@ -200,6 +200,7 @@ func (a *App) startup(ctx context.Context) {
 		a.chats, _ = chatstore.New(base)
 	}
 	a.tools = tools.NewRegistry(a.ws, a.sshDir)
+	a.tools.Chats = a.chats
 	a.tools.Shell = shell.ResolveShell(a.cfg.Get().Shell)
 	a.mcp = mcp.NewManager()
 	a.mcp.OnEvent = func(msg string) { a.logAgentLine("mcp " + msg) }
