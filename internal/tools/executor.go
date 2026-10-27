@@ -16,6 +16,7 @@ import (
 	"notcursor.ai/app/internal/llm"
 	"notcursor.ai/app/internal/mcp"
 	"notcursor.ai/app/internal/netx"
+	"notcursor.ai/app/internal/projindex"
 	"notcursor.ai/app/internal/shell"
 	"notcursor.ai/app/internal/sshx"
 	"notcursor.ai/app/internal/workspace"
@@ -101,6 +102,7 @@ func DangerousTool(name string) bool {
 func ReadOnlyTool(name string) bool {
 	switch name {
 	case "read_file", "list_dir", "find_files", "glob", "grep", "get_env_info",
+		"find_symbol", "project_search",
 		"git_status", "git_diff", "git_log", "command_status", "web_search", "fetch_url", "read_lints":
 		return true
 	default:
@@ -113,6 +115,7 @@ func ReadOnlyTool(name string) bool {
 func SubagentDefaultTool(name string) bool {
 	switch name {
 	case "read_file", "list_dir", "find_files", "glob", "grep",
+		"find_symbol", "project_search",
 		"git_status", "git_diff", "git_log", "get_env_info":
 		return true
 	default:
@@ -312,6 +315,37 @@ func (r *Registry) Execute(ctx context.Context, call llm.ToolCall) (string, erro
 		return out, nil
 	case "get_env_info":
 		return r.envInfo(), nil
+	case "find_symbol":
+		pattern, _ := args["name"].(string)
+		if strings.TrimSpace(pattern) == "" {
+			pattern, _ = args["query"].(string)
+		}
+		if strings.TrimSpace(pattern) == "" {
+			return "", fmt.Errorf("name is required")
+		}
+		idx, err := r.projectIndex()
+		if err != nil {
+			return "", err
+		}
+		hits := filterHits(idx.FindSymbol(pattern, intArg(args, "limit")), stringArg(args, "path"))
+		if len(hits) == 0 {
+			return fmt.Sprintf("(no symbol matched %q — try project_search with the concept, then grep)", pattern), nil
+		}
+		return projindex.FormatHits(hits), nil
+	case "project_search":
+		query, _ := args["query"].(string)
+		if strings.TrimSpace(query) == "" {
+			return "", fmt.Errorf("query is required")
+		}
+		idx, err := r.projectIndex()
+		if err != nil {
+			return "", err
+		}
+		hits := filterHits(idx.Search(query, intArg(args, "limit")), stringArg(args, "path"))
+		if len(hits) == 0 {
+			return fmt.Sprintf("(no index hit for %q — fall back to grep)", query), nil
+		}
+		return projindex.FormatHits(hits), nil
 	case "run_terminal":
 		if r.PlanMode {
 			return "", fmt.Errorf("plan mode: run_terminal is disabled")
@@ -480,6 +514,40 @@ func intArg(args map[string]any, key string) int {
 	}
 }
 
+func stringArg(args map[string]any, key string) string {
+	s, _ := args[key].(string)
+	return strings.TrimSpace(s)
+}
+
+// projectIndex returns the cached symbol index of the run's project. The store
+// re-parses only files that changed, so calling it per tool call is cheap.
+func (r *Registry) projectIndex() (*projindex.Index, error) {
+	ws := r.ws()
+	if ws == nil {
+		return nil, fmt.Errorf("no active workspace")
+	}
+	root, err := ws.ActiveRoot()
+	if err != nil {
+		return nil, err
+	}
+	return projindex.Default().Get(root)
+}
+
+// filterHits keeps hits under a path prefix (the tools' optional `path` arg).
+func filterHits(hits []projindex.Hit, prefix string) []projindex.Hit {
+	prefix = strings.Trim(strings.TrimSpace(prefix), "/")
+	if prefix == "" || prefix == "." {
+		return hits
+	}
+	out := make([]projindex.Hit, 0, len(hits))
+	for _, h := range hits {
+		if h.File == prefix || strings.HasPrefix(h.File, prefix+"/") {
+			out = append(out, h)
+		}
+	}
+	return out
+}
+
 func stringSlice(v any) []string {
 	switch x := v.(type) {
 	case []string:
@@ -635,6 +703,7 @@ func filterToolSpecs(all []llm.ToolSpec, plan, lite, explore bool) []llm.ToolSpe
 func ExploreTool(name string) bool {
 	switch name {
 	case "read_file", "list_dir", "glob", "grep", "find_files",
+		"find_symbol", "project_search",
 		"git_status", "git_diff", "git_log",
 		"ask_user", "get_env_info":
 		return true
@@ -648,6 +717,7 @@ func LiteTool(name string) bool {
 	switch name {
 	case "read_file", "write_file", "apply_patch",
 		"list_dir", "glob", "grep", "find_files",
+		"find_symbol", "project_search",
 		"git_status", "git_diff", "git_log",
 		"ask_user", "get_env_info":
 		return true
@@ -739,6 +809,24 @@ func allToolSpecs() []llm.ToolSpec {
 				"output_mode":    map[string]any{"type": "string", "description": "content (default) | files_with_matches | count"},
 				"case_sensitive": map[string]any{"type": "boolean"},
 				"multiline":      map[string]any{"type": "boolean", "description": "Let . match newlines"},
+			},
+			"required": []string{"query"},
+		}),
+		fn("find_symbol", "Find declarations by name in the project symbol index (Go AST, regex for other languages). Answers «where is X defined» in one call — prefer it over grep+read_file rounds. Substring by default; regex when the pattern has metacharacters. Read the file before editing it.", map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"name":  map[string]any{"type": "string", "description": "Symbol name or pattern, e.g. ProjectTree or ^New"},
+				"path":  map[string]any{"type": "string", "description": "Optional directory prefix, e.g. internal/agent"},
+				"limit": map[string]any{"type": "integer", "description": "Max hits (default 25, max 200)"},
+			},
+			"required": []string{"name"},
+		}),
+		fn("project_search", "Rank project symbols and files by a free-form query (identifier, doc comment, path). Use it when you know the concept but not the identifier — «где обработка online/offline», «hex от NDIS». One call usually replaces several grep rounds.", map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"query": map[string]any{"type": "string", "description": "Concept, several words are fine"},
+				"path":  map[string]any{"type": "string", "description": "Optional directory prefix"},
+				"limit": map[string]any{"type": "integer", "description": "Max hits (default 25)"},
 			},
 			"required": []string{"query"},
 		}),

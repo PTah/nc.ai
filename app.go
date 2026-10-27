@@ -39,6 +39,7 @@ import (
 	"notcursor.ai/app/internal/llm/providers/yandex"
 	"notcursor.ai/app/internal/llm/providers/zai"
 	"notcursor.ai/app/internal/mcp"
+	"notcursor.ai/app/internal/projindex"
 	"notcursor.ai/app/internal/providernews"
 	"notcursor.ai/app/internal/redact"
 	"notcursor.ai/app/internal/rules"
@@ -3806,11 +3807,28 @@ func (a *App) RunAgentInSession(sessionID, runID, userMessage string, attachment
 
 	projectMap := ""
 	treeLimit := 350
+	briefBudget := 1600
 	if localLite {
 		treeLimit = 120
+		briefBudget = 700
 	}
-	if tree, err := a.ws.Scoped(projKey).ProjectTree(treeLimit); err == nil {
+	wsRun := a.ws.Scoped(projKey)
+	if tree, err := wsRun.ProjectTree(treeLimit); err == nil {
 		projectMap = tree
+	}
+	// Project brief: root/pkg/entry/big files from the symbol index. It answers
+	// the usual "where does X live" before the model spends a single tool call;
+	// the tree below stays as the literal path list.
+	if root, rerr := wsRun.ActiveRoot(); rerr == nil {
+		if idx, ierr := projindex.Default().Get(root); ierr == nil {
+			if brief := projindex.Brief(idx, briefBudget); brief != "" {
+				if projectMap != "" {
+					projectMap = brief + "\n\n<workspace_tree>\n" + projectMap + "\n</workspace_tree>"
+				} else {
+					projectMap = brief
+				}
+			}
+		}
 	}
 
 	// Every run gets its own tool registry copy pinned to the run's project:
