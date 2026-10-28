@@ -4022,6 +4022,22 @@ export default function App() {
         reader.readAsText(file)
         return
       }
+      // Офисные/ODF-контейнеры: отправляем байты бэку, он распакует текст
+      // (xlsx/docx/pptx/odt) — иначе до модели доезжало только имя файла.
+      const extractable = /\.(xlsx|xlsm|docx|pptx|odt|ods|odp|fodt|fods|fodp)$/i.test(file.name)
+      if (extractable && file.size <= 5_000_000) {
+        const reader = new FileReader()
+        reader.onload = () => resolve({
+          id,
+          name: file.name || 'file',
+          mime: file.type || 'application/octet-stream',
+          isImage: false,
+          dataUrl: String(reader.result || ''),
+        })
+        reader.onerror = () => reject(reader.error)
+        reader.readAsDataURL(file)
+        return
+      }
       resolve({
         id,
         name: file.name || 'file.bin',

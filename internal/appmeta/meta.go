@@ -28,7 +28,7 @@ import "time"
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "0.9.1"
+	Version = "0.9.2"
 )
 
 // DeepSeekProRetireRFC3339 is the announced V4 Pro retirement instant, empty
@@ -74,18 +74,18 @@ func retiredAt(at time.Time, now time.Time) bool {
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
-	"Веб-поиск и загрузка страниц через DeepSeek Search & Fetch: ранжирование, операторы site:/lang:/after:, готовое резюме для модели и страница сразу в Markdown — переключатель в Settings → Agent",
-	"По умолчанию остаётся DuckDuckGo: платный серверный поиск включается только вашим выбором, а при ошибке API запрос сам уходит в DuckDuckGo",
-	"SSRF-guard сохранён и для серверного fetch: приватные адреса блокируются до отправки URL наружу",
-	"Цены V4.1 Flash и сборка 1017 не потребовали правок: прайс подтягивается с официальной страницы раз в день, off-peak считается как половина peak",
+	"Файлы Excel, Word, PowerPoint и OpenDocument (xlsx, docx, pptx, odt) больше не уходят модели как одно имя: содержимое распаковывается в текст — ячейки, абзацы, слайды",
+	"Скриншоты и текстовые вложения работают как раньше, а офисные контейнеры читаются целиком до 5 МБ",
+	"Распаковка сделана на Go без новых зависимостей: zip + XML, кириллица и Unicode сохраняются",
+	"PDF и прочие нераспознанные бинарники пока остаются «только имя» — честная заглушка вместо тишины",
 	"Рабочее пространство из нескольких папок и запросы, идущие параллельно, работают как раньше",
 }
 
 var HighlightsEN = []string{
-	"Web search and page loading through DeepSeek Search & Fetch: ranking, site:/lang:/after: operators, a model-ready summary and pages already in Markdown — switch it in Settings → Agent",
-	"DuckDuckGo stays the default: paid server-side search is enabled only by your choice, and any API error falls back to DuckDuckGo automatically",
-	"The SSRF guard still applies to server-side fetch: private addresses are blocked before the URL leaves the machine",
-	"V4.1 Flash pricing and the 1017 build needed no code change: the price sheet is pulled from the official page daily, off-peak is half of peak",
+	"Excel, Word, PowerPoint and OpenDocument files (xlsx, docx, pptx, odt) no longer reach the model as a bare file name: their contents are unpacked into text — cells, paragraphs, slides",
+	"Screenshots and text attachments work as before, and office containers are read in full up to 5 MB",
+	"Unpacking runs in Go with no new dependencies: zip + XML, Cyrillic and Unicode preserved",
+	"PDF and other unrecognised binaries still show as file name only — an honest placeholder instead of silence",
 	"Requests in parallel chats and the multi-folder workspace keep working as before",
 }
 

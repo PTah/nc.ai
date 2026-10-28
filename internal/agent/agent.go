@@ -939,6 +939,15 @@ func (r *Runner) RunWithAttachments(ctx context.Context, history []llm.Message, 
 			images = append(images, a.DataURL)
 			continue
 		}
+		// Офисные/ODF-контейнеры приходят как base64 data URL: распаковываем их
+		// в текст, чтобы содержимое реально доехало до модели (xlsx/docx/pptx/odt).
+		if a.Text == "" && !a.IsImage && a.DataURL != "" {
+			if raw, err := decodeDataURLBytes(a.DataURL); err == nil {
+				if txt := extractAttachmentText(a.Name, raw); txt != "" {
+					a.Text = txt
+				}
+			}
+		}
 		if a.Text != "" {
 			if extraText.Len() > 0 {
 				extraText.WriteString("\n\n")
