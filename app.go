@@ -1397,6 +1397,7 @@ func (a *App) GetSettings() map[string]any {
 		"agentMaxSteps":        a.cfg.MaxAgentSteps(),
 		"agentWarnSteps":       a.cfg.AgentWarnSteps(),
 		"agentNarration":       a.cfg.AgentNarrationMode(),
+		"webToolsProvider":     a.cfg.WebToolsProviderName(),
 		"agentStallMinutes":    int(a.cfg.AgentStallLimit().Minutes()),
 		"httpProtocol":         a.cfg.HTTPProtocolMode(),
 		"http2PingSec":         int(a.cfg.HTTP2Ping().Seconds()),
@@ -2817,6 +2818,14 @@ func (a *App) SaveAgentNarration(mode string) error {
 	return a.cfg.SetAgentNarrationMode(mode)
 }
 
+// SaveWebToolsProvider выбирает движок веб-поиска и загрузки страниц (Settings → Agent):
+// "auto" — DeepSeek Search & Fetch при наличии ключа DeepSeek, иначе DuckDuckGo;
+// "deepseek" — только DeepSeek (с откатом на DuckDuckGo при ошибках API);
+// "duckduckgo" — скрейп выдачи и прямой GET.
+func (a *App) SaveWebToolsProvider(v string) error {
+	return a.cfg.SetWebToolsProvider(v)
+}
+
 // SaveHTTPProtocol выбирает протокол для запросов к провайдерам:
 // "auto" — HTTP/2, если сервер умеет; "http11" — только HTTP/1.1 (h2 выключен).
 // Второй режим помогает, когда CDN/DPI рвут длинные SSE-потоки:
@@ -3847,6 +3856,11 @@ func (a *App) RunAgentInSession(sessionID, runID, userMessage string, attachment
 	runTools := a.tools
 	if a.tools != nil {
 		runTools = a.tools.ForRun(projKey)
+		// Веб-инструменты: тот же ключ DeepSeek, что у чата (ключи лежат в
+		// системном хранилище секретов, не в settings.json), и выбранный движок.
+		// Копия реестра на прогон — смена настройки подхватится со следующего сообщения.
+		runTools.DeepSeekKey = a.cfg.APIKey(config.ProviderDeepSeek)
+		runTools.WebTools = a.cfg.WebToolsProviderName()
 	}
 
 	// Правила проекта (десятки КБ) на маленьком окне контекста вытесняют задачу.

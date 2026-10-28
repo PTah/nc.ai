@@ -88,8 +88,8 @@ User → [messages + tools] → Provider
 | `todo_write` | `todos[]`, `merge` | список в UI |
 | `ask_user` | `question`, optional `options[]` | блокирующий вопрос |
 | `read_lints` | `paths[]` | `go vet` для `.go` |
-| `web_search` | `query` | публичный поиск, SSRF-guard |
-| `fetch_url` | `url` | GET http(s), без LAN/loopback |
+| `web_search` | `query` | публичный поиск, SSRF-guard; движок — Settings → Agent («Веб-поиск и страницы»): DuckDuckGo (по умолчанию) или DeepSeek Search & Fetch с откатом на DuckDuckGo |
+| `fetch_url` | `url` | GET http(s), без LAN/loopback; в режиме DeepSeek — `/v1/tools/fetch` (Markdown от сервера), при ошибке — прямой GET |
 
 В **Plan mode** скрыты mutating tools (`write_file`, `apply_patch`, `delete_file`, `move_file`, `run_terminal`, `git_commit`/`push`, `ssh_*`).
 

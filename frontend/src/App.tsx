@@ -127,6 +127,7 @@ import {
   SaveAgentWarnSteps,
   SaveAgentStallMin,
   SaveAgentNarration,
+  SaveWebToolsProvider,
   ComposerDrafts,
   SaveComposerDraft,
   SaveComposerHeight,
@@ -2108,6 +2109,8 @@ export default function App() {
   const [warnSteps, setWarnSteps] = useState(120)
   // Пояснения агента: auto — только значимые находки, always — каждый шаг, never — только результат.
   const [narration, setNarration] = useState<'auto' | 'always' | 'never'>('auto')
+  // Веб-поиск и загрузка страниц: по умолчанию DuckDuckGo, DeepSeek включается явно.
+  const [webTools, setWebTools] = useState<'auto' | 'deepseek' | 'duckduckgo'>('duckduckgo')
   const [stallMinutes, setStallMinutes] = useState(10)
   const [stallOff, setStallOff] = useState(false)
   // Сеть (Settings → Network): протокол к провайдерам, повторы и диагностика.
@@ -3106,6 +3109,7 @@ export default function App() {
         {
           const raw = s as Record<string, any>
           setNarration(raw.agentNarration === 'always' ? 'always' : raw.agentNarration === 'never' ? 'never' : 'auto')
+          setWebTools(raw.webToolsProvider === 'deepseek' ? 'deepseek' : raw.webToolsProvider === 'auto' ? 'auto' : 'duckduckgo')
           setHttpProtocol(raw.httpProtocol === 'http11' ? 'http11' : 'auto')
           const ping = Number(raw.http2PingSec)
           setHttp2PingSec(Number.isFinite(ping) && ping !== 0 ? ping : 20)
@@ -5227,6 +5231,7 @@ export default function App() {
     await SaveAgentWarnSteps(warnSteps > 0 ? Number(warnSteps) : -1)
     await SaveAgentStallMin(stallOff ? -1 : Math.min(240, Math.max(1, Number(stallMinutes) || 10)))
     await SaveAgentNarration(narration)
+    await SaveWebToolsProvider(webTools)
     await SaveHTTPProtocol(httpProtocol)
     await SaveHTTP2PingSec(Math.max(-1, Math.min(120, Number(http2PingSec) || 0)))
     await SaveUpdateMirror(updateMirrorOn, updateMirrorUrl, updateMirrorToken)
@@ -7859,6 +7864,30 @@ export default function App() {
               «Всегда» — комментарий к каждому значимому шагу (как при разборе сети/маршрутов).
               «Никогда» — только итог. Просьба «показывай промежуточные результаты» включает
               пояснения в любом режиме.
+            </p>
+
+            <label>
+              Веб-поиск и страницы
+              <select
+                value={webTools}
+                onChange={(e) => {
+                  const next = e.target.value === 'deepseek' ? 'deepseek' : e.target.value === 'duckduckgo' ? 'duckduckgo' : 'auto'
+                  setWebTools(next)
+                  void SaveWebToolsProvider(next)
+                }}
+              >
+                <option value="duckduckgo">DuckDuckGo + прямой GET (по умолчанию)</option>
+                <option value="auto">Авто — DeepSeek при наличии ключа, иначе DuckDuckGo</option>
+                <option value="deepseek">DeepSeek Search &amp; Fetch</option>
+              </select>
+            </label>
+            <p className="nc-help">
+              По умолчанию — DuckDuckGo и прямой GET: серверный поиск DeepSeek платный, поэтому он
+              включается только вашим выбором, а не автоматически. DeepSeek Search &amp; Fetch работает
+              тем же ключом, что и чат: ранжирование, операторы <code>site:</code>/<code>lang:</code>/
+              <code>after:</code>, краткое резюме для модели и страница сразу в Markdown. Стоимость
+              $0.75 за 1000 успешных запросов. Если API вернёт ошибку (кончился баланс, лимит QPS,
+              сайт закрыт политикой) — запрос уходит в DuckDuckGo, а в ответе будет пометка.
             </p>
 
             <div className="nc-section-label">Network</div>
