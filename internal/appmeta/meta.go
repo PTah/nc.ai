@@ -28,7 +28,7 @@ import "time"
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "0.9.0"
+	Version = "0.9.1"
 )
 
 // DeepSeekProRetireRFC3339 is the announced V4 Pro retirement instant, empty
@@ -74,18 +74,18 @@ func retiredAt(at time.Time, now time.Time) bool {
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
-	"Агент больше не начинает каждый чат с нуля: в промпт идёт карта проекта, а find_symbol и project_search находят «где лежит X» за один вызов вместо серии grep и read_file",
-	"Память фактов проекта: remember / recall хранят найденное между чатами, а если файл после записи изменился, заметка честно помечается как протухшая",
-	"history_search ищет по прошлым чатам этого проекта — «мы это обсуждали» отвечается из истории, а не пересказывается заново",
-	"«Авто (по настройкам)» и «Развернуть всё» закреплены в полосе ввода рядом с Attach и больше не уезжают при прокрутке ленты",
+	"Веб-поиск и загрузка страниц через DeepSeek Search & Fetch: ранжирование, операторы site:/lang:/after:, готовое резюме для модели и страница сразу в Markdown — переключатель в Settings → Agent",
+	"По умолчанию остаётся DuckDuckGo: платный серверный поиск включается только вашим выбором, а при ошибке API запрос сам уходит в DuckDuckGo",
+	"SSRF-guard сохранён и для серверного fetch: приватные адреса блокируются до отправки URL наружу",
+	"Цены V4.1 Flash и сборка 1017 не потребовали правок: прайс подтягивается с официальной страницы раз в день, off-peak считается как половина peak",
 	"Рабочее пространство из нескольких папок и запросы, идущие параллельно, работают как раньше",
 }
 
 var HighlightsEN = []string{
-	"The agent no longer starts every chat from zero: the prompt carries a project map, and find_symbol / project_search answer \"where does X live\" in one call instead of a grep + read_file chain",
-	"Project memory: remember / recall keep what was learned between chats, and a note whose file changed afterwards is honestly marked stale",
-	"history_search searches past chats of this project — \"we discussed this\" is answered from history instead of being re-derived",
-	"\"Auto (from settings)\" and \"Expand all\" are pinned to the input bar next to Attach and no longer drift with the transcript scroll",
+	"Web search and page loading through DeepSeek Search & Fetch: ranking, site:/lang:/after: operators, a model-ready summary and pages already in Markdown — switch it in Settings → Agent",
+	"DuckDuckGo stays the default: paid server-side search is enabled only by your choice, and any API error falls back to DuckDuckGo automatically",
+	"The SSRF guard still applies to server-side fetch: private addresses are blocked before the URL leaves the machine",
+	"V4.1 Flash pricing and the 1017 build needed no code change: the price sheet is pulled from the official page daily, off-peak is half of peak",
 	"Requests in parallel chats and the multi-folder workspace keep working as before",
 }
 

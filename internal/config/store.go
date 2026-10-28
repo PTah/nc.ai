@@ -246,6 +246,12 @@ type Settings struct {
 	// git_push, ssh_exec). Default true when unset on first run — see ToolConfirmEnabled.
 	ToolConfirm *bool `json:"toolConfirm,omitempty"`
 
+	// WebToolsProvider selects the engine behind web_search / fetch_url:
+	// "" / "auto" — DeepSeek Search & Fetch when a DeepSeek key exists, else
+	// DuckDuckGo + direct GET; "deepseek" — DeepSeek only (with fallback);
+	// "duckduckgo" — always the scrape.
+	WebToolsProvider string `json:"webToolsProvider,omitempty"`
+
 	// AllowedTools — инструменты, для которых пользователь сказал «Разрешить и
 	// не спрашивать». Хранятся на диске, чтобы не спрашивать заново после
 	// каждого перезапуска приложения (раньше список жил только в памяти).
@@ -1036,6 +1042,37 @@ func (s *Store) PlanModeEnabled() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.settings.PlanMode
+}
+
+// WebToolsProviderName returns the canonical web-tools provider:
+// "auto" (default), "deepseek" or "duckduckgo".
+func (s *Store) WebToolsProviderName() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return normalizeWebTools(s.settings.WebToolsProvider)
+}
+
+// SetWebToolsProvider persists the web-tools provider; unknown values fall back
+// to "auto" instead of failing the whole settings save.
+func (s *Store) SetWebToolsProvider(v string) error {
+	s.mu.Lock()
+	s.settings.WebToolsProvider = normalizeWebTools(v)
+	s.mu.Unlock()
+	return s.Save()
+}
+
+// normalizeWebTools maps empty/legacy/unknown values to a known provider.
+// The default is DuckDuckGo: the DeepSeek API is billed per request, so it must
+// be an explicit choice, never a silent default (docs/exchange-protocols/deepseek.md §14).
+func normalizeWebTools(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "deepseek":
+		return "deepseek"
+	case "auto":
+		return "auto"
+	default:
+		return "duckduckgo"
+	}
 }
 
 func (s *Store) SetPlanMode(on bool) error {

@@ -17,7 +17,6 @@ import (
 	"notcursor.ai/app/internal/history"
 	"notcursor.ai/app/internal/llm"
 	"notcursor.ai/app/internal/mcp"
-	"notcursor.ai/app/internal/netx"
 	"notcursor.ai/app/internal/projindex"
 	"notcursor.ai/app/internal/projmem"
 	"notcursor.ai/app/internal/shell"
@@ -46,6 +45,11 @@ type Registry struct {
 	// Chats is the chat store; history_search reads past transcripts of the run's
 	// project from it. nil = history search unavailable.
 	Chats *chatstore.Store
+	// DeepSeekKey enables the DeepSeek Search/Fetch API (the same key as the chat
+	// provider). Empty = web tools use DuckDuckGo and direct GET.
+	DeepSeekKey string
+	// WebTools selects the web provider: "" / "auto" | "deepseek" | "duckduckgo".
+	WebTools string
 }
 
 // ForRun returns a per-run copy of the registry bound to root. PlanMode, the
@@ -509,10 +513,10 @@ func (r *Registry) Execute(ctx context.Context, call llm.ToolCall) (string, erro
 		return r.readLints(paths)
 	case "web_search":
 		q, _ := args["query"].(string)
-		return netx.SearchDuckDuckGo(q)
+		return r.webSearch(ctx, q)
 	case "fetch_url":
 		u, _ := args["url"].(string)
-		return netx.FetchURL(u)
+		return r.webFetch(ctx, u)
 	case "git_status":
 		return r.Git.Status()
 	case "git_diff":

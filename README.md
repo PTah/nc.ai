@@ -22,7 +22,7 @@ AI-агент для работы с кодом в отдельном окне: 
 Keychain / Windows Credential Manager), история чатов — локально. Наружу уходит только запрос к
 тому провайдеру LLM, которого вы выбрали сами.
 
-**Версия:** `0.9.0` · **На выходе:** `build/bin/NotCursor.exe` (Windows) и `build/bin/NotCursor.app` (macOS)
+**Версия:** `0.9.1` · **На выходе:** `build/bin/NotCursor.exe` (Windows) и `build/bin/NotCursor.app` (macOS)
 
 ## Быстрый старт
 
@@ -172,7 +172,7 @@ macOS (собирается только на macOS-хосте; скрипт с�
 | `history_search` | поиск по прошлым чатам этого проекта (живым и архивным) |
 | `run_terminal` / `command_status` | shell-команды: свой `cwd`, фоновый режим (`is_background`) |
 | `todo_write` / `ask_user` / `read_lints` | список задач, вопрос пользователю, `go vet` по изменённым файлам |
-| `web_search` / `fetch_url` | веб — с SSRF-guard: LAN, loopback и metadata-адреса закрыты |
+| `web_search` / `fetch_url` | веб — с SSRF-guard: LAN, loopback и metadata-адреса закрыты. Движок: DuckDuckGo (по умолчанию) или DeepSeek Search & Fetch — Settings → Agent, с откатом на DuckDuckGo при ошибке API |
 | `git_*` | status / diff / log / commit / push через **системный `git`** |
 | `ssh_*` | exec и генерация ключей, ключи берутся из **`~/.ssh`** |
 
