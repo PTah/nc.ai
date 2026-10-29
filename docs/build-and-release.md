@@ -205,13 +205,13 @@ gh release list --limit 200 --json tagName --jq '.[].tagName' | grep -v '^vX.Y.Z
 
 ```bash
 # home (Gitea): то же через API
-CONF="$HOME/CursorRules/local/gitea.conf"
+CONF="$HOME/CursorRules/local/jdoe-gitea.conf"
 API=$(grep -i '^GiteaApiUrl=' "$CONF" | cut -d= -f2- | tr -d '\r')
 U=$(grep -i '^GiteaApiUser=' "$CONF" | cut -d= -f2- | tr -d '\r'); P=$(grep -i '^GiteaApiPassword=' "$CONF" | cut -d= -f2- | tr -d '\r')
-curl -sS -u "$U:$P" "$API/api/v1/repos/PapaTramp/nc.ai/releases?limit=200" |
+curl -sS -u "$U:$P" "$API/api/v1/repos/jdoe/nc.ai/releases?limit=200" |
   python3 -c 'import json,sys;[print(r["id"]) for r in json.load(sys.stdin) if r["tag_name"]!="vX.Y.Z"]' |
   while read -r id; do curl -sS -o /dev/null -u "$U:$P" -X DELETE \
-    "$API/api/v1/repos/PapaTramp/nc.ai/releases/$id"; done
+    "$API/api/v1/repos/jdoe/nc.ai/releases/$id"; done
 ```
 
 Проверка, что остался ровно один релиз и он полный:
