@@ -957,50 +957,53 @@ func (a *App) saveLastProject() {
 }
 
 func (a *App) refreshProvider() {
-	provider := a.cfg.Provider()
-	key := a.cfg.ActiveAPIKey()
-	model := a.cfg.ActiveModel()
+	a.llm = a.buildProviderFor(a.cfg.Provider(), a.cfg.ActiveModel())
+}
+
+// buildProviderFor собирает клиент провайдера из настроек, не трогая a.llm:
+// нужен и для глобального провайдера, и для провайдера конкретного чата.
+func (a *App) buildProviderFor(provider, model string) llm.Provider {
+	key := a.cfg.APIKey(provider)
 	switch {
 	case provider == config.ProviderZAI:
 		if model == "" {
 			model = zai.DefaultModel
 		}
-		a.llm = zai.NewWithBaseURL(key, model, zai.BaseURLFor(a.cfg.ZaiEndpoint()))
+		return zai.NewWithBaseURL(key, model, zai.BaseURLFor(a.cfg.ZaiEndpoint()))
 	case provider == config.ProviderOpenRouter:
 		if model == "" {
 			model = openrouter.DefaultModel
 		}
-		a.llm = openrouter.New(key, model)
+		return openrouter.New(key, model)
 	case provider == config.ProviderQwen:
 		if model == "" {
 			model = qwen.DefaultModel
 		}
-		a.llm = qwen.NewWithBaseURL(key, model, a.cfg.QwenBaseURL())
+		return qwen.NewWithBaseURL(key, model, a.cfg.QwenBaseURL())
 	case provider == config.ProviderYandex:
 		if model == "" {
 			model = yandex.DefaultModel
 		}
-		a.llm = yandex.New(key, a.cfg.YandexFolderID(), model)
+		return yandex.New(key, a.cfg.YandexFolderID(), model)
 	case config.IsLocalProvider(provider):
 		epID := config.LocalEndpointID(provider)
 		ep, ok := a.cfg.LocalEndpointByID(epID)
 		if ok && config.EndpointProtocol(ep.Protocol) == config.ProtocolAnthropic {
 			// Профиль на Anthropic Messages API: api.anthropic.com или роутер
 			// бесплатного тарифа (Selora, Atria) с /v1/messages.
-			a.llm = anthropic.New(ep.BaseURL, key, model)
-			break
+			return anthropic.New(ep.BaseURL, key, model)
 		}
 		c := local.New(a.cfg.LocalBaseURL(), key, model)
 		if ok {
 			c.SetNumCtx(ep.NumCtx)
 			c.SetReasoningEffort(ep.ReasoningEffort)
 		}
-		a.llm = c
+		return c
 	default:
 		if model == "" {
 			model = deepseek.DefaultModel
 		}
-		a.llm = deepseek.New(key, model)
+		return deepseek.New(key, model)
 	}
 }
 
@@ -3446,6 +3449,19 @@ func (a *App) SetSessionModel(sessionID, model string) error {
 	return a.chats.SetSessionModel(a.projectKey(), sessionID, model)
 }
 
+// SetSessionProvider сохраняет провайдера, выбранного для этого чата
+// ("" — провайдер проекта).
+func (a *App) SetSessionProvider(sessionID, providerID string) error {
+	if a.chats == nil {
+		return fmt.Errorf("chat store unavailable")
+	}
+	sid := strings.TrimSpace(sessionID)
+	if sid == "" {
+		return fmt.Errorf("session is required")
+	}
+	return a.chats.SetSessionProvider(a.projectKey(), sid, providerID)
+}
+
 // ArchiveChatSession moves a chat tab into the archive folder and returns the
 // transcript JSON of the new active session.
 func (a *App) ArchiveChatSession(sessionID, title string) (string, error) {
@@ -3869,7 +3885,21 @@ func (a *App) RunAgentInSession(sessionID, runID, userMessage string, attachment
 	bundle := a.loadRules()
 	hints := rules.ExtractHintPaths(userMessage, attNames...)
 	cfg := a.cfg.Get()
+	// Провайдер чата (если выбран вручную) — иначе провайдер проекта.
+	sessProvider := ""
+	sessModel := ""
+	if a.chats != nil {
+		if s, gerr := a.chats.Get(projKey, sid); gerr == nil && s != nil {
+			sessProvider = strings.TrimSpace(s.ProviderID)
+			sessModel = strings.TrimSpace(s.Model)
+		}
+	}
 	provider := a.cfg.Provider()
+	runProvider := a.llm
+	if sessProvider != "" && sessProvider != provider {
+		provider = sessProvider
+		runProvider = a.buildProviderFor(sessProvider, sessModel)
+	}
 	autoModels := cfg.AutoModels
 	localLite := false
 	localSkipRules := false
@@ -3891,18 +3921,17 @@ func (a *App) RunAgentInSession(sessionID, runID, userMessage string, attachment
 	// Своя модель чата: если пользователь выбрал её вручную и она сохранена в
 	// сессии, она блокирует автовыбор (и Vision-эскалацию не отменяет — картинки
 	// по-прежнему уходят в vision-модель).
-	sessModel := ""
-	if a.chats != nil {
-		if s, gerr := a.chats.Get(projKey, sid); gerr == nil && s != nil {
-			sessModel = strings.TrimSpace(s.Model)
-		}
-	}
 	if sessModel != "" {
 		sticky = sessModel
 	}
 	prefModel := a.cfg.ActiveModel()
 	if sessModel != "" {
 		prefModel = sessModel
+	}
+	// Свой провайдер чата без своей модели: не подсовываем модель другого
+	// провайдера — пусть клиент возьмёт свой дефолт.
+	if provider != a.cfg.Provider() && sessModel == "" {
+		prefModel = ""
 	}
 
 	projectMap := ""
@@ -3962,12 +3991,12 @@ func (a *App) RunAgentInSession(sessionID, runID, userMessage string, attachment
 	// Тип локального сервера (Ollama или OpenAI-совместимый) — от него зависят
 	// подсказки про окно контекста: у Lemonade/LM Studio окно задаётся на сервере.
 	localServerKind := ""
-	if c, ok := a.llm.(*local.Client); ok {
+	if c, ok := runProvider.(*local.Client); ok {
 		localServerKind = c.ServerKind()
 	}
 
 	runner := &agent.Runner{
-		Provider:            a.llm,
+		Provider:            runProvider,
 		Tools:               runTools,
 		MaxSteps:            a.cfg.MaxAgentSteps(),
 		WarnSteps:           a.cfg.AgentWarnSteps(),

@@ -594,6 +594,10 @@ export function SetSessionModel(arg1, arg2) {
   return window['go']['main']['App']['SetSessionModel'](arg1, arg2);
 }
 
+export function SetSessionProvider(arg1, arg2) {
+  return window['go']['main']['App']['SetSessionProvider'](arg1, arg2);
+}
+
 export function StartMCPServer(arg1) {
   return window['go']['main']['App']['StartMCPServer'](arg1);
 }

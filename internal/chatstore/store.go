@@ -1,3 +1,4 @@
+// Edited by nc.ai 0.9.4 on new-admin-pc 2026-10-30 09:20:13
 package chatstore
 
 import (
@@ -25,8 +26,10 @@ type Session struct {
 	History   []llm.Message `json:"history"`
 	UpdatedAt time.Time     `json:"updatedAt"`
 	// Model — своя модель этого чата (выбранная вручную). Пусто — «как в
-	// настройках»/Auto. Провайдер чата пока совпадает с провайдером проекта.
+	// настройках»/Auto.
 	Model string `json:"model,omitempty"`
+	// ProviderID — свой провайдер этого чата. Пусто — провайдер проекта.
+	ProviderID string `json:"providerId,omitempty"`
 	// Per-chat API spend (survives restarts with the session JSON).
 	// Legacy combined fields kept for migration; prefer per-provider buckets.
 	CostUSD       float64 `json:"costUsd,omitempty"`
@@ -586,6 +589,25 @@ func (s *Store) SetSessionModel(project, sessionID, model string) error {
 	for i := range b.Sessions {
 		if b.Sessions[i].ID == sessionID {
 			b.Sessions[i].Model = strings.TrimSpace(model)
+			b.Sessions[i].UpdatedAt = time.Now()
+			return s.saveBundle(b)
+		}
+	}
+	return fmt.Errorf("session not found")
+}
+
+// SetSessionProvider запоминает выбранного провайдера этого чата
+// ("" — провайдер проекта).
+func (s *Store) SetSessionProvider(project, sessionID, provider string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	b, err := s.loadBundle(project)
+	if err != nil {
+		return err
+	}
+	for i := range b.Sessions {
+		if b.Sessions[i].ID == sessionID {
+			b.Sessions[i].ProviderID = strings.TrimSpace(provider)
 			b.Sessions[i].UpdatedAt = time.Now()
 			return s.saveBundle(b)
 		}

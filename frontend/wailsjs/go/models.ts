@@ -80,6 +80,7 @@ export namespace chatstore {
 	    // Go type: time
 	    updatedAt: any;
 	    model?: string;
+	    providerId?: string;
 	    costUsd?: number;
 	    inputTokens?: number;
 	    outputTokens?: number;
@@ -126,6 +127,7 @@ export namespace chatstore {
 	        this.history = this.convertValues(source["history"], llm.Message);
 	        this.updatedAt = this.convertValues(source["updatedAt"], null);
 	        this.model = source["model"];
+	        this.providerId = source["providerId"];
 	        this.costUsd = source["costUsd"];
 	        this.inputTokens = source["inputTokens"];
 	        this.outputTokens = source["outputTokens"];
