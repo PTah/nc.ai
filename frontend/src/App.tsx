@@ -59,6 +59,7 @@ import {
   ReadFile,
   ReloadCursorRules,
   RenameChatSession,
+  RequestExit,
   RunAgentInSession,
   RunShell,
   SaveDeepSeekKey,
@@ -163,7 +164,7 @@ import {
   ListProjects,
   SetProjectLocked,
 } from '../wailsjs/go/main/App'
-import {EventsOn, EventsOff, ClipboardSetText, BrowserOpenURL, Quit} from '../wailsjs/runtime/runtime'
+import {EventsOn, EventsOff, ClipboardSetText, BrowserOpenURL} from '../wailsjs/runtime/runtime'
 import BrandMark from './BrandMark'
 import Markdown from './Markdown'
 import ProjectIcon from './ProjectIcon'
@@ -4024,7 +4025,7 @@ export default function App() {
       }
       // Офисные/ODF-контейнеры: отправляем байты бэку, он распакует текст
       // (xlsx/docx/pptx/odt) — иначе до модели доезжало только имя файла.
-      const extractable = /\.(xlsx|xlsm|docx|pptx|odt|ods|odp|fodt|fods|fodp)$/i.test(file.name)
+      const extractable = /\.(xlsx|xlsm|docx|pptx|odt|ods|odp|fodt|fods|fodp|pdf)$/i.test(file.name)
       if (extractable && file.size <= 5_000_000) {
         const reader = new FileReader()
         reader.onload = () => resolve({
@@ -4363,7 +4364,9 @@ export default function App() {
   }
 
   function exitApp() {
-    Quit()
+    // RequestExit спрашивает так же, как крестик окна: активный прогон или
+    // неотправленный текст не теряются молча.
+    void RequestExit()
   }
 
   async function addRootToActive() {
