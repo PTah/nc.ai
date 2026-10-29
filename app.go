@@ -39,6 +39,7 @@ import (
 	"notcursor.ai/app/internal/llm/providers/yandex"
 	"notcursor.ai/app/internal/llm/providers/zai"
 	"notcursor.ai/app/internal/mcp"
+	"notcursor.ai/app/internal/netx"
 	"notcursor.ai/app/internal/projindex"
 	"notcursor.ai/app/internal/projmem"
 	"notcursor.ai/app/internal/providernews"
@@ -1447,6 +1448,7 @@ func (a *App) GetSettings() map[string]any {
 		"localSkipRules":       a.cfg.LocalSkipRulesEnabled(),
 		"toolConfirm":          a.cfg.ToolConfirmEnabled(),
 		"planMode":             a.cfg.PlanModeEnabled(),
+		"newsAI":               a.cfg.NewsAIEnabled(),
 		"subagentsEnabled":     a.cfg.SubagentsEnabled(),
 		"subagentsMaxSteps":    a.cfg.SubagentsMaxSteps(),
 		"subagentsAllowWrite":  a.cfg.SubagentsAllowWrite(),
@@ -1744,11 +1746,11 @@ func (a *App) analyzeNewsItems(snap *providernews.Snapshot) {
 	for _, id := range snap.PrevIDs {
 		seen[id] = true
 	}
-	ctx, cancel := context.WithTimeout(a.ctx, 30*time.Second)
+	ctx, cancel := context.WithTimeout(a.ctx, 60*time.Second)
 	defer cancel()
-	left := 6
+	left := 8
 	changed := false
-	mt := 160
+	mt := 320
 	for i := range snap.Items {
 		it := &snap.Items[i]
 		if it.Analysis != "" || seen[it.ID] {
@@ -1757,13 +1759,19 @@ func (a *App) analyzeNewsItems(snap *providernews.Snapshot) {
 		if left <= 0 {
 			break
 		}
-		prompt := fmt.Sprintf(
-			"Ты — помощник десктоп-приложения NotCursor. Новость от провайдера %s: %q. "+
-				"Объясни в одном-двух предложениях по-русски, что это значит для пользователя "+
-				"NotCursor и как этим можно воспользоваться. Без вводных слов.",
-			it.Provider, it.Title)
+		body := fmt.Sprintf("%s\n\nНовость (%s, %s): %s", newsProjectContext(a), it.Provider, it.Date, it.Title)
+		if strings.HasPrefix(it.ID, "catalog|") {
+			if list := snap.ModelLists[it.Provider]; len(list) > 0 {
+				body += "\nАктуальный список моделей " + it.Provider + ": " + strings.Join(list, ", ")
+			}
+		} else if strings.HasPrefix(it.URL, "http") {
+			body += "\n\nТекст источника:\n" + fetchArticleText(it.URL)
+		}
 		req := &llm.ChatRequest{
-			Messages:  []llm.Message{{Role: "user", Content: prompt}},
+			Messages: []llm.Message{
+				{Role: "system", Content: newsAnalysisSystemPrompt},
+				{Role: "user", Content: body},
+			},
 			MaxTokens: &mt,
 			Thinking:  map[string]any{"type": "disabled"},
 		}
@@ -1782,6 +1790,36 @@ func (a *App) analyzeNewsItems(snap *providernews.Snapshot) {
 	if changed {
 		_ = providernews.Save(*snap)
 	}
+}
+
+// newsAnalysisSystemPrompt просит ИИ оценить новость по четырём вопросам, которые
+// важны пользователю NotCursor, а не пересказать заголовок.
+const newsAnalysisSystemPrompt = "Ты — внутренний аналитик новостей десктоп-приложения NotCursor " +
+	"(кодинг-агент на Go/Wails; работает с DeepSeek, Z.AI, OpenRouter, Qwen, Yandex и локальными " +
+	"моделями). Оцени новость по четырём пунктам и ответь кратко по-русски в 2–4 предложениях: " +
+	"(1) касается ли это функциональности, полезной агенту — tools, vision, файлы, reasoning; " +
+	"(2) меняются ли цены или доступность; (3) убирается или добавляется ли модель и чем её " +
+	"заменить; (4) нужно ли это пользователю NotCursor и как именно использовать. " +
+	"Не выдумывай детали, которых нет в источнике; если текст пуст — прямо скажи, что по " +
+	"заголовку можно только предположить."
+
+// newsProjectContext даёт модели минимум фактов о текущем состоянии приложения.
+func newsProjectContext(a *App) string {
+	return fmt.Sprintf("Контекст проекта: активный провайдер %s, модель %s. NotCursor по умолчанию "+
+		"использует дешёвые модели и эскалирует на сильную при сложной работе.", a.cfg.Provider(), a.cfg.ActiveModel())
+}
+
+// fetchArticleText читает страницу источника и обрезает до разумного объёма.
+// Пустая строка — источник недоступен (анализ тогда идёт по заголовку).
+func fetchArticleText(url string) string {
+	txt, err := netx.FetchURL(url)
+	if err != nil {
+		return ""
+	}
+	if len(txt) > 6000 {
+		return txt[:6000] + "…"
+	}
+	return txt
 }
 
 // MarkProviderNewsRead remembers that the user looked at the digest.
