@@ -44,20 +44,21 @@ func (r *Registry) webSearch(ctx context.Context, query string) (string, error) 
 		return "", fmt.Errorf("query is empty")
 	}
 	if r.webProvider() != WebProviderDeepSeek {
-		return netx.SearchDuckDuckGo(q)
+		out, err := netx.SearchDuckDuckGo(q)
+		return wrapUntrusted(out), err
 	}
 	if strings.TrimSpace(r.DeepSeekKey) == "" {
 		return "", fmt.Errorf("веб-поиск DeepSeek: не задан ключ DeepSeek (Settings → Providers); переключите «Веб-поиск и страницы» на DuckDuckGo")
 	}
 	res, err := netx.DeepSearch(ctx, r.DeepSeekKey, q, netx.DeepSearchOptions{Count: 8})
 	if err == nil {
-		return netx.FormatDeepSearch(q, res), nil
+		return wrapUntrusted(netx.FormatDeepSearch(q, res)), nil
 	}
 	out, ddgErr := netx.SearchDuckDuckGo(q)
 	if ddgErr != nil {
 		return "", fmt.Errorf("deepseek search: %v; duckduckgo: %v", err, ddgErr)
 	}
-	return out + "\n(поиск DeepSeek недоступен: " + err.Error() + " — показаны результаты DuckDuckGo)", nil
+	return wrapUntrusted(out) + "\n(поиск DeepSeek недоступен: " + err.Error() + " — показаны результаты DuckDuckGo)", nil
 }
 
 // webFetch loads one page: DeepSeek Fetch returns clean Markdown, the direct
@@ -68,18 +69,19 @@ func (r *Registry) webFetch(ctx context.Context, rawURL string) (string, error) 
 		return "", fmt.Errorf("url is empty")
 	}
 	if r.webProvider() != WebProviderDeepSeek {
-		return netx.FetchURL(u)
+		out, err := netx.FetchURL(u)
+		return wrapUntrusted(out), err
 	}
 	if strings.TrimSpace(r.DeepSeekKey) == "" {
 		return "", fmt.Errorf("загрузка страниц DeepSeek: не задан ключ DeepSeek (Settings → Providers); переключите «Веб-поиск и страницы» на DuckDuckGo")
 	}
 	page, err := netx.DeepFetch(ctx, r.DeepSeekKey, u)
 	if err == nil {
-		return netx.FormatDeepPage(u, page), nil
+		return wrapUntrusted(netx.FormatDeepPage(u, page)), nil
 	}
 	out, directErr := netx.FetchURL(u)
 	if directErr != nil {
 		return "", fmt.Errorf("deepseek fetch: %v; direct fetch: %v", err, directErr)
 	}
-	return out + "\n(fetch DeepSeek недоступен: " + err.Error() + " — страница скачана напрямую)", nil
+	return wrapUntrusted(out) + "\n(fetch DeepSeek недоступен: " + err.Error() + " — страница скачана напрямую)", nil
 }

@@ -1723,7 +1723,62 @@ func (a *App) GetProviderNews(force bool) (providernews.Payload, error) {
 	if rerr != nil {
 		return payload, rerr
 	}
+	a.analyzeNewsItems(&fresh)
 	return providernews.PayloadOf(fresh, time.Now()), nil
+}
+
+// analyzeNewsItems (опция NewsAI) прогоняет новые записи новостей через текущий
+// ИИ и пишет краткий вывод в Item.Analysis. Ошибки провайдера не роняют обновление
+// новостей — запись просто останется без анализа до следующего «Обновить».
+func (a *App) analyzeNewsItems(snap *providernews.Snapshot) {
+	if a.llm == nil || !a.cfg.NewsAIEnabled() {
+		return
+	}
+	if err := a.requireProviderReady(); err != nil {
+		return
+	}
+	seen := make(map[string]bool, len(snap.PrevIDs))
+	for _, id := range snap.PrevIDs {
+		seen[id] = true
+	}
+	ctx, cancel := context.WithTimeout(a.ctx, 30*time.Second)
+	defer cancel()
+	left := 6
+	changed := false
+	mt := 160
+	for i := range snap.Items {
+		it := &snap.Items[i]
+		if it.Analysis != "" || seen[it.ID] {
+			continue
+		}
+		if left <= 0 {
+			break
+		}
+		prompt := fmt.Sprintf(
+			"Ты — помощник десктоп-приложения NotCursor. Новость от провайдера %s: %q. "+
+				"Объясни в одном-двух предложениях по-русски, что это значит для пользователя "+
+				"NotCursor и как этим можно воспользоваться. Без вводных слов.",
+			it.Provider, it.Title)
+		req := &llm.ChatRequest{
+			Messages:  []llm.Message{{Role: "user", Content: prompt}},
+			MaxTokens: &mt,
+			Thinking:  map[string]any{"type": "disabled"},
+		}
+		resp, err := a.llm.ChatCompletion(ctx, req)
+		if err != nil {
+			continue
+		}
+		if len(resp.Choices) > 0 {
+			if s := strings.TrimSpace(resp.Choices[0].Message.Content); s != "" {
+				it.Analysis = s
+				changed = true
+			}
+		}
+		left--
+	}
+	if changed {
+		_ = providernews.Save(*snap)
+	}
 }
 
 // MarkProviderNewsRead remembers that the user looked at the digest.
@@ -2569,6 +2624,10 @@ func (a *App) SaveToolConfirm(on bool) error {
 
 func (a *App) SavePlanMode(on bool) error {
 	return a.cfg.SetPlanMode(on)
+}
+
+func (a *App) SaveNewsAI(on bool) error {
+	return a.cfg.SetNewsAI(on)
 }
 
 func (a *App) SaveSubagentsEnabled(on bool) error {

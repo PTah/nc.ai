@@ -4,7 +4,9 @@ package agent
 import (
 	"archive/zip"
 	"bytes"
+	"crypto/rand"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/xml"
 	"io"
 	"path/filepath"
@@ -14,6 +16,16 @@ import (
 
 	"github.com/ledongthuc/pdf"
 )
+
+// newDataTag возвращает случайное имя тега для недоверенного контента. Случайность
+// на каждый прогон не даёт атакующему закрыть тег заранее заготовленным </…>.
+func newDataTag() string {
+	var b [4]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "data-untrusted"
+	}
+	return "data-" + hex.EncodeToString(b[:])
+}
 
 // maxAttachmentExtractBytes caps the raw container size we unpack into the
 // prompt. Office files beyond this are left as a name-only hint: a 5 MB sheet
@@ -440,9 +452,12 @@ func pdfPlainText(data []byte) (out string) {
 		return ""
 	}
 	const maxPDFText = 4 << 20 // 4 МБ текста — с запасом даже для крупного документа
-	b, err := io.ReadAll(io.LimitReader(text, int64(maxPDFText)))
+	b, err := io.ReadAll(io.LimitReader(text, int64(maxPDFText)+1))
 	if err != nil {
 		return ""
+	}
+	if len(b) > maxPDFText {
+		return string(b[:maxPDFText]) + "\n…(truncated; PDF text limited to 4 MB)"
 	}
 	return string(b)
 }

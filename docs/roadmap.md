@@ -5,7 +5,8 @@
 Планы за пределами ближайших патчей. Текущий релиз — см. `docs/releases/` / версию в `README`.
 
 **Статус:** субагенты 0.8.4.0; MCP + пресеты 0.8.5.1; очередь чата 0.9.4; карта проекта,
-индекс символов и память фактов 0.9.0; бюджет tool-результатов 0.9.5.
+индекс символов и память фактов 0.9.0; бюджет tool-результатов 0.9.5; анализ новостей ИИ и
+защита от инъекций 0.9.6.
 Ниже — порядок следующих шагов. Отдельного ToDo-файла нет: всё живёт здесь.
 
 ---
@@ -68,11 +69,17 @@ MCP-пресеты CodeGraph / codebase-memory, allowlist `enabledTools`, Local 
 
 Уже в §4 «Добивки» — поднимаем сюда как часть очереди экономии (дешёвая модель по умолчанию).
 
-- [ ] EscalationGate: Z.ai / OpenRouter / Qwen / Yandex (маппинг strong — как в §4).
-- [ ] DeepSeek (и по возможности остальные с cache): стабильный порядок system + turn-rules в
+- [x] EscalationGate: Z.ai / OpenRouter / Qwen / Yandex (маппинг strong — как в §4).
+      **Сделано ранее** (`escalate.go`: `escalateEnabled` / `strongModel` / `isWeakAutoModel` /
+      `providerLabel`; маппинг в `autoroute.go`). В 0.9.5 добавлены тесты по каждому провайдеру
+      (`escalate_providers_test.go`) и проверка одноразовости подъёма.
+- [x] DeepSeek (и по возможности остальные с cache): стабильный порядок system + turn-rules в
       начале промпта, без «пляшущего» префикса между шагами одного прогона.
-- [ ] Проверка: mid-run escalate только при дублях/пустом/битом JSON; чип `cache N%` не падает
-      без причины на длинном прогоне.
+      **Сделано ранее**: `buildMessages` — system → project_map → memory → prior → turn_rules →
+      ide_context → user, без таймстемпов в system; тест `TestBuildMessages_PrefixCacheOrder`.
+- [x] Проверка: mid-run escalate только при дублях/пустом/битом JSON; чип `cache N%` не падает
+      без причины на длинном прогоне. Триггеры — `escalate-dup-tool` / `escalate-tool-fail` /
+      `escalate-empty` / `escalate-invalid-tool`, других нет.
 
 **Как:** `internal/agent/escalate.go` + сборка сообщений в agent/app; без смены UX кроме редкого
 апгрейда модели в статус-баре.
@@ -173,10 +180,10 @@ MVP `task` уже есть. Усиление по статье про патте
 
 ### 4. Добивки (по одной, между крупными задачами)
 
-- [ ] **Auto-models EscalationGate на остальных провайдерах** — см. **E3** (сейчас MVP только DeepSeek, 0.7.12): mid-run Flash→strong при дублях/провалах tools, пустом ответе, битом JSON; префикс `/pro`|`[pro]`; bypass слабого session-sticky на сложных ходах. Маппинг strong: Z.ai → `glm-5.3`, OpenRouter → `qwen3-coder:floor`, Qwen → `qwen-max`, Yandex → `qwen3-235b-a22b-fp8` (Local — по желанию later). Точка входа: `internal/agent/escalate.go` (`escalateEnabled` / `strongModel`).
+- [x] **Auto-models EscalationGate на остальных провайдерах** — см. **E3** (MVP DeepSeek 0.7.12; Z.ai / OpenRouter / Qwen / Yandex сделаны, проверено в 0.9.5): mid-run Flash→strong при дублях/провалах tools, пустом ответе, битом JSON; префикс `/pro`|`[pro]`; bypass слабого session-sticky на сложных ходах. Маппинг strong: Z.ai → `glm-5.3`, OpenRouter → `qwen3-coder:floor`, Qwen → `qwen-max`, Yandex → `qwen3-235b-a22b-fp8` (Local — по желанию later). Точка входа: `internal/agent/escalate.go` (`escalateEnabled` / `strongModel`).
 - [ ] Anthropic: сохранять `signature` thinking-блока и отправлять его обратно — тогда extended thinking + tools заработает на прямом API.
 - [ ] Показывать в ответе реальную модель, если провайдер подменил роут (ShareLLM и подобные): имя из `resp.Model` вместо конфига.
-- [ ] DeepSeek: стабильный префикс промпта для prompt cache — см. **E3** (сейчас `prompt_cache_hit/miss` только учитываются).
+- [x] DeepSeek: стабильный префикс промпта для prompt cache — см. **E3** (сделано ранее: `buildMessages` + `TestBuildMessages_PrefixCacheOrder`; `prompt_cache_hit/miss` учитываются в usage и цене).
 - [ ] macOS-артефакты релиза (`macos-arm64`, `macos-universal`) — нужен macOS-хост; в 0.7.0–0.7.2 их нет.
 - [ ] diff viewer и LSP-подсказки; разнести `frontend/src/App.tsx` на хуки.
 - [ ] (опц.) Диагностика стрима «тишина N сек → RST»: при `stream read` / `connection reset` писать, сколько секунд не было данных в SSE до обрыва (чат + `agent.log`). HTTP/2 keepalive и счётчик обрывов уже есть (0.7.5+); это только понятнее сообщение, CDN idle не лечит.

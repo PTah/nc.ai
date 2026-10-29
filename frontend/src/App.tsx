@@ -13,6 +13,7 @@
 // Edited by nc.ai 0.8.9.6 on Papasha 2026-10-24 16:55:21
 // Edited by nc.ai 0.8.9.7 on new-admin-pc 2026-10-28 09:22:39
 // Edited by nc.ai 0.8.9.7 on macbook 2026-10-29 21:54:33
+// Edited by nc.ai 0.9.4 on new-admin-pc 2026-10-30 08:59:19
 import {FormEvent, MouseEvent as ReactMouseEvent, useCallback, useEffect, useMemo, useRef, useState} from 'react'
 import {Terminal} from '@xterm/xterm'
 import {FitAddon} from '@xterm/addon-fit'
@@ -109,6 +110,7 @@ import {
   SaveLocalSkipRules,
   SaveToolConfirm,
   SavePlanMode,
+  SaveNewsAI,
   SaveSubagentsEnabled,
   SaveSubagentsMaxSteps,
   SaveSubagentsAllowWrite,
@@ -202,6 +204,8 @@ type ProviderNewsItem = {
   title: string
   date?: string
   url: string
+  /** ИИ-вывод: что запись значит и как использовать (опция NewsAI). */
+  analysis?: string
 }
 
 /** Snapshot returned by App.GetProviderNews. */
@@ -2091,6 +2095,7 @@ export default function App() {
   const [ctxUsage, setCtxUsage] = useState<{used: number; limit: number} | null>(null)
   const [toolConfirm, setToolConfirm] = useState(true)
   const [planMode, setPlanMode] = useState(false)
+  const [newsAI, setNewsAI] = useState(false)
   const [subagentsEnabled, setSubagentsEnabled] = useState(false)
   const [subagentsMaxSteps, setSubagentsMaxSteps] = useState(12)
   const [subagentsAllowWrite, setSubagentsAllowWrite] = useState(false)
@@ -3179,6 +3184,7 @@ export default function App() {
         setLocalSkipRules(Boolean(s.localSkipRules))
         setToolConfirm(s.toolConfirm !== false)
         setPlanMode(Boolean(s.planMode))
+        setNewsAI(Boolean(s.newsAI))
         setSubagentsEnabled(Boolean(s.subagentsEnabled))
         if (typeof s.subagentsMaxSteps === 'number' && s.subagentsMaxSteps > 0) {
           setSubagentsMaxSteps(s.subagentsMaxSteps)
@@ -8359,6 +8365,21 @@ export default function App() {
               >
                 {newsBusy ? 'Обновляю…' : 'Обновить'}
               </button>
+              <label
+                className="nc-top-check"
+                title="После «Обновить» новые записи автоматически анализируются текущим ИИ: под каждой появится «что это значит и как использовать». Каждый анализ — один запрос к провайдеру."
+              >
+                <input
+                  type="checkbox"
+                  checked={newsAI}
+                  onChange={(e) => {
+                    const on = e.target.checked
+                    setNewsAI(on)
+                    void SaveNewsAI(on)
+                  }}
+                />
+                <span>Анализ новостей ИИ</span>
+              </label>
               {(news?.newCount ?? 0) > 0 && <span className="nc-news-badge">{news?.newCount} новых</span>}
               {news && news.updatedAt && (
                 <span className="nc-news-updated">
@@ -8386,6 +8407,7 @@ export default function App() {
                       </span>
                       <span className="nc-news-title">{n.title}</span>
                       {n.date && <span className="nc-news-date">{fmtDate(n.date)}</span>}
+                      {n.analysis ? <span className="nc-news-analysis">{n.analysis}</span> : null}
                     </button>
                   </li>
                 ))}

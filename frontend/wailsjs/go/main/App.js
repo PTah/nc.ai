@@ -474,6 +474,10 @@ export function SaveMonoFont(arg1) {
   return window['go']['main']['App']['SaveMonoFont'](arg1);
 }
 
+export function SaveNewsAI(arg1) {
+  return window['go']['main']['App']['SaveNewsAI'](arg1);
+}
+
 export function SaveOpenRouterKey(arg1) {
   return window['go']['main']['App']['SaveOpenRouterKey'](arg1);
 }

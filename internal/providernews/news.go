@@ -1,3 +1,4 @@
+// Edited by nc.ai 0.9.4 on new-admin-pc 2026-10-30 08:58:02
 // Package providernews keeps a small local digest of what changed at the
 // providers we talk to (DeepSeek, Z.AI, OpenRouter, Qwen): new models, pricing
 // and API changes. The pricing refreshers in internal/costing only update the
@@ -30,6 +31,9 @@ type Item struct {
 	Title    string `json:"title"`
 	Date     string `json:"date,omitempty"` // YYYY-MM-DD when the source gives one
 	URL      string `json:"url"`
+	// Analysis — одно-два предложения от ИИ: что запись значит для пользователя
+	// NotCursor и как этим воспользоваться. Пусто, пока анализ не включён/не готов.
+	Analysis string `json:"analysis,omitempty"`
 }
 
 // SourceError reports a feed that could not be read this time.

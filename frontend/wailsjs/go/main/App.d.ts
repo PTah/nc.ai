@@ -250,6 +250,8 @@ export function SaveMCPServers(arg1:Array<config.MCPServerSettings>):Promise<voi
 
 export function SaveMonoFont(arg1:string):Promise<void>;
 
+export function SaveNewsAI(arg1:boolean):Promise<void>;
+
 export function SaveOpenRouterKey(arg1:string):Promise<void>;
 
 export function SaveOpenRouterModel(arg1:string):Promise<void>;
