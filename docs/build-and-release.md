@@ -1,6 +1,7 @@
 <!-- Created by nc.ai 0.8.7.7 on Papasha 2026-10-16 20:38:11 -->
 <!-- Edited by nc.ai 0.8.7.9 on macbook 2026-10-17 09:28:57 -->
 <!-- Edited by nc.ai 0.8.9.7 on new-admin-pc 2026-10-28 09:56:37 -->
+<!-- Edited by nc.ai 0.8.9.7 on macbook 2026-10-29 21:51:56 -->
 # Сборка, установка и релиз
 
 Как из исходников получить установленное приложение и выпустить версию: сборка, установка
@@ -155,7 +156,7 @@ gh release create vX.Y.Z --title "NotCursor X.Y.Z" --notes-file docs/releases/vX
    build/dist/nc.ai-X.Y.Z-windows-amd64.zip build/dist/nc.ai-X.Y.Z-windows-amd64.zip.sha256
 ```
 
-**Релиз никогда не удаляйте и не пересоздавайте.** Сборки делаются с разных машин (Windows и macOS),
+**Релиз текущей версии не пересоздавайте.** Сборки делаются с разных машин (Windows и macOS),
 и релиз с одним номером наполняется с обеих сторон. Удаление релиза стирает чужие артефакты. Если
 релиз с этим тегом уже есть — правьте заголовок с заметками и **доливайте свои файлы**:
 
@@ -176,6 +177,48 @@ gh release upload vX.Y.Z --clobber build/dist/nc.ai-X.Y.Z-windows-amd64.zip \
 ```bash
 gh release list --limit 3
 gh release view vX.Y.Z --json tagName,name,assets
+```
+
+## Политика: в списке релизов живёт только последняя версия
+
+Правило простое: **один релиз — последний**. Как только собрана и выложена версия X.Y.Z, все
+предыдущие релизы удаляются (на GitHub и на home), чтобы не копились десятки записей и никто не
+скачал полусобранную сборку.
+
+- Удаляется **релиз**, тег остаётся: он не занимает места, нужен истории и апдейтерy он не мешает
+  (апдейтер смотрит `releases/latest`).
+- **Промежуточные версии не наполняются задним числом.** Собирать и доливать macOS-артефакты к
+  старым тегам (0.8.x, 0.9.0…0.9.2) не нужно: их релизов всё равно уже нет.
+- **Релиз обязан быть полным.** В релизе должны быть файлы и Windows (`windows-amd64.zip` + `.sha256`),
+  и macOS (`macos-arm64`, `macos-universal` + `.sha256`). Релиз только с одной платформой — это
+  недоделанный релиз: он либо дополняется второй машиной сразу, либо не публикуется вовсе.
+  Порядок, при котором macOS-часть появляется позже (сборка на маке), допустим только внутри
+  одного дня и до объявления релиза людям.
+
+Удаление (после того как новый релиз полный):
+
+```bash
+# GitHub: все релизы, кроме последнего
+gh release list --limit 200 --json tagName --jq '.[].tagName' | grep -v '^vX.Y.Z$' |
+  while read -r t; do gh release delete "$t" --yes; done
+```
+
+```bash
+# home (Gitea): то же через API
+CONF="$HOME/CursorRules/local/gitea.conf"
+API=$(grep -i '^GiteaApiUrl=' "$CONF" | cut -d= -f2- | tr -d '\r')
+U=$(grep -i '^GiteaApiUser=' "$CONF" | cut -d= -f2- | tr -d '\r'); P=$(grep -i '^GiteaApiPassword=' "$CONF" | cut -d= -f2- | tr -d '\r')
+curl -sS -u "$U:$P" "$API/api/v1/repos/PapaTramp/nc.ai/releases?limit=200" |
+  python3 -c 'import json,sys;[print(r["id"]) for r in json.load(sys.stdin) if r["tag_name"]!="vX.Y.Z"]' |
+  while read -r id; do curl -sS -o /dev/null -u "$U:$P" -X DELETE \
+    "$API/api/v1/repos/PapaTramp/nc.ai/releases/$id"; done
+```
+
+Проверка, что остался ровно один релиз и он полный:
+
+```bash
+gh release list --repo PTah/nc.ai --limit 200
+gh release view vX.Y.Z --repo PTah/nc.ai --json assets --jq '.assets[].name'
 ```
 
 ## GitHub-зеркало: снимки вместо обычного push (вариант B)

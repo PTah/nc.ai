@@ -12,7 +12,8 @@
 // Edited by nc.ai 0.8.9.2 on macbook 2026-10-19 20:43:46
 // Edited by nc.ai 0.8.9.6 on Papasha 2026-10-24 16:55:21
 // Edited by nc.ai 0.8.9.7 on new-admin-pc 2026-10-28 09:22:39
-import {FormEvent, MouseEvent as ReactMouseEvent, useCallback, useEffect, useRef, useState} from 'react'
+// Edited by nc.ai 0.8.9.7 on macbook 2026-10-29 21:54:33
+import {FormEvent, MouseEvent as ReactMouseEvent, useCallback, useEffect, useMemo, useRef, useState} from 'react'
 import {Terminal} from '@xterm/xterm'
 import {FitAddon} from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
@@ -155,6 +156,7 @@ import {
   StartTerminal,
   StartupNotice,
   StopAgentSession,
+  ActiveRuns,
   StopTerminal,
   SwitchChatSession,
   TerminalResize,
@@ -1930,7 +1932,6 @@ export default function App() {
   const [sessions, setSessions] = useState<ChatSessionMeta[]>([])
   const [activeSessionId, setActiveSessionId] = useState('')
   const [itemsBySession, setItemsBySession] = useState<Record<string, ChatItem[]>>({})
-  const [busyBySession, setBusyBySession] = useState<Record<string, boolean>>({})
   // Чей прогон: сессия → путь проекта. Нужен, чтобы спиннер у проекта не пропадал,
   // когда открыт другой проект (прогон на бэке продолжается).
   const [runProjectBySession, setRunProjectBySession] = useState<Record<string, string>>({})
@@ -1940,6 +1941,16 @@ export default function App() {
   const [runLanes, setRunLanes] = useState<Record<string, Record<string, ChatItem[]>>>({})
   const [runOrder, setRunOrder] = useState<Record<string, string[]>>({})
   const [runCountBySession, setRunCountBySession] = useState<Record<string, number>>({})
+  // «Занято» — производная от счётчика дорожек, а не отдельная карта: две карты
+  // расходились, и чат оставался занятым навсегда. Тогда очередь не уходила
+  // («Отправить» молча ничего не делал), а Stop было нечего останавливать.
+  const busyBySession = useMemo<Record<string, boolean>>(() => {
+    const out: Record<string, boolean> = {}
+    for (const [sid, n] of Object.entries(runCountBySession)) {
+      if (n > 0) out[sid] = true
+    }
+    return out
+  }, [runCountBySession])
   // Drafts, pending attachments and queued messages are per chat session, so a
   // question typed in project A can never be sent from project B.
   const [drafts, setDrafts] = useState<Record<string, {text: string; atts: PendingAtt[]}>>({})
@@ -2159,6 +2170,9 @@ export default function App() {
   const finishedRunKeysRef = useRef<Set<string>>(new Set())
   const activeSessionRef = useRef('')
   const noticeQueueRef = useRef<string[]>([])
+  // Сообщения очереди, про которые уже сказали «уйдёт после текущего ответа» —
+  // подсказка не должна повторяться на каждый клик.
+  const queueHintRef = useRef<Set<string>>(new Set())
   // Куда вернуть пользователя после ответа на вопрос агента (tool_ask из
   // другого проекта/чата переключает на себя — после ответа возвращаем назад).
   const askReturnRef = useRef<{project: string; session: string} | null>(null)
@@ -2211,6 +2225,7 @@ export default function App() {
     skipUserMessage?: boolean,
     force?: boolean,
   ) => Promise<RunStartResult>>(async () => 'invalid')
+  const reconcileRunsRef = useRef<(sid: string) => Promise<boolean>>(async () => false)
   const [statusTick, setStatusTick] = useState(0)
   // "Развернуть всё / Свернуть всё" applies to every activity block at once.
   const [expandSignal, setExpandSignal] = useState<ExpandSignal>({open: false, n: 0})
@@ -2471,7 +2486,12 @@ export default function App() {
       }))
       return true
     }
-    if (res === 'busy') return false
+    if (res === 'busy') {
+      // «Занято» на экране может быть остатком потерянного события завершения:
+      // сверяемся с бэкендом, чтобы очередь не стояла из-за фантомного прогона.
+      void reconcileRunsRef.current(sid)
+      return false
+    }
     // 'error'/'invalid': the question is already visible in the transcript with
     // an error and a Retry button, so consume it from the pending queue instead
     // of retrying it in a loop.
@@ -2671,13 +2691,10 @@ export default function App() {
     if (lane.length > 0) {
       setSessionItems(sessionId, (prev) => [...prev, ...lane])
     }
-    setRunCountBySession((prev) => {
-      const next = Math.max(0, (prev[sessionId] || 0) - 1)
-      if (next === 0) {
-        setBusyBySession((b) => ({...b, [sessionId]: false}))
-      }
-      return {...prev, [sessionId]: next}
-    })
+    setRunCountBySession((prev) => ({
+      ...prev,
+      [sessionId]: Math.max(0, (prev[sessionId] || 0) - 1),
+    }))
   }, [setSessionItems])
 
   // Shared "run is over" cleanup. A run may finish for a project that is not on
@@ -2697,7 +2714,7 @@ export default function App() {
     if (runId) {
       finishRunLane(sid, runId)
     } else {
-      setBusyBySession((b) => ({...b, [sid]: false}))
+      setRunCountBySession((prev) => (prev[sid] ? {...prev, [sid]: 0} : prev))
     }
     if (remaining === 0) {
       setProgressBySession((prev) => {
@@ -2718,6 +2735,74 @@ export default function App() {
       window.setTimeout(() => { void persistSession(sid) }, 700)
     }
   }, [finishRunLane, runCountBySession])
+
+  // abandonRuns закрывает все дорожки сессии, когда бэкенд подтверждает, что
+  // прогонов там уже нет. Потерянное событие завершения ('done'/'error') иначе
+  // оставляло чат «занятым» навсегда: очередь не уходила, а Stop было нечего
+  // останавливать — со стороны это выглядело как «кнопки не реагируют».
+  const abandonRuns = useCallback((sid: string) => {
+    const lanes = Object.keys(runLanesRef.current[sid] || {})
+    for (const runId of lanes) finishRunLane(sid, runId)
+    setRunCountBySession((prev) => (prev[sid] ? {...prev, [sid]: 0} : prev))
+    setRunOrder((prev) => (prev[sid]?.length ? {...prev, [sid]: []} : prev))
+  }, [finishRunLane])
+
+  // reconcileRuns сверяет «занято» на экране с реальными прогонами на бэкенде
+  // (ActiveRuns). false — расхождения нет (или проверить не удалось).
+  const reconcileRuns = useCallback(async (sid: string) => {
+    if (!sid || !busyBySessionRef.current[sid]) return false
+    let live: string[] = []
+    try {
+      live = asList(await ActiveRuns())
+    } catch {
+      return false // биндинг недоступен — сверка не критична
+    }
+    if (!busyBySessionRef.current[sid]) return false
+    if (live.includes(sid)) return false
+    abandonRuns(sid)
+    setSessionItems(sid, (m) => [...m, {
+      kind: 'system',
+      content: '↩ Прогон на бэкенде уже завершён, а сигнал о завершении не дошёл — состояние чата восстановлено, очередь пошла дальше.',
+    }])
+    return true
+  }, [abandonRuns, setSessionItems])
+  reconcileRunsRef.current = reconcileRuns
+
+  // Watchdog: пока на экране есть «занятые» чаты, раз в 3 с сверяемся с
+  // бэкендом. Две подряд сверки «прогонов нет» (≈6 с) — событие завершения
+  // потеряно, закрываем дорожки сами. Иначе очередь и Stop висят до перезапуска.
+  useEffect(() => {
+    const ids = Object.keys(busyBySession).filter((sid) => busyBySession[sid])
+    if (ids.length === 0) return
+    let cancelled = false
+    const zeros: Record<string, number> = {}
+    const tick = async () => {
+      let live: string[] = []
+      try {
+        live = asList(await ActiveRuns())
+      } catch {
+        return
+      }
+      if (cancelled) return
+      for (const sid of ids) {
+        if (!busyBySessionRef.current[sid]) continue
+        if (live.includes(sid)) {
+          zeros[sid] = 0
+          continue
+        }
+        zeros[sid] = (zeros[sid] || 0) + 1
+        if (zeros[sid] >= 2) {
+          zeros[sid] = 0
+          void reconcileRuns(sid)
+        }
+      }
+    }
+    const timer = window.setInterval(tick, 3000)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [busyBySession, reconcileRuns])
 
   // Closes the streaming reasoning block and stamps how long the model thought.
   const closeReasoningIn = useCallback((key: string, apply: (updater: (prev: ChatItem[]) => ChatItem[]) => void) => {
@@ -4534,7 +4619,7 @@ export default function App() {
     setSessions([])
     setActiveSessionId('')
     setItemsBySession({})
-    setBusyBySession({})
+    setRunCountBySession({})
   }
 
   async function requestCloseProject(path: string, name: string) {
@@ -5404,7 +5489,6 @@ export default function App() {
       delete next[sid]
       return next
     })
-    setBusyBySession((b) => ({...b, [sid]: true}))
     const runPath = activeProjectRef.current?.path || ''
     if (runPath) setRunProjectBySession((p) => (p[sid] === runPath ? p : {...p, [sid]: runPath}))
     try {
@@ -5528,8 +5612,27 @@ export default function App() {
     const msg = queue.find((q) => q.id === id)
     if (!msg) return
     setQueue((q) => [msg, ...asList(q).filter((x) => x.id !== id)], sid)
-    const res = await runAgent(sid, msg.text, msg.atts)
-    if (res === 'started') setQueue((q) => q.filter((x) => x.id !== id), sid)
+    let res = await runAgent(sid, msg.text, msg.atts)
+    if (res !== 'started') {
+      // «Занято» могло остаться от потерянного события завершения: сверяемся с
+      // бэкендом и, если прогонов там уже нет, отправляем сразу — иначе клик по
+      // «Отправить» выглядел как кнопка, которая ничего не делает.
+      const fixed = await reconcileRuns(sid)
+      if (fixed) res = await runAgent(sid, msg.text, msg.atts)
+    }
+    if (res === 'started') {
+      setQueue((q) => q.filter((x) => x.id !== id), sid)
+      return
+    }
+    if (res === 'busy' && !queueHintRef.current.has(id)) {
+      // Чат действительно занят: сообщение уйдёт само, как только прогон
+      // закончится. Говорим об этом один раз, чтобы клик не был «в пустоту».
+      queueHintRef.current.add(id)
+      setSessionItems(sid, (m) => [...m, {
+        kind: 'system',
+        content: '⏳ Чат занят — вопрос поднят в начало очереди и уйдёт сразу после текущего ответа.',
+      }])
+    }
   }
 
   /**
@@ -5558,6 +5661,26 @@ export default function App() {
     const sid = activeSessionId
     if (!req || !sid) return
     await runAgent(sid, req.text, req.atts, true)
+  }
+
+  /**
+   * Stop из верхней панели: отменяем прогоны чата и сразу сверяемся с бэкендом.
+   * Отмена контекста сама по себе ничего не сообщает UI, поэтому «Stop» на уже
+   * закончившемся (но не закрытом из-за потерянного события) прогоне выглядел
+   * как кнопка без реакции — теперь он чинит состояние и отпускает очередь.
+   */
+  async function stopRun() {
+    const sid = activeSessionId
+    if (!sid) return
+    try {
+      await StopAgentSession(sid)
+    } catch { /* бэкенд мог уже всё закрыть */ }
+    const fixed = await reconcileRuns(sid)
+    if (!fixed && busyBySessionRef.current[sid]) {
+      // Прогон ещё жив на бэкенде: событие завершения придёт само (агент
+      // сообщает об отмене), просто не дублируем его подсказками.
+      setSessionItems(sid, (m) => [...m, {kind: 'system', content: '⏹ Останавливаю прогон…'}])
+    }
   }
 
   async function runOneShot() {
@@ -6114,7 +6237,7 @@ export default function App() {
                 {retryVisible && !busy && (
                   <button type="button" className="nc-ghost" onClick={() => void retryLast()} title="Повторить последний запрос">Reconnect</button>
                 )}
-                <button type="button" className="nc-ghost" disabled={!busy} onClick={() => StopAgentSession(activeSessionId)} title="Остановить запуск агента в этом чате">Stop</button>
+                <button type="button" className="nc-ghost" disabled={!busy} onClick={() => void stopRun()} title="Остановить запуск агента в этом чате">Stop</button>
                 <button
                   type="button"
                   className={`nc-ghost ${chatFindOpen ? 'on' : ''}`}
