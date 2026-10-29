@@ -260,6 +260,11 @@ type Settings struct {
 	// PlanMode: explore-only (no writes/shell/git push/ssh).
 	PlanMode bool `json:"planMode,omitempty"`
 
+	// NewsAI: после «Обновить» в новостях автоматически анализировать новые
+	// записи через текущего ИИ и показывать «что это значит и как использовать».
+	// Default false: каждый анализ — один запрос к провайдеру.
+	NewsAI bool `json:"newsAI,omitempty"`
+
 	// SubagentsEnabled — родитель может звать инструмент task (вложенный прогон).
 	// По умолчанию выкл. до обкатки (см. docs/roadmap.md §3).
 	SubagentsEnabled bool `json:"subagentsEnabled,omitempty"`
@@ -1042,6 +1047,21 @@ func (s *Store) PlanModeEnabled() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.settings.PlanMode
+}
+
+// NewsAIEnabled — анализировать новые записи новостей провайдеров через ИИ.
+func (s *Store) NewsAIEnabled() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.settings.NewsAI
+}
+
+// SetNewsAI persists the news-analysis toggle.
+func (s *Store) SetNewsAI(on bool) error {
+	s.mu.Lock()
+	s.settings.NewsAI = on
+	s.mu.Unlock()
+	return s.Save()
 }
 
 // WebToolsProviderName returns the canonical web-tools provider:

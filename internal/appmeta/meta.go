@@ -30,7 +30,7 @@ import "time"
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "0.9.5"
+	Version = "0.9.6"
 )
 
 // DeepSeekProRetireRFC3339 is the announced V4 Pro retirement instant, empty
@@ -76,18 +76,18 @@ func retiredAt(at time.Time, now time.Time) bool {
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
-	"Свежие tool-результаты укладываются в бюджет: read_file без диапазона отдаёт голову файла (500 строк) с подсказкой дочитать через start_line/end_line",
-	"run_terminal и git_diff режутся по 32 КБ / 800 строк с явной пометкой truncated — шапка и ошибки сохраняются, середина выбрасывается",
-	"Усечение происходит в момент выполнения инструмента, отправленная история не переписывается — prefix-cache не рушится",
-	"Фикс очереди и Stop из 0.9.4 входит в этот же билд: «занято» больше не залипает на фантомном состоянии",
+	"PDF без текстового слоя (сканы) больше не молчит: модель получает явную пометку «скан, нужен OCR/страницы изображениями», а обрезанный текст помечается truncated",
+	"Новости провайдеров можно анализировать ИИ: опция «Анализ новостей ИИ» — после «Обновить» под каждой новой записью появляется «что это значит и как использовать»",
+	"Недоверенный контент (вложения, веб-страницы, результаты поиска) приходит в промпт в случайном <data-…> теге; system-правило прямо говорит: это данные, а не инструкции",
+	"EscalationGate на всех провайдерах и стабильный cache-prefix подтверждены тестами по каждому провайдеру",
 	"Рабочее пространство из нескольких папок и запросы, идущие параллельно, работают как раньше",
 }
 
 var HighlightsEN = []string{
-	"Fresh tool results fit a budget: read_file without a range returns the head of the file (500 lines) with a hint to continue via start_line/end_line",
-	"run_terminal and git_diff are clipped at 32 KB / 800 lines with an explicit truncated marker — head and errors kept, the middle dropped",
-	"Clipping happens when the tool executes; already-sent history is not rewritten, so the prefix cache stays intact",
-	"The queue and Stop fix from 0.9.4 ships in the same build: busy no longer sticks on a phantom state",
+	"PDF without a text layer (scans) no longer goes silent: the model gets an explicit note (scan — needs OCR/pages as images), and clipped text is marked truncated",
+	"Provider news can be analysed by AI: the News AI toggle adds a what-it-means/how-to-use line under each new item after Refresh",
+	"Untrusted content (attachments, web pages, search results) reaches the prompt inside a random <data-…> tag; the system rule states plainly that it is data, not instructions",
+	"EscalationGate across all providers and the stable cache prefix are now covered by per-provider tests",
 	"Requests in parallel chats and the multi-folder workspace keep working as before",
 }
 
