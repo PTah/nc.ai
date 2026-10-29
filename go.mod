@@ -5,6 +5,7 @@ go 1.26.0
 require (
 	github.com/aymanbagabas/go-pty v0.2.3
 	github.com/google/uuid v1.6.0
+	github.com/ledongthuc/pdf v0.0.0-20261020125853-5e46805f718e
 	github.com/wailsapp/wails/v2 v2.15.0
 	golang.org/x/crypto v0.56.0
 	golang.org/x/text v0.41.0

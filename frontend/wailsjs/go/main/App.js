@@ -330,6 +330,10 @@ export function RenameChatSession(arg1, arg2) {
   return window['go']['main']['App']['RenameChatSession'](arg1, arg2);
 }
 
+export function RequestExit() {
+  return window['go']['main']['App']['RequestExit']();
+}
+
 export function ResetNetworkStats() {
   return window['go']['main']['App']['ResetNetworkStats']();
 }

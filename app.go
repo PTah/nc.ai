@@ -372,12 +372,15 @@ func (a *App) InstallUpdate() error {
 }
 
 // runningSessions returns the ids of sessions that have a live agent run right now.
+// activeRuns живёт под runMarkerLock (markRunStart/markRunEnd) — раньше здесь
+// брался a.mu, то есть карта читалась не под тем замком: проверка «идёт работа»
+// могла увидеть пустой список и не предупредить перед выходом.
 func (a *App) runningSessions() []string {
 	if a == nil {
 		return nil
 	}
-	a.mu.Lock()
-	defer a.mu.Unlock()
+	a.runMarkerLock.Lock()
+	defer a.runMarkerLock.Unlock()
 	out := make([]string, 0, len(a.activeRuns))
 	for sid, n := range a.activeRuns {
 		if n > 0 {
@@ -546,37 +549,64 @@ func (a *App) beforeClose(ctx context.Context) (prevent bool) {
 	// Если идёт прогон или в поле ввода остался неотправленный текст — спросить,
 	// а не закрывать молча: это выглядит как «вылет» и теряет набранное
 	// (инцидент 13.10.2026 21:48:16).
-	if a.hasActiveRuns() || a.hasPendingDraft() {
-		// Нативный диалог закрытия тоже «вопрос» — даём UI сигнал проиграть
-		// звук внимания (тот же «лопнувший пузырь», что и у остальных вопросов).
-		runtime.EventsEmit(a.ctx, "ask:sound")
-		res, err := runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
-			Type:          runtime.QuestionDialog,
-			Title:         "NotCursor",
-			Message:       "Идёт прогон и/или в поле ввода есть неотправленный текст. Закрыть приложение?",
-			Buttons:       []string{"Закрыть", "Отмена"},
-			DefaultButton: "Отмена",
-			CancelButton:  "Отмена",
-		})
-		if err != nil || res != "Закрыть" {
-			return true
-		}
+	if a.confirmExitIfBusy() {
+		return true
 	}
-	// Пометить прерванные ответы надо до отмены прогонов: иначе маркер уже пуст,
-	// и в транскрипте останется молча обрезанный ответ.
+	a.prepareExit(ctx)
+	return false
+}
+
+// RequestExit — пункт меню «Exit»: выходим через runtime.Quit, чтобы выход
+// проходил OnBeforeClose. Тот спрашивает про активный прогон и неотправленный
+// текст и только после подтверждения гасит приложение — иначе «Выход» молча
+// обрывал работу и терял ещё не сохранённый ответ.
+func (a *App) RequestExit() {
+	if a.ctx == nil {
+		return
+	}
+	runtime.Quit(a.ctx)
+}
+
+// confirmExitIfBusy спрашивает подтверждение, если идёт прогон или в поле ввода
+// есть неотправленный текст. Возвращает true, если пользователь отменил выход.
+func (a *App) confirmExitIfBusy() bool {
+	runs := len(a.runningSessions())
+	hasDraft := a.hasPendingDraft()
+	if runs == 0 && !hasDraft {
+		return false
+	}
+	var msg string
+	switch {
+	case runs > 0 && hasDraft:
+		msg = fmt.Sprintf("Идёт работа (%d прогон(а)) и в поле ввода есть неотправленный текст. Если выйти сейчас, прогон оборвётся, а недописанный ответ и шаги инструментов будут потеряны. Всё равно выйти?", runs)
+	case runs > 0:
+		msg = fmt.Sprintf("Идёт работа (%d прогон(а)). Если выйти сейчас, прогон оборвётся, а недописанный ответ и шаги инструментов будут потеряны. Всё равно выйти?", runs)
+	default:
+		msg = "В поле ввода есть неотправленный текст. Если выйти сейчас, он пропадёт. Всё равно выйти?"
+	}
+	// Нативный диалог закрытия тоже «вопрос» — даём UI сигнал проиграть
+	// звук внимания (тот же «лопнувший пузырь», что и у остальных вопросов).
+	runtime.EventsEmit(a.ctx, "ask:sound")
+	res, err := runtime.MessageDialog(a.ctx, runtime.MessageDialogOptions{
+		Type:          runtime.QuestionDialog,
+		Title:         "NotCursor",
+		Message:       msg,
+		Buttons:       []string{"Выйти", "Отмена"},
+		DefaultButton: "Отмена",
+		CancelButton:  "Отмена",
+	})
+	return err != nil || res != "Выйти"
+}
+
+// prepareExit — пометить прерванные ответы и остановить фоновую работу до
+// отмены прогонов, затем сохранить состояние. Без этого маркер уже пуст и в
+// транскрипте останется молча обрезанный ответ.
+func (a *App) prepareExit(ctx context.Context) {
 	a.markInterruptedRuns()
 	a.stopBackgroundWork()
 	_ = a.cfg.SetRunState(appmeta.Version, true)
 	a.saveWindowGeometry()
 	a.saveLastProject()
-	return false
-}
-
-// hasActiveRuns — идёт ли сейчас хоть один прогон агента.
-func (a *App) hasActiveRuns() bool {
-	a.runMarkerLock.Lock()
-	defer a.runMarkerLock.Unlock()
-	return len(a.activeRuns) > 0
 }
 
 // composerDraftsPath — файл с неотправленными текстами (по сессии).

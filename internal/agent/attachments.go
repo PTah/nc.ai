@@ -11,6 +11,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/ledongthuc/pdf"
 )
 
 // maxAttachmentExtractBytes caps the raw container size we unpack into the
@@ -46,6 +48,8 @@ func extractAttachmentText(name string, data []byte) string {
 		return extractSlides(data)
 	case ".odt", ".ods", ".odp", ".fodt", ".fods", ".fodp":
 		return extractODF(data)
+	case ".pdf":
+		return extractPDF(data)
 	}
 	return ""
 }
@@ -409,4 +413,36 @@ func extractODFParagraphs(r io.Reader) string {
 		}
 	}
 	return strings.TrimSpace(b.String())
+}
+
+// ---- pdf ----
+
+// extractPDF достаёт текстовый слой PDF. Файл-скан (одни картинки, без текста)
+// вернёт "" — тогда вызывающий оставит вложение как «только имя».
+func extractPDF(data []byte) string {
+	return strings.TrimSpace(pdfPlainText(data))
+}
+
+// pdfPlainText гасит паники сторонней библиотеки: битый PDF не должен ронять
+// прогон агента — на выходе будет просто пустой текст.
+func pdfPlainText(data []byte) (out string) {
+	defer func() {
+		if recover() != nil {
+			out = ""
+		}
+	}()
+	rd, err := pdf.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		return ""
+	}
+	text, err := rd.GetPlainText()
+	if err != nil {
+		return ""
+	}
+	const maxPDFText = 4 << 20 // 4 МБ текста — с запасом даже для крупного документа
+	b, err := io.ReadAll(io.LimitReader(text, int64(maxPDFText)))
+	if err != nil {
+		return ""
+	}
+	return string(b)
 }

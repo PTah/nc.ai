@@ -4,6 +4,7 @@ package agent
 import (
 	"archive/zip"
 	"bytes"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -63,11 +64,47 @@ func TestExtractODT(t *testing.T) {
 }
 
 func TestExtractUnsupportedAndOversize(t *testing.T) {
-	if got := extractAttachmentText("blob.pdf", []byte("x")); got != "" {
-		t.Fatalf("pdf must not be extracted, got %q", got)
+	if got := extractAttachmentText("garbage.pdf", []byte("not a pdf")); got != "" {
+		t.Fatalf("broken pdf must yield no text, got %q", got)
+	}
+	if got := extractAttachmentText("blob.dat", []byte("x")); got != "" {
+		t.Fatalf("unsupported extension must be skipped, got %q", got)
 	}
 	big := make([]byte, maxAttachmentExtractBytes+1)
 	if got := extractAttachmentText("big.xlsx", big); got != "" {
 		t.Fatalf("oversize file must be skipped, got %q", got)
+	}
+}
+
+// buildPDF собирает минимальный валидный PDF с одной страницей и строкой text.
+// Нужен, чтобы проверять извлечение без бинарных фикстур в репозитории.
+func buildPDF(t *testing.T, text string) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	buf.WriteString("%PDF-1.4\n")
+	var offsets []int
+	add := func(s string) {
+		offsets = append(offsets, buf.Len())
+		buf.WriteString(s)
+	}
+	add("1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n")
+	add("2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n")
+	add("3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>\nendobj\n")
+	add("4 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n")
+	content := "BT /F1 24 Tf 100 700 Td (" + text + ") Tj ET"
+	add(fmt.Sprintf("5 0 obj\n<< /Length %d >>\nstream\n%s\nendstream\nendobj\n", len(content), content))
+	xrefPos := buf.Len()
+	buf.WriteString("xref\n0 6\n0000000000 65535 f \n")
+	for _, off := range offsets {
+		buf.WriteString(fmt.Sprintf("%010d 00000 n \n", off))
+	}
+	buf.WriteString(fmt.Sprintf("trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n", xrefPos))
+	return buf.Bytes()
+}
+
+func TestExtractPDF(t *testing.T) {
+	got := extractAttachmentText("doc.pdf", buildPDF(t, "Hello PDF"))
+	if !strings.Contains(got, "Hello PDF") {
+		t.Fatalf("extract pdf: missing text, got %q", got)
 	}
 }

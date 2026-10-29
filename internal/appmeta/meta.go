@@ -28,7 +28,7 @@ import "time"
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "0.9.2"
+	Version = "0.9.3"
 )
 
 // DeepSeekProRetireRFC3339 is the announced V4 Pro retirement instant, empty
@@ -74,18 +74,18 @@ func retiredAt(at time.Time, now time.Time) bool {
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
-	"Файлы Excel, Word, PowerPoint и OpenDocument (xlsx, docx, pptx, odt) больше не уходят модели как одно имя: содержимое распаковывается в текст — ячейки, абзацы, слайды",
-	"Скриншоты и текстовые вложения работают как раньше, а офисные контейнеры читаются целиком до 5 МБ",
-	"Распаковка сделана на Go без новых зависимостей: zip + XML, кириллица и Unicode сохраняются",
-	"PDF и прочие нераспознанные бинарники пока остаются «только имя» — честная заглушка вместо тишины",
+	"Вложения PDF больше не «только имя файла»: текстовый слой распаковывается и уходит модели, а сканы без текста честно остаются заглушкой",
+	"PDF, xlsx, docx, pptx и ODF читаются до 5 МБ; текст PDF ограничен 4 МБ, паники на битых файлах погашены",
+	"Выход теперь спрашивает, если идёт прогон или в поле ввода есть неотправленный текст — и по крестику окна, и по пункту меню Exit",
+	"Диалог прямо говорит: выход оборвёт работу и потеряет ещё не сохранённый ответ",
 	"Рабочее пространство из нескольких папок и запросы, идущие параллельно, работают как раньше",
 }
 
 var HighlightsEN = []string{
-	"Excel, Word, PowerPoint and OpenDocument files (xlsx, docx, pptx, odt) no longer reach the model as a bare file name: their contents are unpacked into text — cells, paragraphs, slides",
-	"Screenshots and text attachments work as before, and office containers are read in full up to 5 MB",
-	"Unpacking runs in Go with no new dependencies: zip + XML, Cyrillic and Unicode preserved",
-	"PDF and other unrecognised binaries still show as file name only — an honest placeholder instead of silence",
+	"PDF attachments are no longer a bare file name: the text layer is unpacked and sent to the model, while scans without text stay an honest placeholder",
+	"PDF, xlsx, docx, pptx and ODF are read up to 5 MB; PDF text is capped at 4 MB and panics on broken files are contained",
+	"Exiting now asks for confirmation when a run is active or the composer holds unsent text — both the window X and the Exit menu item",
+	"The dialog spells it out: quitting interrupts the run and loses the unsaved answer",
 	"Requests in parallel chats and the multi-folder workspace keep working as before",
 }
 
