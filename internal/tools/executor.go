@@ -177,7 +177,18 @@ func (r *Registry) Execute(ctx context.Context, call llm.ToolCall) (string, erro
 		path, _ := args["path"].(string)
 		start := intArg(args, "start_line")
 		end := intArg(args, "end_line")
-		return r.ws().ReadFileRange(path, start, end)
+		out, err := r.ws().ReadFileRange(path, start, end)
+		if err != nil {
+			return "", err
+		}
+		if start <= 0 && end <= 0 {
+			// Файл без диапазона: отдаём голову и подсказываем, как дочитать,
+			// иначе 2000-строчный исходник едет в каждый следующий запрос.
+			return clipHead(out, toolResultMaxBytes, readFileMaxLines,
+				"pass start_line/end_line to read the rest"), nil
+		}
+		return clipHead(out, toolResultMaxBytes, toolResultMaxLines,
+			"read smaller slices with start_line/end_line"), nil
 	case "write_file":
 		if r.PlanMode {
 			return "", fmt.Errorf("plan mode: write_file is disabled")
@@ -322,7 +333,8 @@ func (r *Registry) Execute(ctx context.Context, call llm.ToolCall) (string, erro
 		if len(hits) >= limit {
 			out += fmt.Sprintf("\n(truncated; at least %d matches — narrow path, path_glob or query)", limit)
 		}
-		return out, nil
+		return clipHead(out, toolResultMaxBytes, toolResultMaxLines,
+			"narrow path, path_glob or query"), nil
 	case "get_env_info":
 		return r.envInfo(), nil
 	case "find_symbol":
@@ -457,7 +469,10 @@ func (r *Registry) Execute(ctx context.Context, call llm.ToolCall) (string, erro
 		if err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("exit=%d\nstdout:\n%s\nstderr:\n%s", res.ExitCode, res.Stdout, res.Stderr), nil
+		return fmt.Sprintf("exit=%d\nstdout:\n%s\nstderr:\n%s",
+			res.ExitCode,
+			clipSplit(res.Stdout, toolResultMaxBytes, toolResultMaxLines, "narrow the command or use command_status with char_count"),
+			clipSplit(res.Stderr, toolResultMaxBytes, toolResultMaxLines, "narrow the command")), nil
 	case "command_status":
 		id, _ := args["id"].(string)
 		prio, _ := args["output_priority"].(string)
@@ -522,7 +537,12 @@ func (r *Registry) Execute(ctx context.Context, call llm.ToolCall) (string, erro
 	case "git_diff":
 		path, _ := args["path"].(string)
 		staged, _ := args["staged"].(bool)
-		return r.Git.Diff(path, staged)
+		out, err := r.Git.Diff(path, staged)
+		if err != nil {
+			return "", err
+		}
+		return clipHead(out, toolResultMaxBytes, toolResultMaxLines,
+			"pass path to narrow the diff"), nil
 	case "git_log":
 		path, _ := args["path"].(string)
 		n := intArg(args, "n")

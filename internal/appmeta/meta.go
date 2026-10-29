@@ -22,6 +22,7 @@
 // Edited by nc.ai 0.8.9.6 on Papasha 2026-10-24 16:55:51
 // Edited by nc.ai 0.8.9.7 on new-admin-pc 2026-10-28 09:41:35
 // Edited by nc.ai 0.8.9.7 on macbook 2026-10-29 21:49:23
+// Edited by nc.ai 0.9.4 on new-admin-pc 2026-10-30 08:46:25
 package appmeta
 
 import "time"
@@ -29,7 +30,7 @@ import "time"
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "0.9.4"
+	Version = "0.9.5"
 )
 
 // DeepSeekProRetireRFC3339 is the announced V4 Pro retirement instant, empty
@@ -75,18 +76,18 @@ func retiredAt(at time.Time, now time.Time) bool {
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
-	"«Занято» больше не залипает: состояние прогона выводится из счётчика дорожек, а не из второй карты, которая расходилась",
-	"Сверка с бэкендом (ActiveRuns): если прогон уже завершился, а сигнал потерялся, чат и очередь отпускает watchdog, а не перезапуск",
-	"Stop в верхней панели чинит состояние: отменяет прогон и, если на бэкенде работы уже нет, сразу отпускает очередь",
-	"«Отправить» на карточке очереди больше не молчит: если чат правда занят — подсказка, если фантомно занят — вопрос уходит сразу",
+	"Свежие tool-результаты укладываются в бюджет: read_file без диапазона отдаёт голову файла (500 строк) с подсказкой дочитать через start_line/end_line",
+	"run_terminal и git_diff режутся по 32 КБ / 800 строк с явной пометкой truncated — шапка и ошибки сохраняются, середина выбрасывается",
+	"Усечение происходит в момент выполнения инструмента, отправленная история не переписывается — prefix-cache не рушится",
+	"Фикс очереди и Stop из 0.9.4 входит в этот же билд: «занято» больше не залипает на фантомном состоянии",
 	"Рабочее пространство из нескольких папок и запросы, идущие параллельно, работают как раньше",
 }
 
 var HighlightsEN = []string{
-	"The busy flag can no longer stick: run state is derived from the lane counter instead of a second map that drifted out of sync",
-	"Backend reconciliation via ActiveRuns: if a run already ended but its completion signal was lost, a watchdog releases the chat and the queue — no restart needed",
-	"Stop in the top bar repairs state: it cancels the run and, when the backend has nothing running, releases the queue immediately",
-	"Send on a queue card is no longer silent: a hint when the chat is genuinely busy, and an immediate send when busyness was phantom",
+	"Fresh tool results fit a budget: read_file without a range returns the head of the file (500 lines) with a hint to continue via start_line/end_line",
+	"run_terminal and git_diff are clipped at 32 KB / 800 lines with an explicit truncated marker — head and errors kept, the middle dropped",
+	"Clipping happens when the tool executes; already-sent history is not rewritten, so the prefix cache stays intact",
+	"The queue and Stop fix from 0.9.4 ships in the same build: busy no longer sticks on a phantom state",
 	"Requests in parallel chats and the multi-folder workspace keep working as before",
 }
 
