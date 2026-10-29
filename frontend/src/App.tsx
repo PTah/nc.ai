@@ -42,6 +42,7 @@ import {
   ClearTodos,
   RemoveTodos,
   SetSessionModel,
+  SetSessionProvider,
   CursorRulesStatus,
   DetectDefaultShell,
   GetDeepSeekBalance,
@@ -251,6 +252,7 @@ type ChatSessionMeta = {
   id: string
   title: string
   model?: string
+  providerId?: string
 }
 
 // RuleStatus — как правило попадёт в промпт (см. internal/rules.Status).
@@ -1527,10 +1529,28 @@ function TodoPanel({todos, expand, busy, onContext}: {todos: TodoItem[]; expand?
 }
 
 /** Consecutive completed tools collapse into one summary group (both live and finished). */
-function buildDisplayRows(items: ChatItem[], compact = false, finalVisible = true): DisplayRow[] {
+function buildDisplayRows(items: ChatItem[], compact = false, finalVisible = true, live = false): DisplayRow[] {
+  const list = asList(items)
+  if (live) {
+    // Живой виток (после последнего сообщения пользователя) — строго append-only:
+    // никаких перегруппировок и свёрток. Иначе строка running → done → tool_group →
+    // process пересоздаётся на каждом шаге, и блоки в ленте прыгают.
+    let lastUser = -1
+    for (let i = list.length - 1; i >= 0; i--) {
+      if (list[i].kind === 'user') { lastUser = i; break }
+    }
+    if (lastUser < 0) {
+      return list.map((m, idx) => ({key: `live-${idx}`, kind: 'item', item: m}))
+    }
+    const rows = buildDisplayRows(list.slice(0, lastUser), true, finalVisible)
+    rows.push({key: `i-${lastUser}`, kind: 'item', item: list[lastUser]})
+    list.slice(lastUser + 1).forEach((m, idx) => {
+      rows.push({key: `live-${idx}`, kind: 'item', item: m})
+    })
+    return rows
+  }
   const rows: DisplayRow[] = []
   let i = 0
-  const list = asList(items)
   while (i < list.length) {
     const m = list[i]
     if (m.kind === 'tool' && m.phase === 'done') {
@@ -2407,6 +2427,8 @@ export default function App() {
 
   // Своя модель чата: сохраняется в сессии и действует только на этот чат.
   const activeChatModel = asList(sessions).find((s) => s.id === activeSessionId)?.model || ''
+  const activeChatProvider = asList(sessions).find((s) => s.id === activeSessionId)?.providerId || ''
+  const chatProvider = activeChatProvider || activeProvider
   // Разбивка правил: что применено всегда, что подключилось к этому запросу,
   // что лежит в каталоге, а что не отдаём модели.
   async function openRulesBreakdown() {
@@ -2429,6 +2451,17 @@ export default function App() {
       /* ignore */
     }
   }
+
+  async function saveChatProvider(next: string) {
+    const sid = activeSessionRef.current
+    if (!sid) return
+    try {
+      await SetSessionProvider(sid, next)
+      setSessions((prev) => prev.map((s) => (s.id === sid ? {...s, providerId: next} : s)))
+    } catch {
+      /* ignore */
+    }
+  }
   // Якорь ToDo может стоять в самом конце витка (план закрылся последним шагом,
   // а то и после ответа). Тогда финальный ответ оказывается в «голове», и его
   // нельзя прятать в «Промежуточные результаты» — иначе ответа в ленте не видно.
@@ -2437,11 +2470,11 @@ export default function App() {
   const tailHasAnswer = tailItems.some((it) => it.kind === 'assistant' && String(it.content || '').trim() !== '')
   const displayRows = todoAt >= 0
     ? [
-        ...buildDisplayRows(items.slice(0, todoAt), !busy, !tailHasAnswer),
+        ...buildDisplayRows(items.slice(0, todoAt), true, !tailHasAnswer),
         {key: '__todos', kind: 'todos'} as DisplayRow,
-        ...rekeyRows(buildDisplayRows(tailItems, !busy, true), 'tail-'),
+        ...rekeyRows(buildDisplayRows(tailItems, !busy, true, busy), 'tail-'),
       ]
-    : buildDisplayRows(items, !busy, true)
+    : buildDisplayRows(items, !busy, true, busy)
 
   const setInput = useCallback((value: string, sid = activeSessionRef.current) => {
     if (!sid) return
@@ -3749,7 +3782,10 @@ export default function App() {
     const el = chatRef.current
     if (!el) return
     if (!stickToBottomRef.current) return
-    el.scrollTop = el.scrollHeight
+    // Один scroll на кадр: несколько синхронных «прыжков вниз» за рендер дают
+    // дёрганье, когда шапка/статус меняют высоту.
+    const raf = requestAnimationFrame(() => { el.scrollTop = el.scrollHeight })
+    return () => cancelAnimationFrame(raf)
   }, [items, busy, activeSessionId, chatFindOpen])
 
   useEffect(() => {
@@ -3867,6 +3903,7 @@ export default function App() {
         id: String(s.id),
         title: String(s.title || 'Chat'),
         model: String((s as {model?: string}).model || ''),
+        providerId: String((s as {providerId?: string}).providerId || ''),
       }))
       setSessions(list)
       const aid = String(bundle?.activeId || list[0]?.id || '')
@@ -6510,7 +6547,7 @@ export default function App() {
                     </div>
                   )
                 })}
-                {busy && items[items.length - 1]?.kind !== 'reasoning' && (
+                {busy && (
                   <div className="nc-msg status">
                     <div className="nc-role">статус</div>
                     <pre>думаю… {runStatusElapsed}</pre>
@@ -6756,6 +6793,20 @@ export default function App() {
                     <span className="nc-hint">Enter — отправить · картинки → vision</span>
                     {(items.some((i) => i.kind === 'reasoning' || i.kind === 'tool') || todos.length > 0) && (
                       <div className="nc-composer-tools">
+                        <label className="nc-chat-model" title="Провайдер этого чата: пусто — провайдер проекта. Модель ниже берётся из выбранного провайдера.">
+                          <select
+                            value={activeChatProvider}
+                            disabled={busy}
+                            onChange={(e) => void saveChatProvider(e.target.value)}
+                          >
+                            <option value="">Провайдер: как в проекте</option>
+                            <option value="deepseek">DeepSeek</option>
+                            <option value="openrouter">OpenRouter</option>
+                            <option value="zai">Z.ai</option>
+                            <option value="qwen">Qwen</option>
+                            <option value="yandex">Yandex</option>
+                          </select>
+                        </label>
                         <label className="nc-chat-model" title="Модель этого чата: пусто — Auto/по настройкам. Эскалация во время работы на другие чаты не распространяется.">
                           <select
                             value={activeChatModel}
@@ -6763,15 +6814,15 @@ export default function App() {
                             onChange={(e) => void saveChatModel(e.target.value)}
                           >
                             <option value="">Auto (по настройкам)</option>
-                            {activeProvider === 'zai'
+                            {chatProvider === 'zai'
                               ? modelOptions(zaiModels, zaiModel).map((m) => (<option key={m} value={m}>{m}</option>))
-                              : activeProvider === 'openrouter'
+                              : chatProvider === 'openrouter'
                                 ? modelOptions(openrouterModels, openrouterModel).map((m) => (<option key={m} value={m}>{m}</option>))
-                                : activeProvider === 'qwen'
+                                : chatProvider === 'qwen'
                                   ? modelOptions(qwenModels, qwenModel).map((m) => (<option key={m} value={m}>{m}</option>))
-                                  : activeProvider === 'yandex'
+                                  : chatProvider === 'yandex'
                                     ? modelOptions(yandexModels, yandexModel).map((m) => (<option key={m} value={m}>{m}</option>))
-                                    : isLocalProvider(activeProvider)
+                                    : isLocalProvider(chatProvider)
                                       ? modelOptions(localModels, localModel).map((m) => (<option key={m} value={m}>{m}</option>))
                                       : modelOptions(deepseekModels, deepseekModel).map((m) => (<option key={m} value={m}>{deepseekModelLabels[m] || m}</option>))}
                           </select>

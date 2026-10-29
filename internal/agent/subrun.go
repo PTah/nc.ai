@@ -1,3 +1,4 @@
+// Edited by nc.ai 0.9.4 on new-admin-pc 2026-10-30 09:18:24
 package agent
 
 import (
@@ -17,8 +18,21 @@ Rules:
 - Be concise. Prefer facts and file paths over essays.
 - NEVER call task (you cannot nest further).
 - Do not invent file contents — read with tools.
-- When done, write a short final answer with: (1) findings, (2) relevant file paths with line hints if useful, (3) what the parent should do next if anything.
+- When done, write a short prose answer (findings, file paths with line hints, what the parent should do next).
+- Then, on its own line, emit a fenced JSON block with structured findings:
+  ` + "```json" + `
+  {"findings":[{"category":"bug|security|perf|style","severity":"low|medium|high","file":"path:line","message":"..."}]}
+  ` + "```" + `
+  List only real findings; an empty list is fine. Do not invent issues.
 Lead with the result.`
+
+// SubrunFinding is one structured issue a subagent reports to the parent.
+type SubrunFinding struct {
+	Category string `json:"category,omitempty"`
+	Severity string `json:"severity,omitempty"`
+	File     string `json:"file,omitempty"`
+	Message  string `json:"message,omitempty"`
+}
 
 // taskArgs is the JSON payload of the parent "task" tool.
 type taskArgs struct {
@@ -29,11 +43,12 @@ type taskArgs struct {
 
 // SubrunResult is what the parent sees as the tool result (JSON).
 type SubrunResult struct {
-	Summary string   `json:"summary"`
-	Files   []string `json:"files"`
-	Steps   int      `json:"steps"`
-	Tokens  int      `json:"tokens"`
-	Error   string   `json:"error,omitempty"`
+	Summary  string          `json:"summary"`
+	Files    []string        `json:"files"`
+	Findings []SubrunFinding `json:"findings,omitempty"`
+	Steps    int             `json:"steps"`
+	Tokens   int             `json:"tokens"`
+	Error    string          `json:"error,omitempty"`
 }
 
 // runTask executes a nested agent run and returns a tool result message for the parent.
@@ -173,15 +188,19 @@ func (r *Runner) runTask(ctx context.Context, call llm.ToolCall, emit EmitFunc) 
 	if sum == "" {
 		sum = "(подагент не вернул текст — смотри шаги выше)"
 	}
+	// Структурированный хвост findings[] вынимаем из прозы, чтобы родитель
+	// получал и читаемый summary, и машинный список замечаний.
+	sum, findings := extractFindings(sum)
 	// Cap what the parent re-ingests.
 	if len(sum) > 6000 {
 		sum = sum[:6000] + "…"
 	}
 
 	result := SubrunResult{
-		Summary: sum,
-		Files:   files,
-		Steps:   steps,
+		Summary:  sum,
+		Files:    files,
+		Findings: findings,
+		Steps:    steps,
 		Tokens:  tokens,
 	}
 	if runErr != nil && ctx.Err() == nil {
@@ -280,6 +299,37 @@ func extractJSONStringField(raw, key string) string {
 	}
 	v, _ := m[key].(string)
 	return strings.TrimSpace(v)
+}
+
+// extractFindings отрезает от прозы необязательный fenced JSON-блок с findings[]
+// и возвращает чистый summary + разобранные замечания. Если блока нет — отдаёт
+// текст как есть.
+func extractFindings(text string) (string, []SubrunFinding) {
+	if idx := strings.LastIndex(text, "```json"); idx >= 0 {
+		rest := text[idx+len("```json"):]
+		if end := strings.Index(rest, "```"); end >= 0 {
+			if fs, ok := parseFindingsJSON(strings.TrimSpace(rest[:end])); ok {
+				clean := strings.TrimSpace(text[:idx] + rest[end+len("```"):])
+				return clean, fs
+			}
+		}
+	}
+	if i := strings.LastIndex(text, `{"findings"`); i >= 0 {
+		if fs, ok := parseFindingsJSON(strings.TrimSpace(text[i:])); ok {
+			return strings.TrimSpace(text[:i]), fs
+		}
+	}
+	return text, nil
+}
+
+func parseFindingsJSON(raw string) ([]SubrunFinding, bool) {
+	var wrap struct {
+		Findings []SubrunFinding `json:"findings"`
+	}
+	if err := json.Unmarshal([]byte(raw), &wrap); err != nil {
+		return nil, false
+	}
+	return wrap.Findings, true
 }
 
 // roughUsageTokens parses the compact usage payload from OnUsage→emit if present.

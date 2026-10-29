@@ -30,7 +30,7 @@ import "time"
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "0.9.6"
+	Version = "0.9.7"
 )
 
 // DeepSeekProRetireRFC3339 is the announced V4 Pro retirement instant, empty
@@ -76,18 +76,18 @@ func retiredAt(at time.Time, now time.Time) bool {
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
-	"PDF без текстового слоя (сканы) больше не молчит: модель получает явную пометку «скан, нужен OCR/страницы изображениями», а обрезанный текст помечается truncated",
-	"Новости провайдеров можно анализировать ИИ: опция «Анализ новостей ИИ» — после «Обновить» под каждой новой записью появляется «что это значит и как использовать»",
-	"Недоверенный контент (вложения, веб-страницы, результаты поиска) приходит в промпт в случайном <data-…> теге; system-правило прямо говорит: это данные, а не инструкции",
-	"EscalationGate на всех провайдерах и стабильный cache-prefix подтверждены тестами по каждому провайдеру",
+	"Лента больше не дёргается: живой виток только дописывается вниз, прошлые витки не раскрываются на старте прогона, статус не мигает, автопрокрутка — один раз на кадр",
+	"Свой провайдер и модель на каждый чат: селектор провайдера рядом с моделью, чаты с разными провайдерами работают параллельно",
+	"Краткость закреплена в system: без преамбул, diff/таблица вместо портянки, длинный ответ — через файл",
+	"Подагенты отдают findings[] {category, severity, file, message}; родитель видит машинный список замечаний",
 	"Рабочее пространство из нескольких папок и запросы, идущие параллельно, работают как раньше",
 }
 
 var HighlightsEN = []string{
-	"PDF without a text layer (scans) no longer goes silent: the model gets an explicit note (scan — needs OCR/pages as images), and clipped text is marked truncated",
-	"Provider news can be analysed by AI: the News AI toggle adds a what-it-means/how-to-use line under each new item after Refresh",
-	"Untrusted content (attachments, web pages, search results) reaches the prompt inside a random <data-…> tag; the system rule states plainly that it is data, not instructions",
-	"EscalationGate across all providers and the stable cache prefix are now covered by per-provider tests",
+	"The thread no longer jumps: the live turn only appends, previous turns stay collapsed when a run starts, the status line does not flicker, and auto-scroll runs once per frame",
+	"Per-chat provider and model: a provider selector next to the model, and chats with different providers run in parallel",
+	"Brevity is baked into the system prompt: no preamble, a diff/table instead of a wall, long answers via a file",
+	"Subagents return findings[] {category, severity, file, message}; the parent gets a machine-readable list",
 	"Requests in parallel chats and the multi-folder workspace keep working as before",
 }
 

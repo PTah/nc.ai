@@ -310,6 +310,8 @@ export function SetProjectLocked(arg1:string,arg2:boolean):Promise<void>;
 
 export function SetSessionModel(arg1:string,arg2:string):Promise<void>;
 
+export function SetSessionProvider(arg1:string,arg2:string):Promise<void>;
+
 export function StartMCPServer(arg1:string):Promise<mcp.Status>;
 
 export function StartTerminal():Promise<void>;
