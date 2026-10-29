@@ -21,6 +21,7 @@
 // Edited by nc.ai 0.8.9.2 on macbook 2026-10-19 20:37:39
 // Edited by nc.ai 0.8.9.6 on Papasha 2026-10-24 16:55:51
 // Edited by nc.ai 0.8.9.7 on new-admin-pc 2026-10-28 09:41:35
+// Edited by nc.ai 0.8.9.7 on macbook 2026-10-29 21:49:23
 package appmeta
 
 import "time"
@@ -28,7 +29,7 @@ import "time"
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "0.9.3"
+	Version = "0.9.4"
 )
 
 // DeepSeekProRetireRFC3339 is the announced V4 Pro retirement instant, empty
@@ -74,18 +75,18 @@ func retiredAt(at time.Time, now time.Time) bool {
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
-	"Вложения PDF больше не «только имя файла»: текстовый слой распаковывается и уходит модели, а сканы без текста честно остаются заглушкой",
-	"PDF, xlsx, docx, pptx и ODF читаются до 5 МБ; текст PDF ограничен 4 МБ, паники на битых файлах погашены",
-	"Выход теперь спрашивает, если идёт прогон или в поле ввода есть неотправленный текст — и по крестику окна, и по пункту меню Exit",
-	"Диалог прямо говорит: выход оборвёт работу и потеряет ещё не сохранённый ответ",
+	"«Занято» больше не залипает: состояние прогона выводится из счётчика дорожек, а не из второй карты, которая расходилась",
+	"Сверка с бэкендом (ActiveRuns): если прогон уже завершился, а сигнал потерялся, чат и очередь отпускает watchdog, а не перезапуск",
+	"Stop в верхней панели чинит состояние: отменяет прогон и, если на бэкенде работы уже нет, сразу отпускает очередь",
+	"«Отправить» на карточке очереди больше не молчит: если чат правда занят — подсказка, если фантомно занят — вопрос уходит сразу",
 	"Рабочее пространство из нескольких папок и запросы, идущие параллельно, работают как раньше",
 }
 
 var HighlightsEN = []string{
-	"PDF attachments are no longer a bare file name: the text layer is unpacked and sent to the model, while scans without text stay an honest placeholder",
-	"PDF, xlsx, docx, pptx and ODF are read up to 5 MB; PDF text is capped at 4 MB and panics on broken files are contained",
-	"Exiting now asks for confirmation when a run is active or the composer holds unsent text — both the window X and the Exit menu item",
-	"The dialog spells it out: quitting interrupts the run and loses the unsaved answer",
+	"The busy flag can no longer stick: run state is derived from the lane counter instead of a second map that drifted out of sync",
+	"Backend reconciliation via ActiveRuns: if a run already ended but its completion signal was lost, a watchdog releases the chat and the queue — no restart needed",
+	"Stop in the top bar repairs state: it cancels the run and, when the backend has nothing running, releases the queue immediately",
+	"Send on a queue card is no longer silent: a hint when the chat is genuinely busy, and an immediate send when busyness was phantom",
 	"Requests in parallel chats and the multi-folder workspace keep working as before",
 }
 
