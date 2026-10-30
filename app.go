@@ -201,6 +201,7 @@ func (a *App) startup(ctx context.Context) {
 		a.chats, _ = chatstore.New(base)
 	}
 	a.tools = tools.NewRegistry(a.ws, a.sshDir)
+	a.tools.SwitchProject = a.resolveProjectSwitch
 	a.tools.Chats = a.chats
 	a.tools.Shell = shell.ResolveShell(a.cfg.Get().Shell)
 	a.mcp = mcp.NewManager()
@@ -3113,6 +3114,37 @@ func (a *App) projectByPath(path string) *workspace.Project {
 	return nil
 }
 
+// resolveProjectSwitch резолвит проект для тула switch_project и отдаёт маркер,
+// по которому раннер завершает прогон, а приложение переключает проект.
+func (a *App) resolveProjectSwitch(ctx context.Context, name, handoff string) (string, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "", fmt.Errorf("project is required")
+	}
+	projects := a.ws.List()
+	var target string
+	names := make([]string, 0, len(projects))
+	for _, p := range projects {
+		names = append(names, p.Name)
+		if strings.EqualFold(p.Name, name) || strings.EqualFold(p.Path, name) {
+			target = p.Path
+			break
+		}
+	}
+	if target == "" {
+		if st, err := os.Stat(name); err == nil && st.IsDir() {
+			target = name
+		}
+	}
+	if target == "" {
+		return "", fmt.Errorf("проект %q не найден; доступные: %s", name, strings.Join(names, ", "))
+	}
+	payload, _ := json.Marshal(map[string]any{
+		"__switch_project__": map[string]any{"path": target, "handoff": handoff},
+	})
+	return string(payload), nil
+}
+
 func (a *App) ListProjects() []workspace.Project {
 	list := a.ws.List()
 	for i := range list {
@@ -4237,6 +4269,13 @@ func (a *App) RunAgentInSession(sessionID, runID, userMessage string, attachment
 			newHist, err = runner.RunWithAttachments(ctx, hist, userMessage, attachments, emit)
 		} else {
 			newHist, err = runner.Run(ctx, hist, userMessage, emit)
+		}
+		if ps := runner.SwitchRequested(); ps != nil && err == nil {
+			// Агент завершил прогон просьбой перейти в другой проект: отдаём
+			// фронту путь и handoff, дальше он откроет проект и запустит новый
+			// прогон там.
+			payload, _ := json.Marshal(map[string]string{"path": ps.Path, "handoff": ps.Handoff})
+			a.emitRun(sid, runID, agent.Event{Type: "project_switch", Content: string(payload)})
 		}
 		a.mu.Lock()
 		current := a.runGens[runKey] == gen

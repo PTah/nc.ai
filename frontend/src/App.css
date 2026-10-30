@@ -1004,6 +1004,11 @@ mark.nc-find-mark.nc-find-current {
   border-radius: 999px; font-size: 0.64rem; line-height: 1; padding: 0.1rem 0.35rem; cursor: pointer;
 }
 .nc-news-analysis-toggle:hover { color: inherit; }
+.nc-diff-add { color: #2e7d32; }
+.nc-diff-del { color: #c62828; }
+.nc-diff-hunk { color: #6a1b9a; }
+.nc-diff-meta { color: var(--muted); }
+.nc-diff-ctx { color: inherit; }
 .nc-answer { font-size: 0.95rem; line-height: 1.45; }
 .nc-msg pre {
   margin: 0; white-space: pre-wrap; word-break: break-word; font: inherit;

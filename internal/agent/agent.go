@@ -309,6 +309,40 @@ type Runner struct {
 	// runModel locks the model for the rest of this Run* after the first pick
 	// (except a one-way upgrade to vision when images appear).
 	runModel string
+	// switchTo — агент попросил перейти в другой проект (см. ProjectSwitch).
+	switchTo *ProjectSwitch
+}
+
+// ProjectSwitch — агент попросил перейти в другой проект. Прогон завершается,
+// приложение открывает проект и запускает новый прогон с handoff.
+type ProjectSwitch struct {
+	Path    string
+	Handoff string
+}
+
+// SwitchRequested возвращает запрос на переход в другой проект, если он был.
+func (r *Runner) SwitchRequested() *ProjectSwitch {
+	return r.switchTo
+}
+
+// parseProjectSwitch вынимает маркер switch_project из результата инструмента.
+func parseProjectSwitch(content string) *ProjectSwitch {
+	if !strings.Contains(content, `"__switch_project__"`) {
+		return nil
+	}
+	var wrap struct {
+		Switch struct {
+			Path    string `json:"path"`
+			Handoff string `json:"handoff"`
+		} `json:"__switch_project__"`
+	}
+	if err := json.Unmarshal([]byte(content), &wrap); err != nil {
+		return nil
+	}
+	if strings.TrimSpace(wrap.Switch.Path) == "" {
+		return nil
+	}
+	return &ProjectSwitch{Path: wrap.Switch.Path, Handoff: wrap.Switch.Handoff}
 }
 
 func (r *Runner) isZai() bool {
@@ -1256,6 +1290,11 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 				_ = r.bumpToStrong(emit, "escalate-tool-fail", r.escalateNoticeRU("escalate-tool-fail"))
 			}
 			messages = append(messages, outs...)
+			if r.switchTo != nil {
+				// Агент попросил перейти в другой проект: дальше в этом проекте
+				// работать нельзя — отдаём управление приложению.
+				return messages, nil
+			}
 			if rem := r.todoStaleReminder(msg.ToolCalls); rem != "" {
 				messages = append(messages, llm.UserText(rem))
 			}
@@ -1579,6 +1618,7 @@ func (r *Runner) execTools(ctx context.Context, calls []llm.ToolCall, emit EmitF
 		for i, call := range calls {
 			outs[i] = r.execOne(ctx, call, emit)
 		}
+		r.noteSwitch(outs)
 		return outs, nil
 	}
 	var mu sync.Mutex
@@ -1596,7 +1636,18 @@ func (r *Runner) execTools(ctx context.Context, calls []llm.ToolCall, emit EmitF
 		}(i, call)
 	}
 	wg.Wait()
+	r.noteSwitch(outs)
 	return outs, nil
+}
+
+// noteSwitch запоминает запрос перехода в другой проект из результатов шага.
+func (r *Runner) noteSwitch(outs []llm.Message) {
+	for _, m := range outs {
+		if ps := parseProjectSwitch(m.Content); ps != nil {
+			r.switchTo = ps
+			return
+		}
+	}
 }
 
 func (r *Runner) execOne(ctx context.Context, call llm.ToolCall, emit EmitFunc) llm.Message {
