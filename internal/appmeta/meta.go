@@ -30,7 +30,7 @@ import "time"
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "0.9.8"
+	Version = "0.9.9"
 )
 
 // DeepSeekProRetireRFC3339 is the announced V4 Pro retirement instant, empty
@@ -76,18 +76,18 @@ func retiredAt(at time.Time, now time.Time) bool {
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
-	"Галочка «Анализ новостей ИИ» больше не отжимается: GetSettings отдаёт newsAI, и состояние переживает перечитывание настроек",
-	"Анализ новостей стал настоящим: читается текст статьи по URL, а для «ушла модель» подставляется актуальный список моделей провайдера",
-	"ИИ отвечает по четырём пунктам — функциональность, цены, модели/замены, нужно ли NotCursor — с контекстом проекта",
-	"Если источник недоступен, ИИ честно говорит, что по заголовку можно только предположить, а не выдумывает детали",
+	"В настройках появился раздел «Новости» — одна кнопка, сразу к дайджесту и анализу",
+	"Анализ ИИ под новостью свёрнут в облачко «… ИИ»: нажатие разворачивает и сворачивает разбор, лента не разрастается",
+	"Анализ идёт по всем видимым записям без анализа (до 6 за «Обновить»), а не только по новым",
+	"Причина, почему анализа нет, теперь видна в шапке новостей: «готово N», «ИИ недоступен: …» или текст ошибки провайдера",
 	"Рабочее пространство из нескольких папок и запросы, идущие параллельно, работают как раньше",
 }
 
 var HighlightsEN = []string{
-	"The News AI checkbox no longer unchecks itself: GetSettings returns newsAI, so the state survives a settings reload",
-	"News analysis is real now: the article text is fetched by URL, and for model removals the provider's current model list is supplied",
-	"The AI answers four points — functionality, prices, models/replacements, and whether NotCursor needs it — with project context",
-	"If the source is unreachable, the AI says plainly that only a guess from the title is possible instead of inventing details",
+	"Settings has a News section now — one button jumps straight to the digest and analysis",
+	"AI analysis under a news item is collapsed into a small «… AI» bubble: click to expand or collapse, the list stays compact",
+	"Analysis covers every visible item without one (up to 6 per Refresh), not only the new ones",
+	"The reason when there is no analysis is now visible in the news header: «done N», «AI unavailable: …», or the provider error",
 	"Requests in parallel chats and the multi-folder workspace keep working as before",
 }
 

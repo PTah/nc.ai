@@ -863,6 +863,7 @@ export namespace providernews {
 	    newCount: number;
 	    stale: boolean;
 	    errors?: SourceError[];
+	    analysisNotice?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new Payload(source);
@@ -875,6 +876,7 @@ export namespace providernews {
 	        this.newCount = source["newCount"];
 	        this.stale = source["stale"];
 	        this.errors = this.convertValues(source["errors"], SourceError);
+	        this.analysisNotice = source["analysisNotice"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

@@ -63,6 +63,9 @@ type Payload struct {
 	NewCount  int           `json:"newCount"`
 	Stale     bool          `json:"stale"`
 	Errors    []SourceError `json:"errors,omitempty"`
+	// AnalysisNotice — что произошло с ИИ-анализом: «готово N» или причина,
+	// почему анализа нет. Пусто — галочка выключена.
+	AnalysisNotice string `json:"analysisNotice,omitempty"`
 }
 
 // MaxItems caps the digest so the cache file and the UI stay small.
@@ -239,6 +242,24 @@ func Refresh(ctx context.Context, prev Snapshot) (Snapshot, error) {
 		}
 	}
 	snapshot.Items = dedupeSort(snapshot.Items)
+	// Refresh пересобирает записи с нуля, поэтому готовый ИИ-анализ надо
+	// перенести по ID: иначе каждый «Обновить» заново тратил бы запросы на те же
+	// новости и результаты пропадали бы из UI.
+	if len(prev.Items) > 0 {
+		prevAnalysis := make(map[string]string, len(prev.Items))
+		for _, it := range prev.Items {
+			if it.Analysis != "" {
+				prevAnalysis[it.ID] = it.Analysis
+			}
+		}
+		if len(prevAnalysis) > 0 {
+			for i := range snapshot.Items {
+				if snapshot.Items[i].Analysis == "" {
+					snapshot.Items[i].Analysis = prevAnalysis[snapshot.Items[i].ID]
+				}
+			}
+		}
+	}
 	if err := Save(snapshot); err != nil {
 		return snapshot, err
 	}

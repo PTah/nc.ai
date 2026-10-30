@@ -1728,32 +1728,41 @@ func (a *App) GetProviderNews(force bool) (providernews.Payload, error) {
 	if rerr != nil {
 		return payload, rerr
 	}
-	a.analyzeNewsItems(&fresh)
-	return providernews.PayloadOf(fresh, time.Now()), nil
+	analyzed, notice := a.analyzeNewsItems(&fresh)
+	out := providernews.PayloadOf(fresh, time.Now())
+	if notice != "" {
+		out.AnalysisNotice = notice
+	} else if analyzed > 0 {
+		out.AnalysisNotice = fmt.Sprintf("ИИ-анализ готов: %d записей", analyzed)
+	}
+	return out, nil
 }
 
 // analyzeNewsItems (опция NewsAI) прогоняет новые записи новостей через текущий
 // ИИ и пишет краткий вывод в Item.Analysis. Ошибки провайдера не роняют обновление
 // новостей — запись просто останется без анализа до следующего «Обновить».
-func (a *App) analyzeNewsItems(snap *providernews.Snapshot) {
-	if a.llm == nil || !a.cfg.NewsAIEnabled() {
-		return
+func (a *App) analyzeNewsItems(snap *providernews.Snapshot) (int, string) {
+	if a.llm == nil {
+		return 0, "ИИ не настроен: нет клиента провайдера"
+	}
+	if !a.cfg.NewsAIEnabled() {
+		return 0, ""
 	}
 	if err := a.requireProviderReady(); err != nil {
-		return
+		return 0, "ИИ недоступен: " + err.Error()
 	}
-	seen := make(map[string]bool, len(snap.PrevIDs))
-	for _, id := range snap.PrevIDs {
-		seen[id] = true
-	}
-	ctx, cancel := context.WithTimeout(a.ctx, 60*time.Second)
+	ctx, cancel := context.WithTimeout(a.ctx, 120*time.Second)
 	defer cancel()
-	left := 8
+	// Анализируем ВСЕ записи без анализа, а не только «новые»: иначе после
+	// включения галочки на уже загруженном дайджесте не появляется ничего.
+	left := 6
 	changed := false
+	done := 0
+	lastErr := ""
 	mt := 320
 	for i := range snap.Items {
 		it := &snap.Items[i]
-		if it.Analysis != "" || seen[it.ID] {
+		if it.Analysis != "" {
 			continue
 		}
 		if left <= 0 {
@@ -1776,20 +1785,26 @@ func (a *App) analyzeNewsItems(snap *providernews.Snapshot) {
 			Thinking:  map[string]any{"type": "disabled"},
 		}
 		resp, err := a.llm.ChatCompletion(ctx, req)
+		left--
 		if err != nil {
+			lastErr = err.Error()
 			continue
 		}
 		if len(resp.Choices) > 0 {
 			if s := strings.TrimSpace(resp.Choices[0].Message.Content); s != "" {
 				it.Analysis = s
 				changed = true
+				done++
 			}
 		}
-		left--
 	}
 	if changed {
 		_ = providernews.Save(*snap)
 	}
+	if done == 0 && lastErr != "" {
+		return 0, "ИИ не дал анализа: " + lastErr
+	}
+	return done, ""
 }
 
 // newsAnalysisSystemPrompt просит ИИ оценить новость по четырём вопросам, которые
@@ -1810,16 +1825,27 @@ func newsProjectContext(a *App) string {
 }
 
 // fetchArticleText читает страницу источника и обрезает до разумного объёма.
-// Пустая строка — источник недоступен (анализ тогда идёт по заголовку).
+// Пустая строка — источник недоступен (анализ тогда идёт по заголовку). Ждём не
+// дольше 10 секунд: один зависший сайт не должен держать весь дайджест.
 func fetchArticleText(url string) string {
-	txt, err := netx.FetchURL(url)
-	if err != nil {
+	ch := make(chan string, 1)
+	go func() {
+		txt, err := netx.FetchURL(url)
+		if err != nil {
+			ch <- ""
+			return
+		}
+		if len(txt) > 6000 {
+			txt = txt[:6000] + "…"
+		}
+		ch <- txt
+	}()
+	select {
+	case s := <-ch:
+		return s
+	case <-time.After(10 * time.Second):
 		return ""
 	}
-	if len(txt) > 6000 {
-		return txt[:6000] + "…"
-	}
-	return txt
 }
 
 // MarkProviderNewsRead remembers that the user looked at the digest.
