@@ -6929,8 +6929,8 @@ export default function App() {
                 ['network', 'Сеть'],
                 ['interface', 'Интерфейс'],
                 ['updates', 'Обновления'],
-                ['news', 'Новости'],
                 ['system', 'Система'],
+                ['news', 'Новости'],
               ] as const).map(([cat, label]) => (
                 <button
                   key={cat}
