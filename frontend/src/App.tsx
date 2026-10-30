@@ -216,6 +216,8 @@ type ProviderNewsPayload = {
   newCount: number
   stale: boolean
   errors?: { provider: string; message: string }[]
+  /** Что произошло с ИИ-анализом: «готово N» или причина, почему нет. */
+  analysisNotice?: string
 }
 
 /** Snapshot of a running agent turn (agent:event "progress"). */
@@ -440,6 +442,7 @@ const SETTINGS_CATS: Record<string, string[]> = {
   interface: ['Interface'],
   updates: ['Обновления'],
   system: ['Shell', 'Git & SSH', 'Cursor Rules', 'Новости провайдеров'],
+  news: ['Новости провайдеров'],
 }
 
 const DEEPSEEK_MODELS = [
@@ -2116,6 +2119,7 @@ export default function App() {
   const [toolConfirm, setToolConfirm] = useState(true)
   const [planMode, setPlanMode] = useState(false)
   const [newsAI, setNewsAI] = useState(false)
+  const [newsAnalysisOpen, setNewsAnalysisOpen] = useState<Set<string>>(() => new Set())
   const [subagentsEnabled, setSubagentsEnabled] = useState(false)
   const [subagentsMaxSteps, setSubagentsMaxSteps] = useState(12)
   const [subagentsAllowWrite, setSubagentsAllowWrite] = useState(false)
@@ -2450,6 +2454,15 @@ export default function App() {
     } catch {
       /* ignore */
     }
+  }
+
+  function toggleNewsAnalysis(id: string) {
+    setNewsAnalysisOpen((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
   }
 
   async function saveChatProvider(next: string) {
@@ -6916,6 +6929,7 @@ export default function App() {
                 ['network', 'Сеть'],
                 ['interface', 'Интерфейс'],
                 ['updates', 'Обновления'],
+                ['news', 'Новости'],
                 ['system', 'Система'],
               ] as const).map(([cat, label]) => (
                 <button
@@ -8418,7 +8432,7 @@ export default function App() {
               </button>
               <label
                 className="nc-top-check"
-                title="После «Обновить» новые записи автоматически анализируются текущим ИИ: под каждой появится «что это значит и как использовать». Каждый анализ — один запрос к провайдеру."
+                title="После «Обновить» записи без анализа разбираются текущим ИИ: под каждой появится «что значит и как использовать». Каждый анализ — один запрос к провайдеру, до 10 за обновление."
               >
                 <input
                   type="checkbox"
@@ -8431,7 +8445,21 @@ export default function App() {
                 />
                 <span>Анализ новостей ИИ</span>
               </label>
+              {newsAI && !!news && news.items.length > 0 && (
+                <span className="nc-news-updated">
+                  {news.items.some((n) => n.analysis)
+                    ? `ИИ-анализ: ${news.items.filter((n) => n.analysis).length} из ${news.items.length}`
+                    : newsBusy
+                      ? 'ИИ анализирует…'
+                      : 'ИИ-анализ: 0 — проверьте, что провайдер настроен и есть ключ'}
+                </span>
+              )}
               {(news?.newCount ?? 0) > 0 && <span className="nc-news-badge">{news?.newCount} новых</span>}
+              {news?.analysisNotice && (
+                <span className="nc-news-analysis" title="Результат ИИ-анализа дайджеста">
+                  {news.analysisNotice}
+                </span>
+              )}
               {news && news.updatedAt && (
                 <span className="nc-news-updated">
                   от {fmtDateTime(news.updatedAt)}
@@ -8458,7 +8486,23 @@ export default function App() {
                       </span>
                       <span className="nc-news-title">{n.title}</span>
                       {n.date && <span className="nc-news-date">{fmtDate(n.date)}</span>}
-                      {n.analysis ? <span className="nc-news-analysis">{n.analysis}</span> : null}
+                      {n.analysis ? (
+                        <button
+                          type="button"
+                          className="nc-news-analysis-toggle"
+                          title="Показать/скрыть анализ ИИ"
+                          aria-expanded={newsAnalysisOpen.has(n.id)}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            toggleNewsAnalysis(n.id)
+                          }}
+                        >
+                          {newsAnalysisOpen.has(n.id) ? '▴ ИИ' : '… ИИ'}
+                        </button>
+                      ) : null}
+                      {n.analysis && newsAnalysisOpen.has(n.id) ? (
+                        <span className="nc-news-analysis">ИИ: {n.analysis}</span>
+                      ) : null}
                     </button>
                   </li>
                 ))}
