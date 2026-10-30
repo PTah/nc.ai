@@ -521,6 +521,13 @@ func (r *Runner) visionModel() (model, reason string) {
 	}
 }
 
+// isMCPToolName reports a tool coming from an MCP server (namespaced mcp__…).
+// Такие вызовы подтверждаются как опасные: сервер сторонний, а инструмент может
+// менять данные или ходить наружу — allowlist по умолчанию больше не «молча».
+func isMCPToolName(name string) bool {
+	return strings.HasPrefix(name, "mcp__")
+}
+
 func (r *Runner) emitModel(emit EmitFunc, model, reason string) {
 	if model == "" || model == r.lastEmittedModel {
 		return
@@ -1152,6 +1159,11 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 			return messages, err
 		}
 		r.reportUsage(billingModel(resp.Model, model), resp.Usage)
+		if resp.Model != "" {
+			// Провайдер мог подменить роут (ShareLLM и подобные) — показываем
+			// реальную модель из ответа, а не только запрошенную.
+			r.emitModel(emit, resp.Model, "")
+		}
 		if text := r.localContextNotice(resp.Usage); text != "" {
 			emit(Event{Type: "notice", Content: text})
 		}
@@ -1384,6 +1396,9 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 			return messages, err
 		}
 		r.reportUsage(billingModel(resp.Model, wrapModel), resp.Usage)
+		if resp.Model != "" {
+			r.emitModel(emit, resp.Model, "")
+		}
 		if len(resp.Choices) == 0 {
 			emit(Event{Type: "error", Content: fmt.Sprintf("лимит шагов (%d); пустой финальный ответ", max)})
 			return messages, fmt.Errorf("max agent steps (%d) exceeded", max)
@@ -1604,7 +1619,7 @@ func (r *Runner) execOne(ctx context.Context, call llm.ToolCall, emit EmitFunc) 
 			scopeReason = issue.Text()
 		}
 	}
-	if (tools.DangerousTool(name) || scopeReason != "") && r.ApproveTool != nil {
+	if (tools.DangerousTool(name) || isMCPToolName(name) || scopeReason != "") && r.ApproveTool != nil {
 		// Пока висит диалог, шаг ждёт пользователя, а не «завис»: это должно
 		// быть видно в предупреждении watchdog'а и в разборе.
 		r.stallPhase("approval", "Жду подтверждения: "+name)

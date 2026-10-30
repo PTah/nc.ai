@@ -147,7 +147,7 @@ MVP `task` уже есть. Усиление по статье про патте
 - [x] Запуск сервера (stdio) и `initialize`; реестр серверов в Settings (команда, аргументы, env).
 - [x] `tools/list` → инструменты с префиксом сервера, включение в общий toolset; `tools/call` с таймаутом.
 - [x] Статусы: подключён / ошибка / логи; стоп при выходе приложения.
-- [ ] Подтверждение вызовов как у обычных инструментов (пока MCP не в DangerousTool — осознанный allowlist).
+- [x] Подтверждение вызовов как у обычных инструментов (пока MCP не в DangerousTool — осознанный allowlist). **Сделано в 1.0.0:** имена `mcp__…` идут через `ApproveTool` как опасные.
 - [x] Бюджет контекста: allowlist `enabledTools` (пусто = ничего в промпте).
 - [x] Проверка: mock stdio-сервер в `internal/mcp/testdata` + unit-тесты.
 
@@ -182,7 +182,7 @@ MVP `task` уже есть. Усиление по статье про патте
 
 - [x] **Auto-models EscalationGate на остальных провайдерах** — см. **E3** (MVP DeepSeek 0.7.12; Z.ai / OpenRouter / Qwen / Yandex сделаны, проверено в 0.9.5): mid-run Flash→strong при дублях/провалах tools, пустом ответе, битом JSON; префикс `/pro`|`[pro]`; bypass слабого session-sticky на сложных ходах. Маппинг strong: Z.ai → `glm-5.3`, OpenRouter → `qwen3-coder:floor`, Qwen → `qwen-max`, Yandex → `qwen3-235b-a22b-fp8` (Local — по желанию later). Точка входа: `internal/agent/escalate.go` (`escalateEnabled` / `strongModel`).
 - [ ] Anthropic: сохранять `signature` thinking-блока и отправлять его обратно — тогда extended thinking + tools заработает на прямом API.
-- [ ] Показывать в ответе реальную модель, если провайдер подменил роут (ShareLLM и подобные): имя из `resp.Model` вместо конфига.
+- [x] Показывать в ответе реальную модель, если провайдер подменил роут (ShareLLM и подобные): имя из `resp.Model` вместо конфига. **Сделано в 1.0.0.**
 - [x] DeepSeek: стабильный префикс промпта для prompt cache — см. **E3** (сделано ранее: `buildMessages` + `TestBuildMessages_PrefixCacheOrder`; `prompt_cache_hit/miss` учитываются в usage и цене).
 - [ ] macOS-артефакты релиза (`macos-arm64`, `macos-universal`) — нужен macOS-хост; в 0.7.0–0.7.2 их нет.
 - [ ] diff viewer и LSP-подсказки; разнести `frontend/src/App.tsx` на хуки.

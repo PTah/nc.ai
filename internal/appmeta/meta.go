@@ -30,7 +30,7 @@ import "time"
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "0.9.10"
+	Version = "1.0.0"
 )
 
 // DeepSeekProRetireRFC3339 is the announced V4 Pro retirement instant, empty
@@ -76,18 +76,18 @@ func retiredAt(at time.Time, now time.Time) bool {
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
-	"В настройках появился раздел «Новости» — одна кнопка, сразу к дайджесту и анализу",
-	"Анализ ИИ под новостью свёрнут в облачко «… ИИ»: нажатие разворачивает и сворачивает разбор, лента не разрастается",
-	"Анализ идёт по всем видимым записям без анализа (до 6 за «Обновить»), а не только по новым",
-	"Причина, почему анализа нет, теперь видна в шапке новостей: «готово N», «ИИ недоступен: …» или текст ошибки провайдера",
+	"1.0: стабильная лента без прыжков, провайдер и модель на каждый чат, PDF/Office вложения текстом, защита от prompt injection",
+	"Анализ новостей с чтением статьи и ИИ-разбором: опция, сворачиваемый «… ИИ», понятный статус",
+	"Краткость в system и findings[] у подагентов вместо одной прозы",
+	"MCP-вызовы подтверждаются как опасные, а в чипе модели показывается реальная модель из ответа провайдера",
 	"Рабочее пространство из нескольких папок и запросы, идущие параллельно, работают как раньше",
 }
 
 var HighlightsEN = []string{
-	"Settings has a News section now — one button jumps straight to the digest and analysis",
-	"AI analysis under a news item is collapsed into a small «… AI» bubble: click to expand or collapse, the list stays compact",
-	"Analysis covers every visible item without one (up to 6 per Refresh), not only the new ones",
-	"The reason when there is no analysis is now visible in the news header: «done N», «AI unavailable: …», or the provider error",
+	"1.0: a stable thread without jumps, per-chat provider and model, PDF/Office attachments as text, and prompt-injection defences",
+	"News analysis reads the article and gives an AI verdict: opt-in, collapsible «… AI», clear status",
+	"Brevity in the system prompt and findings[] from subagents instead of prose only",
+	"MCP calls are approved like dangerous tools, and the model chip shows the real model returned by the provider",
 	"Requests in parallel chats and the multi-folder workspace keep working as before",
 }
 
