@@ -1298,6 +1298,33 @@ function markInterruptedSteps(items: ChatItem[]): {items: ChatItem[]; changed: b
   return {items: changed ? out : items, changed}
 }
 
+/** Unified diff (git_diff) looks like this; anything else stays a plain pre. */
+function looksLikeDiff(s: string): boolean {
+  return /^diff --git /m.test(s) || /^@@ /m.test(s) || /^\+\+\+ /m.test(s)
+}
+
+/** Minimal diff viewer: colour added/removed lines instead of a grey wall. */
+function DiffBlock({text}: {text: string}) {
+  const lines = text.split('\n')
+  return (
+    <pre className="nc-tool-pre nc-diff">
+      {lines.map((ln, i) => {
+        let cls = 'nc-diff-ctx'
+        if (ln.startsWith('diff --git') || ln.startsWith('index ') || ln.startsWith('---') || ln.startsWith('+++')) {
+          cls = 'nc-diff-meta'
+        } else if (ln.startsWith('@@')) {
+          cls = 'nc-diff-hunk'
+        } else if (ln.startsWith('+')) {
+          cls = 'nc-diff-add'
+        } else if (ln.startsWith('-')) {
+          cls = 'nc-diff-del'
+        }
+        return <span key={i} className={cls}>{ln + '\n'}</span>
+      })}
+    </pre>
+  )
+}
+
 function ToolCard({item}: {item: Extract<ChatItem, {kind: 'tool'}>}) {
   const title = item.interrupted ? 'прервано: приложение было перезапущено' : toolTitle(item.name, item.phase, item.ok)
   const hasBody = Boolean(item.args || item.result)
@@ -1312,7 +1339,11 @@ function ToolCard({item}: {item: Extract<ChatItem, {kind: 'tool'}>}) {
         <details className="nc-tool-details" onToggle={revealOpenBlock}>
           <summary>подробности</summary>
           {item.args ? <pre className="nc-tool-pre"><span className="nc-k">args</span>{'\n'}{item.args}</pre> : null}
-          {item.result != null ? <pre className="nc-tool-pre"><span className="nc-k">result</span>{'\n'}{item.result}</pre> : null}
+          {item.result != null ? (
+            looksLikeDiff(item.result)
+              ? <DiffBlock text={item.result} />
+              : <pre className="nc-tool-pre"><span className="nc-k">result</span>{'\n'}{item.result}</pre>
+          ) : null}
         </details>
       )}
     </div>
@@ -2046,8 +2077,10 @@ export default function App() {
   // нельзя — они бы видели устаревшее состояние. Отсюда ref-обёртки.
   const openProjectRef = useRef<(path: string) => Promise<void>>(async () => {})
   const switchSessionRef = useRef<(id: string) => Promise<void>>(async () => {})
+  const createSessionRef = useRef<() => Promise<string>>(async () => '')
   openProjectRef.current = openProject
   switchSessionRef.current = switchSession
+  createSessionRef.current = createSession
   const [deepseekKey, setDeepseekKey] = useState('')
   const [zaiKey, setZaiKey] = useState('')
   const [openrouterKey, setOpenrouterKey] = useState('')
@@ -3404,6 +3437,30 @@ export default function App() {
             return
           }
           if (!sid) return
+          if (ev.type === 'project_switch') {
+            // Агент завершил прогон просьбой перейти в другой проект: открываем
+            // его, создаём чат и запускаем новый прогон с handoff.
+            void (async () => {
+              try {
+                const data = JSON.parse(String(ev.content || '{}')) as {path?: string; handoff?: string}
+                if (!data.path) return
+                await openProjectRef.current(String(data.path))
+                const created = await createSessionRef.current()
+                if (created) {
+                  void runAgentRef.current(
+                    created,
+                    String(data.handoff || 'Продолжай в этом проекте.'),
+                    [],
+                    false,
+                    false,
+                  )
+                }
+              } catch {
+                /* переключение не критично */
+              }
+            })()
+            return
+          }
           if (ev.type === 'tool_ask') {
             // Вопрос мог прийти из другого проекта или чата (прогон там ещё идёт).
             // Переключаемся туда: иначе диалог висит поверх чужого разговора и
@@ -4009,7 +4066,7 @@ export default function App() {
     }
   }
 
-  async function createSession() {
+  async function createSession(): Promise<string> {
     if (activeSessionId) {
       try { await persistSession(activeSessionId) } catch { /* ignore */ }
     }
@@ -4022,6 +4079,7 @@ export default function App() {
     await refreshSessions()
     setActiveSessionId(id)
     await applyUsageStats()
+    return id
   }
 
   function startRename(id: string, title: string) {

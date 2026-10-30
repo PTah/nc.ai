@@ -50,6 +50,9 @@ type Registry struct {
 	DeepSeekKey string
 	// WebTools selects the web provider: "" / "auto" | "deepseek" | "duckduckgo".
 	WebTools string
+	// SwitchProject resolves a project name/path for the switch_project tool and
+	// returns the marker JSON. nil = switching unavailable.
+	SwitchProject func(ctx context.Context, name, handoff string) (string, error)
 }
 
 // ForRun returns a per-run copy of the registry bound to root. PlanMode, the
@@ -513,6 +516,13 @@ func (r *Registry) Execute(ctx context.Context, call llm.ToolCall) (string, erro
 			return "", fmt.Errorf("ask_user is not available")
 		}
 		return r.AskUser(ctx, call.ID, q, opts)
+	case "switch_project":
+		name, _ := args["project"].(string)
+		handoff, _ := args["handoff"].(string)
+		if r.SwitchProject == nil {
+			return "", fmt.Errorf("переключение проектов недоступно")
+		}
+		return r.SwitchProject(ctx, name, handoff)
 	case "read_lints":
 		var paths []string
 		if raw, ok := args["paths"].([]any); ok {
@@ -1017,6 +1027,14 @@ func allToolSpecs() []llm.ToolSpec {
 				},
 			},
 			"required": []string{"question"},
+		}),
+		fn("switch_project", "Переключить текущий проект: прогон завершится, приложение откроет целевой проект и запустит новый прогон с твоим handoff. Используй только когда пользователь просит работать в другом проекте.", map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"project": map[string]any{"type": "string", "description": "Имя проекта или абсолютный путь"},
+				"handoff": map[string]any{"type": "string", "description": "Короткая сводка: что сделано и что делать дальше"},
+			},
+			"required": []string{"project"},
 		}),
 		fn("read_lints", "Diagnostics for files you just edited. Go: go vet on the package. Call only on files you changed.", map[string]any{
 			"type": "object",

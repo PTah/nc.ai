@@ -174,6 +174,7 @@ macOS (собирается только на macOS-хосте; скрипт с�
 | `history_search` | поиск по прошлым чатам этого проекта (живым и архивным) |
 | `run_terminal` / `command_status` | shell-команды: свой `cwd`, фоновый режим (`is_background`) |
 | `todo_write` / `ask_user` / `read_lints` | список задач, вопрос пользователю, `go vet` по изменённым файлам |
+| `switch_project` | переход в другой проект из агента: прогон завершается с handoff, приложение открывает проект и запускает новый прогон там |
 | `web_search` / `fetch_url` | веб — с SSRF-guard: LAN, loopback и metadata-адреса закрыты. Движок: DuckDuckGo (по умолчанию) или DeepSeek Search & Fetch — Settings → Agent, с откатом на DuckDuckGo при ошибке API |
 | `git_*` | status / diff / log / commit / push через **системный `git`** |
 | `ssh_*` | exec и генерация ключей, ключи берутся из **`~/.ssh`** |
