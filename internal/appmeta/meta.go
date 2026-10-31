@@ -24,6 +24,7 @@
 // Edited by nc.ai 0.8.9.7 on macbook 2026-10-29 21:49:23
 // Edited by nc.ai 0.9.4 on new-admin-pc 2026-10-30 08:46:25
 // Edited by nc.ai 1.0.0 on Papasha 2026-10-31 10:40:30
+// Edited by nc.ai 1.0.1 on macbook 2026-10-31 22:56:21
 package appmeta
 
 import "time"
@@ -77,18 +78,18 @@ func retiredAt(at time.Time, now time.Time) bool {
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
-	"Кнопка «… ИИ» у новых записей дайджеста подсвечена зелёным (мягким в светлой теме, ярким в тёмной) — пока анализ не открыли",
-	"1.0: стабильная лента без прыжков, провайдер и модель на каждый чат, PDF/Office вложения текстом, защита от prompt injection",
-	"Анализ новостей с чтением статьи и ИИ-разбором: опция, сворачиваемый «… ИИ», понятный статус",
-	"Счётчик «N новых» больше не сбрасывается после рефреша: он сравнивается с базой прошлого обновления",
+	"Провайдер Kimi (Moonshot): стриминг, каталог моделей, баланс и стоимость прогонов — как у остальных провайдеров",
+	"Auto-models умеют Kimi: k3.1-pro для сложного и картинок, k3.1-pro-highspeed по умолчанию, k2.7-code для кода",
+	"Ключ, модель и расходы Kimi настраиваются и считаются в Settings наравне с DeepSeek и Z.ai",
+	"Модель провайдера сохраняется с чатом и восстанавливается вместе с транскриптом",
 	"Рабочее пространство из нескольких папок и запросы, идущие параллельно, работают как раньше",
 }
 
 var HighlightsEN = []string{
-	"The «… AI» button on new digest entries is green (soft in the light theme, bright in the dark one) until the analysis is opened",
-	"1.0: a stable thread without jumps, per-chat provider and model, PDF/Office attachments as text, and prompt-injection defences",
-	"News analysis reads the article and gives an AI verdict: opt-in, collapsible «… AI», clear status",
-	"The “N new” counter no longer resets after a refresh: it compares against the previous digest baseline",
+	"Kimi (Moonshot) provider: streaming, model catalog, balance and run cost — like every other provider",
+	"Auto-models speak Kimi: k3.1-pro for hard work and vision, k3.1-pro-highspeed as default, k2.7-code for code",
+	"Kimi key, model and spend are configured and metered in Settings, same as DeepSeek and Z.ai",
+	"The provider model is saved with the chat and restored with the transcript",
 	"Requests in parallel chats and the multi-folder workspace keep working as before",
 }
 
