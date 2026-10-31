@@ -23,6 +23,7 @@
 // Edited by nc.ai 0.8.9.7 on new-admin-pc 2026-10-28 09:41:35
 // Edited by nc.ai 0.8.9.7 on macbook 2026-10-29 21:49:23
 // Edited by nc.ai 0.9.4 on new-admin-pc 2026-10-30 08:46:25
+// Edited by nc.ai 1.0.0 on Papasha 2026-10-31 10:40:30
 package appmeta
 
 import "time"
@@ -30,7 +31,7 @@ import "time"
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "1.0.0"
+	Version = "1.0.1"
 )
 
 // DeepSeekProRetireRFC3339 is the announced V4 Pro retirement instant, empty
@@ -76,18 +77,18 @@ func retiredAt(at time.Time, now time.Time) bool {
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
+	"Кнопка «… ИИ» у новых записей дайджеста подсвечена зелёным (мягким в светлой теме, ярким в тёмной) — пока анализ не открыли",
 	"1.0: стабильная лента без прыжков, провайдер и модель на каждый чат, PDF/Office вложения текстом, защита от prompt injection",
 	"Анализ новостей с чтением статьи и ИИ-разбором: опция, сворачиваемый «… ИИ», понятный статус",
-	"Краткость в system и findings[] у подагентов вместо одной прозы",
-	"MCP-вызовы подтверждаются как опасные, а в чипе модели показывается реальная модель из ответа провайдера",
+	"Счётчик «N новых» больше не сбрасывается после рефреша: он сравнивается с базой прошлого обновления",
 	"Рабочее пространство из нескольких папок и запросы, идущие параллельно, работают как раньше",
 }
 
 var HighlightsEN = []string{
+	"The «… AI» button on new digest entries is green (soft in the light theme, bright in the dark one) until the analysis is opened",
 	"1.0: a stable thread without jumps, per-chat provider and model, PDF/Office attachments as text, and prompt-injection defences",
 	"News analysis reads the article and gives an AI verdict: opt-in, collapsible «… AI», clear status",
-	"Brevity in the system prompt and findings[] from subagents instead of prose only",
-	"MCP calls are approved like dangerous tools, and the model chip shows the real model returned by the provider",
+	"The “N new” counter no longer resets after a refresh: it compares against the previous digest baseline",
 	"Requests in parallel chats and the multi-folder workspace keep working as before",
 }
 

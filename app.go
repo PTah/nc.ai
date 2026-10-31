@@ -4,6 +4,7 @@
 // Edited by nc.ai 0.8.6.3 on Papasha 2026-10-16 14:15:46
 // Edited by nc.ai 0.8.7.7 on macbook 2026-10-16 22:21:12
 // Edited by nc.ai 0.8.8.0 on new-admin-pc 2026-10-19 08:01:34
+// Edited by nc.ai 1.0.0 on Papasha 2026-10-31 10:38:44
 package main
 
 import (
@@ -1852,6 +1853,12 @@ func fetchArticleText(url string) string {
 // MarkProviderNewsRead remembers that the user looked at the digest.
 func (a *App) MarkProviderNewsRead() error {
 	return providernews.MarkRead()
+}
+
+// MarkProviderNewsItemSeen запоминает, что пользователь открыл ИИ-анализ одной
+// записи дайджеста: зелёная подсветка кнопки «… ИИ» гаснет до конца жизни записи.
+func (a *App) MarkProviderNewsItemSeen(id string) error {
+	return providernews.MarkSeen(id)
 }
 
 // GetEndSound returns the built-in end-of-run chime as a data URL. The clip is
