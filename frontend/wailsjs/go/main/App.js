@@ -54,16 +54,16 @@ export function ClearDeepSeekKey() {
   return window['go']['main']['App']['ClearDeepSeekKey']();
 }
 
+export function ClearKimiKey() {
+  return window['go']['main']['App']['ClearKimiKey']();
+}
+
 export function ClearLocalKey() {
   return window['go']['main']['App']['ClearLocalKey']();
 }
 
 export function ClearOpenRouterKey() {
   return window['go']['main']['App']['ClearOpenRouterKey']();
-}
-
-export function ClearKimiKey() {
-  return window['go']['main']['App']['ClearKimiKey']();
 }
 
 export function ClearQwenKey() {
@@ -134,17 +134,16 @@ export function GetDeepSeekBalance() {
   return window['go']['main']['App']['GetDeepSeekBalance']();
 }
 
-export function GetKimiBalance() {
-  return window['go']['main']['App']['GetKimiBalance']();
-}
-
-
 export function GetDeepSeekPeakInfo(arg1) {
   return window['go']['main']['App']['GetDeepSeekPeakInfo'](arg1);
 }
 
 export function GetEndSound() {
   return window['go']['main']['App']['GetEndSound']();
+}
+
+export function GetKimiBalance() {
+  return window['go']['main']['App']['GetKimiBalance']();
 }
 
 export function GetMCPServers() {
@@ -199,6 +198,10 @@ export function ListDir(arg1) {
   return window['go']['main']['App']['ListDir'](arg1);
 }
 
+export function ListKimiModels() {
+  return window['go']['main']['App']['ListKimiModels']();
+}
+
 export function ListLocalModels() {
   return window['go']['main']['App']['ListLocalModels']();
 }
@@ -217,10 +220,6 @@ export function ListOpenRouterModels() {
 
 export function ListProjects() {
   return window['go']['main']['App']['ListProjects']();
-}
-
-export function ListKimiModels() {
-  return window['go']['main']['App']['ListKimiModels']();
 }
 
 export function ListQwenModels() {
@@ -287,16 +286,16 @@ export function PreferDeepSeekModel(arg1) {
   return window['go']['main']['App']['PreferDeepSeekModel'](arg1);
 }
 
+export function PreferKimiModel(arg1) {
+  return window['go']['main']['App']['PreferKimiModel'](arg1);
+}
+
 export function PreferLocalModel(arg1) {
   return window['go']['main']['App']['PreferLocalModel'](arg1);
 }
 
 export function PreferOpenRouterModel(arg1) {
   return window['go']['main']['App']['PreferOpenRouterModel'](arg1);
-}
-
-export function PreferKimiModel(arg1) {
-  return window['go']['main']['App']['PreferKimiModel'](arg1);
 }
 
 export function PreferQwenModel(arg1) {
@@ -463,6 +462,14 @@ export function SaveHTTPProtocol(arg1) {
   return window['go']['main']['App']['SaveHTTPProtocol'](arg1);
 }
 
+export function SaveKimiKey(arg1) {
+  return window['go']['main']['App']['SaveKimiKey'](arg1);
+}
+
+export function SaveKimiModel(arg1) {
+  return window['go']['main']['App']['SaveKimiModel'](arg1);
+}
+
 export function SaveLayoutSizes(arg1, arg2, arg3, arg4, arg5) {
   return window['go']['main']['App']['SaveLayoutSizes'](arg1, arg2, arg3, arg4, arg5);
 }
@@ -513,14 +520,6 @@ export function SavePlanMode(arg1) {
 
 export function SaveQwenEndpoint(arg1) {
   return window['go']['main']['App']['SaveQwenEndpoint'](arg1);
-}
-
-export function SaveKimiKey(arg1) {
-  return window['go']['main']['App']['SaveKimiKey'](arg1);
-}
-
-export function SaveKimiModel(arg1) {
-  return window['go']['main']['App']['SaveKimiModel'](arg1);
 }
 
 export function SaveQwenKey(arg1) {

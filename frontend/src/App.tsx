@@ -15,6 +15,7 @@
 // Edited by nc.ai 0.8.9.7 on macbook 2026-10-29 21:54:33
 // Edited by nc.ai 0.9.4 on new-admin-pc 2026-10-30 08:59:19
 // Edited by nc.ai 1.0.0 on Papasha 2026-10-31 10:38:49
+// Edited by nc.ai 1.0.1 on macbook 2026-10-31 22:48:36
 import {FormEvent, MouseEvent as ReactMouseEvent, useCallback, useEffect, useMemo, useRef, useState} from 'react'
 import {Terminal} from '@xterm/xterm'
 import {FitAddon} from '@xterm/addon-fit'
@@ -4914,6 +4915,42 @@ export default function App() {
         grantedUsd: 0,
         toppedUpUsd: 0,
         currency: '',
+        detail: 'Не удалось запросить баланс',
+        source: 'none',
+      })
+    }
+  }
+
+  async function refreshKimiBalance() {
+    try {
+      const b = await GetKimiBalance()
+      if (!b || typeof b !== 'object') {
+        setKimiBalance(null)
+        return
+      }
+      const row = b as {
+        ok?: boolean
+        availableUsd?: number
+        voucherUsd?: number
+        cashUsd?: number
+        detail?: string
+        source?: string
+      }
+      setKimiBalance({
+        ok: Boolean(row.ok),
+        availableUsd: Number(row.availableUsd) || 0,
+        voucherUsd: Number(row.voucherUsd) || 0,
+        cashUsd: Number(row.cashUsd) || 0,
+        detail: String(row.detail || ''),
+        source: String(row.source || ''),
+      })
+      void applyUsageStats()
+    } catch {
+      setKimiBalance({
+        ok: false,
+        availableUsd: 0,
+        voucherUsd: 0,
+        cashUsd: 0,
         detail: 'Не удалось запросить баланс',
         source: 'none',
       })
