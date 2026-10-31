@@ -14,6 +14,7 @@ const (
 	IDZai        = "zai"
 	IDOpenRouter = "openrouter"
 	IDQwen       = "qwen"
+	IDKimi       = "kimi"
 	IDYandex     = "yandex"
 	IDLocal      = "local"
 )
@@ -60,6 +61,8 @@ func NormalizeID(id string) string {
 		return IDOpenRouter
 	case IDQwen:
 		return IDQwen
+	case IDKimi:
+		return IDKimi
 	case IDYandex:
 		return IDYandex
 	case IDLocal:

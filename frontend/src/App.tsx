@@ -96,6 +96,12 @@ import {
   SaveQwenEndpoint,
   ListQwenModels,
   PreferQwenModel,
+  SaveKimiKey,
+  ClearKimiKey,
+  SaveKimiModel,
+  ListKimiModels,
+  PreferKimiModel,
+  GetKimiBalance,
   SaveYandexKey,
   ClearYandexKey,
   SaveYandexModel,
@@ -488,6 +494,15 @@ const QWEN_MODELS_FALLBACK = [
   'qwen3-coder-flash',
   'qwen-vl-max',
   'qwen-vl-plus',
+]
+
+const KIMI_MODELS_FALLBACK = [
+  'kimi-k3.1-pro',
+  'kimi-k3.1-pro-highspeed',
+  'kimi-k3',
+  'kimi-k2.7-code',
+  'kimi-k2.7-code-highspeed',
+  'kimi-k2.6',
 ] as const
 
 const YANDEX_MODELS_FALLBACK = [
@@ -507,6 +522,7 @@ function providerLabelOf(id: ProviderId): string {
   if (id === 'zai') return 'Z.ai'
   if (id === 'openrouter') return 'OpenRouter'
   if (id === 'qwen') return 'Qwen'
+  if (id === 'kimi') return 'Kimi'
   if (id === 'yandex') return 'Yandex'
   if (isLocalProvider(id)) return 'Custom'
   return 'DeepSeek'
@@ -514,7 +530,7 @@ function providerLabelOf(id: ProviderId): string {
 
 function parseProvider(v: unknown): ProviderId {
   const s = String(v ?? '').trim()
-  if (s === 'zai' || s === 'openrouter' || s === 'qwen' || s === 'yandex') return s
+  if (s === 'zai' || s === 'openrouter' || s === 'qwen' || s === 'kimi' || s === 'yandex') return s
   if (isLocalProvider(s)) return s === 'local' ? 'local:default' : s
   return 'deepseek'
 }
@@ -2091,6 +2107,7 @@ export default function App() {
   const [zaiKey, setZaiKey] = useState('')
   const [openrouterKey, setOpenrouterKey] = useState('')
   const [qwenKey, setQwenKey] = useState('')
+  const [kimiKey, setKimiKey] = useState('')
   const [yandexKey, setYandexKey] = useState('')
   const [localKey, setLocalKey] = useState('')
   const [deepseekModel, setDeepseekModel] = useState('deepseek-flash')
@@ -2107,6 +2124,9 @@ export default function App() {
   const [openrouterModel, setOpenrouterModel] = useState('qwen/qwen3-coder-flash:floor')
   const [qwenModel, setQwenModel] = useState('qwen-plus')
   const [qwenEndpoint, setQwenEndpoint] = useState<'intl' | 'cn'>('intl')
+  const [kimiModel, setKimiModel] = useState('kimi-k3.1-pro')
+  const [kimiModels, setKimiModels] = useState<string[]>([...KIMI_MODELS_FALLBACK])
+  const [kimiModelLabels, setKimiModelLabels] = useState<Record<string, string>>({})
   const [yandexModel, setYandexModel] = useState('yandexgpt')
   const [yandexFolderId, setYandexFolderId] = useState('')
   const [localModel, setLocalModel] = useState('')
@@ -2140,6 +2160,14 @@ export default function App() {
     grantedUsd: number
     toppedUpUsd: number
     currency: string
+    detail: string
+    source: string
+  } | null>(null)
+  const [kimiBalance, setKimiBalance] = useState<{
+    ok: boolean
+    availableUsd: number
+    voucherUsd: number
+    cashUsd: number
     detail: string
     source: string
   } | null>(null)
@@ -2206,6 +2234,7 @@ export default function App() {
   const [zaiKeySet, setZaiKeySet] = useState(false)
   const [openrouterKeySet, setOpenrouterKeySet] = useState(false)
   const [qwenKeySet, setQwenKeySet] = useState(false)
+  const [kimiKeySet, setKimiKeySet] = useState(false)
   const [yandexKeySet, setYandexKeySet] = useState(false)
   const [localKeySet, setLocalKeySet] = useState(false)
   const [theme, setTheme] = useState<'dark' | 'light'>('dark')
@@ -2306,11 +2335,13 @@ export default function App() {
         ? openrouterModel
         : activeProvider === 'qwen'
           ? qwenModel
-          : activeProvider === 'yandex'
-            ? yandexModel
-            : isLocalProvider(activeProvider)
-              ? localModel
-              : deepseekModel
+          : activeProvider === 'kimi'
+            ? kimiModel
+            : activeProvider === 'yandex'
+              ? yandexModel
+              : isLocalProvider(activeProvider)
+                ? localModel
+                : deepseekModel
   const keySet =
     activeProvider === 'zai'
       ? zaiKeySet
@@ -2318,13 +2349,15 @@ export default function App() {
         ? openrouterKeySet
         : activeProvider === 'qwen'
           ? qwenKeySet
-          : activeProvider === 'yandex'
-            ? Boolean(yandexKeySet && yandexFolderId.trim())
-            : isLocalProvider(activeProvider)
-              ? Boolean(localBaseUrl.trim() && localModel.trim())
-              : deepseekKeySet
+          : activeProvider === 'kimi'
+            ? kimiKeySet
+            : activeProvider === 'yandex'
+              ? Boolean(yandexKeySet && yandexFolderId.trim())
+              : isLocalProvider(activeProvider)
+                ? Boolean(localBaseUrl.trim() && localModel.trim())
+                : deepseekKeySet
   const providerLabel = providerLabelOf(activeProvider)
-  const showBalance = activeProvider === 'zai' || activeProvider === 'openrouter' || activeProvider === 'deepseek'
+  const showBalance = activeProvider === 'zai' || activeProvider === 'openrouter' || activeProvider === 'deepseek' || activeProvider === 'kimi'
   const providerReadyLabel =
     isLocalProvider(activeProvider)
       ? keySet
@@ -3237,6 +3270,7 @@ export default function App() {
         setZaiKeySet(Boolean(s.zaiKeySet))
         setOpenrouterKeySet(Boolean(s.openrouterKeySet))
         setQwenKeySet(Boolean(s.qwenKeySet))
+        setKimiKeySet(Boolean(s.kimiKeySet))
         setYandexKeySet(Boolean(s.yandexKeySet))
         setLocalKeySet(Boolean(s.localKeySet))
         if (typeof s.secretsBackend === 'string' && s.secretsBackend) setSecretsBackend(s.secretsBackend)
@@ -3245,6 +3279,7 @@ export default function App() {
         if (typeof s.openrouterModel === 'string' && s.openrouterModel) setOpenrouterModel(s.openrouterModel)
         if (typeof s.qwenModel === 'string' && s.qwenModel) setQwenModel(s.qwenModel)
         if (s.qwenEndpoint === 'cn' || s.qwenEndpoint === 'intl') setQwenEndpoint(s.qwenEndpoint)
+        if (typeof s.kimiModel === 'string' && s.kimiModel) setKimiModel(s.kimiModel)
         if (typeof s.yandexModel === 'string' && s.yandexModel) setYandexModel(s.yandexModel)
         if (typeof s.yandexFolderId === 'string') setYandexFolderId(s.yandexFolderId)
         if (typeof s.localModel === 'string') setLocalModel(s.localModel)
@@ -3275,6 +3310,8 @@ export default function App() {
         if (provider === 'zai' && s.zaiKeySet) void refreshZaiBalance()
         if (s.openrouterKeySet || provider === 'openrouter') void refreshOpenRouterModels()
         if (s.qwenKeySet || provider === 'qwen') void refreshQwenModels()
+        if (s.kimiKeySet || provider === 'kimi') void refreshKimiModels()
+        if (provider === 'kimi' && s.kimiKeySet) void refreshKimiBalance()
         if (s.yandexKeySet || provider === 'yandex') void refreshYandexModels()
         if (provider === 'openrouter' && s.openrouterKeySet) void refreshOpenRouterBalance()
         if (isLocalProvider(provider)) void refreshLocalModels({applyPreferred: true})
@@ -3776,6 +3813,7 @@ export default function App() {
             if (sid === activeSessionRef.current) setRetryVisible(false)
             void applyUsageStats()
             if (activeProviderRef.current === 'deepseek') void refreshDeepSeekBalance()
+            if (activeProviderRef.current === 'kimi') void refreshKimiBalance()
           } else if (ev.type === 'error') {
             // Обрыв или отмена посреди ответа: уже показанный текст должен остаться
             // в чате, поэтому сначала дотягиваем элемент из буфера дельт, потом
@@ -5036,7 +5074,35 @@ export default function App() {
     }
   }
 
-  async function refreshYandexModels(opts?: {applyPreferred?: boolean; notify?: boolean}) {
+    async function refreshKimiModels(opts?: {applyPreferred?: boolean; notify?: boolean}) {
+    markModelsBusy('kimi', true)
+    try {
+      const cat = readCatalog(await ListKimiModels())
+      const note = catalogNote('kimi', cat.source, cat.error, cat.ids.length, true)
+      noteModels('kimi', note)
+      if (opts?.notify) notifyModelsToChat('kimi', note, cat.ids)
+      if (cat.ids.length === 0) return cat.ids
+      setKimiModels(cat.ids)
+      setKimiModelLabels(cat.labels)
+      if (opts?.applyPreferred) {
+        let next = ''
+        try {
+          next = String(await PreferKimiModel(cat.ids) || '')
+        } catch {
+          next = ''
+        }
+        if (next) {
+          setKimiModel(next)
+          await SaveKimiModel(next)
+        }
+      }
+      return cat.ids
+    } finally {
+      markModelsBusy('kimi', false)
+    }
+  }
+
+async function refreshYandexModels(opts?: {applyPreferred?: boolean; notify?: boolean}) {
     markModelsBusy('yandex', true)
     try {
       const cat = readCatalog(await ListYandexModels())
@@ -5181,6 +5247,8 @@ export default function App() {
         list = await refreshOpenRouterModels({applyPreferred: true, notify: true})
       } else if (activeProvider === 'qwen') {
         list = await refreshQwenModels({applyPreferred: true, notify: true})
+      } else if (activeProvider === 'kimi') {
+        list = await refreshKimiModels({applyPreferred: true, notify: true})
       } else if (activeProvider === 'yandex') {
         list = await refreshYandexModels({applyPreferred: true, notify: true})
       } else {
@@ -5228,6 +5296,10 @@ export default function App() {
         setLocalHealth(null)
         void refreshQwenModels({applyPreferred: true})
         void applyUsageStats()
+      } else if (next === 'kimi') {
+        setLocalHealth(null)
+        void refreshKimiModels({applyPreferred: true})
+        void refreshKimiBalance().then(() => applyUsageStats())
       } else if (next === 'yandex') {
         setLocalHealth(null)
         void refreshYandexModels({applyPreferred: true})
@@ -5279,6 +5351,15 @@ export default function App() {
       void SaveQwenModel(next)
       return
     }
+    if (activeProvider === 'kimi') {
+      setKimiModel(next)
+      if (autoModels) {
+        setAutoModels(false)
+        void SaveAutoModels(false)
+      }
+      void SaveKimiModel(next)
+      return
+    }
     if (activeProvider === 'yandex') {
       setYandexModel(next)
       if (autoModels) {
@@ -5323,6 +5404,7 @@ export default function App() {
       ['ключ Z.ai', zaiKey],
       ['ключ OpenRouter', openrouterKey],
       ['ключ Qwen', qwenKey],
+      ['ключ Kimi', kimiKey],
       ['ключ Yandex', yandexKey],
       ['ключ Custom', localKey],
     ] as const) {
@@ -5419,6 +5501,11 @@ export default function App() {
       setQwenKey('')
       setQwenKeySet(true)
     }
+    if (kimiKey.trim()) {
+      await SaveKimiKey(kimiKey.trim())
+      setKimiKey('')
+      setKimiKeySet(true)
+    }
     if (yandexKey.trim()) {
       await SaveYandexKey(yandexKey.trim())
       setYandexKey('')
@@ -5436,6 +5523,7 @@ export default function App() {
     await SaveOpenRouterModel(openrouterModel.trim() || 'qwen/qwen3-coder-flash:floor')
     await SaveQwenModel(qwenModel.trim() || 'qwen-plus')
     await SaveQwenEndpoint(qwenEndpoint)
+    await SaveKimiModel(kimiModel.trim() || 'kimi-k3.1-pro')
     await SaveYandexModel(yandexModel.trim() || 'yandexgpt')
     await SaveYandexFolderID(yandexFolderId.trim())
     await SaveLocalBaseURL(localBaseUrl.trim() || LOCAL_BASE_DEFAULT)
@@ -5450,6 +5538,10 @@ export default function App() {
     }
     if (activeProvider === 'qwen' || qwenKeySet) {
       await refreshQwenModels()
+    }
+    if (activeProvider === 'kimi' || kimiKeySet) {
+      await refreshKimiModels()
+      await refreshKimiBalance()
     }
     if (activeProvider === 'yandex' || yandexKeySet) {
       await refreshYandexModels()
@@ -5505,6 +5597,10 @@ export default function App() {
         await ClearQwenKey()
         setQwenKey('')
         setQwenKeySet(false)
+      } else if (which === 'kimi') {
+        await ClearKimiKey()
+        setKimiKey('')
+        setKimiKeySet(false)
       } else if (which === 'yandex') {
         await ClearYandexKey()
         setYandexKey('')
@@ -5534,12 +5630,14 @@ export default function App() {
       setZaiKey('')
       setOpenrouterKey('')
       setQwenKey('')
+      setKimiKey('')
       setYandexKey('')
       setLocalKey('')
       setDeepseekKeySet(false)
       setZaiKeySet(false)
       setOpenrouterKeySet(false)
       setQwenKeySet(false)
+      setKimiKeySet(false)
       setYandexKeySet(false)
       setLocalKeySet(false)
       if (activeSessionId) setSessionItems(activeSessionId, (m) => [...m, {kind: 'system', content: 'Все API-ключи удалены. При необходимости смените ключ у провайдера.'}])
@@ -5901,6 +5999,10 @@ export default function App() {
                   ? modelOptions(qwenModels, qwenModel).map((m) => (
                       <option key={m} value={m}>{m}</option>
                     ))
+                : activeProvider === 'kimi'
+                  ? modelOptions(kimiModels, kimiModel).map((m) => (
+                      <option key={m} value={m}>{kimiModelLabels[m] || m}</option>
+                    ))
                 : activeProvider === 'yandex'
                   ? modelOptions(yandexModels, yandexModel).map((m) => (
                       <option key={m} value={m}>{m}</option>
@@ -5937,6 +6039,8 @@ export default function App() {
                   ? 'Автовыбор: qwen3-coder-flash:floor → qwen3-coder:floor; картинки → qwen3-vl'
                   : activeProvider === 'qwen'
                   ? 'Автовыбор: qwen-plus → qwen-max на сложных задачах; картинки → qwen-vl-max'
+                  : activeProvider === 'kimi'
+                  ? 'Автовыбор: highspeed → k3.1-pro на сложных задачах; картинки → k3.1-pro'
                   : activeProvider === 'yandex'
                   ? 'Автовыбор: yandexgpt → qwen3-235b на сложных задачах'
                 : 'Автовыбор flash / pro / vision по задаче и длине прогона'
@@ -6004,6 +6108,13 @@ export default function App() {
                 if (activeProvider === 'qwen') {
                   return `Провайдер Qwen · чат: ${usage.chatInputTokens} in / ${usage.chatOutputTokens} out (${fmtUsd(usage.chatCostUsd)}) · total Qwen: ${usage.inputTokens} in / ${usage.outputTokens} out (${fmtUsd(usage.costUsd)})` +
                     cacheLine
+                }
+                if (activeProvider === 'kimi') {
+                  return `Провайдер Kimi · чат: ${usage.chatInputTokens} in / ${usage.chatOutputTokens} out (${fmtUsd(usage.chatCostUsd)}) · total Kimi: ${usage.inputTokens} in / ${usage.outputTokens} out (${fmtUsd(usage.costUsd)})` +
+                    cacheLine +
+                    (usage.balanceOk
+                      ? ` · баланс ${fmtBal(usage.balanceUsd)} (ваучер ${fmtBal(usage.balanceGranted)} + cash ${fmtBal(usage.balanceToppedUp)})`
+                      : '')
                 }
                 if (activeProvider === 'yandex') {
                   return `Провайдер Yandex · чат: ${usage.chatInputTokens} in / ${usage.chatOutputTokens} out (${fmtUsd(usage.chatCostUsd)}) · total Yandex: ${usage.inputTokens} in / ${usage.outputTokens} out (${fmtUsd(usage.costUsd)})` +
@@ -6896,6 +7007,7 @@ export default function App() {
                             <option value="openrouter">OpenRouter</option>
                             <option value="zai">Z.ai</option>
                             <option value="qwen">Qwen</option>
+                            <option value="kimi">Kimi</option>
                             <option value="yandex">Yandex</option>
                           </select>
                         </label>
@@ -6912,6 +7024,8 @@ export default function App() {
                                 ? modelOptions(openrouterModels, openrouterModel).map((m) => (<option key={m} value={m}>{m}</option>))
                                 : chatProvider === 'qwen'
                                   ? modelOptions(qwenModels, qwenModel).map((m) => (<option key={m} value={m}>{m}</option>))
+                                  : chatProvider === 'kimi'
+                                    ? modelOptions(kimiModels, kimiModel).map((m) => (<option key={m} value={m}>{kimiModelLabels[m] || m}</option>))
                                   : chatProvider === 'yandex'
                                     ? modelOptions(yandexModels, yandexModel).map((m) => (<option key={m} value={m}>{m}</option>))
                                     : isLocalProvider(chatProvider)
@@ -7033,6 +7147,7 @@ export default function App() {
                 <option value="zai">Z.ai (GLM)</option>
                 <option value="openrouter">OpenRouter</option>
                 <option value="qwen">Qwen (DashScope)</option>
+                <option value="kimi">Kimi (Moonshot)</option>
                 <option value="yandex">Yandex AI Studio</option>
                 {localEndpoints.map((ep) => (
                   <option key={ep.id} value={`local:${ep.id}`}>
@@ -7053,6 +7168,8 @@ export default function App() {
                     ? 'OpenRouter: flash:floor → coder:floor'
                     : activeProvider === 'qwen'
                     ? 'Qwen: qwen-plus → qwen-max на сложных задачах'
+                    : activeProvider === 'kimi'
+                    ? 'Kimi: highspeed → k3.1-pro на сложных задачах'
                     : activeProvider === 'yandex'
                     ? 'Yandex: yandexgpt → qwen3-235b на сложных задачах'
                   : 'DeepSeek: flash / pro / vision'
@@ -7076,6 +7193,8 @@ export default function App() {
                   ? 'flash → coder'
                   : activeProvider === 'qwen'
                   ? 'plus → max'
+                  : activeProvider === 'kimi'
+                  ? 'fast → pro'
                   : activeProvider === 'yandex'
                   ? 'gpt → qwen3'
                   : 'flash / pro / vision'}
@@ -7375,6 +7494,71 @@ export default function App() {
                 <p className="nc-help">
                   Ключ хранится в {secretsBackend || 'системном хранилище'}.
                   {qwenKeySet ? <button type="button" className="nc-ghost" onClick={() => void clearProviderKey('qwen')}>Clear key</button> : null}
+                </p>
+              </>
+            ) : activeProvider === 'kimi' ? (
+              <>
+                <div className="nc-section-label">Kimi (Moonshot)</div>
+                <p className="nc-help">
+                  Global API: <code>https://api.moonshot.ai/v1</code>. Ключ — в{' '}
+                  <a href="https://platform.kimi.ai" target="_blank" rel="noreferrer">platform.kimi.ai</a>
+                  {' '}→ API Keys. OpenAI-совместимый Chat Completions; thinking через{' '}
+                  <code>reasoning_effort</code> / <code>reasoning_content</code>.
+                </p>
+                <label>
+                  Model
+                  <select
+                    value={kimiModels.includes(kimiModel) ? kimiModel : kimiModel}
+                    onChange={(e) => void applyModel(e.target.value)}
+                  >
+                    {modelOptions(kimiModels, kimiModel).map((m) => (
+                      <option key={m} value={m}>{kimiModelLabels[m] || m}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Custom model id
+                  <input
+                    type="text"
+                    value={kimiModel}
+                    onChange={(e) => setKimiModel(e.target.value)}
+                    onBlur={(e) => {
+                      const next = e.target.value.trim()
+                      if (next) void SaveKimiModel(next)
+                    }}
+                    placeholder="kimi-k3.1-pro"
+                  />
+                </label>
+                <button type="button" className="nc-ghost" disabled={!!modelsBusy.kimi} onClick={() => void refreshKimiModels({applyPreferred: true, notify: true})}>
+                  {modelsBusy.kimi ? 'Обновление…' : 'Refresh models'}
+                </button>
+                <button type="button" className="nc-ghost" onClick={() => void refreshKimiBalance()}>Refresh balance</button>
+                {modelsNotes.kimi ? <p className="nc-help">{modelsNotes.kimi}</p> : null}
+                {kimiBalance && (
+                  <p className="nc-help">
+                    {kimiBalance.ok
+                      ? `Баланс Kimi: доступно ${fmtBal(kimiBalance.availableUsd)} (ваучер ${fmtBal(kimiBalance.voucherUsd)} + cash ${fmtBal(kimiBalance.cashUsd)})${kimiBalance.detail.includes('insufficient') ? ' · недостаточно средств' : ''}`
+                      : kimiBalance.detail || 'Баланс недоступен через API'}
+                    {' '}
+                    <span title="platform.kimi.ai">GET /users/me/balance</span>
+                  </p>
+                )}
+                <p className="nc-help">
+                  По умолчанию <code>kimi-k3.1-pro</code> (1M контекст, vision, thinking always on).
+                  Highspeed — быстрее и дороже. Серия K2 для новых аккаунтов с 31.10.2026 недоступна.
+                </p>
+                <label>
+                  API key
+                  <input
+                    type="password"
+                    value={kimiKey}
+                    onChange={(e) => setKimiKey(e.target.value)}
+                    placeholder={kimiKeySet ? '•••• set' : 'sk-...'}
+                  />
+                </label>
+                <p className="nc-help">
+                  Ключ хранится в {secretsBackend || 'системном хранилище'}.
+                  {kimiKeySet ? <button type="button" className="nc-ghost" onClick={() => void clearProviderKey('kimi')}>Clear key</button> : null}
                 </p>
               </>
             ) : activeProvider === 'yandex' ? (

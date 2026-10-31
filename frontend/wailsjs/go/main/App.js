@@ -62,6 +62,10 @@ export function ClearOpenRouterKey() {
   return window['go']['main']['App']['ClearOpenRouterKey']();
 }
 
+export function ClearKimiKey() {
+  return window['go']['main']['App']['ClearKimiKey']();
+}
+
 export function ClearQwenKey() {
   return window['go']['main']['App']['ClearQwenKey']();
 }
@@ -129,6 +133,11 @@ export function GetCursorRules() {
 export function GetDeepSeekBalance() {
   return window['go']['main']['App']['GetDeepSeekBalance']();
 }
+
+export function GetKimiBalance() {
+  return window['go']['main']['App']['GetKimiBalance']();
+}
+
 
 export function GetDeepSeekPeakInfo(arg1) {
   return window['go']['main']['App']['GetDeepSeekPeakInfo'](arg1);
@@ -210,6 +219,10 @@ export function ListProjects() {
   return window['go']['main']['App']['ListProjects']();
 }
 
+export function ListKimiModels() {
+  return window['go']['main']['App']['ListKimiModels']();
+}
+
 export function ListQwenModels() {
   return window['go']['main']['App']['ListQwenModels']();
 }
@@ -280,6 +293,10 @@ export function PreferLocalModel(arg1) {
 
 export function PreferOpenRouterModel(arg1) {
   return window['go']['main']['App']['PreferOpenRouterModel'](arg1);
+}
+
+export function PreferKimiModel(arg1) {
+  return window['go']['main']['App']['PreferKimiModel'](arg1);
 }
 
 export function PreferQwenModel(arg1) {
@@ -496,6 +513,14 @@ export function SavePlanMode(arg1) {
 
 export function SaveQwenEndpoint(arg1) {
   return window['go']['main']['App']['SaveQwenEndpoint'](arg1);
+}
+
+export function SaveKimiKey(arg1) {
+  return window['go']['main']['App']['SaveKimiKey'](arg1);
+}
+
+export function SaveKimiModel(arg1) {
+  return window['go']['main']['App']['SaveKimiModel'](arg1);
 }
 
 export function SaveQwenKey(arg1) {

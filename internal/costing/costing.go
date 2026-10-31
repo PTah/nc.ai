@@ -25,6 +25,9 @@ import (
 // Qwen (DashScope): static sheet (no live refresh); usage has prompt/completion
 // tokens only, so cost = hit * input_hit + miss * input_miss + completion * output.
 //
+// Kimi (Moonshot): static sheet from platform.kimi.ai pricing; cache hit/miss
+// + completion. Cache-write fees are not tracked separately yet.
+//
 // Free models (glm-4.7-flash, glm-4.5-flash) bill $0.
 //
 // Live DeepSeek/Z.ai sheets can be overridden by doc refresh (DeepSeek daily, Z.ai weekly).
@@ -79,8 +82,23 @@ var builtinYandexSheet = map[string]Prices{
 	"gpt-oss-120b":        {InputMiss: 0.40, InputHit: 0.40, Completion: 1.20},
 }
 
+// builtinKimiSheet is USD / 1M from platform.kimi.ai (global, Oct 2026).
+// Cache-write (5m/1h) fees are not modelled separately — InputMiss approximates
+// uncached + write on first hit.
+var builtinKimiSheet = map[string]Prices{
+	"kimi-k3.1-pro":            {InputMiss: 2.00, InputHit: 0.20, Completion: 10.00},
+	"kimi-k3.1-pro-highspeed":  {InputMiss: 4.00, InputHit: 0.20, Completion: 20.00},
+	"kimi-k3":                  {InputMiss: 3.00, InputHit: 0.30, Completion: 15.00},
+	"kimi-k2.7-code":           {InputMiss: 0.60, InputHit: 0.15, Completion: 2.50},
+	"kimi-k2.7-code-highspeed": {InputMiss: 1.20, InputHit: 0.15, Completion: 5.00},
+	"kimi-k2.6":                {InputMiss: 0.60, InputHit: 0.15, Completion: 2.50},
+}
+
 // qwenFallbackKey is used for unknown Qwen models so new models are not billed $0.
 var qwenFallbackKey = "qwen-plus"
+
+// kimiFallbackKey is used for unknown Kimi models so new models are not billed $0.
+var kimiFallbackKey = "kimi-k3.1-pro"
 
 // yandexFallbackKey is used for unknown Yandex models so new models are not billed $0.
 var yandexFallbackKey = "yandexgpt"
@@ -179,6 +197,24 @@ func NormalizeModel(model string) string {
 		return "qwen3-235b-a22b-fp8"
 	case strings.HasPrefix(m, "gpt-oss-120b"):
 		return "gpt-oss-120b"
+	case m == "kimi-k3.1-pro-highspeed" || strings.HasPrefix(m, "kimi-k3.1-pro-highspeed"):
+		return "kimi-k3.1-pro-highspeed"
+	case m == "kimi-k3.1-pro" || strings.HasPrefix(m, "kimi-k3.1-pro"):
+		return "kimi-k3.1-pro"
+	case m == "kimi-k3" || strings.HasPrefix(m, "kimi-k3-") || strings.HasPrefix(m, "kimi-k3."):
+		// kimi-k3 / future kimi-k3.x that are not k3.1-pro
+		if strings.HasPrefix(m, "kimi-k3.1") {
+			return "kimi-k3.1-pro"
+		}
+		return "kimi-k3"
+	case strings.HasPrefix(m, "kimi-k2.7-code-highspeed"):
+		return "kimi-k2.7-code-highspeed"
+	case strings.HasPrefix(m, "kimi-k2.7-code"):
+		return "kimi-k2.7-code"
+	case strings.HasPrefix(m, "kimi-k2.6"):
+		return "kimi-k2.6"
+	case strings.HasPrefix(m, "kimi-"):
+		return kimiFallbackKey
 	default:
 		return ""
 	}
@@ -240,6 +276,8 @@ func Price(model string, at time.Time) Prices {
 		} else if strings.HasPrefix(m, "qwen") {
 			// Unknown DashScope Qwen model: bill as the balanced tier, not $0.
 			return builtinQwenSheet[qwenFallbackKey]
+		} else if strings.HasPrefix(m, "kimi-") {
+			return builtinKimiSheet[kimiFallbackKey]
 		} else if strings.HasPrefix(m, "yandexgpt") || strings.Contains(m, "gpt://") {
 			return builtinYandexSheet[yandexFallbackKey]
 		} else {
@@ -253,6 +291,9 @@ func Price(model string, at time.Time) Prices {
 		return p
 	}
 	if p, ok := builtinQwenSheet[key]; ok {
+		return p
+	}
+	if p, ok := builtinKimiSheet[key]; ok {
 		return p
 	}
 	if p, ok := builtinYandexSheet[key]; ok {
