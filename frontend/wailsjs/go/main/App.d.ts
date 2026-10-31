@@ -44,6 +44,8 @@ export function ClearLocalKey():Promise<void>;
 
 export function ClearOpenRouterKey():Promise<void>;
 
+export function ClearKimiKey():Promise<void>;
+
 export function ClearQwenKey():Promise<void>;
 
 export function ClearTodos(arg1:boolean):Promise<Array<Record<string, any>>>;
@@ -77,6 +79,8 @@ export function GetAskSound():Promise<string>;
 export function GetCursorRules():Promise<rules.Bundle>;
 
 export function GetDeepSeekBalance():Promise<deepseek.AccountBalance>;
+
+export function GetKimiBalance():Promise<kimi.AccountBalance>;
 
 export function GetDeepSeekPeakInfo(arg1:string):Promise<costing.PeakInfo>;
 
@@ -118,6 +122,8 @@ export function ListOpenRouterModels():Promise<main.ModelCatalog>;
 
 export function ListProjects():Promise<Array<workspace.Project>>;
 
+export function ListKimiModels():Promise<main.ModelCatalog>;
+
 export function ListQwenModels():Promise<main.ModelCatalog>;
 
 export function ListYandexModels():Promise<main.ModelCatalog>;
@@ -153,6 +159,8 @@ export function PreferDeepSeekModel(arg1:Array<string>):Promise<string>;
 export function PreferLocalModel(arg1:Array<string>):Promise<string>;
 
 export function PreferOpenRouterModel(arg1:Array<string>):Promise<string>;
+
+export function PreferKimiModel(arg1:Array<string>):Promise<string>;
 
 export function PreferQwenModel(arg1:Array<string>):Promise<string>;
 
@@ -261,6 +269,10 @@ export function SaveOpenRouterModel(arg1:string):Promise<void>;
 export function SavePlanMode(arg1:boolean):Promise<void>;
 
 export function SaveQwenEndpoint(arg1:string):Promise<void>;
+
+export function SaveKimiKey(arg1:string):Promise<void>;
+
+export function SaveKimiModel(arg1:string):Promise<void>;
 
 export function SaveQwenKey(arg1:string):Promise<void>;
 

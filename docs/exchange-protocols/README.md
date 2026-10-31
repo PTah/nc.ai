@@ -32,6 +32,7 @@ type Provider interface {
 | [deepseek.md](./deepseek.md) | DeepSeek | **этап 1 — первый endpoint** |
 | [openrouter.md](./openrouter.md) | OpenRouter | **реализовано** |
 | [qwen.md](./qwen.md) | Qwen (Alibaba Cloud / DashScope) | **реализовано** |
+- [kimi.md](kimi.md) — Kimi / Moonshot AI
 | [yandex.md](./yandex.md) | Yandex AI Studio | **реализовано** |
 | [anthropic.md](./anthropic.md) | Anthropic Claude | **реализовано** (профиль `protocol: anthropic`) |
 | [zai-glm.md](./zai-glm.md) | Z.ai / BigModel GLM | спецификация |

@@ -16,6 +16,7 @@ func TestEscalationGatePerProvider(t *testing.T) {
 		{"openrouter", ModelORStrong, "qwen/qwen3-coder-flash"},
 		{"zai", ModelZaiStrong, ModelZaiFree},
 		{"qwen", ModelQwenStrong, ModelQwenFast},
+		{"kimi", ModelKimiStrong, ModelKimiFast},
 		{"yandex", ModelYandexStrong, ModelYandexDefault},
 	}
 	for _, c := range cases {
@@ -49,7 +50,7 @@ func TestEscalationGatePerProvider(t *testing.T) {
 }
 
 func TestEscalationGateOff(t *testing.T) {
-	for _, p := range []string{"deepseek", "openrouter", "zai", "qwen", "yandex"} {
+	for _, p := range []string{"deepseek", "openrouter", "zai", "qwen", "kimi", "yandex"} {
 		r := &Runner{AutoModels: false, ProviderID: p}
 		if r.escalateEnabled() {
 			t.Fatalf("%s: gate must be off when AutoModels=false", p)

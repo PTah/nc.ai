@@ -308,6 +308,36 @@ export namespace costing {
 
 }
 
+
+export namespace kimi {
+	
+	export class AccountBalance {
+	    ok: boolean;
+	    availableUsd: number;
+	    voucherUsd: number;
+	    cashUsd: number;
+	    currency: string;
+	    source: string;
+	    detail: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new AccountBalance(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ok = source["ok"];
+	        this.availableUsd = source["availableUsd"];
+	        this.voucherUsd = source["voucherUsd"];
+	        this.cashUsd = source["cashUsd"];
+	        this.currency = source["currency"];
+	        this.source = source["source"];
+	        this.detail = source["detail"];
+	    }
+	}
+
+}
+
 export namespace deepseek {
 	
 	export class AccountBalance {

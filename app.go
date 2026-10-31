@@ -34,6 +34,7 @@ import (
 	"notcursor.ai/app/internal/llm"
 	"notcursor.ai/app/internal/llm/providers/anthropic"
 	"notcursor.ai/app/internal/llm/providers/deepseek"
+	"notcursor.ai/app/internal/llm/providers/kimi"
 	"notcursor.ai/app/internal/llm/providers/local"
 	"notcursor.ai/app/internal/llm/providers/openrouter"
 	"notcursor.ai/app/internal/llm/providers/qwen"
@@ -122,6 +123,9 @@ type App struct {
 
 	dsBalMu sync.Mutex
 	dsBal   deepseek.AccountBalance
+
+	kimiBalMu sync.Mutex
+	kimiBal   kimi.AccountBalance
 
 	// netMu guards the LLM connection-drop counters (Settings → Network).
 	netMu        sync.Mutex
@@ -983,6 +987,11 @@ func (a *App) buildProviderFor(provider, model string) llm.Provider {
 			model = qwen.DefaultModel
 		}
 		return qwen.NewWithBaseURL(key, model, a.cfg.QwenBaseURL())
+	case provider == config.ProviderKimi:
+		if model == "" {
+			model = kimi.DefaultModel
+		}
+		return kimi.New(key, model)
 	case provider == config.ProviderYandex:
 		if model == "" {
 			model = yandex.DefaultModel
@@ -1411,6 +1420,8 @@ func (a *App) GetSettings() map[string]any {
 		"qwenModel":            orDefault(s.QwenModel, qwen.DefaultModel),
 		"qwenKeySet":           a.cfg.HasAPIKey(config.ProviderQwen),
 		"qwenEndpoint":         a.cfg.QwenEndpoint(),
+		"kimiModel":            orDefault(s.KimiModel, kimi.DefaultModel),
+		"kimiKeySet":           a.cfg.HasAPIKey(config.ProviderKimi),
 		"yandexModel":          orDefault(s.YandexModel, yandex.DefaultModel),
 		"yandexKeySet":         a.cfg.HasAPIKey(config.ProviderYandex),
 		"yandexFolderId":       a.cfg.YandexFolderID(),
@@ -1648,6 +1659,16 @@ func (a *App) GetUsageStats() UsageStats {
 		outStats.BalanceDetail = bal.Detail
 		outStats.BalanceToppedUp = bal.ToppedUpUSD
 		outStats.BalanceGranted = bal.GrantedUSD
+	}
+	if provider == config.ProviderKimi {
+		a.kimiBalMu.Lock()
+		bal := a.kimiBal
+		a.kimiBalMu.Unlock()
+		outStats.BalanceOk = bal.OK
+		outStats.BalanceUsd = bal.AvailableUSD
+		outStats.BalanceDetail = bal.Detail
+		outStats.BalanceToppedUp = bal.CashUSD
+		outStats.BalanceGranted = bal.VoucherUSD
 	}
 	if a.chats == nil {
 		return outStats
@@ -2014,6 +2035,31 @@ func (a *App) SaveQwenEndpoint(endpoint string) error {
 	if err := a.cfg.SetQwenEndpoint(endpoint); err != nil {
 		return err
 	}
+	a.refreshProvider()
+	return nil
+}
+
+func (a *App) SaveKimiKey(apiKey string) error {
+	if err := a.cfg.SetKimiAPIKey(apiKey); err != nil {
+		return err
+	}
+	a.refreshProvider()
+	return nil
+}
+
+func (a *App) ClearKimiKey() error {
+	if err := a.cfg.ClearAPIKey(config.ProviderKimi); err != nil {
+		return err
+	}
+	a.refreshProvider()
+	return nil
+}
+
+func (a *App) SaveKimiModel(model string) error {
+	if err := a.cfg.SetKimiModel(model); err != nil {
+		return err
+	}
+	a.clearSessionStickyModels()
 	a.refreshProvider()
 	return nil
 }
@@ -2609,6 +2655,32 @@ func (a *App) PreferQwenModel(available []string) string {
 	return qwen.PreferModel(available, a.cfg.Get().QwenModel)
 }
 
+// ListKimiModels fetches Moonshot GET /models (curated fallback on error).
+func (a *App) ListKimiModels() ModelCatalog {
+	key := a.cfg.APIKey(config.ProviderKimi)
+	if key == "" {
+		return modelCatalog(kimi.OrderModels(kimi.FallbackModels()), "no-key", "", kimi.DisplayName)
+	}
+	client := kimi.New(key, a.cfg.Get().KimiModel)
+	ctx := a.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(ctx, 25*time.Second)
+	defer cancel()
+	items, err := client.ListModels(ctx)
+	source, errMsg := catalogSource(err, len(items))
+	if source != "api" {
+		return modelCatalog(kimi.OrderModels(kimi.FallbackModels()), source, errMsg, kimi.DisplayName)
+	}
+	return modelCatalog(kimi.OrderModels(kimi.MergeCurated(kimi.FilterModels(items, 60))), source, "", kimi.DisplayName)
+}
+
+// PreferKimiModel keeps the saved model when still available; else kimi-k3.1-pro.
+func (a *App) PreferKimiModel(available []string) string {
+	return kimi.PreferModel(available, a.cfg.Get().KimiModel)
+}
+
 // ListYandexModels fetches AI Studio /models (curated fallback on error).
 func (a *App) ListYandexModels() ModelCatalog {
 	key := a.cfg.APIKey(config.ProviderYandex)
@@ -2667,6 +2739,24 @@ func (a *App) GetDeepSeekBalance() deepseek.AccountBalance {
 	a.dsBalMu.Lock()
 	a.dsBal = bal
 	a.dsBalMu.Unlock()
+	return bal
+}
+
+// GetKimiBalance returns GET /users/me/balance for the saved Kimi key.
+func (a *App) GetKimiBalance() kimi.AccountBalance {
+	key := a.cfg.APIKey(config.ProviderKimi)
+	ctx := a.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	bal := kimi.FetchBalance(ctx, key)
+	if bal.Source == "balance" {
+		a.logAgentLine(fmt.Sprintf("kimi balance avail=%.4f voucher=%.4f cash=%.4f",
+			bal.AvailableUSD, bal.VoucherUSD, bal.CashUSD))
+	}
+	a.kimiBalMu.Lock()
+	a.kimiBal = bal
+	a.kimiBalMu.Unlock()
 	return bal
 }
 
@@ -4158,6 +4248,14 @@ func (a *App) RunAgentInSession(sessionID, runID, userMessage string, attachment
 			a.appendMCPNotice(sid, "⚠️ Пополнение DeepSeek меньше $1 — ответ может оборваться, если баланс кончится. Пополните счёт.")
 		}
 	}
+	if a.cfg.Provider() == config.ProviderKimi {
+		a.kimiBalMu.Lock()
+		bal := a.kimiBal
+		a.kimiBalMu.Unlock()
+		if bal.OK && bal.AvailableUSD < 1 {
+			a.appendMCPNotice(sid, "⚠️ Баланс Kimi меньше $1 — ответ может оборваться, если баланс кончится. Пополните счёт на platform.kimi.ai.")
+		}
+	}
 	if localSkipRules {
 		a.emitRun(sid, runID, agent.Event{
 			Type:    "notice",
@@ -4389,6 +4487,11 @@ func (a *App) usageBalanceSnapshot(provider string) (ok bool, usd float64, detai
 		bal := a.dsBal
 		a.dsBalMu.Unlock()
 		return bal.OK, bal.AvailableUSD, bal.Detail
+	case config.ProviderKimi:
+		a.kimiBalMu.Lock()
+		bal := a.kimiBal
+		a.kimiBalMu.Unlock()
+		return bal.OK, bal.AvailableUSD, bal.Detail
 	default:
 		return false, 0, ""
 	}
@@ -4416,6 +4519,10 @@ func (a *App) requireProviderReady() error {
 	case a.cfg.Provider() == config.ProviderQwen:
 		if a.cfg.ActiveAPIKey() == "" {
 			return fmt.Errorf("Qwen (DashScope) API key is not set")
+		}
+	case a.cfg.Provider() == config.ProviderKimi:
+		if a.cfg.ActiveAPIKey() == "" {
+			return fmt.Errorf("Kimi API key is not set")
 		}
 	case a.cfg.Provider() == config.ProviderYandex:
 		if a.cfg.ActiveAPIKey() == "" {

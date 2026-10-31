@@ -99,7 +99,7 @@ func (r *Runner) escalateEnabled() bool {
 	if r == nil || !r.AutoModels {
 		return false
 	}
-	if r.isOpenRouter() || r.isZai() || r.isQwen() || r.isYandex() {
+	if r.isOpenRouter() || r.isZai() || r.isQwen() || r.isKimi() || r.isYandex() {
 		return true
 	}
 	if !r.isDeepSeek() {
@@ -123,6 +123,8 @@ func (r *Runner) strongModel() string {
 		return ModelZaiStrong
 	case r.isQwen():
 		return ModelQwenStrong
+	case r.isKimi():
+		return ModelKimiStrong
 	case r.isYandex():
 		return ModelYandexStrong
 	default:
@@ -145,6 +147,8 @@ func (r *Runner) isWeakAutoModel(model string) bool {
 		return strings.EqualFold(m, ModelZaiFree)
 	case r.isQwen():
 		return strings.EqualFold(m, ModelQwenFast) || strings.EqualFold(m, ModelQwenPlus)
+	case r.isKimi():
+		return strings.EqualFold(m, ModelKimiFast)
 	case r.isYandex():
 		return strings.EqualFold(m, ModelYandexDefault) || strings.EqualFold(m, ModelYandexFast)
 	}
@@ -162,6 +166,8 @@ func (r *Runner) providerLabel() string {
 		return "Z.ai " + ModelZaiStrong
 	case r.isQwen():
 		return "Qwen " + ModelQwenStrong
+	case r.isKimi():
+		return "Kimi " + ModelKimiStrong
 	case r.isYandex():
 		return "Yandex " + ModelYandexStrong
 	default:

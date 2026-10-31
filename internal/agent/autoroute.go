@@ -6,6 +6,7 @@ import (
 	"unicode/utf8"
 
 	"notcursor.ai/app/internal/llm/providers/deepseek"
+	"notcursor.ai/app/internal/llm/providers/kimi"
 	"notcursor.ai/app/internal/llm/providers/openrouter"
 	"notcursor.ai/app/internal/llm/providers/qwen"
 	"notcursor.ai/app/internal/llm/providers/yandex"
@@ -39,6 +40,14 @@ const (
 	ModelQwenFast   = qwen.FastModel    // qwen-turbo (cheapest)
 	ModelQwenStrong = qwen.StrongModel  // qwen-max (flagship)
 	ModelQwenVision = qwen.VisionModel  // qwen-vl-max (multimodal)
+)
+
+// Auto model ids (Kimi / Moonshot).
+const (
+	ModelKimiDefault = kimi.DefaultModel // kimi-k3.1-pro
+	ModelKimiFast    = kimi.FastModel    // kimi-k3.1-pro-highspeed
+	ModelKimiStrong  = kimi.StrongModel  // kimi-k3.1-pro (same flagship)
+	ModelKimiVision  = kimi.VisionModel  // kimi-k3.1-pro (native vision)
 )
 
 // Auto model ids (Yandex AI Studio).
@@ -151,6 +160,22 @@ func PickQwenModel(in RouteInput) RouteDecision {
 		return RouteDecision{Model: ModelQwenStrong, Reason: "complex"}
 	}
 	return RouteDecision{Model: ModelQwenPlus, Reason: "default"}
+}
+
+// PickKimiModel chooses K3.1 Pro vs Highspeed for Kimi Auto-models.
+//
+// Priority:
+//  1. Any image → kimi-k3.1-pro (native vision)
+//  2. Long tool run / complex → kimi-k3.1-pro (max quality)
+//  3. Otherwise → highspeed (faster, same family)
+func PickKimiModel(in RouteInput) RouteDecision {
+	if in.HasImages {
+		return RouteDecision{Model: ModelKimiVision, Reason: "image"}
+	}
+	if in.Step >= 8 || in.HintPathCount >= 4 || isComplexTask(in.UserText) {
+		return RouteDecision{Model: ModelKimiStrong, Reason: "complex"}
+	}
+	return RouteDecision{Model: ModelKimiFast, Reason: "default"}
 }
 
 // PickYandexModel chooses yandexgpt / lite / qwen3 for Yandex AI Studio Auto-models.

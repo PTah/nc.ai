@@ -58,6 +58,12 @@ type Session struct {
 	QwenCacheHitTokens  int     `json:"qwenCacheHitTokens,omitempty"`
 	QwenCacheMissTokens int     `json:"qwenCacheMissTokens,omitempty"`
 
+	KimiCostUSD         float64 `json:"kimiCostUsd,omitempty"`
+	KimiInputTokens     int     `json:"kimiInputTokens,omitempty"`
+	KimiOutputTokens    int     `json:"kimiOutputTokens,omitempty"`
+	KimiCacheHitTokens  int     `json:"kimiCacheHitTokens,omitempty"`
+	KimiCacheMissTokens int     `json:"kimiCacheMissTokens,omitempty"`
+
 	YandexCostUSD         float64 `json:"yandexCostUsd,omitempty"`
 	YandexInputTokens     int     `json:"yandexInputTokens,omitempty"`
 	YandexOutputTokens    int     `json:"yandexOutputTokens,omitempty"`
@@ -796,6 +802,11 @@ func (s *Store) Clear(project string) error {
 	sess.QwenOutputTokens = 0
 	sess.QwenCacheHitTokens = 0
 	sess.QwenCacheMissTokens = 0
+	sess.KimiCostUSD = 0
+	sess.KimiInputTokens = 0
+	sess.KimiOutputTokens = 0
+	sess.KimiCacheHitTokens = 0
+	sess.KimiCacheMissTokens = 0
 	sess.YandexCostUSD = 0
 	sess.YandexInputTokens = 0
 	sess.YandexOutputTokens = 0
@@ -826,6 +837,9 @@ func (sess *Session) ProviderUsage(provider string) (cost float64, in, out, cach
 	case p == "qwen":
 		return sess.QwenCostUSD, sess.QwenInputTokens, sess.QwenOutputTokens,
 			sess.QwenCacheHitTokens, sess.QwenCacheMissTokens
+	case p == "kimi":
+		return sess.KimiCostUSD, sess.KimiInputTokens, sess.KimiOutputTokens,
+			sess.KimiCacheHitTokens, sess.KimiCacheMissTokens
 	case p == "yandex":
 		return sess.YandexCostUSD, sess.YandexInputTokens, sess.YandexOutputTokens,
 			sess.YandexCacheHitTokens, sess.YandexCacheMissTokens
@@ -837,6 +851,7 @@ func (sess *Session) ProviderUsage(provider string) (cost float64, in, out, cach
 			sess.ZaiCostUSD == 0 && sess.ZaiInputTokens == 0 && sess.ZaiOutputTokens == 0 &&
 			sess.OpenRouterCostUSD == 0 && sess.OpenRouterInputTokens == 0 && sess.OpenRouterOutputTokens == 0 &&
 			sess.QwenCostUSD == 0 && sess.QwenInputTokens == 0 && sess.QwenOutputTokens == 0 &&
+			sess.KimiCostUSD == 0 && sess.KimiInputTokens == 0 && sess.KimiOutputTokens == 0 &&
 			sess.YandexCostUSD == 0 && sess.YandexInputTokens == 0 && sess.YandexOutputTokens == 0 &&
 			sess.LocalCostUSD == 0 && sess.LocalInputTokens == 0 && sess.LocalOutputTokens == 0 &&
 			(sess.CostUSD != 0 || sess.InputTokens != 0 || sess.OutputTokens != 0) {
@@ -883,6 +898,12 @@ func (s *Store) AddUsage(project, sessionID, provider string, costUSD float64, i
 				b.Sessions[i].QwenOutputTokens += outputTokens
 				b.Sessions[i].QwenCacheHitTokens += cacheHit
 				b.Sessions[i].QwenCacheMissTokens += cacheMiss
+			case p == "kimi":
+				b.Sessions[i].KimiCostUSD += costUSD
+				b.Sessions[i].KimiInputTokens += inputTokens
+				b.Sessions[i].KimiOutputTokens += outputTokens
+				b.Sessions[i].KimiCacheHitTokens += cacheHit
+				b.Sessions[i].KimiCacheMissTokens += cacheMiss
 			case p == "yandex":
 				b.Sessions[i].YandexCostUSD += costUSD
 				b.Sessions[i].YandexInputTokens += inputTokens

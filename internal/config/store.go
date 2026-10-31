@@ -24,6 +24,7 @@ const (
 	ProviderZAI        = "zai"
 	ProviderOpenRouter = "openrouter"
 	ProviderQwen       = "qwen"
+	ProviderKimi       = "kimi"
 	ProviderYandex     = "yandex"
 	ProviderLocal      = "local"
 )
@@ -144,6 +145,9 @@ type Settings struct {
 	QwenModel  string `json:"qwenModel,omitempty"`
 	// QwenEndpoint: "intl" (international, default) or "cn" (mainland China).
 	QwenEndpoint string `json:"qwenEndpoint,omitempty"`
+
+	KimiAPIKey string `json:"kimiApiKey,omitempty"`
+	KimiModel  string `json:"kimiModel,omitempty"`
 
 	YandexAPIKey string `json:"yandexApiKey,omitempty"`
 	YandexModel  string `json:"yandexModel,omitempty"`
@@ -338,6 +342,12 @@ type Settings struct {
 	QwenCacheHitTokens  int     `json:"qwenCacheHitTokens,omitempty"`
 	QwenCacheMissTokens int     `json:"qwenCacheMissTokens,omitempty"`
 
+	KimiCostUSD         float64 `json:"kimiCostUsd,omitempty"`
+	KimiInputTokens     int     `json:"kimiInputTokens,omitempty"`
+	KimiOutputTokens    int     `json:"kimiOutputTokens,omitempty"`
+	KimiCacheHitTokens  int     `json:"kimiCacheHitTokens,omitempty"`
+	KimiCacheMissTokens int     `json:"kimiCacheMissTokens,omitempty"`
+
 	YandexCostUSD         float64 `json:"yandexCostUsd,omitempty"`
 	YandexInputTokens     int     `json:"yandexInputTokens,omitempty"`
 	YandexOutputTokens    int     `json:"yandexOutputTokens,omitempty"`
@@ -374,6 +384,7 @@ func (s Settings) MarshalJSON() ([]byte, error) {
 	p.ZaiAPIKey = ""
 	p.OpenRouterAPIKey = ""
 	p.QwenAPIKey = ""
+	p.KimiAPIKey = ""
 	p.YandexAPIKey = ""
 	p.LocalAPIKey = ""
 	p.GitPassword = ""
@@ -400,6 +411,7 @@ func NewStore() *Store {
 			OpenRouterModel: "qwen/qwen3-coder-flash:floor",
 			QwenModel:       "qwen-plus",
 			QwenEndpoint:    QwenEndpointIntl,
+			KimiModel:       "kimi-k3.1-pro",
 			YandexModel:     "yandexgpt",
 			LocalBaseURL:    DefaultLocalBaseURL,
 			Shell:           "",
@@ -503,6 +515,9 @@ func (s *Store) Load() error {
 		s.settings.QwenModel = "qwen-plus"
 	}
 	s.settings.QwenEndpoint = normalizeQwenEndpoint(s.settings.QwenEndpoint)
+	if s.settings.KimiModel == "" {
+		s.settings.KimiModel = "kimi-k3.1-pro"
+	}
 	endpointsChanged := s.ensureLocalEndpointsLocked()
 	// Legacy default was the bare name "powershell"; empty now means auto-detect (pwsh → PS5).
 	if strings.EqualFold(strings.TrimSpace(s.settings.Shell), "powershell") {
@@ -602,6 +617,17 @@ func (s *Store) SetQwenModel(model string) error {
 func (s *Store) SetQwenEndpoint(endpoint string) error {
 	s.mu.Lock()
 	s.settings.QwenEndpoint = normalizeQwenEndpoint(endpoint)
+	s.mu.Unlock()
+	return s.Save()
+}
+
+func (s *Store) SetKimiAPIKey(key string) error {
+	return s.setAPIKey(ProviderKimi, key)
+}
+
+func (s *Store) SetKimiModel(model string) error {
+	s.mu.Lock()
+	s.settings.KimiModel = model
 	s.mu.Unlock()
 	return s.Save()
 }
@@ -797,7 +823,7 @@ func (s *Store) ClearAPIKey(provider string) error {
 
 func (s *Store) ClearAllAPIKeys() error {
 	var first error
-	for _, id := range []string{ProviderDeepSeek, ProviderZAI, ProviderOpenRouter, ProviderQwen, ProviderYandex} {
+	for _, id := range []string{ProviderDeepSeek, ProviderZAI, ProviderOpenRouter, ProviderQwen, ProviderKimi, ProviderYandex} {
 		if err := s.setAPIKey(id, ""); err != nil && first == nil {
 			first = err
 		}
@@ -823,6 +849,8 @@ func secretID(provider string) string {
 		return secrets.IDOpenRouter
 	case p == ProviderQwen:
 		return secrets.IDQwen
+	case p == ProviderKimi:
+		return secrets.IDKimi
 	case p == ProviderYandex:
 		return secrets.IDYandex
 	case IsLocalProvider(p):
@@ -872,13 +900,14 @@ func (s *Store) migrateLegacyKeysLocked() bool {
 	move(secrets.IDZai, s.settings.ZaiAPIKey, func() { s.settings.ZaiAPIKey = "" })
 	move(secrets.IDOpenRouter, s.settings.OpenRouterAPIKey, func() { s.settings.OpenRouterAPIKey = "" })
 	move(secrets.IDQwen, s.settings.QwenAPIKey, func() { s.settings.QwenAPIKey = "" })
+	move(secrets.IDKimi, s.settings.KimiAPIKey, func() { s.settings.KimiAPIKey = "" })
 	move(secrets.IDYandex, s.settings.YandexAPIKey, func() { s.settings.YandexAPIKey = "" })
 	move(secrets.IDLocal, s.settings.LocalAPIKey, func() { s.settings.LocalAPIKey = "" })
 	if strings.TrimSpace(s.settings.GitPassword) != "" {
 		s.settings.GitPassword = ""
 		changed = true
 	}
-	for _, id := range []string{secrets.IDDeepSeek, secrets.IDZai, secrets.IDOpenRouter, secrets.IDQwen, secrets.IDYandex, secrets.IDLocal} {
+	for _, id := range []string{secrets.IDDeepSeek, secrets.IDZai, secrets.IDOpenRouter, secrets.IDQwen, secrets.IDKimi, secrets.IDYandex, secrets.IDLocal} {
 		if s.keys[id] != "" {
 			continue
 		}
@@ -911,6 +940,7 @@ func (s *Store) setAPIKey(provider, key string) error {
 	s.settings.ZaiAPIKey = ""
 	s.settings.OpenRouterAPIKey = ""
 	s.settings.QwenAPIKey = ""
+	s.settings.KimiAPIKey = ""
 	s.settings.YandexAPIKey = ""
 	s.settings.LocalAPIKey = ""
 	s.mu.Unlock()
@@ -935,6 +965,11 @@ func (s *Store) ActiveModel() string {
 			return "qwen-plus"
 		}
 		return s.settings.QwenModel
+	case p == ProviderKimi:
+		if s.settings.KimiModel == "" {
+			return "kimi-k3.1-pro"
+		}
+		return s.settings.KimiModel
 	case p == ProviderYandex:
 		if s.settings.YandexModel == "" {
 			return "yandexgpt"
@@ -961,6 +996,8 @@ func (s *Store) SetActiveModel(model string) error {
 		s.settings.OpenRouterModel = model
 	case p == ProviderQwen:
 		s.settings.QwenModel = model
+	case p == ProviderKimi:
+		s.settings.KimiModel = model
 	case p == ProviderYandex:
 		s.settings.YandexModel = model
 	case IsLocalProvider(p):
@@ -985,6 +1022,8 @@ func normalizeProvider(p string) string {
 		return ProviderOpenRouter
 	case p == ProviderQwen:
 		return ProviderQwen
+	case p == ProviderKimi:
+		return ProviderKimi
 	case p == ProviderYandex:
 		return ProviderYandex
 	case IsLocalProvider(p):
@@ -2012,6 +2051,12 @@ func (s *Store) AddUsage(provider string, costUSD float64, inputTokens, outputTo
 		s.settings.QwenOutputTokens += outputTokens
 		s.settings.QwenCacheHitTokens += cacheHit
 		s.settings.QwenCacheMissTokens += cacheMiss
+	case normalizeProvider(provider) == ProviderKimi:
+		s.settings.KimiCostUSD += costUSD
+		s.settings.KimiInputTokens += inputTokens
+		s.settings.KimiOutputTokens += outputTokens
+		s.settings.KimiCacheHitTokens += cacheHit
+		s.settings.KimiCacheMissTokens += cacheMiss
 	case normalizeProvider(provider) == ProviderYandex:
 		s.settings.YandexCostUSD += costUSD
 		s.settings.YandexInputTokens += inputTokens
@@ -2049,6 +2094,9 @@ func (s *Store) ProviderUsage(provider string) (cost float64, in, out, cacheHit,
 	case normalizeProvider(provider) == ProviderQwen:
 		return s.settings.QwenCostUSD, s.settings.QwenInputTokens, s.settings.QwenOutputTokens,
 			s.settings.QwenCacheHitTokens, s.settings.QwenCacheMissTokens
+	case normalizeProvider(provider) == ProviderKimi:
+		return s.settings.KimiCostUSD, s.settings.KimiInputTokens, s.settings.KimiOutputTokens,
+			s.settings.KimiCacheHitTokens, s.settings.KimiCacheMissTokens
 	case normalizeProvider(provider) == ProviderYandex:
 		return s.settings.YandexCostUSD, s.settings.YandexInputTokens, s.settings.YandexOutputTokens,
 			s.settings.YandexCacheHitTokens, s.settings.YandexCacheMissTokens
