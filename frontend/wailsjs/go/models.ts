@@ -104,6 +104,11 @@ export namespace chatstore {
 	    qwenOutputTokens?: number;
 	    qwenCacheHitTokens?: number;
 	    qwenCacheMissTokens?: number;
+	    kimiCostUsd?: number;
+	    kimiInputTokens?: number;
+	    kimiOutputTokens?: number;
+	    kimiCacheHitTokens?: number;
+	    kimiCacheMissTokens?: number;
 	    yandexCostUsd?: number;
 	    yandexInputTokens?: number;
 	    yandexOutputTokens?: number;
@@ -151,6 +156,11 @@ export namespace chatstore {
 	        this.qwenOutputTokens = source["qwenOutputTokens"];
 	        this.qwenCacheHitTokens = source["qwenCacheHitTokens"];
 	        this.qwenCacheMissTokens = source["qwenCacheMissTokens"];
+	        this.kimiCostUsd = source["kimiCostUsd"];
+	        this.kimiInputTokens = source["kimiInputTokens"];
+	        this.kimiOutputTokens = source["kimiOutputTokens"];
+	        this.kimiCacheHitTokens = source["kimiCacheHitTokens"];
+	        this.kimiCacheMissTokens = source["kimiCacheMissTokens"];
 	        this.yandexCostUsd = source["yandexCostUsd"];
 	        this.yandexInputTokens = source["yandexInputTokens"];
 	        this.yandexOutputTokens = source["yandexOutputTokens"];
@@ -308,36 +318,6 @@ export namespace costing {
 
 }
 
-
-export namespace kimi {
-	
-	export class AccountBalance {
-	    ok: boolean;
-	    availableUsd: number;
-	    voucherUsd: number;
-	    cashUsd: number;
-	    currency: string;
-	    source: string;
-	    detail: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new AccountBalance(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.ok = source["ok"];
-	        this.availableUsd = source["availableUsd"];
-	        this.voucherUsd = source["voucherUsd"];
-	        this.cashUsd = source["cashUsd"];
-	        this.currency = source["currency"];
-	        this.source = source["source"];
-	        this.detail = source["detail"];
-	    }
-	}
-
-}
-
 export namespace deepseek {
 	
 	export class AccountBalance {
@@ -362,6 +342,35 @@ export namespace deepseek {
 	        this.toppedUpUsd = source["toppedUpUsd"];
 	        this.currency = source["currency"];
 	        this.isAvailable = source["isAvailable"];
+	        this.source = source["source"];
+	        this.detail = source["detail"];
+	    }
+	}
+
+}
+
+export namespace kimi {
+	
+	export class AccountBalance {
+	    ok: boolean;
+	    availableUsd: number;
+	    voucherUsd: number;
+	    cashUsd: number;
+	    currency: string;
+	    source: string;
+	    detail: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new AccountBalance(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ok = source["ok"];
+	        this.availableUsd = source["availableUsd"];
+	        this.voucherUsd = source["voucherUsd"];
+	        this.cashUsd = source["cashUsd"];
+	        this.currency = source["currency"];
 	        this.source = source["source"];
 	        this.detail = source["detail"];
 	    }

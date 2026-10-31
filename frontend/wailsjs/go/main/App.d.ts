@@ -5,6 +5,7 @@ import {update} from '../models';
 import {rules} from '../models';
 import {deepseek} from '../models';
 import {costing} from '../models';
+import {kimi} from '../models';
 import {config} from '../models';
 import {openrouter} from '../models';
 import {providernews} from '../models';
@@ -40,11 +41,11 @@ export function ClearChat():Promise<void>;
 
 export function ClearDeepSeekKey():Promise<void>;
 
+export function ClearKimiKey():Promise<void>;
+
 export function ClearLocalKey():Promise<void>;
 
 export function ClearOpenRouterKey():Promise<void>;
-
-export function ClearKimiKey():Promise<void>;
 
 export function ClearQwenKey():Promise<void>;
 
@@ -80,11 +81,11 @@ export function GetCursorRules():Promise<rules.Bundle>;
 
 export function GetDeepSeekBalance():Promise<deepseek.AccountBalance>;
 
-export function GetKimiBalance():Promise<kimi.AccountBalance>;
-
 export function GetDeepSeekPeakInfo(arg1:string):Promise<costing.PeakInfo>;
 
 export function GetEndSound():Promise<string>;
+
+export function GetKimiBalance():Promise<kimi.AccountBalance>;
 
 export function GetMCPServers():Promise<Array<config.MCPServerSettings>>;
 
@@ -112,6 +113,8 @@ export function ListDeepSeekModels():Promise<main.ModelCatalog>;
 
 export function ListDir(arg1:string):Promise<Array<workspace.Entry>>;
 
+export function ListKimiModels():Promise<main.ModelCatalog>;
+
 export function ListLocalModels():Promise<main.ModelCatalog>;
 
 export function ListLocalModelsFor(arg1:string):Promise<Array<string>>;
@@ -121,8 +124,6 @@ export function ListModelPrices():Promise<Array<costing.ModelPrice>>;
 export function ListOpenRouterModels():Promise<main.ModelCatalog>;
 
 export function ListProjects():Promise<Array<workspace.Project>>;
-
-export function ListKimiModels():Promise<main.ModelCatalog>;
 
 export function ListQwenModels():Promise<main.ModelCatalog>;
 
@@ -156,11 +157,11 @@ export function PickProjectRootDir():Promise<string>;
 
 export function PreferDeepSeekModel(arg1:Array<string>):Promise<string>;
 
+export function PreferKimiModel(arg1:Array<string>):Promise<string>;
+
 export function PreferLocalModel(arg1:Array<string>):Promise<string>;
 
 export function PreferOpenRouterModel(arg1:Array<string>):Promise<string>;
-
-export function PreferKimiModel(arg1:Array<string>):Promise<string>;
 
 export function PreferQwenModel(arg1:Array<string>):Promise<string>;
 
@@ -244,6 +245,10 @@ export function SaveHTTP2PingSec(arg1:number):Promise<void>;
 
 export function SaveHTTPProtocol(arg1:string):Promise<void>;
 
+export function SaveKimiKey(arg1:string):Promise<void>;
+
+export function SaveKimiModel(arg1:string):Promise<void>;
+
 export function SaveLayoutSizes(arg1:number,arg2:number,arg3:number,arg4:number,arg5:number):Promise<void>;
 
 export function SaveLocalBaseURL(arg1:string):Promise<void>;
@@ -269,10 +274,6 @@ export function SaveOpenRouterModel(arg1:string):Promise<void>;
 export function SavePlanMode(arg1:boolean):Promise<void>;
 
 export function SaveQwenEndpoint(arg1:string):Promise<void>;
-
-export function SaveKimiKey(arg1:string):Promise<void>;
-
-export function SaveKimiModel(arg1:string):Promise<void>;
 
 export function SaveQwenKey(arg1:string):Promise<void>;
 
