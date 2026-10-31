@@ -828,6 +828,8 @@ export namespace providernews {
 	    date?: string;
 	    url: string;
 	    analysis?: string;
+	    new?: boolean;
+	    seen?: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new Item(source);
@@ -841,6 +843,8 @@ export namespace providernews {
 	        this.date = source["date"];
 	        this.url = source["url"];
 	        this.analysis = source["analysis"];
+	        this.new = source["new"];
+	        this.seen = source["seen"];
 	    }
 	}
 	export class SourceError {

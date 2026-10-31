@@ -1004,6 +1004,16 @@ mark.nc-find-mark.nc-find-current {
   border-radius: 999px; font-size: 0.64rem; line-height: 1; padding: 0.1rem 0.35rem; cursor: pointer;
 }
 .nc-news-analysis-toggle:hover { color: inherit; }
+/* Запись пришла в последнем обновлении: кнопка «… ИИ» подсвечена, пока анализ не
+   открыли. В светлой теме — мягкий зелёный, в тёмной — яркий, чтобы читалось. */
+[data-theme="light"] .nc-news-analysis-toggle.is-new {
+  color: #1d6b34; border-color: #8fd6a4; background: #e4f7ea;
+}
+[data-theme="light"] .nc-news-analysis-toggle.is-new:hover { background: #d3f0dd; color: #145127; }
+[data-theme="dark"] .nc-news-analysis-toggle.is-new {
+  color: #06210f; border-color: #3ff08a; background: #3ff08a; font-weight: 600;
+}
+[data-theme="dark"] .nc-news-analysis-toggle.is-new:hover { background: #63f5a2; color: #04170a; }
 .nc-diff-add { color: #2e7d32; }
 .nc-diff-del { color: #c62828; }
 .nc-diff-hunk { color: #6a1b9a; }

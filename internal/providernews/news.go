@@ -1,4 +1,5 @@
 // Edited by nc.ai 0.9.4 on new-admin-pc 2026-10-30 08:58:02
+// Edited by nc.ai 1.0.0 on Papasha 2026-10-31 10:37:54
 // Package providernews keeps a small local digest of what changed at the
 // providers we talk to (DeepSeek, Z.AI, OpenRouter, Qwen): new models, pricing
 // and API changes. The pricing refreshers in internal/costing only update the
@@ -34,6 +35,11 @@ type Item struct {
 	// Analysis — одно-два предложения от ИИ: что запись значит для пользователя
 	// NotCursor и как этим воспользоваться. Пусто, пока анализ не включён/не готов.
 	Analysis string `json:"analysis,omitempty"`
+	// New — запись появилась в последнем обновлении и её ещё не открывали.
+	// Живёт только в payload для UI, в кэш не пишется (см. PayloadOf).
+	New bool `json:"new,omitempty"`
+	// Seen — пользователь уже открывал ИИ-анализ этой записи.
+	Seen bool `json:"seen,omitempty"`
 }
 
 // SourceError reports a feed that could not be read this time.
@@ -54,6 +60,9 @@ type Snapshot struct {
 	ModelLists map[string][]string `json:"modelLists,omitempty"`
 	// PrevIDs is the id list of the previous digest, used to count what is new.
 	PrevIDs []string `json:"prevIds,omitempty"`
+	// SeenIDs — записи, чей ИИ-анализ пользователь уже открывал: подсветка «новое»
+	// на кнопке гаснет после прочтения и не возвращается после перезапуска.
+	SeenIDs []string `json:"seenIds,omitempty"`
 }
 
 // Payload is what the UI receives.
@@ -70,6 +79,9 @@ type Payload struct {
 
 // MaxItems caps the digest so the cache file and the UI stay small.
 const MaxItems = 60
+
+// MaxSeenIDs caps the list of entries whose AI analysis was already opened.
+const MaxSeenIDs = 200
 
 // StaleAfter is how long a digest stays "fresh" before the UI offers a refresh.
 const StaleAfter = 24 * time.Hour
@@ -126,13 +138,21 @@ func PayloadOf(s Snapshot, now time.Time) Payload {
 	for _, id := range s.PrevIDs {
 		seen[id] = true
 	}
+	read := make(map[string]bool, len(s.SeenIDs))
+	for _, id := range s.SeenIDs {
+		read[id] = true
+	}
+	items := make([]Item, len(s.Items))
 	newCount := 0
-	for _, it := range s.Items {
-		if !seen[it.ID] {
+	for i, it := range s.Items {
+		it.Seen = read[it.ID]
+		it.New = !seen[it.ID]
+		if it.New {
 			newCount++
 		}
+		items[i] = it
 	}
-	p := Payload{Items: s.Items, NewCount: newCount, Errors: s.Errors, Stale: true}
+	p := Payload{Items: items, NewCount: newCount, Errors: s.Errors, Stale: true}
 	if !s.UpdatedAt.IsZero() {
 		p.UpdatedAt = s.UpdatedAt.Format(time.RFC3339)
 		p.Stale = now.Sub(s.UpdatedAt) >= StaleAfter
@@ -161,6 +181,51 @@ func MarkRead() error {
 	}
 	s.ReadAt = time.Now()
 	return Save(s)
+}
+
+// MarkSeen запоминает, что пользователь открыл ИИ-анализ одной записи: подсветка
+// «новое» на кнопке гаснет и не возвращается после перезапуска приложения.
+func MarkSeen(id string) error {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return nil
+	}
+	s, err := Load()
+	if err != nil {
+		return err
+	}
+	for _, v := range s.SeenIDs {
+		if v == id {
+			return nil
+		}
+	}
+	s.SeenIDs = append(s.SeenIDs, id)
+	if len(s.SeenIDs) > MaxSeenIDs {
+		s.SeenIDs = s.SeenIDs[len(s.SeenIDs)-MaxSeenIDs:]
+	}
+	return Save(s)
+}
+
+// pruneSeen оставляет только отметки о записях, которые ещё есть в дайджесте:
+// сам файл ограничен MaxItems, иначе список прочитанного рос бы бесконечно.
+func pruneSeen(idsList, seen []string) []string {
+	if len(seen) == 0 {
+		return seen
+	}
+	live := make(map[string]bool, len(idsList))
+	for _, id := range idsList {
+		live[id] = true
+	}
+	out := make([]string, 0, len(seen))
+	for _, id := range seen {
+		if live[id] {
+			out = append(out, id)
+		}
+	}
+	if len(out) > MaxSeenIDs {
+		out = out[len(out)-MaxSeenIDs:]
+	}
+	return out
 }
 
 // Refresh fetches every feed, merges the result with what we already had and
@@ -199,7 +264,7 @@ func Refresh(ctx context.Context, prev Snapshot) (Snapshot, error) {
 	}
 	wg.Wait()
 
-	snapshot := Snapshot{UpdatedAt: time.Now(), ReadAt: prev.ReadAt, ModelLists: map[string][]string{}}
+	snapshot := Snapshot{UpdatedAt: time.Now(), ReadAt: prev.ReadAt, SeenIDs: prev.SeenIDs, ModelLists: map[string][]string{}}
 	snapshot.PrevIDs = ids(prev.Items)
 	for _, res := range results {
 		if res.err != nil {
@@ -260,6 +325,9 @@ func Refresh(ctx context.Context, prev Snapshot) (Snapshot, error) {
 			}
 		}
 	}
+	// Отметки «прочитано» имеет смысл хранить только для записей, которые ещё
+	// есть в дайджесте: старые id из списка выпадают, и файл не растёт.
+	snapshot.SeenIDs = pruneSeen(ids(snapshot.Items), snapshot.SeenIDs)
 	if err := Save(snapshot); err != nil {
 		return snapshot, err
 	}

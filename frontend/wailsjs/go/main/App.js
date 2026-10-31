@@ -242,6 +242,10 @@ export function MCPStatuses() {
   return window['go']['main']['App']['MCPStatuses']();
 }
 
+export function MarkProviderNewsItemSeen(arg1) {
+  return window['go']['main']['App']['MarkProviderNewsItemSeen'](arg1);
+}
+
 export function MarkProviderNewsRead() {
   return window['go']['main']['App']['MarkProviderNewsRead']();
 }

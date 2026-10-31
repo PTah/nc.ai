@@ -14,6 +14,7 @@
 // Edited by nc.ai 0.8.9.7 on new-admin-pc 2026-10-28 09:22:39
 // Edited by nc.ai 0.8.9.7 on macbook 2026-10-29 21:54:33
 // Edited by nc.ai 0.9.4 on new-admin-pc 2026-10-30 08:59:19
+// Edited by nc.ai 1.0.0 on Papasha 2026-10-31 10:38:49
 import {FormEvent, MouseEvent as ReactMouseEvent, useCallback, useEffect, useMemo, useRef, useState} from 'react'
 import {Terminal} from '@xterm/xterm'
 import {FitAddon} from '@xterm/addon-fit'
@@ -145,6 +146,7 @@ import {
   SaveEndSound,
   GetProviderNews,
   MarkProviderNewsRead,
+  MarkProviderNewsItemSeen,
   SaveShowFiles,
   SaveShowSettings,
   SaveLayoutSizes,
@@ -207,6 +209,10 @@ type ProviderNewsItem = {
   url: string
   /** ИИ-вывод: что запись значит и как использовать (опция NewsAI). */
   analysis?: string
+  /** Запись пришла в последнем обновлении дайджеста. */
+  new?: boolean
+  /** ИИ-анализ этой записи уже открывали — подсветку больше не показываем. */
+  seen?: boolean
 }
 
 /** Snapshot returned by App.GetProviderNews. */
@@ -2490,12 +2496,27 @@ export default function App() {
   }
 
   function toggleNewsAnalysis(id: string) {
+    const willOpen = !newsAnalysisOpen.has(id)
     setNewsAnalysisOpen((prev) => {
       const next = new Set(prev)
       if (next.has(id)) next.delete(id)
       else next.add(id)
       return next
     })
+    if (!willOpen) return
+    // Прочитали анализ — гасим зелёную подсветку «новое» сразу и запоминаем
+    // отметку на бэкенде, чтобы она не вернулась после перезапуска.
+    setNews((prev) => {
+      if (!prev) return prev
+      let changed = false
+      const items = prev.items.map((it) => {
+        if (it.id !== id || it.seen) return it
+        changed = true
+        return {...it, seen: true}
+      })
+      return changed ? {...prev, items} : prev
+    })
+    void MarkProviderNewsItemSeen(id).catch(() => undefined)
   }
 
   async function saveChatProvider(next: string) {
@@ -8547,8 +8568,12 @@ export default function App() {
                       {n.analysis ? (
                         <button
                           type="button"
-                          className="nc-news-analysis-toggle"
-                          title="Показать/скрыть анализ ИИ"
+                          className={`nc-news-analysis-toggle${n.new && !n.seen ? ' is-new' : ''}`}
+                          title={
+                            n.new && !n.seen
+                              ? 'Новая запись — анализ ИИ ещё не открывали'
+                              : 'Показать/скрыть анализ ИИ'
+                          }
                           aria-expanded={newsAnalysisOpen.has(n.id)}
                           onClick={(e) => {
                             e.stopPropagation()

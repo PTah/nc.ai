@@ -134,6 +134,8 @@ export function MCPPresets():Promise<Array<mcp.Preset>>;
 
 export function MCPStatuses():Promise<Array<mcp.Status>>;
 
+export function MarkProviderNewsItemSeen(arg1:string):Promise<void>;
+
 export function MarkProviderNewsRead():Promise<void>;
 
 export function NewChatSession(arg1:string):Promise<chatstore.Session>;
