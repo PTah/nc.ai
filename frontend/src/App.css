@@ -1197,6 +1197,21 @@ mark.nc-find-mark.nc-find-current {
   line-height: 1.4;
   color: var(--muted);
 }
+/* Результат ручной проверки обновлений: заметнее, чем nc-help, потому что раньше
+   ответ «обновлений нет» терялся и кнопка выглядела нерабочей. */
+.nc-settings .nc-update-status {
+  margin: 0 0 0.55rem;
+  padding: 0.4rem 0.55rem;
+  border-left: 3px solid var(--crash);
+  border-radius: 0 4px 4px 0;
+  background: var(--hover-bg);
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: var(--fg);
+}
+.nc-settings .nc-update-status-ok {
+  border-left-color: var(--accent);
+}
 .nc-check {
   display: flex !important;
   flex-direction: row !important;

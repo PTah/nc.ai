@@ -2071,6 +2071,11 @@ export default function App() {
   const [updatePhase, setUpdatePhase] = useState<'idle' | 'downloading' | 'installing'>('idle')
   const [updateProgress, setUpdateProgress] = useState<{done: number; total: number}>({done: 0, total: 0})
   const [updateError, setUpdateError] = useState('')
+  // Результат ручной проверки: отдельная строка, чтобы «Проверить обновления» не
+  // выглядела кнопкой без реакции — раньше ответ «обновлений нет» тонул в nc-help.
+  const [updateChecking, setUpdateChecking] = useState(false)
+  const [updateStatus, setUpdateStatus] = useState('')
+  const [updateStatusOk, setUpdateStatusOk] = useState(false)
   const [localBuildHash, setLocalBuildHash] = useState('')
   // Источник обновлений (Settings → Обновления): GitHub или своё зеркало.
   const [updateMirrorOn, setUpdateMirrorOn] = useState(false)
@@ -5802,15 +5807,30 @@ async function refreshYandexModels(opts?: {applyPreferred?: boolean; notify?: bo
 
   /** Ручная проверка обновлений (кнопка в настройках). */
   async function checkUpdatesNow() {
+    if (updateChecking) return
+    setUpdateChecking(true)
     setUpdateError('')
+    setUpdateStatus('Проверяю зеркало и GitHub…')
+    setUpdateStatusOk(false)
     try {
-      const info = (await CheckUpdate()) as unknown as Record<string, any>
-      setUpdateCheckSource(typeof info?.source === 'string' ? info.source : '')
-      setUpdateMirrorError(typeof info?.mirrorError === 'string' ? info.mirrorError : '')
-      if (info && info.available === true) {
-        setUpdateInfo(info)
+      const res = (await CheckUpdate()) as unknown as Record<string, any>
+      const source = typeof res?.source === 'string' ? res.source : ''
+      setUpdateCheckSource(source)
+      setUpdateMirrorError(typeof res?.mirrorError === 'string' ? res.mirrorError : '')
+      const mine = localBuildHash ? `, сборка ${localBuildHash}` : ''
+      const from =
+        source === 'mirror' ? 'своё зеркало (LAN)' : source === 'github' ? 'GitHub' : 'источник не ответил'
+      const at = new Date().toLocaleTimeString('ru-RU', {hour: '2-digit', minute: '2-digit', second: '2-digit'})
+      if (res && res.available === true) {
+        setUpdateInfo(res)
         setUpdateDismissed(false)
         setUpdatePhase('idle')
+        setUpdateStatusOk(true)
+        setUpdateStatus(
+          res.sameVersion
+            ? `Есть пересборка ${String(res.latest)}: у вас ${localBuildHash || '?'}, на зеркале ${String(res.buildHash || '').slice(0, 12)}. Источник: ${from}, проверено в ${at}.`
+            : `Доступна версия ${String(res.latest)} (у вас ${String(res.current)}${mine}). Источник: ${from}, проверено в ${at}.`,
+        )
         return
       }
       // Свежая проверка предложения не дала — старый баннер обязательно снимаем:
@@ -5818,10 +5838,16 @@ async function refreshYandexModels(opts?: {applyPreferred?: boolean; notify?: bo
       setUpdateInfo(null)
       setUpdateDismissed(false)
       setUpdatePhase('idle')
-      const mine = localBuildHash ? ` (ваша сборка ${localBuildHash})` : ''
-      setUpdateError(`Обновлений нет — установлена последняя версия ${String(info?.current || '')}${mine}.`)
+      setUpdateStatusOk(true)
+      setUpdateStatus(
+        `Обновлений нет — установлена последняя версия ${String(res?.current || info.version || '')}${mine}. Источник: ${from}, проверено в ${at}.`,
+      )
     } catch (e) {
+      setUpdateStatusOk(false)
+      setUpdateStatus(`Проверка не удалась: ${friendlyUpdateError(e instanceof Error ? e.message : String(e))}`)
       setUpdateError(friendlyUpdateError(e instanceof Error ? e.message : String(e)))
+    } finally {
+      setUpdateChecking(false)
     }
   }
 
@@ -8595,9 +8621,14 @@ async function refreshYandexModels(opts?: {applyPreferred?: boolean; notify?: bo
               Если зеркало не ответило, обновление уедет на GitHub — а это медленнее. Источник последней
               проверки виден ниже и в баннере обновления.
             </p>
-            <button type="button" className="nc-ghost" onClick={() => void checkUpdatesNow()}>
-              Проверить обновления
+            <button type="button" className="nc-ghost" disabled={updateChecking} onClick={() => void checkUpdatesNow()}>
+              {updateChecking ? 'Проверяю…' : 'Проверить обновления'}
             </button>
+            {updateStatus ? (
+              <p className={updateStatusOk ? 'nc-update-status nc-update-status-ok' : 'nc-update-status'}>
+                {updateStatus}
+              </p>
+            ) : null}
             {updateCheckSource ? (
               <p className="nc-help">
                 Последняя проверка: {updateCheckSource === 'mirror' ? 'своё зеркало' : 'GitHub'}
