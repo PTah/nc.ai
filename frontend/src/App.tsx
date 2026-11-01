@@ -16,6 +16,7 @@
 // Edited by nc.ai 0.9.4 on new-admin-pc 2026-10-30 08:59:19
 // Edited by nc.ai 1.0.0 on Papasha 2026-10-31 10:38:49
 // Edited by nc.ai 1.0.1 on macbook 2026-10-31 22:48:36
+// Edited by nc.ai 1.0.3 on Papasha 2026-11-01 12:09:40
 import {FormEvent, MouseEvent as ReactMouseEvent, useCallback, useEffect, useMemo, useRef, useState} from 'react'
 import {Terminal} from '@xterm/xterm'
 import {FitAddon} from '@xterm/addon-fit'
@@ -154,6 +155,7 @@ import {
   GetProviderNews,
   MarkProviderNewsRead,
   MarkProviderNewsItemSeen,
+  AnalyzeProviderNewsItem,
   SaveShowFiles,
   SaveShowSettings,
   SaveLayoutSizes,
@@ -2192,6 +2194,8 @@ export default function App() {
   const [toolConfirm, setToolConfirm] = useState(true)
   const [planMode, setPlanMode] = useState(false)
   const [newsAI, setNewsAI] = useState(false)
+  /** Записи, для которых ИИ-анализ запрошен вручную и ещё не вернулся. */
+  const [newsPending, setNewsPending] = useState<Set<string>>(() => new Set())
   const [newsAnalysisOpen, setNewsAnalysisOpen] = useState<Set<string>>(() => new Set())
   const [subagentsEnabled, setSubagentsEnabled] = useState(false)
   const [subagentsMaxSteps, setSubagentsMaxSteps] = useState(12)
@@ -2556,6 +2560,32 @@ export default function App() {
       return changed ? {...prev, items} : prev
     })
     void MarkProviderNewsItemSeen(id).catch(() => undefined)
+  }
+
+  /**
+   * Кнопка «… ИИ» у записи без готового анализа: запрашиваем его вручную. Так
+   * закрывается дыра, когда при обновлении дайджеста анализ не сложился (обрыв
+   * провайдера, лимит в 6 записей, перезапуск на обновлении) — раньше кнопки у
+   * такой записи не было вовсе, и понять причину было нельзя.
+   */
+  async function requestNewsAnalysis(id: string) {
+    if (newsPending.has(id)) return
+    setNewsPending((prev) => new Set(prev).add(id))
+    setNewsError('')
+    try {
+      const fresh = await AnalyzeProviderNewsItem(id)
+      if (fresh) setNews(fresh)
+      // Открываем готовый вывод и сразу помечаем запись прочитанной.
+      toggleNewsAnalysis(id)
+    } catch (e) {
+      setNewsError(`ИИ-анализ не получился: ${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      setNewsPending((prev) => {
+        const next = new Set(prev)
+        next.delete(id)
+        return next
+      })
+    }
   }
 
   async function saveChatProvider(next: string) {
@@ -8763,7 +8793,7 @@ async function refreshYandexModels(opts?: {applyPreferred?: boolean; notify?: bo
               </button>
               <label
                 className="nc-top-check"
-                title="После «Обновить» записи без анализа разбираются текущим ИИ: под каждой появится «что значит и как использовать». Каждый анализ — один запрос к провайдеру, до 10 за обновление."
+                title="После «Обновить» записи без анализа разбираются текущим ИИ: под каждой появится «что значит и как использовать». Каждый анализ — один запрос к провайдеру, до 6 за обновление; у записи без готового анализа кнопка «… ИИ» запрашивает его вручную."
               >
                 <input
                   type="checkbox"
@@ -8817,22 +8847,37 @@ async function refreshYandexModels(opts?: {applyPreferred?: boolean; notify?: bo
                       </span>
                       <span className="nc-news-title">{n.title}</span>
                       {n.date && <span className="nc-news-date">{fmtDate(n.date)}</span>}
-                      {n.analysis ? (
+                      {(n.analysis || newsAI) ? (
                         <button
                           type="button"
                           className={`nc-news-analysis-toggle${n.new && !n.seen ? ' is-new' : ''}`}
                           title={
-                            n.new && !n.seen
-                              ? 'Новая запись — анализ ИИ ещё не открывали'
-                              : 'Показать/скрыть анализ ИИ'
+                            newsPending.has(n.id)
+                              ? 'ИИ готовит анализ…'
+                              : n.analysis
+                                ? n.new && !n.seen
+                                  ? 'Новая запись — анализ ИИ ещё не открывали'
+                                  : 'Показать/скрыть анализ ИИ'
+                                : 'Анализа ещё нет (не сложился при обновлении) — нажмите, чтобы получить'
                           }
                           aria-expanded={newsAnalysisOpen.has(n.id)}
+                          disabled={newsPending.has(n.id)}
                           onClick={(e) => {
                             e.stopPropagation()
+                            if (!n.analysis) {
+                              void requestNewsAnalysis(n.id)
+                              return
+                            }
                             toggleNewsAnalysis(n.id)
                           }}
                         >
-                          {newsAnalysisOpen.has(n.id) ? '▴ ИИ' : '… ИИ'}
+                          {newsPending.has(n.id)
+                            ? '⋯ ИИ'
+                            : n.analysis
+                              ? newsAnalysisOpen.has(n.id)
+                                ? '▴ ИИ'
+                                : '… ИИ'
+                              : '… ИИ'}
                         </button>
                       ) : null}
                       {n.analysis && newsAnalysisOpen.has(n.id) ? (

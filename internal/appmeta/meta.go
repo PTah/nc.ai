@@ -25,6 +25,7 @@
 // Edited by nc.ai 0.9.4 on new-admin-pc 2026-10-30 08:46:25
 // Edited by nc.ai 1.0.0 on Papasha 2026-10-31 10:40:30
 // Edited by nc.ai 1.0.1 on macbook 2026-10-31 22:56:21
+// Edited by nc.ai 1.0.3 on Papasha 2026-11-01 12:10:05
 package appmeta
 
 import "time"
@@ -32,7 +33,7 @@ import "time"
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "1.0.3"
+	Version = "1.0.4"
 )
 
 // DeepSeekProRetireRFC3339 is the announced V4 Pro retirement instant, empty
@@ -78,18 +79,18 @@ func retiredAt(at time.Time, now time.Time) bool {
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
+	"Кнопка «… ИИ» есть у каждой записи новостей: если анализ не сложился при обновлении, он запрашивается по клику и причина сбоя видна",
 	"Провайдер Kimi (Moonshot): стриминг, каталог моделей, баланс и стоимость прогонов — как у остальных провайдеров",
 	"Auto-models умеют Kimi: k3.1-pro для сложного и картинок, k3.1-pro-highspeed по умолчанию, k2.7-code для кода",
 	"Ключ, модель и расходы Kimi настраиваются и считаются в Settings наравне с DeepSeek и Z.ai",
-	"Модель провайдера сохраняется с чатом и восстанавливается вместе с транскриптом",
 	"Рабочее пространство из нескольких папок и запросы, идущие параллельно, работают как раньше",
 }
 
 var HighlightsEN = []string{
+	"Every news entry has a «… AI» button: if the analysis did not land during a refresh, a click requests it and shows the failure reason",
 	"Kimi (Moonshot) provider: streaming, model catalog, balance and run cost — like every other provider",
 	"Auto-models speak Kimi: k3.1-pro for hard work and vision, k3.1-pro-highspeed as default, k2.7-code for code",
 	"Kimi key, model and spend are configured and metered in Settings, same as DeepSeek and Z.ai",
-	"The provider model is saved with the chat and restored with the transcript",
 	"Requests in parallel chats and the multi-folder workspace keep working as before",
 }
 
