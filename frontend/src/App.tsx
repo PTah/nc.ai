@@ -8838,23 +8838,28 @@ async function refreshYandexModels(opts?: {applyPreferred?: boolean; notify?: bo
               <ul className="nc-news-list">
                 {news.items.slice(0, 12).map((n) => (
                   <li key={n.id} className="nc-news-item">
-                    <div className="nc-news-row">
-                      <button
-                        type="button"
-                        className="nc-news-link"
-                        title={n.title}
-                        onClick={() => {
-                          // Ссылка всегда должна открывать страницу; если её нет —
-                          // ничего не делаем, чтобы не улететь на пустую вкладку.
-                          if (n.url) BrowserOpenURL(n.url)
-                        }}
-                      >
-                        <span className={`nc-news-provider p-${n.provider.replace(/[^a-z]/gi, '').toLowerCase()}`}>
-                          {n.provider}
-                        </span>
-                        <span className="nc-news-title">{n.title}</span>
-                        {n.date && <span className="nc-news-date">{fmtDate(n.date)}</span>}
-                      </button>
+                    <div
+                      className="nc-news-row"
+                      role="link"
+                      tabIndex={0}
+                      title={n.title}
+                      onClick={() => {
+                        // Ссылка всегда должна открывать страницу; если её нет —
+                        // ничего не делаем, чтобы не улететь на пустую вкладку.
+                        if (n.url) BrowserOpenURL(n.url)
+                      }}
+                      onKeyDown={(e) => {
+                        if ((e.key === 'Enter' || e.key === ' ') && n.url) {
+                          e.preventDefault()
+                          BrowserOpenURL(n.url)
+                        }
+                      }}
+                    >
+                      <span className={`nc-news-provider p-${n.provider.replace(/[^a-z]/gi, '').toLowerCase()}`}>
+                        {n.provider}
+                      </span>
+                      <span className="nc-news-title">{n.title}</span>
+                      {n.date && <span className="nc-news-date">{fmtDate(n.date)}</span>}
                       {(n.analysis || newsAI) ? (
                         <button
                           type="button"
@@ -8870,7 +8875,8 @@ async function refreshYandexModels(opts?: {applyPreferred?: boolean; notify?: bo
                           }
                           aria-expanded={newsAnalysisOpen.has(n.id)}
                           disabled={newsPending.has(n.id)}
-                          onClick={() => {
+                          onClick={(e) => {
+                            e.stopPropagation()
                             if (!n.analysis) {
                               void requestNewsAnalysis(n.id)
                               return
