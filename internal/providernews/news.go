@@ -83,6 +83,11 @@ const MaxItems = 60
 // MaxSeenIDs caps the list of entries whose AI analysis was already opened.
 const MaxSeenIDs = 200
 
+// MaxPerProvider limits how many entries a single feed can occupy in the digest:
+// changelogs (Kimi, DeepSeek) are long, and without this the newest news from
+// other providers would be pushed out of the list.
+const MaxPerProvider = 12
+
 // StaleAfter is how long a digest stays "fresh" before the UI offers a refresh.
 const StaleAfter = 24 * time.Hour
 
@@ -246,6 +251,7 @@ func Refresh(ctx context.Context, prev Snapshot) (Snapshot, error) {
 		{"Z.AI", zaiReleaseNotesURL, parseZaiReleaseNotes},
 		{"OpenRouter", openRouterBlogURL, parseOpenRouterBlog},
 		{"Qwen", qwenBlogRSSURL, parseQwenRSS},
+		{"Kimi", kimiChangelogMD, parseKimiChangelog},
 	}
 
 	results := make([]result, len(sources))
@@ -489,6 +495,20 @@ func dedupeSort(items []Item) []Item {
 		}
 		return out[i].Provider < out[j].Provider
 	})
+	// Пятый источник (Kimi) приносит длинную историю changelog: без ограничения
+	// на провайдера его старые записи вытеснили бы свежие новости остальных.
+	if len(out) > MaxPerProvider {
+		perProvider := make(map[string]int, 6)
+		kept := make([]Item, 0, len(out))
+		for _, it := range out {
+			if perProvider[it.Provider] >= MaxPerProvider {
+				continue
+			}
+			perProvider[it.Provider]++
+			kept = append(kept, it)
+		}
+		out = kept
+	}
 	if len(out) > MaxItems {
 		out = out[:MaxItems]
 	}
@@ -504,11 +524,16 @@ func shortErr(err error) string {
 }
 
 const (
-	deepSeekUpdatesURL  = "https://api-docs.deepseek.com/updates"
-	deepSeekPricingURL  = "https://api-docs.deepseek.com/quick_start/pricing"
-	zaiReleaseNotesURL  = "https://docs.z.ai/release-notes"
-	openRouterBlogURL   = "https://openrouter.ai/blog"
-	qwenBlogRSSURL      = "https://qwenlm.github.io/blog/index.xml"
+	deepSeekUpdatesURL = "https://api-docs.deepseek.com/updates"
+	deepSeekPricingURL = "https://api-docs.deepseek.com/quick_start/pricing"
+	zaiReleaseNotesURL = "https://docs.z.ai/release-notes"
+	openRouterBlogURL  = "https://openrouter.ai/blog"
+	qwenBlogRSSURL     = "https://qwenlm.github.io/blog/index.xml"
+	kimiChangelogURL   = "https://platform.kimi.ai/docs/platform-changelog"
+	// kimiChangelogMD — тот же changelog в markdown: разделы по месяцам, записи
+	// заголовками «### …» или пунктами «* …». HTML страницы собирается Next.js,
+	// регулярками его разбирать бессмысленно.
+	kimiChangelogMD     = kimiChangelogURL + ".md"
 	userAgent           = "NotCursor/" + "news"
 	requestTimeout      = 20 * time.Second
 	maxBodyBytes        = 3 << 20
@@ -630,6 +655,79 @@ func firstLine(s string, limit int) string {
 		s = strings.TrimSpace(s[:limit]) + "…"
 	}
 	return s
+}
+
+// parseKimiChangelog разбирает changelog Kimi Open Platform в markdown-виде:
+// строка «**October 2026**» переключает текущий месяц, записи идут заголовками
+// «### 🚀 Название» или пунктами «* текст». Ссылки и разметку убираем — в списке
+// новостей нужен читаемый заголовок, а не markdown.
+func parseKimiChangelog(body []byte) []Item {
+	var out []Item
+	seen := map[string]bool{}
+	date := ""
+	for _, raw := range strings.Split(string(body), "\n") {
+		ln := strings.TrimSpace(raw)
+		if ln == "" {
+			continue
+		}
+		if m := kimiMonthRe.FindStringSubmatch(ln); m != nil {
+			date = kimiMonthDate(m[1], m[2])
+			continue
+		}
+		title := ""
+		switch {
+		case strings.HasPrefix(ln, "### "):
+			title = strings.TrimSpace(strings.TrimPrefix(ln, "### "))
+		case strings.HasPrefix(ln, "* "), strings.HasPrefix(ln, "- "):
+			title = strings.TrimSpace(ln[2:])
+		default:
+			continue
+		}
+		title = firstLine(plainMarkdown(title), titleLimit)
+		if date == "" || title == "" || seen[title] {
+			continue
+		}
+		seen[title] = true
+		out = append(out, Item{
+			ID:       makeID("Kimi", kimiChangelogURL, title),
+			Provider: "Kimi",
+			Title:    title,
+			Date:     date,
+			URL:      kimiChangelogURL,
+		})
+	}
+	return out
+}
+
+// kimiMonthRe ловит строку месяца в changelog: «**October 2026**».
+var kimiMonthRe = regexp.MustCompile(`^\*\*\s*([A-Za-z]+)\s+(\d{4})\s*\*\*$`)
+
+// kimiMonthDate превращает «October» + «2026» в дату «2026-10-01»: точного дня
+// в changelog нет, а для сортировки и подписи достаточно месяца.
+func kimiMonthDate(month, year string) string {
+	months := map[string]string{
+		"january": "01", "february": "02", "march": "03", "april": "04",
+		"may": "05", "june": "06", "july": "07", "august": "08",
+		"september": "09", "october": "10", "november": "11", "december": "12",
+	}
+	mm, ok := months[strings.ToLower(strings.TrimSpace(month))]
+	if !ok {
+		return ""
+	}
+	return year + "-" + mm + "-01"
+}
+
+// mdLinkRe вытаскивает текст ссылки из markdown: [Kimi K3](https://…) → Kimi K3.
+var mdLinkRe = regexp.MustCompile(`\[([^\]]+)\]\(([^)]+)\)`)
+
+// plainMarkdown убирает разметку из строки changelog: ссылки → их текст,
+// обратные кавычки, жирный и курсив.
+func plainMarkdown(s string) string {
+	s = mdLinkRe.ReplaceAllString(s, "$1")
+	s = strings.ReplaceAll(s, "**", "")
+	s = strings.ReplaceAll(s, "`", "")
+	s = strings.ReplaceAll(s, "*", "")
+	return strings.TrimSpace(s)
 }
 
 func makeID(provider, url, title string) string {
