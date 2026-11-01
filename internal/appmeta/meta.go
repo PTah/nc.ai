@@ -33,7 +33,7 @@ import "time"
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "1.0.4"
+	Version = "1.0.5"
 )
 
 // DeepSeekProRetireRFC3339 is the announced V4 Pro retirement instant, empty
@@ -79,18 +79,18 @@ func retiredAt(at time.Time, now time.Time) bool {
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
-	"Жирный и курсив в ответах, рассуждениях и итогах подагентов рендерятся как формат, а не как **звёздочки**",
+	"Новости Kimi: changelog платформы разбирается вместе с DeepSeek, Z.AI, OpenRouter и Qwen",
+	"Дайджест держит баланс: не больше 12 записей от одного провайдера — длинный changelog больше не вытесняет свежие новости остальных",
 	"Кнопка «… ИИ» есть у каждой записи новостей: если анализ не сложился при обновлении, он запрашивается по клику и причина сбоя видна",
-	"Провайдер Kimi (Moonshot): стриминг, каталог моделей, баланс и стоимость прогонов — как у остальных провайдеров",
-	"Auto-models умеют Kimi: k3.1-pro для сложного и картинок, k3.1-pro-highspeed по умолчанию, k2.7-code для кода",
+	"Жирный и курсив в ответах, рассуждениях и итогах подагентов рендерятся как формат, а не как **звёздочки**",
 	"Рабочее пространство из нескольких папок и запросы, идущие параллельно, работают как раньше",
 }
 
 var HighlightsEN = []string{
-	"Bold and italics in answers, reasoning and subagent summaries render as formatting instead of **asterisks**",
+	"Kimi news: the platform changelog is parsed alongside DeepSeek, Z.AI, OpenRouter and Qwen",
+	"The digest stays balanced: at most 12 entries per provider, so a long changelog no longer pushes other providers' fresh news out",
 	"Every news entry has a «… AI» button: if the analysis did not land during a refresh, a click requests it and shows the failure reason",
-	"Kimi (Moonshot) provider: streaming, model catalog, balance and run cost — like every other provider",
-	"Auto-models speak Kimi: k3.1-pro for hard work and vision, k3.1-pro-highspeed as default, k2.7-code for code",
+	"Bold and italics in answers, reasoning and subagent summaries render as formatting instead of **asterisks**",
 	"Requests in parallel chats and the multi-folder workspace keep working as before",
 }
 
