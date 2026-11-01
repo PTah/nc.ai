@@ -79,18 +79,18 @@ func retiredAt(at time.Time, now time.Time) bool {
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
+	"Жирный и курсив в ответах, рассуждениях и итогах подагентов рендерятся как формат, а не как **звёздочки**",
 	"Кнопка «… ИИ» есть у каждой записи новостей: если анализ не сложился при обновлении, он запрашивается по клику и причина сбоя видна",
 	"Провайдер Kimi (Moonshot): стриминг, каталог моделей, баланс и стоимость прогонов — как у остальных провайдеров",
 	"Auto-models умеют Kimi: k3.1-pro для сложного и картинок, k3.1-pro-highspeed по умолчанию, k2.7-code для кода",
-	"Ключ, модель и расходы Kimi настраиваются и считаются в Settings наравне с DeepSeek и Z.ai",
 	"Рабочее пространство из нескольких папок и запросы, идущие параллельно, работают как раньше",
 }
 
 var HighlightsEN = []string{
+	"Bold and italics in answers, reasoning and subagent summaries render as formatting instead of **asterisks**",
 	"Every news entry has a «… AI» button: if the analysis did not land during a refresh, a click requests it and shows the failure reason",
 	"Kimi (Moonshot) provider: streaming, model catalog, balance and run cost — like every other provider",
 	"Auto-models speak Kimi: k3.1-pro for hard work and vision, k3.1-pro-highspeed as default, k2.7-code for code",
-	"Kimi key, model and spend are configured and metered in Settings, same as DeepSeek and Z.ai",
 	"Requests in parallel chats and the multi-folder workspace keep working as before",
 }
 
