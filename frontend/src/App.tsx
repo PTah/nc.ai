@@ -1392,7 +1392,11 @@ function SubagentCard({item}: {item: Extract<ChatItem, {kind: 'subagent'}>}) {
       {item.files && item.files.length > 0 ? (
         <p className="nc-help">файлы: {item.files.slice(0, 12).join(', ')}{item.files.length > 12 ? '…' : ''}</p>
       ) : null}
-      {item.summary ? <pre className="nc-tool-pre">{item.summary}</pre> : null}
+      {item.summary ? (
+        <div className="nc-subagent-summary">
+          <Markdown content={item.summary} />
+        </div>
+      ) : null}
     </details>
   )
 }
@@ -1522,7 +1526,9 @@ function ThinkingBlock({
       <summary className="nc-think-sum" title="Показать рассуждения модели">
         {label}
       </summary>
-      <pre className="nc-think-body">{content}</pre>
+      <div className="nc-think-body">
+        <Markdown content={content} />
+      </div>
     </details>
   )
 }
@@ -8832,21 +8838,23 @@ async function refreshYandexModels(opts?: {applyPreferred?: boolean; notify?: bo
               <ul className="nc-news-list">
                 {news.items.slice(0, 12).map((n) => (
                   <li key={n.id} className="nc-news-item">
-                    <button
-                      type="button"
-                      className="nc-news-link"
-                      title={n.title}
-                      onClick={() => {
-                        // Ссылка всегда должна открывать страницу; если её нет —
-                        // ничего не делаем, чтобы не улететь на пустую вкладку.
-                        if (n.url) BrowserOpenURL(n.url)
-                      }}
-                    >
-                      <span className={`nc-news-provider p-${n.provider.replace(/[^a-z]/gi, '').toLowerCase()}`}>
-                        {n.provider}
-                      </span>
-                      <span className="nc-news-title">{n.title}</span>
-                      {n.date && <span className="nc-news-date">{fmtDate(n.date)}</span>}
+                    <div className="nc-news-row">
+                      <button
+                        type="button"
+                        className="nc-news-link"
+                        title={n.title}
+                        onClick={() => {
+                          // Ссылка всегда должна открывать страницу; если её нет —
+                          // ничего не делаем, чтобы не улететь на пустую вкладку.
+                          if (n.url) BrowserOpenURL(n.url)
+                        }}
+                      >
+                        <span className={`nc-news-provider p-${n.provider.replace(/[^a-z]/gi, '').toLowerCase()}`}>
+                          {n.provider}
+                        </span>
+                        <span className="nc-news-title">{n.title}</span>
+                        {n.date && <span className="nc-news-date">{fmtDate(n.date)}</span>}
+                      </button>
                       {(n.analysis || newsAI) ? (
                         <button
                           type="button"
@@ -8862,8 +8870,7 @@ async function refreshYandexModels(opts?: {applyPreferred?: boolean; notify?: bo
                           }
                           aria-expanded={newsAnalysisOpen.has(n.id)}
                           disabled={newsPending.has(n.id)}
-                          onClick={(e) => {
-                            e.stopPropagation()
+                          onClick={() => {
                             if (!n.analysis) {
                               void requestNewsAnalysis(n.id)
                               return
@@ -8880,10 +8887,12 @@ async function refreshYandexModels(opts?: {applyPreferred?: boolean; notify?: bo
                               : '… ИИ'}
                         </button>
                       ) : null}
-                      {n.analysis && newsAnalysisOpen.has(n.id) ? (
-                        <span className="nc-news-analysis">ИИ: {n.analysis}</span>
-                      ) : null}
-                    </button>
+                    </div>
+                    {n.analysis && newsAnalysisOpen.has(n.id) ? (
+                      <div className="nc-news-analysis">
+                        <Markdown content={n.analysis} />
+                      </div>
+                    ) : null}
                   </li>
                 ))}
               </ul>
