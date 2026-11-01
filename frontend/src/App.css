@@ -1004,6 +1004,7 @@ mark.nc-find-mark.nc-find-current {
   border-radius: 999px; font-size: 0.64rem; line-height: 1; padding: 0.1rem 0.35rem; cursor: pointer;
 }
 .nc-news-analysis-toggle:hover { color: inherit; }
+.nc-news-analysis-toggle:disabled { opacity: 0.7; cursor: progress; }
 /* Запись пришла в последнем обновлении: кнопка «… ИИ» подсвечена, пока анализ не
    открыли. В светлой теме — мягкий зелёный, в тёмной — яркий, чтобы читалось. */
 [data-theme="light"] .nc-news-analysis-toggle.is-new {

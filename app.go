@@ -1782,7 +1782,6 @@ func (a *App) analyzeNewsItems(snap *providernews.Snapshot) (int, string) {
 	changed := false
 	done := 0
 	lastErr := ""
-	mt := 320
 	for i := range snap.Items {
 		it := &snap.Items[i]
 		if it.Analysis != "" {
@@ -1791,35 +1790,19 @@ func (a *App) analyzeNewsItems(snap *providernews.Snapshot) (int, string) {
 		if left <= 0 {
 			break
 		}
-		body := fmt.Sprintf("%s\n\nНовость (%s, %s): %s", newsProjectContext(a), it.Provider, it.Date, it.Title)
-		if strings.HasPrefix(it.ID, "catalog|") {
-			if list := snap.ModelLists[it.Provider]; len(list) > 0 {
-				body += "\nАктуальный список моделей " + it.Provider + ": " + strings.Join(list, ", ")
-			}
-		} else if strings.HasPrefix(it.URL, "http") {
-			body += "\n\nТекст источника:\n" + fetchArticleText(it.URL)
-		}
-		req := &llm.ChatRequest{
-			Messages: []llm.Message{
-				{Role: "system", Content: newsAnalysisSystemPrompt},
-				{Role: "user", Content: body},
-			},
-			MaxTokens: &mt,
-			Thinking:  map[string]any{"type": "disabled"},
-		}
-		resp, err := a.llm.ChatCompletion(ctx, req)
+		body := a.newsItemPrompt(snap, it)
+		text, aerr := a.askNewsAnalysis(ctx, body)
 		left--
-		if err != nil {
-			lastErr = err.Error()
+		if aerr != nil {
+			lastErr = aerr.Error()
+			// В лог — иначе «нет кнопки ИИ» выглядит необъяснимым: анализ не
+			// сложился (обрыв, лимит, перезапуск) и запись осталась без вывода.
+			a.logAgentLine(fmt.Sprintf("news analysis %s failed: %v", it.ID, aerr))
 			continue
 		}
-		if len(resp.Choices) > 0 {
-			if s := strings.TrimSpace(resp.Choices[0].Message.Content); s != "" {
-				it.Analysis = s
-				changed = true
-				done++
-			}
-		}
+		it.Analysis = text
+		changed = true
+		done++
 	}
 	if changed {
 		_ = providernews.Save(*snap)
@@ -1828,6 +1811,96 @@ func (a *App) analyzeNewsItems(snap *providernews.Snapshot) (int, string) {
 		return 0, "ИИ не дал анализа: " + lastErr
 	}
 	return done, ""
+}
+
+// newsItemPrompt собирает запрос по одной записи: провайдер, дата, заголовок и,
+// когда есть, текст источника (или актуальный список моделей для каталожной записи).
+func (a *App) newsItemPrompt(snap *providernews.Snapshot, it *providernews.Item) string {
+	body := fmt.Sprintf("%s\n\nНовость (%s, %s): %s", newsProjectContext(a), it.Provider, it.Date, it.Title)
+	if strings.HasPrefix(it.ID, "catalog|") {
+		if list := snap.ModelLists[it.Provider]; len(list) > 0 {
+			body += "\nАктуальный список моделей " + it.Provider + ": " + strings.Join(list, ", ")
+		}
+	} else if strings.HasPrefix(it.URL, "http") {
+		body += "\n\nТекст источника:\n" + fetchArticleText(it.URL)
+	}
+	return body
+}
+
+// askNewsAnalysis — один запрос к текущему провайдеру за ИИ-выводом по новости.
+func (a *App) askNewsAnalysis(ctx context.Context, body string) (string, error) {
+	mt := 320
+	req := &llm.ChatRequest{
+		Messages: []llm.Message{
+			{Role: "system", Content: newsAnalysisSystemPrompt},
+			{Role: "user", Content: body},
+		},
+		MaxTokens: &mt,
+		Thinking:  map[string]any{"type": "disabled"},
+	}
+	resp, err := a.llm.ChatCompletion(ctx, req)
+	if err != nil {
+		return "", err
+	}
+	if len(resp.Choices) == 0 {
+		return "", fmt.Errorf("провайдер вернул пустой ответ")
+	}
+	text := strings.TrimSpace(resp.Choices[0].Message.Content)
+	if text == "" {
+		return "", fmt.Errorf("провайдер вернул пустой ответ")
+	}
+	return text, nil
+}
+
+// AnalyzeProviderNewsItem готовит ИИ-вывод для одной записи дайджеста по клику на
+// «… ИИ». Кнопка есть у каждой записи, но анализ мог не сложиться при обновлении
+// (обрыв провайдера, лимит в 6 записей, перезапуск приложения на обновлении) — тогда
+// его можно получить вручную, не дожидаясь суточного обновления дайджеста.
+func (a *App) AnalyzeProviderNewsItem(id string) (providernews.Payload, error) {
+	id = strings.TrimSpace(id)
+	snap, err := providernews.Load()
+	if err != nil {
+		return providernews.Payload{}, err
+	}
+	payload := providernews.PayloadOf(snap, time.Now())
+	if id == "" {
+		return payload, fmt.Errorf("не указана запись новости")
+	}
+	if !a.cfg.NewsAIEnabled() {
+		return payload, fmt.Errorf("ИИ-анализ новостей выключен в настройках")
+	}
+	if a.llm == nil {
+		return payload, fmt.Errorf("ИИ не настроен: нет клиента провайдера")
+	}
+	if err := a.requireProviderReady(); err != nil {
+		return payload, fmt.Errorf("ИИ недоступен: %w", err)
+	}
+	var target *providernews.Item
+	for i := range snap.Items {
+		if snap.Items[i].ID == id {
+			target = &snap.Items[i]
+			break
+		}
+	}
+	if target == nil {
+		return payload, fmt.Errorf("запись не найдена в дайджесте — обновите новости")
+	}
+	if target.Analysis != "" {
+		return payload, nil
+	}
+	ctx, cancel := context.WithTimeout(a.ctx, 120*time.Second)
+	defer cancel()
+	text, aerr := a.askNewsAnalysis(ctx, a.newsItemPrompt(&snap, target))
+	if aerr != nil {
+		a.logAgentLine(fmt.Sprintf("news analysis %s failed: %v", id, aerr))
+		return payload, aerr
+	}
+	target.Analysis = text
+	if err := providernews.Save(snap); err != nil {
+		return payload, err
+	}
+	a.logAgentLine(fmt.Sprintf("news analysis %s ok (%d chars)", id, len(text)))
+	return providernews.PayloadOf(snap, time.Now()), nil
 }
 
 // newsAnalysisSystemPrompt просит ИИ оценить новость по четырём вопросам, которые

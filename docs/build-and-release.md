@@ -156,7 +156,7 @@ Remove-Item $t -Recurse -Force
 ```bash
 unzip -p build/bin/nc.ai-X.Y.Z-macos-arm64.zip NotCursor.app/Contents/MacOS/NotCursor | shasum -a 256
 cat build/bin/nc.ai-X.Y.Z-macos-arm64.zip.sha256
-curl -sSL -u "$U:$P" "<home>/PapaTramp/nc.ai/releases/download/vX.Y.Z/nc.ai-X.Y.Z-macos-arm64.zip.sha256"
+curl -sSL -u "$U:$P" "<home>/jdoe/nc.ai/releases/download/vX.Y.Z/nc.ai-X.Y.Z-macos-arm64.zip.sha256"
 ```
 
 Новые значения подхватываются при следующей проверке обновлений — при старте (через 4 с) или по

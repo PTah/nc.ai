@@ -18,6 +18,10 @@ export function AllowToolForSession(arg1, arg2) {
   return window['go']['main']['App']['AllowToolForSession'](arg1, arg2);
 }
 
+export function AnalyzeProviderNewsItem(arg1) {
+  return window['go']['main']['App']['AnalyzeProviderNewsItem'](arg1);
+}
+
 export function AppDataDir() {
   return window['go']['main']['App']['AppDataDir']();
 }
