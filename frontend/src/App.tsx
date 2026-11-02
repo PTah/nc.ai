@@ -236,15 +236,7 @@ type ProviderNewsPayload = {
   analysisNotice?: string
 }
 
-type RepoCheck = {
-  name: string
-  path: string
-  branch?: string
-  changed: number
-  ahead: number
-  behind: number
-  err?: string
-}
+
 
 /** Snapshot of a running agent turn (agent:event "progress"). */
 type RunProgressInfo = {
@@ -2125,9 +2117,11 @@ export default function App() {
   const openProjectRef = useRef<(path: string) => Promise<void>>(async () => {})
   const switchSessionRef = useRef<(id: string) => Promise<void>>(async () => {})
   const createSessionRef = useRef<() => Promise<string>>(async () => '')
+  const restoreChatRef = useRef<(p: string) => Promise<void>>(async () => {})
   openProjectRef.current = openProject
   switchSessionRef.current = switchSession
   createSessionRef.current = createSession
+  restoreChatRef.current = restoreChat
   const [deepseekKey, setDeepseekKey] = useState('')
   const [zaiKey, setZaiKey] = useState('')
   const [openrouterKey, setOpenrouterKey] = useState('')
@@ -2211,7 +2205,6 @@ export default function App() {
   const [toolConfirm, setToolConfirm] = useState(true)
   const [planMode, setPlanMode] = useState(false)
   const [newsAI, setNewsAI] = useState(false)
-  const [repoChecks, setRepoChecks] = useState<RepoCheck[]>([])
   /** Записи, для которых ИИ-анализ запрошен вручную и ещё не вернулся. */
   const [newsPending, setNewsPending] = useState<Set<string>>(() => new Set())
   const [newsAnalysisOpen, setNewsAnalysisOpen] = useState<Set<string>>(() => new Set())
@@ -3965,10 +3958,12 @@ export default function App() {
 
   useEffect(() => {
     const offNews = EventsOn('news:updated', () => { void loadProviderNews(false) })
-    const offRepos = EventsOn('repos:checked', (checks: unknown) => {
-      setRepoChecks(Array.isArray(checks) ? (checks as RepoCheck[]) : [])
+    const offChat = EventsOn('chat:updated', (p: unknown) => {
+      const path = String(p || '')
+      if (!path || path !== String(activeProjectRef.current?.path || '')) return
+      void restoreChatRef.current(path)
     })
-    return () => { offNews?.(); offRepos?.() }
+    return () => { offNews?.(); offChat?.() }
   }, [])
 
   useEffect(() => {
@@ -6096,17 +6091,6 @@ async function refreshYandexModels(opts?: {applyPreferred?: boolean; notify?: bo
           <BrandMark size={34} animated={anyRunActive} />
           <strong>{info.name}</strong>
           <span className="nc-sub">v{info.version}</span>
-          {repoChecks.some((c) => c.changed > 0 || c.ahead > 0 || c.behind > 0 || c.err) && (
-            <span
-              className="nc-sub"
-              title={repoChecks
-                .filter((c) => c.changed > 0 || c.ahead > 0 || c.behind > 0 || c.err)
-                .map((c) => `${c.name}: ${c.changed} изм.${c.ahead ? `, +${c.ahead}` : ''}${c.behind ? `, -${c.behind}` : ''}${c.err ? ` (${c.err})` : ''}`)
-                .join('\n')}
-            >
-              репо: {repoChecks.filter((c) => c.changed > 0 || c.ahead > 0 || c.behind > 0 || c.err).length}
-            </span>
-          )}
         </div>
         <div className="nc-top-controls">
           <label className="nc-top-field" title={`Модель активного провайдера: ${providerLabel}`}>
