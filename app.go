@@ -5,6 +5,7 @@
 // Edited by nc.ai 0.8.7.7 on macbook 2026-10-16 22:21:12
 // Edited by nc.ai 0.8.8.0 on new-admin-pc 2026-10-19 08:01:34
 // Edited by nc.ai 1.0.0 on Papasha 2026-10-31 10:38:44
+// Edited by nc.ai 1.0.6 on new-admin-pc 2026-11-02 10:31:10
 package main
 
 import (
@@ -13,9 +14,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	stdruntime "runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -261,6 +264,7 @@ func (a *App) startup(ctx context.Context) {
 	a.applyUpdateSource()
 	go a.priceRefreshLoop()
 	go a.autoCheckUpdate()
+	go a.backgroundLoop()
 	// Список проектов поднимается из RecentProjects с дисковым I/O: фронтенд мог
 	// запросить его, пока открыты ещё не все. Просим UI обновить сайдбар.
 	runtime.EventsEmit(a.ctx, "projects:changed", nil)
@@ -269,6 +273,101 @@ func (a *App) startup(ctx context.Context) {
 // autoCheckUpdate — тихая проверка обновлений после старта. Сеть не должна
 // задерживать запуск, а ошибки не показываем: пользователь всегда может
 // проверить вручную («Settings → Проверить обновления»).
+// RepoCheck — состояние репозитория проекта для фоновой проверки.
+type RepoCheck struct {
+	Name    string `json:"name"`
+	Path    string `json:"path"`
+	Branch  string `json:"branch,omitempty"`
+	Changed int    `json:"changed"`
+	Ahead   int    `json:"ahead"`
+	Behind  int    `json:"behind"`
+	Err     string `json:"err,omitempty"`
+}
+
+// backgroundLoop — тихие фоновые проверки: новости провайдеров и репозитории
+// проектов раз в 8 часов. Первые 2 минуты после старта не трогаем: пусть
+// приложение поднимется и UI успеет загрузиться.
+func (a *App) backgroundLoop() {
+	select {
+	case <-a.ctx.Done():
+		return
+	case <-time.After(2 * time.Minute):
+	}
+	// Первую проверку репозиториев делаем сразу после старта — она дешёвая и
+	// не ходит в сеть; новости ждут своего 8-часового слота.
+	a.backgroundRepoCheck()
+	lastNews := time.Now()
+	lastRepos := time.Now()
+	ticker := time.NewTicker(30 * time.Minute)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-a.ctx.Done():
+			return
+		case now := <-ticker.C:
+			if now.Sub(lastNews) >= 8*time.Hour {
+				lastNews = now
+				a.backgroundNewsRefresh()
+			}
+			if now.Sub(lastRepos) >= 8*time.Hour {
+				lastRepos = now
+				a.backgroundRepoCheck()
+			}
+		}
+	}
+}
+
+func (a *App) backgroundNewsRefresh() {
+	if _, err := a.GetProviderNews(true); err == nil {
+		runtime.EventsEmit(a.ctx, "news:updated", nil)
+	}
+}
+
+func (a *App) backgroundRepoCheck() {
+	checks := make([]RepoCheck, 0)
+	for _, p := range a.ws.List() {
+		checks = append(checks, checkRepo(p.Name, p.Path))
+	}
+	runtime.EventsEmit(a.ctx, "repos:checked", checks)
+}
+
+// checkRepo читает локальное состояние без сети: ветку, изменения и ahead/behind
+// относительно upstream (по уже известным remote-refs).
+func checkRepo(name, path string) RepoCheck {
+	out := RepoCheck{Name: name, Path: path}
+	b, err := exec.Command("git", "-C", path, "status", "--porcelain=v1", "-sb").Output()
+	if err != nil {
+		out.Err = err.Error()
+		return out
+	}
+	for i, line := range strings.Split(string(b), "\n") {
+		line = strings.TrimRight(line, "\r")
+		if line == "" {
+			continue
+		}
+		if i == 0 && strings.HasPrefix(line, "## ") {
+			head := strings.TrimPrefix(line, "## ")
+			out.Branch = head
+			if idx := strings.Index(head, " ["); idx >= 0 {
+				out.Branch = head[:idx]
+				rest := strings.Trim(head[idx+2:], "]")
+				for _, part := range strings.Split(rest, ",") {
+					part = strings.TrimSpace(part)
+					if strings.HasPrefix(part, "ahead ") {
+						out.Ahead, _ = strconv.Atoi(strings.TrimPrefix(part, "ahead "))
+					}
+					if strings.HasPrefix(part, "behind ") {
+						out.Behind, _ = strconv.Atoi(strings.TrimPrefix(part, "behind "))
+					}
+				}
+			}
+			continue
+		}
+		out.Changed++
+	}
+	return out
+}
+
 func (a *App) autoCheckUpdate() {
 	select {
 	case <-time.After(4 * time.Second):
