@@ -2393,8 +2393,11 @@ export default function App() {
 
   const baseItems = asList(activeSessionId ? itemsBySession[activeSessionId] : undefined)
   const laneIds = activeSessionId ? asList(runOrder[activeSessionId]) : []
-  const laneItems = laneIds.flatMap((id) => asList(runLanes[activeSessionId]?.[id]))
-  const items = [...baseItems, ...laneItems]
+  const laneItems = useMemo(
+    () => laneIds.flatMap((id) => asList(runLanes[activeSessionId]?.[id])),
+    [activeSessionId, runOrder, runLanes],
+  )
+  const items = useMemo(() => [...baseItems, ...laneItems], [baseItems, laneItems])
   const busy = Boolean(activeSessionId && busyBySession[activeSessionId])
   // Иконка программы: анимируем, пока в приложении идёт хоть один прогон.
   const anyRunActive = Object.values(busyBySession).some(Boolean)
@@ -2610,13 +2613,13 @@ export default function App() {
   const todoAt = typeof todoFlowAt === 'number' ? Math.min(todoFlowAt, items.length) : -1
   const tailItems = todoAt >= 0 ? items.slice(todoAt) : []
   const tailHasAnswer = tailItems.some((it) => it.kind === 'assistant' && String(it.content || '').trim() !== '')
-  const displayRows = todoAt >= 0
+  const displayRows = useMemo(() => (todoAt >= 0
     ? [
         ...buildDisplayRows(items.slice(0, todoAt), true, !tailHasAnswer),
         {key: '__todos', kind: 'todos'} as DisplayRow,
         ...rekeyRows(buildDisplayRows(tailItems, !busy, true, busy), 'tail-'),
       ]
-    : buildDisplayRows(items, !busy, true, busy)
+    : buildDisplayRows(items, !busy, true, busy)), [items, busy, todoAt, tailHasAnswer, tailItems])
 
   const setInput = useCallback((value: string, sid = activeSessionRef.current) => {
     if (!sid) return
