@@ -17,6 +17,7 @@
 // Edited by nc.ai 1.0.0 on Papasha 2026-10-31 10:38:49
 // Edited by nc.ai 1.0.1 on macbook 2026-10-31 22:48:36
 // Edited by nc.ai 1.0.3 on Papasha 2026-11-01 12:09:40
+// Edited by nc.ai 1.0.6 on new-admin-pc 2026-11-02 10:32:15
 import {FormEvent, MouseEvent as ReactMouseEvent, useCallback, useEffect, useMemo, useRef, useState} from 'react'
 import {Terminal} from '@xterm/xterm'
 import {FitAddon} from '@xterm/addon-fit'
@@ -233,6 +234,16 @@ type ProviderNewsPayload = {
   errors?: { provider: string; message: string }[]
   /** Что произошло с ИИ-анализом: «готово N» или причина, почему нет. */
   analysisNotice?: string
+}
+
+type RepoCheck = {
+  name: string
+  path: string
+  branch?: string
+  changed: number
+  ahead: number
+  behind: number
+  err?: string
 }
 
 /** Snapshot of a running agent turn (agent:event "progress"). */
@@ -2200,6 +2211,7 @@ export default function App() {
   const [toolConfirm, setToolConfirm] = useState(true)
   const [planMode, setPlanMode] = useState(false)
   const [newsAI, setNewsAI] = useState(false)
+  const [repoChecks, setRepoChecks] = useState<RepoCheck[]>([])
   /** Записи, для которых ИИ-анализ запрошен вручную и ещё не вернулся. */
   const [newsPending, setNewsPending] = useState<Set<string>>(() => new Set())
   const [newsAnalysisOpen, setNewsAnalysisOpen] = useState<Set<string>>(() => new Set())
@@ -3950,6 +3962,14 @@ export default function App() {
       }
     }
   }, [setSessionItems, applyUsageStats, finishRunUI, playAskSound])
+
+  useEffect(() => {
+    const offNews = EventsOn('news:updated', () => { void loadProviderNews(false) })
+    const offRepos = EventsOn('repos:checked', (checks: unknown) => {
+      setRepoChecks(Array.isArray(checks) ? (checks as RepoCheck[]) : [])
+    })
+    return () => { offNews?.(); offRepos?.() }
+  }, [])
 
   useEffect(() => {
     if (chatFindOpen) return
@@ -6076,6 +6096,17 @@ async function refreshYandexModels(opts?: {applyPreferred?: boolean; notify?: bo
           <BrandMark size={34} animated={anyRunActive} />
           <strong>{info.name}</strong>
           <span className="nc-sub">v{info.version}</span>
+          {repoChecks.some((c) => c.changed > 0 || c.ahead > 0 || c.behind > 0 || c.err) && (
+            <span
+              className="nc-sub"
+              title={repoChecks
+                .filter((c) => c.changed > 0 || c.ahead > 0 || c.behind > 0 || c.err)
+                .map((c) => `${c.name}: ${c.changed} изм.${c.ahead ? `, +${c.ahead}` : ''}${c.behind ? `, -${c.behind}` : ''}${c.err ? ` (${c.err})` : ''}`)
+                .join('\n')}
+            >
+              репо: {repoChecks.filter((c) => c.changed > 0 || c.ahead > 0 || c.behind > 0 || c.err).length}
+            </span>
+          )}
         </div>
         <div className="nc-top-controls">
           <label className="nc-top-field" title={`Модель активного провайдера: ${providerLabel}`}>
