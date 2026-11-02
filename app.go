@@ -330,11 +330,39 @@ func (a *App) backgroundRepoCheck() {
 		if ch.Err != "" || ch.Behind <= 0 {
 			continue
 		}
-		text := fmt.Sprintf("Фоновая проверка: в репозитории «%s» скачаны новые изменения (%d коммитов в upstream, ветка %s). Сделай `git pull`, если готов.",
-			p.Name, ch.Behind, ch.Branch)
-		a.appendServiceMessage(p.Path, text)
-		runtime.EventsEmit(a.ctx, "chat:updated", p.Path)
+		// Грязное дерево или свои коммиты не трогаем: автопул мог бы съесть
+		// незакоммиченное или сделать merge.
+		if ch.Changed > 0 || ch.Ahead > 0 {
+			a.appendServiceMessage(p.Path, fmt.Sprintf(
+				"Фоновая проверка: репозиторий «%s» отстаёт на %d коммитов, но есть локальные изменения/коммиты — автоматически не обновлял.",
+				p.Name, ch.Behind))
+			runtime.EventsEmit(a.ctx, "chat:updated", p.Path)
+			continue
+		}
+		if err := pullRepo(p.Path); err != nil {
+			a.appendServiceMessage(p.Path, fmt.Sprintf(
+				"Фоновая проверка: не удалось обновить «%s» (%v).", p.Name, err))
+			runtime.EventsEmit(a.ctx, "chat:updated", p.Path)
+		}
+		// Успешное обновление — молча: файлы подтянуты, «репо обновился» не пишем.
 	}
+}
+
+// pullRepo — fast-forward обновление рабочей копии, скрыто и без интерактива.
+func pullRepo(path string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", "-C", path, "pull", "--ff-only", "--quiet")
+	gitx.ConfigureCmd(cmd)
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		if msg := strings.TrimSpace(string(out)); msg != "" {
+			return fmt.Errorf("%v: %s", err, msg)
+		}
+		return err
+	}
+	return nil
 }
 
 // appendServiceMessage добавляет служебную строку в активный чат проекта.
