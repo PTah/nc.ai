@@ -34,6 +34,7 @@ import (
 	"notcursor.ai/app/internal/costing"
 	"notcursor.ai/app/internal/dockicon"
 	"notcursor.ai/app/internal/fsx"
+	"notcursor.ai/app/internal/gitx"
 	"notcursor.ai/app/internal/llm"
 	"notcursor.ai/app/internal/llm/providers/anthropic"
 	"notcursor.ai/app/internal/llm/providers/deepseek"
@@ -324,18 +325,65 @@ func (a *App) backgroundNewsRefresh() {
 }
 
 func (a *App) backgroundRepoCheck() {
-	checks := make([]RepoCheck, 0)
 	for _, p := range a.ws.List() {
-		checks = append(checks, checkRepo(p.Name, p.Path))
+		ch := checkRepo(p.Name, p.Path)
+		if ch.Err != "" || ch.Behind <= 0 {
+			continue
+		}
+		text := fmt.Sprintf("Фоновая проверка: в репозитории «%s» скачаны новые изменения (%d коммитов в upstream, ветка %s). Сделай `git pull`, если готов.",
+			p.Name, ch.Behind, ch.Branch)
+		a.appendServiceMessage(p.Path, text)
+		runtime.EventsEmit(a.ctx, "chat:updated", p.Path)
 	}
-	runtime.EventsEmit(a.ctx, "repos:checked", checks)
 }
 
-// checkRepo читает локальное состояние без сети: ветку, изменения и ahead/behind
-// относительно upstream (по уже известным remote-refs).
+// appendServiceMessage добавляет служебную строку в активный чат проекта.
+func (a *App) appendServiceMessage(projectPath, text string) {
+	if a.chats == nil {
+		return
+	}
+	b, err := a.chats.List(projectPath)
+	if err != nil {
+		return
+	}
+	sess, err := a.chats.Get(projectPath, b.ActiveID)
+	if err != nil || sess == nil {
+		return
+	}
+	items := sess.ItemsJSON
+	if strings.TrimSpace(items) == "" {
+		items = "[]"
+	}
+	var arr []json.RawMessage
+	if err := json.Unmarshal([]byte(items), &arr); err != nil {
+		return
+	}
+	msg, _ := json.Marshal(map[string]string{"kind": "system", "content": text})
+	arr = append(arr, msg)
+	raw, err := json.Marshal(arr)
+	if err != nil {
+		return
+	}
+	sess.ItemsJSON = string(raw)
+	_ = a.chats.SaveSession(projectPath, sess)
+}
+
+// checkRepo подтягивает изменения (скрыто, без интерактивных запросов) и читает
+// локальное состояние: ветка, изменения, ahead/behind по upstream.
 func checkRepo(name, path string) RepoCheck {
 	out := RepoCheck{Name: name, Path: path}
-	b, err := exec.Command("git", "-C", path, "status", "--porcelain=v1", "-sb").Output()
+	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
+	defer cancel()
+
+	fetch := exec.CommandContext(ctx, "git", "-C", path, "fetch", "--quiet")
+	gitx.ConfigureCmd(fetch)
+	fetch.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	_ = fetch.Run()
+
+	status := exec.CommandContext(ctx, "git", "-C", path, "status", "--porcelain=v1", "-sb")
+	gitx.ConfigureCmd(status)
+	status.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	b, err := status.Output()
 	if err != nil {
 		out.Err = err.Error()
 		return out
