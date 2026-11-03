@@ -502,6 +502,10 @@ export function SaveMCPServers(arg1) {
   return window['go']['main']['App']['SaveMCPServers'](arg1);
 }
 
+export function SaveMaxCostUSD(arg1) {
+  return window['go']['main']['App']['SaveMaxCostUSD'](arg1);
+}
+
 export function SaveMonoFont(arg1) {
   return window['go']['main']['App']['SaveMonoFont'](arg1);
 }

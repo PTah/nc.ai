@@ -269,6 +269,9 @@ type Settings struct {
 	// Default false: каждый анализ — один запрос к провайдеру.
 	NewsAI bool `json:"newsAI,omitempty"`
 
+	// MaxCostUSD — потолок расходов на один прогон в долларах; 0 = без потолка.
+	MaxCostUSD float64 `json:"maxCostUsd,omitempty"`
+
 	// SubagentsEnabled — родитель может звать инструмент task (вложенный прогон).
 	// По умолчанию выкл. до обкатки (см. docs/roadmap.md §3).
 	SubagentsEnabled bool `json:"subagentsEnabled,omitempty"`
@@ -1099,6 +1102,21 @@ func (s *Store) NewsAIEnabled() bool {
 func (s *Store) SetNewsAI(on bool) error {
 	s.mu.Lock()
 	s.settings.NewsAI = on
+	s.mu.Unlock()
+	return s.Save()
+}
+
+// MaxCostUSD — потолок расходов на один прогон (0 = без потолка).
+func (s *Store) MaxCostUSD() float64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.settings.MaxCostUSD
+}
+
+// SetMaxCostUSD persists the per-run cost cap.
+func (s *Store) SetMaxCostUSD(v float64) error {
+	s.mu.Lock()
+	s.settings.MaxCostUSD = v
 	s.mu.Unlock()
 	return s.Save()
 }

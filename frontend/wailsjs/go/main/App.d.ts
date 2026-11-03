@@ -265,6 +265,8 @@ export function SaveLocalSkipRules(arg1:boolean):Promise<void>;
 
 export function SaveMCPServers(arg1:Array<config.MCPServerSettings>):Promise<void>;
 
+export function SaveMaxCostUSD(arg1:number):Promise<void>;
+
 export function SaveMonoFont(arg1:string):Promise<void>;
 
 export function SaveNewsAI(arg1:boolean):Promise<void>;

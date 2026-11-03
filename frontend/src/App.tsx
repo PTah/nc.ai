@@ -137,6 +137,7 @@ import {
   ResolveToolApproval,
   AllowToolForSession,
   SaveAgentMaxSteps,
+  SaveMaxCostUSD,
   SaveAgentRetryBudgetSec,
   SaveAgentRetryCount,
   SaveAgentWarnSteps,
@@ -2235,6 +2236,7 @@ export default function App() {
   const [askAnswer, setAskAnswer] = useState('')
   const [deepseekPeak, setDeepseekPeak] = useState<{peak: boolean; tooltip: string}>({peak: false, tooltip: ''})
   const [maxSteps, setMaxSteps] = useState(120)
+  const [maxCostUSD, setMaxCostUSD] = useState(0)
   const [warnSteps, setWarnSteps] = useState(120)
   // Пояснения агента: auto — только значимые находки, always — каждый шаг, never — только результат.
   const [narration, setNarration] = useState<'auto' | 'always' | 'never'>('auto')
@@ -3385,6 +3387,7 @@ export default function App() {
         void MCPPresets().then((v) => setMcpPresets(asList(v as Array<Record<string, any>>))).catch(() => undefined)
         if (typeof s.appDataDir === 'string' && s.appDataDir) setAppDataDir(s.appDataDir)
         if (typeof s.agentMaxSteps === 'number' && s.agentMaxSteps !== 0) setMaxSteps(s.agentMaxSteps)
+        if (typeof s.maxCostUsd === 'number') setMaxCostUSD(s.maxCostUsd)
         {
           const raw = s as Record<string, any>
           setNarration(raw.agentNarration === 'always' ? 'always' : raw.agentNarration === 'never' ? 'never' : 'auto')
@@ -5655,6 +5658,7 @@ async function refreshYandexModels(opts?: {applyPreferred?: boolean; notify?: bo
     await SaveSubagentsAllowWrite(subagentsAllowWrite)
     await SaveSubagentsMaxPerRun(Math.max(1, Math.min(10, Number(subagentsMaxPerRun) || 3)))
     await SaveAgentMaxSteps(unlimitedSteps ? -1 : (Number(maxSteps) || 120))
+    await SaveMaxCostUSD(Number(maxCostUSD) || 0)
     await SaveAgentWarnSteps(warnSteps > 0 ? Number(warnSteps) : -1)
     await SaveAgentStallMin(stallOff ? -1 : Math.min(240, Math.max(1, Number(stallMinutes) || 10)))
     await SaveAgentNarration(narration)
@@ -8390,6 +8394,17 @@ async function refreshYandexModels(opts?: {applyPreferred?: boolean; notify?: bo
                 value={unlimitedSteps ? '' : maxSteps}
                 placeholder="120"
                 onChange={(e) => setMaxSteps(Number(e.target.value))}
+              />
+            </label>
+            <label>
+              Потолок расходов на прогон, $
+              <input
+                type="number"
+                min={0}
+                step={0.01}
+                value={maxCostUSD}
+                placeholder="0 — без потолка"
+                onChange={(e) => setMaxCostUSD(Number(e.target.value))}
               />
             </label>
             <label className="nc-inline-check">

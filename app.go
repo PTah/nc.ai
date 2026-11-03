@@ -3043,6 +3043,10 @@ func (a *App) SaveNewsAI(on bool) error {
 	return a.cfg.SetNewsAI(on)
 }
 
+func (a *App) SaveMaxCostUSD(v float64) error {
+	return a.cfg.SetMaxCostUSD(v)
+}
+
 func (a *App) SaveSubagentsEnabled(on bool) error {
 	return a.cfg.SetSubagentsEnabled(on)
 }
@@ -4552,6 +4556,7 @@ func (a *App) RunAgentInSession(sessionID, runID, userMessage string, attachment
 
 	var costUSD float64
 	var inTokens, outTokens, cacheHit, cacheMiss int
+	capHit := false
 	runner.OnUsage = func(model string, u *llm.Usage) {
 		if u == nil {
 			return
@@ -4561,6 +4566,14 @@ func (a *App) RunAgentInSession(sessionID, runID, userMessage string, attachment
 		outTokens += max(u.CompletionTokens, 0)
 		cacheHit += max(u.PromptCacheHitTokens, 0)
 		cacheMiss += max(u.PromptCacheMissTokens, 0)
+		// Потолок расходов на прогон: останавливаемся с паузой. История
+		// сохраняется, продолжить — отправить сообщение.
+		if capUSD := a.cfg.MaxCostUSD(); capUSD > 0 && costUSD >= capUSD && !capHit {
+			capHit = true
+			a.emitRun(sid, runID, agent.Event{Type: "notice", Content: fmt.Sprintf(
+				"Достигнут потолок $%.2f на прогон — остановился. Отправь сообщение, чтобы продолжить.", capUSD)})
+			cancel()
+		}
 		// Live preview in the top bar (provider totals not yet persisted until the run ends).
 		baseCost, baseIn, baseOut, baseHit, baseMiss := a.cfg.ProviderUsage(provider)
 		chatCost, chatIn, chatOut, chatHit, chatMiss := 0.0, 0, 0, 0, 0

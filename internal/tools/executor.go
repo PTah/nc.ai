@@ -1010,6 +1010,7 @@ func allToolSpecs() []llm.ToolSpec {
 							"id":      map[string]any{"type": "string"},
 							"content": map[string]any{"type": "string"},
 							"status":  map[string]any{"type": "string", "description": "pending | in_progress | completed | cancelled"},
+							"blockedBy": map[string]any{"type": "string", "description": "id задачи, от которой зависит этот пункт (пусто — можно брать сразу; заполнено — ждёт выполнения указанной задачи)"},
 						},
 						"required": []string{"id", "content", "status"},
 					},

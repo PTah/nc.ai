@@ -1,3 +1,4 @@
+// Edited by nc.ai 1.0.9 on new-admin-pc 2026-11-03 14:25:00
 package tools
 
 import (
@@ -12,6 +13,9 @@ type Todo struct {
 	ID      string `json:"id"`
 	Content string `json:"content"`
 	Status  string `json:"status"` // pending | in_progress | completed | cancelled
+	// BlockedBy — id задачи, от которой зависит этот пункт. Пусто — можно брать
+	// сразу; иначе пункт ждёт выполнения указанной задачи.
+	BlockedBy string `json:"blockedBy,omitempty"`
 }
 
 // TodoStore is the in-memory list shown in the UI.
@@ -119,6 +123,7 @@ func (s *TodoStore) Apply(merge bool, incoming []Todo) ([]Todo, error) {
 		incoming[i].ID = strings.TrimSpace(incoming[i].ID)
 		incoming[i].Content = strings.TrimSpace(incoming[i].Content)
 		incoming[i].Status = strings.TrimSpace(incoming[i].Status)
+		incoming[i].BlockedBy = strings.TrimSpace(incoming[i].BlockedBy)
 		if incoming[i].ID == "" {
 			incoming[i].ID = fmt.Sprintf("t%d", i+1)
 		}
@@ -129,6 +134,9 @@ func (s *TodoStore) Apply(merge bool, incoming []Todo) ([]Todo, error) {
 				}
 				if incoming[i].Status == "" {
 					incoming[i].Status = old.Status
+				}
+				if incoming[i].BlockedBy == "" {
+					incoming[i].BlockedBy = old.BlockedBy
 				}
 			}
 		}
