@@ -1354,7 +1354,17 @@ function DiffBlock({text}: {text: string}) {
   )
 }
 
-function ToolCard({item}: {item: Extract<ChatItem, {kind: 'tool'}>}) {
+function ToolCard({item, onReviewReturn}: {item: Extract<ChatItem, {kind: 'tool'}>; onReviewReturn?: (text: string) => void}) {
+  const [accepted, setAccepted] = useState(false)
+  const findings = useMemo(() => {
+    if (item.name !== 'task' || !item.result) return [] as {category?: string; severity?: string; file?: string; message?: string}[]
+    try {
+      const j = JSON.parse(item.result) as {findings?: {category?: string; severity?: string; file?: string; message?: string}[]}
+      return Array.isArray(j.findings) ? j.findings : []
+    } catch {
+      return []
+    }
+  }, [item.name, item.result])
   const title = item.interrupted ? 'прервано: приложение было перезапущено' : toolTitle(item.name, item.phase, item.ok)
   const hasBody = Boolean(item.args || item.result)
   return (
@@ -1375,6 +1385,40 @@ function ToolCard({item}: {item: Extract<ChatItem, {kind: 'tool'}>}) {
           ) : null}
         </details>
       )}
+      {findings.length > 0 ? (
+        <div className="nc-review">
+          <div className="nc-review-title">Ревью: {findings.length} замечаний</div>
+          <ul className="nc-review-list">
+            {findings.map((f, i) => (
+              <li key={i}>
+                <span className={`nc-sev nc-sev-${f.severity || 'low'}`}>{f.severity || 'info'}</span>
+                {f.file ? <code>{f.file}</code> : null}
+                <span> {f.message}</span>
+              </li>
+            ))}
+          </ul>
+          {accepted ? (
+            <span className="nc-review-done">✓ принято</span>
+          ) : (
+            <div className="nc-review-actions">
+              <button type="button" className="nc-ghost" onClick={() => setAccepted(true)}>Принять</button>
+              <button
+                type="button"
+                className="nc-ghost"
+                disabled={!onReviewReturn}
+                onClick={() => {
+                  const text = 'Верни на доработку по ревью:\n' + findings
+                    .map((f) => `- [${f.severity || 'info'}] ${f.file ? f.file + ': ' : ''}${f.message || ''}`)
+                    .join('\n')
+                  onReviewReturn?.(text)
+                }}
+              >
+                Вернуть
+              </button>
+            </div>
+          )}
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -5912,7 +5956,7 @@ async function refreshYandexModels(opts?: {applyPreferred?: boolean; notify?: bo
     }
   }
 
-  async function sendChat(e?: FormEvent) {
+  async function sendChat(e?: FormEvent, overrideText?: string) {
     e?.preventDefault()
     const sid = activeSessionId
     if (!sid) return
@@ -5921,7 +5965,7 @@ async function refreshYandexModels(opts?: {applyPreferred?: boolean; notify?: bo
       return
     }
     stickToBottomRef.current = true // свой вопрос — снова следим за низом
-    const text = stripUrlContext(input.trim())
+    const text = stripUrlContext((overrideText ?? input).trim())
     const atts = pendingAtts
     if (!text && atts.length === 0) return
     setInput('', sid)
@@ -6810,7 +6854,7 @@ async function refreshYandexModels(opts?: {applyPreferred?: boolean; notify?: bo
                   }
                   const m = row.item
                   if (m.kind === 'tool') {
-                    return <ToolCard key={row.key} item={m} />
+                    return <ToolCard key={row.key} item={m} onReviewReturn={(t) => void sendChat(undefined, t)} />
                   }
                   if (m.kind === 'subagent') {
                     return <SubagentCard key={row.key} item={m} />

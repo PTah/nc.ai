@@ -1040,6 +1040,16 @@ mark.nc-find-mark.nc-find-current {
 .nc-diff-meta { color: var(--muted); }
 .nc-diff-ctx { color: inherit; }
 .nc-todo-blocked { margin-left: 0.35rem; font-size: 0.64rem; color: var(--muted); }
+.nc-review { margin-top: 0.35rem; border-top: 1px dashed var(--border); padding-top: 0.35rem; }
+.nc-review-title { font-size: 0.72rem; font-weight: 600; }
+.nc-review-list { margin: 0.25rem 0; padding-left: 1rem; font-size: 0.72rem; }
+.nc-review-list li { margin: 0.1rem 0; }
+.nc-sev { display: inline-block; margin-right: 0.25rem; font-size: 0.62rem; text-transform: uppercase; }
+.nc-sev-high { color: #c62828; }
+.nc-sev-medium { color: #ef6c00; }
+.nc-sev-low { color: var(--muted); }
+.nc-review-actions { display: flex; gap: 0.35rem; margin-top: 0.25rem; }
+.nc-review-done { font-size: 0.72rem; color: #2e7d32; }
 .nc-answer { font-size: 0.95rem; line-height: 1.45; }
 .nc-msg pre {
   margin: 0; white-space: pre-wrap; word-break: break-word; font: inherit;
