@@ -1039,6 +1039,7 @@ mark.nc-find-mark.nc-find-current {
 .nc-diff-hunk { color: #6a1b9a; }
 .nc-diff-meta { color: var(--muted); }
 .nc-diff-ctx { color: inherit; }
+.nc-todo-blocked { margin-left: 0.35rem; font-size: 0.64rem; color: var(--muted); }
 .nc-answer { font-size: 0.95rem; line-height: 1.45; }
 .nc-msg pre {
   margin: 0; white-space: pre-wrap; word-break: break-word; font: inherit;

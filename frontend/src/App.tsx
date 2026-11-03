@@ -297,7 +297,7 @@ type ArchiveChat = {
   items: ChatItem[]
 }
 
-type TodoItem = {id: string; content: string; status: string}
+type TodoItem = {id: string; content: string; status: string; blockedBy?: string}
 
 type EditorState = {path: string; content: string; orig: string}
 
@@ -1590,6 +1590,9 @@ function TodoPanel({todos, expand, busy, onContext}: {todos: TodoItem[]; expand?
           <li key={t.id} className={`nc-todo ${t.status}`} onContextMenu={(e) => onContext?.(e, t.id)}>
             <span className="nc-todo-st">{t.status === 'completed' ? '✓' : t.status === 'in_progress' ? '▶' : t.status === 'cancelled' ? '×' : '○'}</span>
             {t.content}
+            {t.blockedBy && t.status !== 'completed' && t.status !== 'cancelled' ? (
+              <span className="nc-todo-blocked" title={`Ждёт задачу ${t.blockedBy}`}>⛔ ждёт</span>
+            ) : null}
           </li>
         ))}
       </ul>

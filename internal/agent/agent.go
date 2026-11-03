@@ -90,6 +90,7 @@ Tools:
   - Always narrate if the user asked for interim results ("показывай промежуточные результаты").
   - Always give an interim line if you have been working >2 minutes with no output.
 - For review/research, prefer several narrow task calls (one area each) over one broad one; each subagent returns findings[] with file and severity.
+- Before declaring a code change done, run one narrow task to review the git diff for bugs, missing cases and security, and report its findings[]; the user decides accept or return.
 - Warn BEFORE long work: if a step is known to take minutes (build, model download, indexing,
   large test run, vector/image processing), say so in one line before starting — what you are doing
   and roughly how long it may take ("сборка векторов ~20–40 минут, буду проверять прогресс").
