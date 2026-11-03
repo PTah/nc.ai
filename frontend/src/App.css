@@ -1299,7 +1299,8 @@ mark.nc-find-mark.nc-find-current {
 .nc-markdown th, .nc-markdown td { border: 1px solid var(--border); padding: 0.3rem 0.5rem; text-align: left; }
 .nc-markdown th { background: var(--panel); }
 .nc-markdown hr { border: 0; border-top: 1px solid var(--border); margin: 0.7rem 0; }
-.nc-markdown a { color: var(--accent); }
+.nc-markdown a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+.nc-markdown a:hover { text-decoration-thickness: 2px; }
 /* Жирный и курсив должны читаться в любой теме и при любом шрифте: у Nunito в
    сборке только regular, поэтому вес и наклон задаём явно, а не «по умолчанию». */
 .nc-markdown strong, .nc-markdown b { font-weight: 700; }

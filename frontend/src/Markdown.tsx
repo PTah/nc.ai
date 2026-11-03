@@ -2,10 +2,22 @@
 import {memo} from 'react'
 import ReactMarkdown, {type Components} from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import {BrowserOpenURL} from '../wailsjs/runtime/runtime'
 
 const components: Components = {
   a: ({href, children}) => (
-    <a href={href} target="_blank" rel="noreferrer">
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer noopener"
+      onClick={(e) => {
+        // В webview ссылка не должна открываться внутри окна — отдаём её
+        // системному браузеру, как и остальные внешние ссылки приложения.
+        if (!href) return
+        e.preventDefault()
+        BrowserOpenURL(href)
+      }}
+    >
       {children}
     </a>
   ),

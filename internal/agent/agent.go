@@ -311,6 +311,10 @@ type Runner struct {
 	runModel string
 	// switchTo — агент попросил перейти в другой проект (см. ProjectSwitch).
 	switchTo *ProjectSwitch
+	// finishMode — пользователь сказал «заканчивай»: новые run_terminal/task не стартуют.
+	finishMode bool
+	// goal — цель текущего запроса, чтобы не уводило на длинном контексте.
+	goal string
 }
 
 // ProjectSwitch — агент попросил перейти в другой проект. Прогон завершается,
@@ -625,6 +629,10 @@ func (r *Runner) systemPrompt() string {
 		if h := strings.TrimSpace(r.MCPUsageHint); h != "" {
 			base += "\n" + h
 		}
+	}
+	// Цель запроса держим перед глазами на каждом шаге: длинный контекст уводит.
+	if g := strings.TrimSpace(r.goal); g != "" && !r.subagentMode {
+		base += "\n\nGoal of this request (do not drift away from it): " + g
 	}
 	if !r.subagentMode && !r.LocalLite {
 		switch strings.ToLower(strings.TrimSpace(r.Narration)) {
@@ -992,10 +1000,18 @@ func isTransientError(err error) bool {
 }
 
 func (r *Runner) Run(ctx context.Context, history []llm.Message, userText string, emit EmitFunc) ([]llm.Message, error) {
+	r.finishMode = wantsFinish(userText)
+	if g := strings.TrimSpace(userText); g != "" {
+		r.goal = truncate(g, 400)
+	}
 	return r.RunMessage(ctx, history, llm.UserText(userText), emit)
 }
 
 func (r *Runner) RunWithAttachments(ctx context.Context, history []llm.Message, userText string, atts []Attachment, emit EmitFunc) ([]llm.Message, error) {
+	r.finishMode = wantsFinish(userText)
+	if g := strings.TrimSpace(userText); g != "" {
+		r.goal = truncate(g, 400)
+	}
 	var images []string
 	var extraText strings.Builder
 	if userText != "" {
@@ -1615,6 +1631,25 @@ func truncate(s string, n int) string {
 	return s[:n] + "…"
 }
 
+// wantsFinish — короткая команда «заканчиваем» в начале сообщения. Длинные
+// сообщения и отрицания («не заканчивай») не считаем.
+func wantsFinish(text string) bool {
+	t := strings.ToLower(strings.TrimSpace(text))
+	if t == "" || len([]rune(t)) > 60 {
+		return false
+	}
+	if strings.HasPrefix(t, "не ") {
+		return false
+	}
+	for _, k := range []string{"завершай", "заканчивай", "закругляйся", "финишируй",
+		"заканчиваем", "хватит", "finish up", "wrap up", "stop working", "stop now"} {
+		if strings.HasPrefix(t, k) {
+			return true
+		}
+	}
+	return t == "стоп" || t == "stop"
+}
+
 func (r *Runner) execTools(ctx context.Context, calls []llm.ToolCall, emit EmitFunc) ([]llm.Message, error) {
 	for _, call := range calls {
 		if call.ID == "" {
@@ -1667,6 +1702,13 @@ func (r *Runner) noteSwitch(outs []llm.Message) {
 
 func (r *Runner) execOne(ctx context.Context, call llm.ToolCall, emit EmitFunc) llm.Message {
 	name := call.Function.Name
+	// Режим завершения: новые длинные команды не стартуют, иначе на «заканчивай»
+	// агент открывает ещё один прогон.
+	if r.finishMode && (name == "run_terminal" || name == "task") {
+		emit(Event{Type: "notice", Content: "Режим завершения: новые длинные команды не запускаются — собери итог из того, что уже есть."})
+		return llm.Message{Role: "tool", ToolCallID: call.ID, Name: name,
+			Content: `{"error":"finish mode: new long commands are disabled; summarize what you already have"}`}
+	}
 	if name == "task" {
 		return r.runTask(ctx, call, emit)
 	}
