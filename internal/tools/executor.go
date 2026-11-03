@@ -1088,7 +1088,7 @@ func allToolSpecs() []llm.ToolSpec {
 				"branch": map[string]any{"type": "string"},
 			},
 		}),
-		fn("ssh_exec", "Run command on remote host via SSH (keys from ~/.ssh)", map[string]any{
+		fn("ssh_exec", "Run command on remote host via SSH (keys from ~/.ssh). The connection is reused per host. For several actions on one host, put them in ONE call (chain with && or ;) instead of one call per step — fewer logins and faster.", map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"host":     map[string]any{"type": "string"},

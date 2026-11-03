@@ -156,7 +156,7 @@ Remove-Item $t -Recurse -Force
 ```bash
 unzip -p build/bin/nc.ai-X.Y.Z-macos-arm64.zip NotCursor.app/Contents/MacOS/NotCursor | shasum -a 256
 cat build/bin/nc.ai-X.Y.Z-macos-arm64.zip.sha256
-curl -sSL -u "$U:$P" "<home>/PapaTramp/nc.ai/releases/download/vX.Y.Z/nc.ai-X.Y.Z-macos-arm64.zip.sha256"
+curl -sSL -u "$U:$P" "<home>/jdoe/nc.ai/releases/download/vX.Y.Z/nc.ai-X.Y.Z-macos-arm64.zip.sha256"
 ```
 
 Новые значения подхватываются при следующей проверке обновлений — при старте (через 4 с) или по
@@ -222,13 +222,13 @@ gh release list --limit 200 --json tagName --jq '.[].tagName' | grep -v '^vX.Y.Z
 
 ```bash
 # home (Gitea): то же через API
-CONF="$HOME/CursorRules/local/papatramp-gitea.conf"
+CONF="$HOME/CursorRules/local/jdoe-gitea.conf"
 API=$(grep -i '^GiteaApiUrl=' "$CONF" | cut -d= -f2- | tr -d '\r')
 U=$(grep -i '^GiteaApiUser=' "$CONF" | cut -d= -f2- | tr -d '\r'); P=$(grep -i '^GiteaApiPassword=' "$CONF" | cut -d= -f2- | tr -d '\r')
-curl -sS -u "$U:$P" "$API/api/v1/repos/PapaTramp/nc.ai/releases?limit=200" |
+curl -sS -u "$U:$P" "$API/api/v1/repos/jdoe/nc.ai/releases?limit=200" |
   python3 -c 'import json,sys;[print(r["id"]) for r in json.load(sys.stdin) if r["tag_name"]!="vX.Y.Z"]' |
   while read -r id; do curl -sS -o /dev/null -u "$U:$P" -X DELETE \
-    "$API/api/v1/repos/PapaTramp/nc.ai/releases/$id"; done
+    "$API/api/v1/repos/jdoe/nc.ai/releases/$id"; done
 ```
 
 Проверка, что остался ровно один релиз и он полный:
@@ -241,7 +241,7 @@ gh release view vX.Y.Z --repo PTah/nc.ai --json assets --jq '.assets[].name'
 ## GitHub-зеркало: снимки вместо обычного push (вариант B)
 
 На GitHub нельзя сделать `git push github master`: там лежит **санитизированная история снимков**
-(`mirror: NotCursor <sha> (kalinamall)`, ссылки на `github.com/PTah`, внутренние IP заменены,
+(`mirror: NotCursor <sha> (example)`, ссылки на `github.com/PTah`, внутренние IP заменены,
 автор в `wails.json` — `jdoe`). Наш `master` от неё разошёлся, поэтому push отклоняется как
 non-fast-forward. Это не проблема прав и не проблема сети.
 
@@ -250,7 +250,7 @@ non-fast-forward. Это не проблема прав и не проблема
 остаётся цепочкой снимков — это осознанный выбор в пользу санитизации публичного дерева.
 
 ```powershell
-# после обычного push в home и kalinamall
+# после обычного push в home и example
 powershell -NoProfile -ExecutionPolicy Bypass -File `
   "$env:USERPROFILE\CursorRules\scripts\Publish-GithubOrphan.ps1" `
   -SourceRepo "D:\Soft\Git\nc.ai" -Branch master -Version X.Y.Z
@@ -272,7 +272,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File `
 ```powershell
 git tag -a vX.Y.Z -m "NotCursor X.Y.Z"
 git push home vX.Y.Z
-git push kalinamall vX.Y.Z
+git push example vX.Y.Z
 
 # тег на GitHub — на коммит снимка (его печатает скрипт при push)
 gh api -X POST repos/PTah/nc.ai/git/refs `
@@ -285,13 +285,13 @@ gh release create vX.Y.Z --repo PTah/nc.ai --title "NotCursor X.Y.Z" `
 Релиз в Gitea (`home`) — через API, тег должен быть уже запушен:
 
 ```powershell
-# POST /api/v1/repos/PapaTramp/nc.ai/releases  { tag_name, name, body, draft=false }
+# POST /api/v1/repos/jdoe/nc.ai/releases  { tag_name, name, body, draft=false }
 # затем POST .../releases/{id}/assets?name=<file>  (multipart, поле file)
 # повторная заливка: сначала DELETE одноимённого ассета, иначе появится дубль
 ```
 
-Креды — `%USERPROFILE%\CursorRules\local\papatramp-gitea.conf` (Basic auth, пользователь
-`papatramp`), в репозиторий не попадают.
+Креды — `%USERPROFILE%\CursorRules\local\jdoe-gitea.conf` (Basic auth, пользователь
+`jdoe`), в репозиторий не попадают.
 
 ## Подпись и «Локальная сеть» (macOS)
 

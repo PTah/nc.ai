@@ -1,3 +1,4 @@
+// Edited by nc.ai 1.0.9 on new-admin-pc 2026-11-03 10:54:26
 package sshx
 
 import (
@@ -10,6 +11,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"golang.org/x/crypto/ssh"
@@ -19,11 +21,42 @@ import (
 // Service talks to remote hosts. Keys are resolved from ~/.ssh first
 // (Cursor-like), then from the optional app-local Dir.
 type Service struct {
-	Dir string // optional app-local fallback (NotCursor/ssh)
+	Dir string
+
+	mu    sync.Mutex
+	conns map[string]*sshConn
 }
 
+type sshConn struct {
+	c        *ssh.Client
+	lastUsed time.Time
+}
+
+// sshIdleTimeout — сколько держать открытое соединение без команд, прежде чем
+// закрыть. Иначе сервер получал бы логин-алерт на каждый вызов ssh_exec.
+const sshIdleTimeout = 10 * time.Minute
+
 func New(dir string) *Service {
-	return &Service{Dir: dir}
+	s := &Service{Dir: dir, conns: map[string]*sshConn{}}
+	go s.reapLoop()
+	return s
+}
+
+// reapLoop закрывает простаивающие соединения.
+func (s *Service) reapLoop() {
+	t := time.NewTicker(2 * time.Minute)
+	defer t.Stop()
+	for range t.C {
+		now := time.Now()
+		s.mu.Lock()
+		for k, e := range s.conns {
+			if now.Sub(e.lastUsed) > sshIdleTimeout {
+				_ = e.c.Close()
+				delete(s.conns, k)
+			}
+		}
+		s.mu.Unlock()
+	}
 }
 
 func userSSHDir() string {
@@ -170,12 +203,39 @@ func (s *Service) Exec(host, user string, port int, keyName, password, command s
 		Timeout:         timeout,
 	}
 	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
+	authID := keyName
+	if authID == "" && password != "" {
+		authID = "password"
+	}
+	if authID == "" {
+		authID = "default"
+	}
+	key := fmt.Sprintf("%s|%d|%s|%s", host, port, user, authID)
+
+	// Переиспользуем уже открытое соединение: один логин на хост, дальше только
+	// каналы. Это убирает спам «Successful SSH login» на каждый шаг агента.
+	s.mu.Lock()
+	entry := s.conns[key]
+	if entry != nil && entry.c != nil {
+		entry.lastUsed = time.Now()
+		client := entry.c
+		s.mu.Unlock()
+		return s.runSession(client, command, timeout)
+	}
+	s.mu.Unlock()
+
 	client, err := ssh.Dial("tcp", addr, cfg)
 	if err != nil {
 		return "", err
 	}
-	defer client.Close()
+	s.mu.Lock()
+	s.conns[key] = &sshConn{c: client, lastUsed: time.Now()}
+	s.mu.Unlock()
+	return s.runSession(client, command, timeout)
+}
 
+// runSession открывает канал на уже установленном соединении и исполняет команду.
+func (s *Service) runSession(client *ssh.Client, command string, timeout time.Duration) (string, error) {
 	session, err := client.NewSession()
 	if err != nil {
 		return "", err
@@ -200,7 +260,7 @@ func (s *Service) Exec(host, user string, port int, keyName, password, command s
 		timedOut = true
 		_ = session.Signal(ssh.SIGKILL)
 		_ = session.Close()
-		_ = client.Close()
+		// Соединение не закрываем: оно общее, его приберёт reapLoop по простою.
 		select {
 		case runErr = <-runDone:
 		case <-time.After(2 * time.Second):
