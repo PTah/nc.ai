@@ -1,5 +1,6 @@
 <!-- Edited by nc.ai 0.8.9.4 on macbook 2026-10-19 22:33:53 -->
 <!-- Edited by nc.ai 0.8.9.7 on new-admin-pc 2026-10-28 09:42:49 -->
+<!-- Edited by nc.ai 1.1.3 on macbook 2026-11-04 14:28:17 -->
 # Roadmap NotCursor.ai
 
 Планы за пределами ближайших патчей. Текущий релиз — см. `docs/releases/` / версию в `README`.
@@ -311,6 +312,27 @@ MVP `task` уже есть. Усиление по статье про патте
 - Компрессия истории — `internal/agent/compact.go`.
 - Auto-выбор модели на шаг (в том числе локальной) — `internal/agent/local_route.go`.
 - Повтор хода только с read-инструментами — нюдж в `internal/agent/agent.go`.
+
+---
+
+## Свой DeepSeek на своём железе (DeepInfer) — разбор, работ нет
+
+Разбор движка: `docs/deepinfer-selfhost.md`. Вывод: **DeepInfer — не сервер и не клиент**, а
+offline-движок для `DeepSeek-V4.1-Flash` на кластере SM100 / Ascend 950; в этом релизе у него нет
+KV-кэша, disaggregation и балансировки, то есть наружу он ничего не отдаёт по HTTP.
+
+- [x] Прочитан README и определена применимость к нашему Local-провайдеру (нужен
+      OpenAI-совместимый `/chat/completions` + `/models`, у DeepInfer его нет).
+- [ ] **В коде ничего не делаем.** Подключать нечего: `internal/llm/providers/local` уже работает
+      с любым OpenAI-совместимым `base_url`, а DeepInfer порт не слушает.
+- [ ] Для сценария «модель на своём железе, данные наружу не уходят» — **vLLM / SGLang** (в README
+      уже заявлены как поддерживаемый Local-хост); менять приложение не нужно.
+- [ ] Пересмотреть, когда случится любое из: (а) DeepInfer получит HTTP-фронт (KV-кэш + disagg +
+      балансировка из списка «not included»); (б) появится своё железо SM100 / Ascend 950;
+      (в) DeepSeek отдаст в публичном API `seed` и `response_format`.
+- [ ] Забрать в продукт, если доедет до API: **structured outputs** (JSON schema / regex / EBNF) —
+      замена «пожалуйста, верни JSON» в `internal/agent/protocol.go`, и **deterministic sampling**
+      (`seed`) — повторяемые прогоны для тестов и разбора инцидентов.
 
 ---
 
