@@ -2759,6 +2759,47 @@ input[type="radio"]:focus-visible {
   .nc-top-brand .nc-sub { opacity: 0.75; }
 }
 
+/* ── Папки рабочей области (Add folders to workspace) ─────────────────── */
+.nc-menu-hint {
+  margin: 0.15rem 0 0.35rem;
+  padding: 0 0.1rem;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  color: var(--muted);
+  max-width: 30rem;
+}
+
+.nc-addroot-list {
+  margin: 0 0 0.7rem;
+  padding: 0;
+  list-style: none;
+  max-height: 11rem;
+  overflow-y: auto;
+  font-size: 0.78rem;
+}
+
+.nc-addroot-list li {
+  display: flex;
+  gap: 0.5rem;
+  align-items: baseline;
+  padding: 0.2rem 0;
+  border-bottom: 1px solid var(--hover-bg);
+}
+
+.nc-addroot-list code {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, monospace);
+  word-break: break-all;
+}
+
+.nc-addroot-anchor {
+  flex: 0 0 auto;
+  font-size: 0.68rem;
+  padding: 0.05rem 0.3rem;
+  border-radius: 999px;
+  background: var(--hover-bg);
+  color: var(--muted);
+}
+
 /* ── Прогресс клонирования в диалоге Clone repository ─────────────────── */
 .nc-clone-progress {
   margin: 0 0 0.6rem;

@@ -1,3 +1,4 @@
+// Edited by nc.ai 1.1.11 on macbook 2026-11-08 21:42:35
 package workspace
 
 import (
@@ -64,6 +65,53 @@ func TestScopedEmptyRootFallsBackToActive(t *testing.T) {
 	view := m.Scoped("  ")
 	if got, err := view.ActiveRoot(); err != nil || got != root {
 		t.Fatalf("Scoped('') root = %q, %v; want %q", got, err, root)
+	}
+}
+
+// Рабочая область из нескольких папок: вторая и третья папки становятся корнями,
+// агент видит их как одну область, а «якорь» (папка проекта) убрать нельзя.
+func TestAddAndRemoveRoots(t *testing.T) {
+	m, anchor := newTestManager(t)
+	second := t.TempDir()
+	third := t.TempDir()
+
+	if _, err := m.AddRoot(anchor, second); err != nil {
+		t.Fatalf("add second root: %v", err)
+	}
+	p, err := m.AddRoot(anchor, third)
+	if err != nil {
+		t.Fatalf("add third root: %v", err)
+	}
+	if len(p.Roots) != 3 {
+		t.Fatalf("roots = %v, ожидали 3 (якорь + две папки)", p.Roots)
+	}
+	// Повторное добавление той же папки не плодит корни.
+	if p, err = m.AddRoot(anchor, third); err != nil {
+		t.Fatalf("re-add third root: %v", err)
+	}
+	if len(p.Roots) != 3 {
+		t.Fatalf("после повторного добавления roots = %v, ожидали 3", p.Roots)
+	}
+
+	// Активная область знает все корни: поиск и чтение идут по ним всем.
+	roots := m.RootsOf(anchor)
+	if len(roots) != 3 {
+		t.Fatalf("RootsOf = %v, ожидали 3", roots)
+	}
+	if _, err := m.ListDir("."); err != nil {
+		t.Fatalf("list dir на мульти-корне: %v", err)
+	}
+
+	// Якорь убрать нельзя — в нём живут чаты и идентичность проекта.
+	if _, err := m.RemoveRoot(anchor, anchor); err == nil {
+		t.Fatal("удаление якоря должно быть запрещено")
+	}
+	p, err = m.RemoveRoot(anchor, second)
+	if err != nil {
+		t.Fatalf("remove second root: %v", err)
+	}
+	if len(p.Roots) != 2 {
+		t.Fatalf("после удаления roots = %v, ожидали 2", p.Roots)
 	}
 }
 

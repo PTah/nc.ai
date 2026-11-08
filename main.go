@@ -1,4 +1,5 @@
 // Edited by nc.ai 0.8.8.5 on new-admin-pc 2026-10-19 11:40:05
+// Edited by nc.ai 1.1.11 on macbook 2026-11-08 21:41:13
 package main
 
 import (
@@ -62,10 +63,13 @@ func main() {
 		// Production builds hide the browser context menu by default; enable it so
 		// selected chat text can be copied via right-click → Copy (Ctrl+C still works).
 		EnableDefaultContextMenu: true,
-		OnStartup:                app.startup,
-		OnDomReady:               app.domReady,
-		OnShutdown:               app.shutdown,
-		OnBeforeClose:            app.beforeClose,
+		// Папку можно перетащить в окно — она станет корнем рабочей области
+		// (как Add folder to workspace, но без диалога и сразу несколько за раз).
+		DragAndDrop:   &options.DragAndDrop{EnableFileDrop: true},
+		OnStartup:     app.startup,
+		OnDomReady:    app.domReady,
+		OnShutdown:    app.shutdown,
+		OnBeforeClose: app.beforeClose,
 		Bind: []interface{}{
 			app,
 		},

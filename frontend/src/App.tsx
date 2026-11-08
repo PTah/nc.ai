@@ -43,8 +43,10 @@ import {
   CloneRepo,
   CloneTargetPath,
   AddProjectRoot,
+  AddProjectRoots,
   RemoveProjectRoot,
   PickProjectRootDir,
+  PathIsDir,
   ClearTodos,
   RemoveTodos,
   SetSessionModel,
@@ -184,7 +186,7 @@ import {
   ListProjects,
   SetProjectLocked,
 } from '../wailsjs/go/main/App'
-import {EventsOn, EventsOff, ClipboardSetText, BrowserOpenURL} from '../wailsjs/runtime/runtime'
+import {EventsOn, EventsOff, ClipboardSetText, BrowserOpenURL, OnFileDrop, OnFileDropOff} from '../wailsjs/runtime/runtime'
 import BrandMark from './BrandMark'
 import Markdown from './Markdown'
 import ProjectIcon from './ProjectIcon'
@@ -2103,6 +2105,9 @@ export default function App() {
   // Прогресс клонирования из событий бэкенда: этап + процент + подробность
   // (мегабайты / файлы / проценты git). Без него в диалоге висело «Клонирую…».
   const [cloneProgress, setCloneProgress] = useState<{phase: string; percent: number; detail: string} | null>(null)
+  // Диалог «папки рабочей области»: после добавления остаётся открытым, чтобы
+  // сразу добавить ещё (системный выбор папки у Wails одиночный).
+  const [addRootsDlg, setAddRootsDlg] = useState<{added: string[]} | null>(null)
   const cloneGenRef = useRef(0)
   const cloneAbortRef = useRef(false)
   const [pendingCloseChatId, setPendingCloseChatId] = useState<string | null>(null)
@@ -4831,6 +4836,53 @@ export default function App() {
       setProjects(asList(await ListProjects()))
       await refreshFiles('.')
       void refreshRules()
+      // Диалог не закрываем: в рабочую область обычно добавляют несколько папок,
+      // а системный выбор папки одиночный — «Выбрать ещё…» повторяет его без
+      // похода в меню.
+      setAddRootsDlg({added: [dir]})
+    } catch (e) {
+      if (activeSessionId) setSessionItems(activeSessionId, (m) => [...m, {kind: 'system', content: String(e)}])
+    }
+  }
+
+  /** Ещё одна папка в рабочую область, не закрывая диалог. */
+  async function addMoreRoots() {
+    const anchor = active?.path
+    if (!anchor) return
+    try {
+      const dir = await PickProjectRootDir()
+      if (!dir) return
+      const p = await AddProjectRoot(anchor, dir)
+      setActive(p)
+      setProjects(asList(await ListProjects()))
+      await refreshFiles('.')
+      void refreshRules()
+      setAddRootsDlg((prev) => ({added: [...(prev?.added ?? []), dir]}))
+    } catch (e) {
+      if (activeSessionId) setSessionItems(activeSessionId, (m) => [...m, {kind: 'system', content: String(e)}])
+    }
+  }
+
+  /** Папки, брошенные в окно, становятся корнями рабочей области. */
+  async function dropFoldersIntoWorkspace(paths: string[]) {
+    const anchor = active?.path
+    if (!anchor || paths.length === 0) return
+    const dirs: string[] = []
+    for (const p of paths) {
+      try {
+        if (await PathIsDir(p)) dirs.push(p)
+      } catch {
+        /* путь не читается — пропускаем */
+      }
+    }
+    if (dirs.length === 0) return
+    try {
+      const p = await AddProjectRoots(anchor, dirs)
+      setActive(p)
+      setProjects(asList(await ListProjects()))
+      await refreshFiles('.')
+      void refreshRules()
+      setAddRootsDlg({added: dirs})
     } catch (e) {
       if (activeSessionId) setSessionItems(activeSessionId, (m) => [...m, {kind: 'system', content: String(e)}])
     }
@@ -4872,6 +4924,30 @@ export default function App() {
       /* отмена выбора папки — не ошибка */
     }
   }
+
+  // Папку (или несколько) можно бросить в окно — станет корнем рабочей области.
+  // Слушатель вешаем один раз, обработчик берём из ref, чтобы не перевешивать его
+  // на каждый рендер.
+  const dropFoldersRef = useRef<(paths: string[]) => Promise<void>>(async () => {})
+  useEffect(() => {
+    dropFoldersRef.current = dropFoldersIntoWorkspace
+  })
+  useEffect(() => {
+    try {
+      OnFileDrop((_x: number, _y: number, paths: string[]) => {
+        void dropFoldersRef.current(paths)
+      }, false)
+    } catch {
+      // runtime bindings not ready
+    }
+    return () => {
+      try {
+        OnFileDropOff()
+      } catch {
+        /* ignore */
+      }
+    }
+  }, [])
 
   async function runClone() {
     if (!cloneDlg || cloneBusy) return
@@ -6540,10 +6616,14 @@ async function refreshYandexModels(opts?: {applyPreferred?: boolean; notify?: bo
                     Clone repository…
                   </button>
                   <button type="button" role="menuitem" disabled={!active} onClick={() => void addRootToActive()}>
-                    Add folder to workspace…
+                    Add folders to workspace…
                   </button>
+                  <p className="nc-menu-hint">
+                    Рабочая область: первая папка проекта — якорь (чаты, настройки), добавленные — её корни.
+                    Можно бросить папки прямо в окно.
+                  </p>
                   {(active?.roots?.length ?? 0) > 1 && (
-                    <div className="nc-menu-sub">Workspace folders</div>
+                    <div className="nc-menu-sub">Workspace folders · {active?.roots?.length}</div>
                   )}
                   {(active?.roots ?? []).filter((r) => r !== active?.path).map((r) => (
                     <button
@@ -9519,6 +9599,43 @@ async function refreshYandexModels(opts?: {applyPreferred?: boolean; notify?: bo
                 onClick={() => void runClone()}
               >
                 {cloneBusy ? 'Клонирую…' : 'Клонировать'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {addRootsDlg && (
+        <div className="nc-modal-backdrop" role="presentation" onClick={() => setAddRootsDlg(null)}>
+          <div
+            className="nc-modal"
+            role="dialog"
+            aria-labelledby="nc-addroot-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 id="nc-addroot-title">Папки в рабочей области</h2>
+            <p className="nc-help">
+              Первая папка проекта — <b>якорь</b>: в ней лежат чаты, настройки и замок проекта. Остальные —
+              дополнительные корни: их видно в дереве файлов, а инструменты, правила и поиск работают по всем
+              сразу. Агент видит корни как одну рабочую область.
+            </p>
+            <ul className="nc-addroot-list">
+              {(active?.roots ?? [active?.path ?? '']).map((r) => (
+                <li key={r}>
+                  <code>{r}</code>
+                  {r === active?.path ? <span className="nc-addroot-anchor">якорь</span> : null}
+                </li>
+              ))}
+            </ul>
+            {addRootsDlg.added.length > 0 ? (
+              <p className="nc-help">Добавлено в этот заход: {addRootsDlg.added.length}</p>
+            ) : null}
+            <div className="nc-close-project-actions">
+              <button type="button" className="nc-ghost" onClick={() => void addMoreRoots()}>
+                Выбрать ещё…
+              </button>
+              <button type="button" onClick={() => setAddRootsDlg(null)}>
+                Готово
               </button>
             </div>
           </div>

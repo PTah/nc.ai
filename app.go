@@ -3714,6 +3714,34 @@ func (a *App) AddProjectRoot(projectPath, root string) (*workspace.Project, erro
 	return p, nil
 }
 
+// AddProjectRoots merges several folders into a workspace за один заход: диалог
+// выбора папки у Wails одиночный, поэтому пачка приходит либо из «Выбрать ещё…»
+// в интерфейсе, либо из drag&drop, где в окно падают сразу несколько путей.
+func (a *App) AddProjectRoots(projectPath string, roots []string) (*workspace.Project, error) {
+	var out *workspace.Project
+	for _, root := range roots {
+		p, err := a.ws.AddRoot(projectPath, root)
+		if err != nil {
+			if out == nil && len(roots) == 1 {
+				return nil, err
+			}
+			continue // одна недоступная папка не отменяет остальные
+		}
+		out = p
+	}
+	if out == nil {
+		return nil, fmt.Errorf("ни одну папку не удалось добавить")
+	}
+	_ = a.persistProjectRoots(out.Path, out.Roots)
+	return out, nil
+}
+
+// PathIsDir — проверка для drag&drop: в окно могут уронить и файл, и папку.
+func (a *App) PathIsDir(path string) bool {
+	st, err := os.Stat(strings.TrimSpace(path))
+	return err == nil && st.IsDir()
+}
+
 // RemoveProjectRoot detaches a folder from a workspace.
 func (a *App) RemoveProjectRoot(projectPath, root string) (*workspace.Project, error) {
 	p, err := a.ws.RemoveRoot(projectPath, root)

@@ -35,7 +35,7 @@ import "time"
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "1.1.11"
+	Version = "1.1.12"
 )
 
 // DeepSeekProRetireRFC3339 is the announced V4 Pro retirement instant, empty
@@ -81,18 +81,18 @@ func retiredAt(at time.Time, now time.Time) bool {
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
-	"Клонирование показывает прогресс: полоса и этап — «Скачиваю архив GitHub: 4.2 МБ из 14 МБ», «Распаковываю: 1200 из 2972 файлов», «git clone: получение объектов 45%»",
-	"Если процент неизвестен (git ещё считает объекты) — полоса «бежит», а не стоит нулём",
-	"Кнопка «Отменить» работает на любом этапе: обрывает и скачивание, и git",
-	"Лимиты архива (512 МБ скачать, 3 ГБ распаковать) и защита цели клона — из 1.1.10",
+	"Рабочая область из нескольких папок: «Add folders to workspace…» → «Выбрать ещё…» → «Готово», сколько нужно",
+	"Папки можно просто перетащить в окно — все брошенные каталоги станут корнями активной области",
+	"Диалог объясняет устройство области: якорь (чаты, настройки, замок) и дополнительные корни; якорь убрать нельзя",
+	"Дерево файлов, поиск, grep и правила Cursor работают по всем корням сразу",
 	"Рабочее пространство из нескольких папок и запросы, идущие параллельно, работают как раньше",
 }
 
 var HighlightsEN = []string{
-	"Cloning now shows progress: a bar plus the stage — “Downloading GitHub archive: 4.2 MB of 14 MB”, “Unpacking: 1200 of 2972 files”, “git clone: receiving objects 45%”",
-	"When the percentage is unknown (git is still counting objects) the bar runs instead of sitting at zero",
-	"Cancel works at any stage: it stops both the download and git",
-	"Archive limits (512 MB download, 3 GB unpacked) and the clone-target guard come from 1.1.10",
+	"A workspace of several folders: “Add folders to workspace…” → “Add another…” → “Done”, as many as needed",
+	"Folders can simply be dropped into the window — every dropped directory becomes a root of the active workspace",
+	"The dialog explains the model: an anchor (chats, settings, lock) plus extra roots; the anchor cannot be removed",
+	"The file tree, search, grep and Cursor rules cover all roots at once",
 	"Requests in parallel chats and the multi-folder workspace keep working as before",
 }
 

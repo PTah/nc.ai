@@ -21,6 +21,8 @@ export function ActiveRuns():Promise<Array<string>>;
 
 export function AddProjectRoot(arg1:string,arg2:string):Promise<workspace.Project>;
 
+export function AddProjectRoots(arg1:string,arg2:Array<string>):Promise<workspace.Project>;
+
 export function AllowToolForSession(arg1:string,arg2:string):Promise<void>;
 
 export function AnalyzeProviderNewsItem(arg1:string):Promise<providernews.Payload>;
@@ -32,6 +34,8 @@ export function AppInfo():Promise<Record<string, string>>;
 export function ApplyMCPPreset(arg1:string):Promise<Record<string, any>>;
 
 export function ArchiveChatSession(arg1:string,arg2:string):Promise<string>;
+
+export function CancelClone():Promise<void>;
 
 export function ChatOnce(arg1:string):Promise<string>;
 
@@ -56,8 +60,6 @@ export function ClearTodos(arg1:boolean):Promise<Array<Record<string, any>>>;
 export function ClearYandexKey():Promise<void>;
 
 export function ClearZaiKey():Promise<void>;
-
-export function CancelClone():Promise<void>;
 
 export function CloneRepo(arg1:string,arg2:string):Promise<Record<string, any>>;
 
@@ -152,6 +154,8 @@ export function MarkProviderNewsRead():Promise<void>;
 export function NewChatSession(arg1:string):Promise<chatstore.Session>;
 
 export function OpenProject(arg1:string):Promise<workspace.Project>;
+
+export function PathIsDir(arg1:string):Promise<boolean>;
 
 export function PickProjectDir():Promise<string>;
 

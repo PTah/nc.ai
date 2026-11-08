@@ -14,6 +14,10 @@ export function AddProjectRoot(arg1, arg2) {
   return window['go']['main']['App']['AddProjectRoot'](arg1, arg2);
 }
 
+export function AddProjectRoots(arg1, arg2) {
+  return window['go']['main']['App']['AddProjectRoots'](arg1, arg2);
+}
+
 export function AllowToolForSession(arg1, arg2) {
   return window['go']['main']['App']['AllowToolForSession'](arg1, arg2);
 }
@@ -36,6 +40,10 @@ export function ApplyMCPPreset(arg1) {
 
 export function ArchiveChatSession(arg1, arg2) {
   return window['go']['main']['App']['ArchiveChatSession'](arg1, arg2);
+}
+
+export function CancelClone() {
+  return window['go']['main']['App']['CancelClone']();
 }
 
 export function ChatOnce(arg1) {
@@ -84,10 +92,6 @@ export function ClearYandexKey() {
 
 export function ClearZaiKey() {
   return window['go']['main']['App']['ClearZaiKey']();
-}
-
-export function CancelClone() {
-  return window['go']['main']['App']['CancelClone']();
 }
 
 export function CloneRepo(arg1, arg2) {
@@ -276,6 +280,10 @@ export function NewChatSession(arg1) {
 
 export function OpenProject(arg1) {
   return window['go']['main']['App']['OpenProject'](arg1);
+}
+
+export function PathIsDir(arg1) {
+  return window['go']['main']['App']['PathIsDir'](arg1);
 }
 
 export function PickProjectDir() {
