@@ -1,3 +1,4 @@
+// Edited by nc.ai 1.1.8 on macbook 2026-11-08 20:52:57
 package gitx
 
 import (
@@ -21,6 +22,36 @@ func githubAPIHost(host string) bool {
 	default:
 		return false
 	}
+}
+
+// Лимиты zipball. Без них один битый (или подменённый) ответ забивает диск:
+// сжатый архив на 1 МБ разворачивается в гигабайты. Значения с запасом покрывают
+// крупные репозитории (monorepo Linux — ~250 МБ zip / ~1.3 ГБ файлов).
+// Переменные, а не константы: тесты опускают лимиты, чтобы не строить гигабайты.
+var (
+	maxZipballBytes   int64 = 512 << 20 // сколько качаем с API
+	maxUnpackedBytes  int64 = 3 << 30   // сколько всего распаковываем
+	maxZipballEntries       = 100000    // сколько файлов в архиве готовы принять
+)
+
+// zipballClient — общий клиент: пул соединений переиспользуется, но заголовки
+// ждём не бесконечно, иначе зависший GitHub держит диалог до ручной отмены.
+var zipballClient = &http.Client{
+	Transport: &http.Transport{
+		Proxy:                 http.ProxyFromEnvironment,
+		MaxIdleConns:          4,
+		MaxIdleConnsPerHost:   2,
+		IdleConnTimeout:       5 * time.Minute,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ResponseHeaderTimeout: 30 * time.Second,
+		ExpectContinueTimeout: time.Second,
+	},
+	CheckRedirect: func(r *http.Request, via []*http.Request) error {
+		if len(via) >= 10 {
+			return fmt.Errorf("слишком много редиректов")
+		}
+		return nil
+	},
 }
 
 // githubOwnerRepo — owner/repo из пути GitHub-ссылки.
@@ -115,16 +146,7 @@ func downloadGitHubZipball(ctx context.Context, apiURL string, dest *os.File) er
 	req.Header.Set("User-Agent", "NotCursor.ai")
 	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
 
-	client := &http.Client{
-		// Без общего Timeout: отмена через ctx (CancelClone).
-		Timeout: 0,
-		CheckRedirect: func(r *http.Request, via []*http.Request) error {
-			if len(via) >= 10 {
-				return fmt.Errorf("слишком много редиректов")
-			}
-			return nil
-		},
-	}
+	client := zipballClient
 	resp, err := client.Do(req)
 	if err != nil {
 		if ctx.Err() != nil {
@@ -141,11 +163,19 @@ func downloadGitHubZipball(ctx context.Context, apiURL string, dest *os.File) er
 		}
 		return fmt.Errorf("GitHub API %s: %s", resp.Status, firstLine(msg))
 	}
-	if _, err := io.Copy(dest, resp.Body); err != nil {
+	if resp.ContentLength > maxZipballBytes {
+		return fmt.Errorf("архив слишком большой: %d МБ (лимит %d МБ)", resp.ContentLength>>20, maxZipballBytes>>20)
+	}
+	// LimitReader страхует и от ответа без Content-Length, и от обмана в заголовке.
+	n, err := io.Copy(dest, io.LimitReader(resp.Body, maxZipballBytes+1))
+	if err != nil {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
 		return fmt.Errorf("скачивание zipball: %w", err)
+	}
+	if n > maxZipballBytes {
+		return fmt.Errorf("архив больше лимита %d МБ — клонируйте через git", maxZipballBytes>>20)
 	}
 	return nil
 }
@@ -161,7 +191,11 @@ func unzipFlat(zipPath, dest string) (string, error) {
 	if len(r.File) == 0 {
 		return "", fmt.Errorf("пустой архив")
 	}
+	if len(r.File) > maxZipballEntries {
+		return "", fmt.Errorf("в архиве %d файлов (лимит %d) — клонируйте через git", len(r.File), maxZipballEntries)
+	}
 
+	var unpacked int64
 	var topName string
 	for _, f := range r.File {
 		name := filepath.Clean(f.Name)
@@ -188,8 +222,12 @@ func unzipFlat(zipPath, dest string) (string, error) {
 		if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
 			return "", err
 		}
-		if err := writeZipFile(f, out); err != nil {
+		if err := writeZipFile(f, out, maxUnpackedBytes-unpacked); err != nil {
 			return "", err
+		}
+		unpacked += int64(f.UncompressedSize64)
+		if unpacked > maxUnpackedBytes {
+			return "", fmt.Errorf("архив разворачивается больше %d МБ — клонируйте через git", maxUnpackedBytes>>20)
 		}
 		if topName == "" {
 			parts := strings.Split(name, string(os.PathSeparator))
@@ -208,7 +246,9 @@ func unzipFlat(zipPath, dest string) (string, error) {
 	return dest, nil
 }
 
-func writeZipFile(f *zip.File, out string) error {
+// writeZipFile пишет файл из архива, не давая превысить оставшийся лимит распаковки
+// (размер в заголовке zip может врать, поэтому считаем реально скопированные байты).
+func writeZipFile(f *zip.File, out string, remaining int64) error {
 	rc, err := f.Open()
 	if err != nil {
 		return err
@@ -219,8 +259,14 @@ func writeZipFile(f *zip.File, out string) error {
 		return err
 	}
 	defer w.Close()
-	_, err = io.Copy(w, rc)
-	return err
+	n, err := io.Copy(w, io.LimitReader(rc, remaining+1))
+	if err != nil {
+		return err
+	}
+	if n > remaining {
+		return fmt.Errorf("файл %s превысил лимит распаковки", f.Name)
+	}
+	return nil
 }
 
 func initGitWithRemote(ctx context.Context, dir, originURL string) error {

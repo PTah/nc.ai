@@ -1,8 +1,10 @@
+// Edited by nc.ai 1.1.8 on macbook 2026-11-08 20:54:32
 package tools
 
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -43,7 +45,24 @@ func TestCheckCommandScope(t *testing.T) {
 		{"удаление во временном каталоге", `Remove-Item -Recurse ` + filepath.Join(os.TempDir(), "venv"), "вне проекта", ""},
 		{"не команда терминала", `нет-парсинга`, "", ""},
 	}
+	// Кейсы ниже проверяют семантику путей PowerShell: обратные слэши, C:, системные
+	// каталоги. На macOS та же строка — просто имя файла (разделитель там /), и охранник
+	// правильно её разрешает, поэтому ожидание «вне проекта» к не-Windows неприменимо.
+	windowsOnly := map[string]bool{
+		"относительный выход":                     true,
+		"профиль через переменную":                true,
+		"временный каталог можно":                 true,
+		"системные пути можно":                    true,
+		"двойной вывод ошибок не запись":          true,
+		"запись в system32 требует подтверждения": true,
+		"удаление из Program Files":               true,
+		"копирование в ProgramData":               true,
+		"перенаправление в файл вне проекта":      true,
+	}
 	for _, c := range cases {
+		if windowsOnly[c.name] && runtime.GOOS != "windows" {
+			continue
+		}
 		got := checkCommandScope(root, []string{other}, root, c.command)
 		if c.want == "" {
 			if got != nil {

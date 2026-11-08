@@ -1,3 +1,4 @@
+// Edited by nc.ai 1.1.8 on macbook 2026-11-08 20:52:33
 package gitx
 
 import (
@@ -73,8 +74,13 @@ func (s *Service) Clone(ctx context.Context, rawURL, parentDir string) (*CloneRe
 		return nil, fmt.Errorf("не удалось подготовить папку %s: %w", parent, err)
 	}
 	target := filepath.Join(parent, remote.repoName())
-	if entries, err := os.ReadDir(target); err == nil && len(entries) > 0 {
-		return nil, fmt.Errorf("папка %s уже существует и не пуста — выберите другую папку или удалите её", target)
+	if st, err := os.Stat(target); err == nil {
+		if !st.IsDir() {
+			return nil, fmt.Errorf("%s — это файл, а не папка; выберите другую папку", target)
+		}
+		if entries, rerr := os.ReadDir(target); rerr == nil && len(entries) > 0 {
+			return nil, fmt.Errorf("папка %s уже существует и не пуста — выберите другую папку или удалите её", target)
+		}
 	}
 
 	res := &CloneResult{Path: target}
@@ -152,6 +158,17 @@ func (s *Service) cloneOne(ctx context.Context, remoteURL, target string) error 
 }
 
 // parseRemote понимает ssh://user@host:port/path, git@host:path и http(s)://host/path.
+// isWindowsAbsPath — «D:\repos\origin» или «D:/repos/origin». filepath.IsAbs знает
+// только текущую ОС, поэтому путь из Windows, вставленный на macOS, иначе не
+// распознавался как локальный и падал в «не понимаю ссылку».
+func isWindowsAbsPath(p string) bool {
+	if len(p) < 3 || p[1] != ':' || (p[2] != '\\' && p[2] != '/') {
+		return false
+	}
+	c := p[0]
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+}
+
 func parseRemote(raw string) (*remoteInfo, error) {
 	r := strings.TrimSpace(raw)
 	if r == "" {
@@ -160,7 +177,7 @@ func parseRemote(raw string) (*remoteInfo, error) {
 	lower := strings.ToLower(r)
 	// Локальный путь или file:// — клонируем как есть, без ssh/https.
 	if strings.HasPrefix(lower, "file://") || (!strings.Contains(r, "://") && !strings.Contains(r, "@") &&
-		(filepath.IsAbs(r) || strings.HasPrefix(r, "./") || strings.HasPrefix(r, "../"))) {
+		(filepath.IsAbs(r) || isWindowsAbsPath(r) || strings.HasPrefix(r, "./") || strings.HasPrefix(r, "../"))) {
 		info := &remoteInfo{raw: r, kind: "other", path: r}
 		if info.repoName() == "" {
 			return nil, fmt.Errorf("в ссылке %q нет имени репозитория", raw)

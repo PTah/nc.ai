@@ -35,7 +35,7 @@ import "time"
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "1.1.9"
+	Version = "1.1.10"
 )
 
 // DeepSeekProRetireRFC3339 is the announced V4 Pro retirement instant, empty
@@ -81,18 +81,18 @@ func retiredAt(at time.Time, now time.Time) bool {
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
-	"Шапка снова собирается в одну строку: модель, тумблеры, баланс и иконки темы/настроек вровень",
-	"Длинный баланс ужимается, а не переносит шапку на третью строку (было в 1.1.6)",
-	"На узком экране прячутся наименее важные сегменты полосы — total и расшифровка бонуса/пополнения",
-	"Правило работы с серверами: скрипт готовим локально, на сервер — один заход «залить, запустить, проверить»",
+	"Клон через GitHub: лимиты на архив (512 МБ скачать, 3 ГБ распаковать, 100 тыс. файлов) — битый или подменённый ответ не забивает диск",
+	"Клон больше не удаляет файл, случайно оказавшийся на месте папки проекта: сначала проверка, потом действия",
+	"Windows-путь и путь чужой ОС распознаются одинаково: «D:\\repos\\origin» и имя проекта из архива на любой системе",
+	"Набор тестов снова зелёный на macOS целиком — регрессии больше не тонут в известных падениях",
 	"Рабочее пространство из нескольких папок и запросы, идущие параллельно, работают как раньше",
 }
 
 var HighlightsEN = []string{
-	"The header is a single row again: model, toggles, balance and the theme/settings icons line up",
-	"A long balance shrinks instead of pushing the header onto a third row (that was 1.1.6)",
-	"On narrow screens the least valuable strip segments hide — total and the bonus/topped-up breakdown",
-	"Remote work rule: prepare the script locally, then a single visit that uploads, runs and verifies it",
+	"GitHub clone: archive limits (512 MB download, 3 GB unpacked, 100k files) so a broken or tampered response cannot fill the disk",
+	"Clone no longer deletes a file that happens to sit where the project folder should be: checks first, actions second",
+	"Windows paths and foreign-OS paths are recognised the same way: “D:\\repos\\origin” and a project name from an archive on any system",
+	"The test suite is green on macOS as a whole again, so regressions no longer drown in known failures",
 	"Requests in parallel chats and the multi-folder workspace keep working as before",
 }
 

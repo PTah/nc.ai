@@ -1,4 +1,5 @@
 // Edited by nc.ai 0.9.4 on new-admin-pc 2026-10-30 09:20:13
+// Edited by nc.ai 1.1.8 on macbook 2026-11-08 20:53:08
 package chatstore
 
 import (
@@ -32,25 +33,25 @@ type Session struct {
 	ProviderID string `json:"providerId,omitempty"`
 	// Per-chat API spend (survives restarts with the session JSON).
 	// Legacy combined fields kept for migration; prefer per-provider buckets.
-	CostUSD       float64 `json:"costUsd,omitempty"`
-	InputTokens   int     `json:"inputTokens,omitempty"`
-	OutputTokens  int     `json:"outputTokens,omitempty"`
-	DeepSeekCostUSD      float64 `json:"deepseekCostUsd,omitempty"`
-	DeepSeekInputTokens  int     `json:"deepseekInputTokens,omitempty"`
-	DeepSeekOutputTokens int     `json:"deepseekOutputTokens,omitempty"`
-	DeepSeekCacheHitTokens  int `json:"deepseekCacheHitTokens,omitempty"`
-	DeepSeekCacheMissTokens int `json:"deepseekCacheMissTokens,omitempty"`
-	ZaiCostUSD      float64 `json:"zaiCostUsd,omitempty"`
-	ZaiInputTokens  int     `json:"zaiInputTokens,omitempty"`
-	ZaiOutputTokens int     `json:"zaiOutputTokens,omitempty"`
-	ZaiCacheHitTokens  int `json:"zaiCacheHitTokens,omitempty"`
-	ZaiCacheMissTokens int `json:"zaiCacheMissTokens,omitempty"`
+	CostUSD                 float64 `json:"costUsd,omitempty"`
+	InputTokens             int     `json:"inputTokens,omitempty"`
+	OutputTokens            int     `json:"outputTokens,omitempty"`
+	DeepSeekCostUSD         float64 `json:"deepseekCostUsd,omitempty"`
+	DeepSeekInputTokens     int     `json:"deepseekInputTokens,omitempty"`
+	DeepSeekOutputTokens    int     `json:"deepseekOutputTokens,omitempty"`
+	DeepSeekCacheHitTokens  int     `json:"deepseekCacheHitTokens,omitempty"`
+	DeepSeekCacheMissTokens int     `json:"deepseekCacheMissTokens,omitempty"`
+	ZaiCostUSD              float64 `json:"zaiCostUsd,omitempty"`
+	ZaiInputTokens          int     `json:"zaiInputTokens,omitempty"`
+	ZaiOutputTokens         int     `json:"zaiOutputTokens,omitempty"`
+	ZaiCacheHitTokens       int     `json:"zaiCacheHitTokens,omitempty"`
+	ZaiCacheMissTokens      int     `json:"zaiCacheMissTokens,omitempty"`
 
-	OpenRouterCostUSD      float64 `json:"openrouterCostUsd,omitempty"`
-	OpenRouterInputTokens  int     `json:"openrouterInputTokens,omitempty"`
-	OpenRouterOutputTokens int     `json:"openrouterOutputTokens,omitempty"`
-	OpenRouterCacheHitTokens  int `json:"openrouterCacheHitTokens,omitempty"`
-	OpenRouterCacheMissTokens int `json:"openrouterCacheMissTokens,omitempty"`
+	OpenRouterCostUSD         float64 `json:"openrouterCostUsd,omitempty"`
+	OpenRouterInputTokens     int     `json:"openrouterInputTokens,omitempty"`
+	OpenRouterOutputTokens    int     `json:"openrouterOutputTokens,omitempty"`
+	OpenRouterCacheHitTokens  int     `json:"openrouterCacheHitTokens,omitempty"`
+	OpenRouterCacheMissTokens int     `json:"openrouterCacheMissTokens,omitempty"`
 
 	QwenCostUSD         float64 `json:"qwenCostUsd,omitempty"`
 	QwenInputTokens     int     `json:"qwenInputTokens,omitempty"`
@@ -119,6 +120,15 @@ func projectDisplayName(project string) string {
 	project = strings.TrimSpace(project)
 	if project == "" || project == "_global" {
 		return "(no project)"
+	}
+	// Проект мог быть сохранён на другой ОС: Windows-путь в архиве, открытом на macOS
+	// (и наоборот). filepath.Base режет только по разделителю текущей системы, поэтому
+	// сначала пробуем оба, а к filepath.Base откатываемся, если разделителей нет.
+	if trimmed := strings.TrimRight(project, `/\`); trimmed != "" {
+		if idx := strings.LastIndexAny(trimmed, `/\`); idx >= 0 && idx < len(trimmed)-1 {
+			return trimmed[idx+1:]
+		}
+		project = trimmed
 	}
 	base := filepath.Base(filepath.Clean(project))
 	if base == "" || base == "." || base == string(filepath.Separator) {
