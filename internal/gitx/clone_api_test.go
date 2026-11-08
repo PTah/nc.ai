@@ -54,15 +54,15 @@ func TestUnzipFlatSkipsTraversal(t *testing.T) {
 	base := t.TempDir()
 	zipPath := filepath.Join(base, "bomb.zip")
 	writeZip(t, zipPath, map[string][]byte{
-		"repo-abc/ok.txt":  []byte("ok"),
-		"../evil.txt":      []byte("evil"),
-		"repo-abc/x/../y":  []byte("weird"),
+		"repo-abc/ok.txt": []byte("ok"),
+		"../evil.txt":     []byte("evil"),
+		"repo-abc/x/../y": []byte("weird"),
 	})
 	dest := filepath.Join(base, "dest")
 	if err := os.MkdirAll(dest, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	top, err := unzipFlat(zipPath, dest)
+	top, err := unzipFlat(zipPath, dest, nil)
 	if err != nil {
 		t.Fatalf("unzipFlat: %v", err)
 	}
@@ -89,7 +89,7 @@ func TestUnzipFlatEnforcesUnpackedLimit(t *testing.T) {
 	if err := os.MkdirAll(dest, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := unzipFlat(zipPath, dest); err == nil {
+	if _, err := unzipFlat(zipPath, dest, nil); err == nil {
 		t.Fatal("ожидали ошибку лимита распаковки")
 	} else if !strings.Contains(err.Error(), "лимит") {
 		t.Fatalf("неожидаемая ошибка: %v", err)
@@ -114,7 +114,7 @@ func TestUnzipFlatEnforcesEntryLimit(t *testing.T) {
 	if err := os.MkdirAll(dest, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := unzipFlat(zipPath, dest); err == nil {
+	if _, err := unzipFlat(zipPath, dest, nil); err == nil {
 		t.Fatal("ожидали ошибку лимита количества файлов")
 	} else if !strings.Contains(err.Error(), "лимит") {
 		t.Fatalf("неожидаемая ошибка: %v", err)

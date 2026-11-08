@@ -2,6 +2,7 @@
 package gitx
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"errors"
@@ -54,6 +55,90 @@ type cloneCandidate struct {
 
 // ErrCloneCanceled — пользователь нажал «Отмена» (или закрыл диалог) во время clone.
 var ErrCloneCanceled = errors.New("клонирование отменено")
+
+// Progress — этап клонирования для интерфейса.
+type Progress struct {
+	Phase   string `json:"phase"`   // download | unpack | git | open
+	Percent int    `json:"percent"` // -1 — процент неизвестен (показываем «бегущую» полосу)
+	Detail  string `json:"detail"`  // «3.2 МБ из 7.4 МБ», «Receiving objects: 45%», «1200 из 3400 файлов»
+}
+
+// report отдаёт этап в интерфейс, если колбэк установлен.
+func (s *Service) report(p Progress) {
+	if s != nil && s.OnProgress != nil {
+		s.OnProgress(p)
+	}
+}
+
+// humanBytes — «3.2 МБ» без лишних знаков после запятой.
+func humanBytes(n int64) string {
+	const unit = 1024
+	if n < unit {
+		return fmt.Sprintf("%d Б", n)
+	}
+	units := []string{"КБ", "МБ", "ГБ", "ТБ"}
+	val := float64(n)
+	for _, u := range units {
+		val /= unit
+		if val < unit {
+			if val < 10 {
+				return fmt.Sprintf("%.1f %s", val, u)
+			}
+			return fmt.Sprintf("%.0f %s", val, u)
+		}
+	}
+	return fmt.Sprintf("%.0f ТБ", val/unit)
+}
+
+// parseGitProgress вытаскивает процент из строк git clone --progress:
+//
+//	remote: Enumerating objects: 1200, done.
+//	Receiving objects:  45% (1234/2743), 3.20 MiB | 1.10 MiB/s
+//	Resolving deltas:  10% (100/1000)
+//
+// git печатает прогресс через \r без перевода строки, поэтому строки приходят
+// «склеенными» — берём последний сегмент после \r.
+func parseGitProgress(line string) (Progress, bool) {
+	if i := strings.LastIndexByte(line, '\r'); i >= 0 {
+		line = line[i+1:]
+	}
+	text := strings.TrimSpace(line)
+	text = strings.TrimPrefix(text, "remote: ")
+	lower := strings.ToLower(text)
+	if text == "" || !strings.Contains(text, "%") {
+		return Progress{}, false
+	}
+	label := ""
+	switch {
+	case strings.HasPrefix(lower, "counting objects"):
+		label = "подсчёт объектов"
+	case strings.HasPrefix(lower, "compressing objects"):
+		label = "сжатие объектов"
+	case strings.HasPrefix(lower, "receiving objects"):
+		label = "получение объектов"
+	case strings.HasPrefix(lower, "resolving deltas"):
+		label = "разрешение дельт"
+	case strings.HasPrefix(lower, "enumerating objects"):
+		label = "перечисление объектов"
+	default:
+		return Progress{}, false
+	}
+	// «Receiving objects:  45%» — процент после двоеточия.
+	pct := -1
+	if idx := strings.Index(text, ":"); idx >= 0 {
+		rest := strings.TrimSpace(text[idx+1:])
+		if p := strings.IndexByte(rest, '%'); p > 0 {
+			if v, err := strconv.Atoi(strings.TrimSpace(rest[:p])); err == nil && v >= 0 && v <= 100 {
+				pct = v
+			}
+		}
+	}
+	detail := label
+	if pct >= 0 {
+		detail = fmt.Sprintf("%s: %d%%", label, pct)
+	}
+	return Progress{Phase: "git", Percent: pct, Detail: detail}, true
+}
 
 // Clone клонирует репозиторий в <parentDir>/<имя репозитория>.
 // Для github.com сначала пробуем REST zipball (API часто живёт, когда git-pack
@@ -132,15 +217,36 @@ func (s *Service) CloneTarget(rawURL, parentDir string) (string, error) {
 func (s *Service) cloneOne(ctx context.Context, remoteURL, target string) error {
 	ctx, cancel := context.WithTimeout(ctx, gitNetworkTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "git", "clone", "--quiet", remoteURL, target)
+	// --progress: без него git молчит, и в диалоге нечего показать. Прогресс идёт
+	// в stderr строками через \r, поэтому читаем его сканером и отдаём в UI.
+	cmd := exec.CommandContext(ctx, "git", "clone", "--progress", remoteURL, target)
 	cmd.Dir = filepath.Dir(target)
 	configureCmd(cmd)
 	cmd.Env = gitEnv(filepath.Dir(target))
 	cmd.WaitDelay = 5 * time.Second
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &out
-	err := cmd.Run()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	stderrPipe, err := cmd.StderrPipe()
+	if err != nil {
+		return err
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		scan := bufio.NewScanner(stderrPipe)
+		scan.Buffer(make([]byte, 0, 64*1024), 256*1024)
+		scan.Split(splitProgressLines)
+		for scan.Scan() {
+			line := scan.Text()
+			stderr.WriteString(line + "\n")
+			if p, ok := parseGitProgress(line); ok {
+				s.report(p)
+			}
+		}
+	}()
+	err = cmd.Run()
+	<-done
 	if errors.Is(ctx.Err(), context.Canceled) {
 		return context.Canceled
 	}
@@ -148,13 +254,31 @@ func (s *Service) cloneOne(ctx context.Context, remoteURL, target string) error 
 		return fmt.Errorf("превышен лимит ожидания %s", gitNetworkTimeout)
 	}
 	if err != nil {
-		msg := strings.TrimSpace(out.String())
+		msg := strings.TrimSpace(stderr.String())
+		if msg == "" {
+			msg = strings.TrimSpace(stdout.String())
+		}
 		if msg == "" {
 			msg = err.Error()
 		}
 		return errors.New(msg)
 	}
 	return nil
+}
+
+// splitProgressLines режет поток по \n и \r: git clone --progress перерисовывает
+// строку через возврат каретки, и без этого весь прогресс пришёл бы одной строкой.
+func splitProgressLines(data []byte, atEOF bool) (advance int, token []byte, err error) {
+	if atEOF && len(data) == 0 {
+		return 0, nil, nil
+	}
+	if i := bytes.IndexAny(data, "\r\n"); i >= 0 {
+		return i + 1, data[:i], nil
+	}
+	if atEOF {
+		return len(data), data, nil
+	}
+	return 0, nil, nil
 }
 
 // parseRemote понимает ssh://user@host:port/path, git@host:path и http(s)://host/path.

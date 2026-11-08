@@ -1,3 +1,4 @@
+// Edited by nc.ai 1.1.10 on macbook 2026-11-08 21:12:41
 package gitx
 
 import (
@@ -26,6 +27,10 @@ type Service struct {
 	WS *workspace.Manager
 	// Root, when set, pins git commands to one project for the whole agent run.
 	Root string
+	// OnProgress — этапы клонирования для интерфейса (скачивание, распаковка,
+	// git clone). Ставится на время CloneRepo и снимается после: без него
+	// диалог клонирования показывал только «Клонирую…» без единого признака жизни.
+	OnProgress func(Progress)
 }
 
 func New(ws *workspace.Manager) *Service {

@@ -97,12 +97,13 @@ func (s *Service) cloneGitHubAPI(ctx context.Context, remote *remoteInfo, target
 		_ = os.Remove(zipPath)
 	}()
 
-	if err := downloadGitHubZipball(ctx, apiURL, tmpZip); err != nil {
+	if err := s.downloadGitHubZipball(ctx, apiURL, tmpZip); err != nil {
 		return err
 	}
 	if err := tmpZip.Close(); err != nil {
 		return err
 	}
+	s.report(Progress{Phase: "unpack", Percent: 0, Detail: "распаковываю архив"})
 
 	staging, err := os.MkdirTemp(filepath.Dir(target), ".nc-clone-staging-*")
 	if err != nil {
@@ -110,7 +111,13 @@ func (s *Service) cloneGitHubAPI(ctx context.Context, remote *remoteInfo, target
 	}
 	defer func() { _ = os.RemoveAll(staging) }()
 
-	top, err := unzipFlat(zipPath, staging)
+	top, err := unzipFlat(zipPath, staging, func(done, total int) {
+		pct := -1
+		if total > 0 {
+			pct = done * 100 / total
+		}
+		s.report(Progress{Phase: "unpack", Percent: pct, Detail: fmt.Sprintf("%d из %d файлов", done, total)})
+	})
 	if err != nil {
 		return err
 	}
@@ -137,7 +144,29 @@ func (s *Service) cloneGitHubAPI(ctx context.Context, remote *remoteInfo, target
 	return nil
 }
 
-func downloadGitHubZipball(ctx context.Context, apiURL string, dest *os.File) error {
+// progressWriter сообщает о ходе скачивания не чаще 8 раз в секунду: событие в UI
+// дешевле, чем render на каждый чанк, но чаще — уже мусор.
+type progressWriter struct {
+	w      io.Writer
+	total  int64
+	n      int64
+	last   time.Time
+	report func(written, total int64)
+}
+
+func (p *progressWriter) Write(b []byte) (int, error) {
+	n, err := p.w.Write(b)
+	p.n += int64(n)
+	if now := time.Now(); now.Sub(p.last) > 120*time.Millisecond {
+		p.last = now
+		if p.report != nil {
+			p.report(p.n, p.total)
+		}
+	}
+	return n, err
+}
+
+func (s *Service) downloadGitHubZipball(ctx context.Context, apiURL string, dest *os.File) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
 	if err != nil {
 		return err
@@ -167,7 +196,19 @@ func downloadGitHubZipball(ctx context.Context, apiURL string, dest *os.File) er
 		return fmt.Errorf("архив слишком большой: %d МБ (лимит %d МБ)", resp.ContentLength>>20, maxZipballBytes>>20)
 	}
 	// LimitReader страхует и от ответа без Content-Length, и от обмана в заголовке.
-	n, err := io.Copy(dest, io.LimitReader(resp.Body, maxZipballBytes+1))
+	n, err := io.Copy(&progressWriter{
+		w:     dest,
+		total: resp.ContentLength,
+		report: func(written, total int64) {
+			pct := -1
+			detail := humanBytes(written)
+			if total > 0 {
+				pct = int(written * 100 / total)
+				detail = fmt.Sprintf("%s из %s", humanBytes(written), humanBytes(total))
+			}
+			s.report(Progress{Phase: "download", Percent: pct, Detail: detail})
+		},
+	}, io.LimitReader(resp.Body, maxZipballBytes+1))
 	if err != nil {
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -182,7 +223,7 @@ func downloadGitHubZipball(ctx context.Context, apiURL string, dest *os.File) er
 
 // unzipFlat распаковывает zip; GitHub кладёт всё в одну top-level папку —
 // возвращаем путь к ней (или к dest, если корня нет).
-func unzipFlat(zipPath, dest string) (string, error) {
+func unzipFlat(zipPath, dest string, onProgress func(done, total int)) (string, error) {
 	r, err := zip.OpenReader(zipPath)
 	if err != nil {
 		return "", fmt.Errorf("открыть zip: %w", err)
@@ -197,7 +238,8 @@ func unzipFlat(zipPath, dest string) (string, error) {
 
 	var unpacked int64
 	var topName string
-	for _, f := range r.File {
+	lastReport := time.Time{}
+	for i, f := range r.File {
 		name := filepath.Clean(f.Name)
 		if name == "." || strings.HasPrefix(name, "..") {
 			continue
@@ -233,6 +275,13 @@ func unzipFlat(zipPath, dest string) (string, error) {
 			parts := strings.Split(name, string(os.PathSeparator))
 			if len(parts) > 0 {
 				topName = parts[0]
+			}
+		}
+		// Не чаще 8 раз в секунду: файлов может быть десятки тысяч.
+		if now := time.Now(); now.Sub(lastReport) > 120*time.Millisecond {
+			lastReport = now
+			if onProgress != nil {
+				onProgress(i+1, len(r.File))
 			}
 		}
 	}

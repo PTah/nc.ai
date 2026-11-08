@@ -6,6 +6,7 @@
 // Edited by nc.ai 0.8.8.0 on new-admin-pc 2026-10-19 08:01:34
 // Edited by nc.ai 1.0.0 on Papasha 2026-10-31 10:38:44
 // Edited by nc.ai 1.0.6 on new-admin-pc 2026-11-02 10:31:10
+// Edited by nc.ai 1.1.10 on macbook 2026-11-08 21:13:24
 package main
 
 import (
@@ -3629,10 +3630,26 @@ func (a *App) CloneRepo(rawURL, parentDir string) (map[string]any, error) {
 		a.cloneMu.Unlock()
 	}()
 
-	res, err := a.tools.Git.Clone(ctx, rawURL, parentDir)
+	res, err := func() (*gitx.CloneResult, error) {
+		// Прогресс клонирования — в диалог: скачивание zipball, распаковка, git clone.
+		// Без этого на большом репозитории видно только «Клонирую…» и непонятно,
+		// работает оно или повисло.
+		a.tools.Git.OnProgress = func(p gitx.Progress) {
+			runtime.EventsEmit(a.ctx, "clone:progress", map[string]any{
+				"phase":   p.Phase,
+				"percent": p.Percent,
+				"detail":  p.Detail,
+			})
+		}
+		defer func() { a.tools.Git.OnProgress = nil }()
+		return a.tools.Git.Clone(ctx, rawURL, parentDir)
+	}()
 	if err != nil {
 		return nil, err
 	}
+	runtime.EventsEmit(a.ctx, "clone:progress", map[string]any{
+		"phase": "open", "percent": -1, "detail": "открываю проект",
+	})
 	p, err := a.OpenProject(res.Path)
 	if err != nil {
 		return nil, fmt.Errorf("репозиторий склонирован в %s, но проект не открылся: %w", res.Path, err)

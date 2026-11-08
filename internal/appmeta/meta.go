@@ -35,7 +35,7 @@ import "time"
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "1.1.10"
+	Version = "1.1.11"
 )
 
 // DeepSeekProRetireRFC3339 is the announced V4 Pro retirement instant, empty
@@ -81,18 +81,18 @@ func retiredAt(at time.Time, now time.Time) bool {
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
-	"Клон через GitHub: лимиты на архив (512 МБ скачать, 3 ГБ распаковать, 100 тыс. файлов) — битый или подменённый ответ не забивает диск",
-	"Клон больше не удаляет файл, случайно оказавшийся на месте папки проекта: сначала проверка, потом действия",
-	"Windows-путь и путь чужой ОС распознаются одинаково: «D:\\repos\\origin» и имя проекта из архива на любой системе",
-	"Набор тестов снова зелёный на macOS целиком — регрессии больше не тонут в известных падениях",
+	"Клонирование показывает прогресс: полоса и этап — «Скачиваю архив GitHub: 4.2 МБ из 14 МБ», «Распаковываю: 1200 из 2972 файлов», «git clone: получение объектов 45%»",
+	"Если процент неизвестен (git ещё считает объекты) — полоса «бежит», а не стоит нулём",
+	"Кнопка «Отменить» работает на любом этапе: обрывает и скачивание, и git",
+	"Лимиты архива (512 МБ скачать, 3 ГБ распаковать) и защита цели клона — из 1.1.10",
 	"Рабочее пространство из нескольких папок и запросы, идущие параллельно, работают как раньше",
 }
 
 var HighlightsEN = []string{
-	"GitHub clone: archive limits (512 MB download, 3 GB unpacked, 100k files) so a broken or tampered response cannot fill the disk",
-	"Clone no longer deletes a file that happens to sit where the project folder should be: checks first, actions second",
-	"Windows paths and foreign-OS paths are recognised the same way: “D:\\repos\\origin” and a project name from an archive on any system",
-	"The test suite is green on macOS as a whole again, so regressions no longer drown in known failures",
+	"Cloning now shows progress: a bar plus the stage — “Downloading GitHub archive: 4.2 MB of 14 MB”, “Unpacking: 1200 of 2972 files”, “git clone: receiving objects 45%”",
+	"When the percentage is unknown (git is still counting objects) the bar runs instead of sitting at zero",
+	"Cancel works at any stage: it stops both the download and git",
+	"Archive limits (512 MB download, 3 GB unpacked) and the clone-target guard come from 1.1.10",
 	"Requests in parallel chats and the multi-folder workspace keep working as before",
 }
 

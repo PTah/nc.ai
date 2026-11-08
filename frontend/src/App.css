@@ -2759,6 +2759,50 @@ input[type="radio"]:focus-visible {
   .nc-top-brand .nc-sub { opacity: 0.75; }
 }
 
+/* ── Прогресс клонирования в диалоге Clone repository ─────────────────── */
+.nc-clone-progress {
+  margin: 0 0 0.6rem;
+}
+
+.nc-clone-bar {
+  position: relative;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--hover-bg);
+  overflow: hidden;
+}
+
+.nc-clone-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width 0.18s ease-out;
+}
+
+/* Процент неизвестен (git ещё считает объекты) — «бегущая» полоса вместо нуля. */
+.nc-clone-bar-wait > span {
+  width: 35%;
+  animation: nc-clone-slide 1.1s ease-in-out infinite;
+}
+
+@keyframes nc-clone-slide {
+  0% { margin-left: -35%; }
+  100% { margin-left: 100%; }
+}
+
+.nc-clone-stage {
+  margin: 0.35rem 0 0;
+  font-size: 0.78rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nc-clone-bar-wait > span { animation: none; width: 100%; opacity: 0.45; }
+  .nc-clone-bar > span { transition: none; }
+}
+
 /* ── Reduced motion ──────────────────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
   button, .nc-ghost, .nc-tab, .nc-composer, input, textarea, select,

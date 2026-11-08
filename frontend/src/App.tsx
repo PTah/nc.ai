@@ -2001,6 +2001,24 @@ function storeDensity(next: UiDensity): void {
   }
 }
 
+// cloneStageLabel — человеческий текст этапа для диалога клонирования.
+function cloneStageLabel(p: {phase: string; percent: number; detail: string} | null): string {
+  if (!p || !p.phase) return 'Готовлюсь к клонированию…'
+  const detail = p.detail ? ` ${p.detail}` : ''
+  switch (p.phase) {
+    case 'download':
+      return `Скачиваю архив GitHub:${detail}`
+    case 'unpack':
+      return `Распаковываю:${detail}`
+    case 'git':
+      return `git clone:${detail}`
+    case 'open':
+      return 'Открываю проект…'
+    default:
+      return p.detail || 'Клонирую…'
+  }
+}
+
 function normalizeUiFont(id: string): string {
   switch (String(id || '').toLowerCase()) {
     case 'verdana':
@@ -2082,6 +2100,9 @@ export default function App() {
   const [cloneTarget, setCloneTarget] = useState('')
   const [cloneErr, setCloneErr] = useState('')
   const [cloneBusy, setCloneBusy] = useState(false)
+  // Прогресс клонирования из событий бэкенда: этап + процент + подробность
+  // (мегабайты / файлы / проценты git). Без него в диалоге висело «Клонирую…».
+  const [cloneProgress, setCloneProgress] = useState<{phase: string; percent: number; detail: string} | null>(null)
   const cloneGenRef = useRef(0)
   const cloneAbortRef = useRef(false)
   const [pendingCloseChatId, setPendingCloseChatId] = useState<string | null>(null)
@@ -3583,6 +3604,7 @@ export default function App() {
     let offUpdateInstall: (() => void) | undefined
     let offProjects: (() => void) | undefined
     let offAskSound: (() => void) | undefined
+    let offClone: (() => void) | undefined
     try {
       offAgent = EventsOn('agent:event', (...args: unknown[]) => {
         try {
@@ -4027,6 +4049,15 @@ export default function App() {
       // Native close confirmation is a question too — backend pings us to play
       // the same attention pop before the OS dialog appears.
       offAskSound = EventsOn('ask:sound', () => playAskSound())
+      // Прогресс клонирования: этап, процент и подробность из gitx.
+      offClone = EventsOn('clone:progress', (p: unknown) => {
+        const rec = p && typeof p === 'object' ? (p as Record<string, any>) : {}
+        setCloneProgress({
+          phase: String(rec.phase || ''),
+          percent: typeof rec.percent === 'number' ? rec.percent : -1,
+          detail: String(rec.detail || ''),
+        })
+      })
     } catch {
       // runtime bindings not ready
     }
@@ -4047,8 +4078,10 @@ export default function App() {
         offUpdateInstall?.()
         EventsOff('projects:changed')
         EventsOff('ask:sound')
+        EventsOff('clone:progress')
         offProjects?.()
         offAskSound?.()
+        offClone?.()
       } catch {
         /* ignore */
       }
@@ -4848,6 +4881,7 @@ export default function App() {
     const gen = ++cloneGenRef.current
     setCloneBusy(true)
     setCloneErr('')
+    setCloneProgress(null)
     try {
       const res = await CloneRepo(url, parent)
       if (cloneGenRef.current !== gen) return
@@ -4866,7 +4900,10 @@ export default function App() {
       }
       setCloneErr(msg)
     } finally {
-      if (cloneGenRef.current === gen) setCloneBusy(false)
+      if (cloneGenRef.current === gen) {
+        setCloneBusy(false)
+        setCloneProgress(null)
+      }
     }
   }
 
@@ -9454,6 +9491,23 @@ async function refreshYandexModels(opts?: {applyPreferred?: boolean; notify?: bo
               </div>
             </div>
             {cloneTarget ? <p className="nc-new-project-path">Появится папка: {cloneTarget}</p> : null}
+            {cloneBusy ? (
+              <div className="nc-clone-progress" role="status" aria-live="polite">
+                <div className={cloneProgress && cloneProgress.percent >= 0 ? 'nc-clone-bar' : 'nc-clone-bar nc-clone-bar-wait'}>
+                  <span
+                    style={
+                      cloneProgress && cloneProgress.percent >= 0
+                        ? {width: `${Math.min(100, Math.max(2, cloneProgress.percent))}%`}
+                        : undefined
+                    }
+                  />
+                </div>
+                <p className="nc-clone-stage">
+                  {cloneStageLabel(cloneProgress)}
+                  {cloneProgress && cloneProgress.percent >= 0 ? ` · ${cloneProgress.percent}%` : ''}
+                </p>
+              </div>
+            ) : null}
             {cloneErr ? <p className="nc-rule-edit-err" style={{whiteSpace: 'pre-line'}}>{cloneErr}</p> : null}
             <div className="nc-close-project-actions">
               <button type="button" className="nc-ghost" onClick={closeCloneDlg}>
