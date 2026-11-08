@@ -18,6 +18,7 @@
 // Edited by nc.ai 1.0.1 on macbook 2026-10-31 22:48:36
 // Edited by nc.ai 1.0.3 on Papasha 2026-11-01 12:09:40
 // Edited by nc.ai 1.0.6 on new-admin-pc 2026-11-02 10:32:15
+// Edited by nc.ai 1.1.3 on macbook 2026-11-08 18:53:16
 import {FormEvent, MouseEvent as ReactMouseEvent, useCallback, useEffect, useMemo, useRef, useState} from 'react'
 import {Terminal} from '@xterm/xterm'
 import {FitAddon} from '@xterm/addon-fit'
@@ -1965,6 +1966,40 @@ function parseAgentEvent(...args: unknown[]): AgentEvent | null {
   return null
 }
 
+type UiDensity = 'auto' | 'compact' | 'normal' | 'comfortable'
+
+const DENSITY_STORAGE_KEY = 'nc.uiDensity'
+
+function normalizeDensity(id: string): UiDensity {
+  switch (String(id || '').toLowerCase()) {
+    case 'compact':
+    case 'normal':
+    case 'comfortable':
+      return String(id).toLowerCase() as UiDensity
+    default:
+      return 'auto'
+  }
+}
+
+/** Читает сохранённую плотность интерфейса; приватный режим webview — не ошибка. */
+function readDensity(): UiDensity {
+  try {
+    return normalizeDensity(window.localStorage.getItem(DENSITY_STORAGE_KEY) || 'auto')
+  } catch {
+    return 'auto'
+  }
+}
+
+/** Сохраняет выбор плотности (переживает перезапуск приложения). */
+function storeDensity(next: UiDensity): void {
+  try {
+    if (next === 'auto') window.localStorage.removeItem(DENSITY_STORAGE_KEY)
+    else window.localStorage.setItem(DENSITY_STORAGE_KEY, next)
+  } catch {
+    /* ignore */
+  }
+}
+
 function normalizeUiFont(id: string): string {
   switch (String(id || '').toLowerCase()) {
     case 'verdana':
@@ -2309,6 +2344,11 @@ export default function App() {
   const [localKeySet, setLocalKeySet] = useState(false)
   const [theme, setTheme] = useState<'dark' | 'light'>('dark')
   const [uiFont, setUiFont] = useState('default')
+  // Плотность интерфейса: 'auto' считает масштаб от ширины окна (13–16" плотнее,
+  // большой монитор — как раньше), остальные режимы фиксируют масштаб руками.
+  // Живёт в localStorage: это вкус конкретного экрана, синхронизировать между
+  // машинами нечего.
+  const [density, setDensity] = useState<UiDensity>(() => readDensity())
   const [monoFont, setMonoFont] = useState('default')
   const [termCmd, setTermCmd] = useState('')
   const [chatFindOpen, setChatFindOpen] = useState(false)
@@ -3285,6 +3325,12 @@ export default function App() {
     } catch {
       /* ignore */
     }
+  }, [])
+
+  const applyDensity = useCallback((next: string) => {
+    const id = normalizeDensity(next)
+    setDensity(id)
+    storeDensity(id)
   }, [])
 
   const applyMonoFont = useCallback(async (next: string) => {
@@ -6136,7 +6182,7 @@ async function refreshYandexModels(opts?: {applyPreferred?: boolean; notify?: bo
   }
 
   return (
-    <div className="nc-app" data-theme={theme}>
+    <div className="nc-app" data-theme={theme} data-density={density}>
       <header className="nc-topbar">
         <div className="nc-top-brand">
           <BrandMark size={34} animated={anyRunActive} />
@@ -6145,7 +6191,7 @@ async function refreshYandexModels(opts?: {applyPreferred?: boolean; notify?: bo
         </div>
         <div className="nc-top-controls">
           <label className="nc-top-field" title={`Модель активного провайдера: ${providerLabel}`}>
-            <span className="nc-top-field-label">Model ({providerLabel})</span>
+            <span className="nc-top-field-label">Model <span className="nc-model-provider">({providerLabel})</span></span>
             <select
               value={model}
               onChange={(e) => void applyModel(e.target.value)}
@@ -6623,7 +6669,8 @@ async function refreshYandexModels(opts?: {applyPreferred?: boolean; notify?: bo
                   onClick={() => void openRulesBreakdown()}
                   title="Сколько правил реально отдаём модели (тело в промпте) из всех найденных. Клик — разбивка: применены всегда, подключены к запросу, только каталог, не отдаём вовсе"
                 >
-                  Rules Applied/Total: {rulesStatusRows.length > 0
+                  <span className="nc-rules-label">Rules Applied/Total: </span>
+                  {rulesStatusRows.length > 0
                     ? `${rulesStatusRows.filter((r) => r.state === 'always' || r.state === 'turn').length}/${rulesStatusRows.length}`
                     : `${rulesApplied}/${rulesTotal}`}
                 </span>
@@ -8668,6 +8715,20 @@ async function refreshYandexModels(opts?: {applyPreferred?: boolean; notify?: bo
                 <option value="cascadia">Cascadia Mono</option>
               </select>
             </label>
+            <label>
+              Плотность интерфейса
+              <select value={density} onChange={(e) => applyDensity(e.target.value)}>
+                <option value="auto">Авто — по ширине окна</option>
+                <option value="compact">Компактно — 13–14 дюймов</option>
+                <option value="normal">Обычно</option>
+                <option value="comfortable">Просторно — большой монитор</option>
+              </select>
+            </label>
+            <p className="nc-help">
+              Авто: чем уже окно, тем плотнее шапка, вкладки и отступы (13–14 дюймов ≈ 0.9×, 16 ≈ 0.96×,
+              монитор шире 1800 px — 1×). Ручной режим фиксирует масштаб и перекрывает авто; выбор живёт на
+              этой машине.
+            </p>
             <p className="nc-help">
               UI — интерфейс и ответы в чате; Mono — код, терминал и tool-блоки.
             </p>

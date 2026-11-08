@@ -27,6 +27,7 @@
 // Edited by nc.ai 1.0.1 on macbook 2026-10-31 22:56:21
 // Edited by nc.ai 1.0.3 on Papasha 2026-11-01 12:10:05
 // Edited by nc.ai 1.0.0 on new-admin-pc 2026-11-02 09:59:06
+// Edited by nc.ai 1.1.3 on macbook 2026-11-08 18:54:24
 package appmeta
 
 import "time"
@@ -34,7 +35,7 @@ import "time"
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "1.1.3"
+	Version = "1.1.4"
 )
 
 // DeepSeekProRetireRFC3339 is the announced V4 Pro retirement instant, empty
@@ -80,18 +81,18 @@ func retiredAt(at time.Time, now time.Time) bool {
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
-	"Новости Kimi: changelog платформы разбирается вместе с DeepSeek, Z.AI, OpenRouter и Qwen",
-	"Дайджест держит баланс: не больше 12 записей от одного провайдера — длинный changelog больше не вытесняет свежие новости остальных",
-	"Кнопка «… ИИ» есть у каждой записи новостей: если анализ не сложился при обновлении, он запрашивается по клику и причина сбоя видна",
-	"Жирный и курсив в ответах, рассуждениях и итогах подагентов рендерятся как формат, а не как **звёздочки**",
+	"Интерфейс подстраивается под экран: на 13–16\" шапка, вкладки и отступы плотнее, на большом мониторе — как раньше",
+	"Перенос строк шапки больше не оставляет пустой левый край: контролы встают с начала строки, а не по правому краю",
+	"Settings → Interface → «Плотность интерфейса»: авто, компактно, обычно, просторно — выбор запоминается на этой машине",
+	"Длинный баланс держится одной строкой с многоточием (полный текст в подсказке) и не занимает лишнюю строку шапки",
 	"Рабочее пространство из нескольких папок и запросы, идущие параллельно, работают как раньше",
 }
 
 var HighlightsEN = []string{
-	"Kimi news: the platform changelog is parsed alongside DeepSeek, Z.AI, OpenRouter and Qwen",
-	"The digest stays balanced: at most 12 entries per provider, so a long changelog no longer pushes other providers' fresh news out",
-	"Every news entry has a «… AI» button: if the analysis did not land during a refresh, a click requests it and shows the failure reason",
-	"Bold and italics in answers, reasoning and subagent summaries render as formatting instead of **asterisks**",
+	"The UI adapts to the screen: on 13–16\" the header, tabs and paddings get denser; on a large monitor nothing changes",
+	"Wrapped header rows no longer leave the left edge empty: controls start at the line beginning instead of hugging the right",
+	"Settings → Interface → “Interface density”: auto, compact, normal, comfortable — the choice is remembered on this machine",
+	"The long balance stays on one line with an ellipsis (full text in the tooltip) instead of claiming an extra header row",
 	"Requests in parallel chats and the multi-folder workspace keep working as before",
 }
 

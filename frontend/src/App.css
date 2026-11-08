@@ -2625,6 +2625,121 @@ input[type="radio"]:focus-visible {
 }
 .nc-modal { animation: nc-modal-in 0.16s ease-out; }
 
+/* ═══════════════════════════════════════════════════════════════════════
+   ADAPTIVE DENSITY — масштаб интерфейса под 13–16" и большие мониторы
+   ═══════════════════════════════════════════════════════════════════════
+   Проблема: размеры шапки, вкладок и полей были зашиты под широкий монитор
+   (Windows 27"), а на 13" макбуке те же 52 px шапки + 0.45rem отступов съедают
+   заметную часть высоты, а перенос строк в .nc-top-controls с
+   justify-content: flex-end оставлял пустой левый край.
+
+   Лечим двумя слоями:
+   1) --ui-scale / --ui-font считаются от ширины окна (13→16" идут по шагам);
+   2) ручной выбор плотности в Settings → Interface (auto / compact / normal /
+      comfortable), сохраняется в localStorage и перекрывает авто-масштаб.
+
+   Все правки ниже идут после базовых правил, поэтому выигрывают по порядку. */
+
+.nc-app {
+  --ui-scale: 1;   /* отступы, паддинги, высота шапки */
+  --ui-font: 1;    /* кегль элементов шапки и вкладок (не текста чата) */
+  --topbar-h: 52px;
+  --chrome-gap: 0.85rem;
+}
+
+/* Ширины — реальные «точки» макбуков: 16" ≈ 1728, 14" ≈ 1512, 13" ≈ 1470,
+   плюс ноутбучные Windows 1536/1920. Окно может быть и не развёрнуто, поэтому
+   считаем именно от ширины окна, а не от диагонали. */
+@media (max-width: 1800px) {
+  .nc-app { --ui-scale: 0.96; --ui-font: 0.98; --topbar-h: 48px; --chrome-gap: 0.75rem; }
+}
+@media (max-width: 1560px) {
+  .nc-app { --ui-scale: 0.9; --ui-font: 0.95; --topbar-h: 44px; --chrome-gap: 0.6rem; }
+}
+@media (max-width: 1300px) {
+  .nc-app { --ui-scale: 0.84; --ui-font: 0.92; --topbar-h: 40px; --chrome-gap: 0.5rem; }
+}
+
+/* Ручной режим из Settings → Interface перекрывает авто (data-density на .nc-app) */
+.nc-app[data-density="compact"] { --ui-scale: 0.82; --ui-font: 0.9; --topbar-h: 38px; --chrome-gap: 0.45rem; }
+.nc-app[data-density="normal"] { --ui-scale: 0.95; --ui-font: 0.97; --topbar-h: 46px; --chrome-gap: 0.7rem; }
+.nc-app[data-density="comfortable"] { --ui-scale: 1.06; --ui-font: 1.02; --topbar-h: 56px; --chrome-gap: 0.9rem; }
+
+/* ── Шапка: высота, отступы, кегли ───────────────────────────────────── */
+.nc-topbar {
+  min-height: var(--topbar-h);
+  gap: calc(0.55rem * var(--ui-scale)) var(--chrome-gap);
+  padding: calc(0.45rem * var(--ui-scale)) calc(0.9rem * var(--ui-scale));
+  /* запас под закреплённые справа иконки темы/настроек */
+  padding-right: calc(5.6rem * var(--ui-scale));
+}
+.nc-top-brand strong { font-size: calc(0.95rem * var(--ui-font)); }
+.nc-top-field { font-size: calc(0.78rem * var(--ui-font)); gap: calc(0.4rem * var(--ui-scale)); }
+.nc-top-field select { padding: calc(0.3rem * var(--ui-scale)) calc(0.45rem * var(--ui-scale)); }
+.nc-topbar .nc-ghost,
+.nc-topbar button {
+  padding: calc(0.42rem * var(--ui-scale)) calc(0.7rem * var(--ui-scale));
+  font-size: calc(0.82rem * var(--ui-font));
+}
+.nc-topbar .nc-pill {
+  padding: calc(0.12rem * var(--ui-scale)) calc(0.45rem * var(--ui-scale));
+  font-size: calc(0.72rem * var(--ui-font));
+}
+.nc-cost {
+  font-size: calc(0.78rem * var(--ui-font));
+  padding: calc(0.2rem * var(--ui-scale)) calc(0.5rem * var(--ui-scale));
+  gap: calc(0.35rem * var(--ui-scale));
+}
+
+/* ── Вкладки и панель действий чата ──────────────────────────────────── */
+.nc-chat-head {
+  gap: calc(0.5rem * var(--ui-scale));
+  padding: calc(0.35rem * var(--ui-scale)) calc(0.7rem * var(--ui-scale));
+  font-size: calc(0.85rem * var(--ui-font));
+}
+.nc-tab, .nc-tab-rename { font-size: calc(0.75rem * var(--ui-font)); }
+
+/* ── Лента и композер: боковые отступы тоже масштабируем ─────────────── */
+.nc-thread-inner { padding: calc(1.1rem * var(--ui-scale)) calc(1.25rem * var(--ui-scale)) calc(1.6rem * var(--ui-scale)); }
+.nc-composer-wrap { padding: calc(0.55rem * var(--ui-scale)) calc(1rem * var(--ui-scale)) calc(0.9rem * var(--ui-scale)); }
+
+/* ── Узкие окна: перенос строк шапки больше не уезжает вправо ─────────
+   На 13" контролы переносились на 2–3 строки, и каждая строка выравнивалась
+   по правому краю (justify-content: flex-end) — левая треть шапки пустовала.
+   Ставим их с левого края на своей строке, а иконки темы/настроек остаются
+   закреплёнными справа (они position: absolute). */
+@media (max-width: 1560px) {
+  .nc-topbar { justify-content: flex-start; }
+  .nc-top-controls {
+    flex: 1 1 auto;
+    justify-content: flex-start;
+    gap: calc(0.4rem * var(--ui-scale)) calc(0.6rem * var(--ui-scale));
+  }
+  /* Длинный баланс раньше переносился на отдельную строку: держим его одной
+     строкой с многоточием, полный текст — в title (он там уже есть). */
+  .nc-cost {
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: inline-block;
+    white-space: nowrap;
+    vertical-align: middle;
+  }
+  .nc-cost > * { display: inline; }
+  .nc-chat-head { flex-wrap: wrap; row-gap: 0.3rem; }
+  .nc-actions { margin-left: auto; }
+}
+
+/* Совсем тесно: убираем пояснения, которые дублируют значение */
+@media (max-width: 1300px) {
+  .nc-model-provider { display: none; }   /* «Model (DeepSeek)» → «Model» */
+  .nc-rules-label { display: none; }      /* «Rules Applied/Total: 15/22» → «15/22» */
+}
+@media (max-width: 1560px) {
+  .nc-top-brand .nc-sub { opacity: 0.75; }
+}
+
 /* ── Reduced motion ──────────────────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
   button, .nc-ghost, .nc-tab, .nc-composer, input, textarea, select,
