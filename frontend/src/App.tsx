@@ -6383,15 +6383,19 @@ async function refreshYandexModels(opts?: {applyPreferred?: boolean; notify?: bo
                     ? (activeProvider === 'deepseek' && usage.balanceDetail
                       ? (
                         <>
-                          <span title="Доступно сейчас — сумма бонуса и пополнения">баланс {fmtBal(usage.balanceUsd)}</span>
-                          <span className="nc-cost-sep">·</span>
-                          <span title="Бонус — бесплатные средства от DeepSeek, тратятся первыми">бонус {fmtBal(usage.balanceGranted)}</span>
-                          <span className="nc-cost-sep">·</span>
-                          <span
-                            className={usage.balanceToppedUp < 1 ? 'nc-bal-low' : ''}
-                            title={usage.balanceToppedUp < 1 ? 'Пополнение меньше $1 — работа скоро остановится' : 'Пополнение — оплаченные вами средства'}
-                          >
-                            пополнение {fmtBal(usage.balanceToppedUp)}
+                          <span className="nc-cost-bal-main" title="Доступно сейчас — сумма бонуса и пополнения">баланс {fmtBal(usage.balanceUsd)}</span>
+                          {/* На узком экране расшифровка прячется (CSS .nc-cost-bal-detail):
+                              иначе полоса не влезает в строку и шапка становится трёхстрочной. */}
+                          <span className="nc-cost-bal-detail">
+                            <span className="nc-cost-sep">·</span>
+                            <span title="Бонус — бесплатные средства от DeepSeek, тратятся первыми">бонус {fmtBal(usage.balanceGranted)}</span>
+                            <span className="nc-cost-sep">·</span>
+                            <span
+                              className={usage.balanceToppedUp < 1 ? 'nc-bal-low' : ''}
+                              title={usage.balanceToppedUp < 1 ? 'Пополнение меньше $1 — работа скоро остановится' : 'Пополнение — оплаченные вами средства'}
+                            >
+                              пополнение {fmtBal(usage.balanceToppedUp)}
+                            </span>
                           </span>
                         </>
                       )

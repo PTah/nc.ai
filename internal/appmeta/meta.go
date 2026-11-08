@@ -35,7 +35,7 @@ import "time"
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "1.1.7"
+	Version = "1.1.8"
 )
 
 // DeepSeekProRetireRFC3339 is the announced V4 Pro retirement instant, empty
@@ -81,18 +81,18 @@ func retiredAt(at time.Time, now time.Time) bool {
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
-	"Правило работы с серверами уточнено: скрипт готовим локально, на сервер — один заход «залить, запустить, проверить»",
-	"Больше не собираем скрипт на удалённой машине heredoc'ами — это те же лишние логины, только иначе",
-	"Иконки темы и настроек на строке с моделями и расходами, баланс снова с нормальными промежутками",
-	"Мёртвое SSH-соединение переоткрывается само, пул HTTP-соединений шире (8 на хост, 5 минут)",
+	"Шапка снова собирается в одну строку: модель, тумблеры, баланс и иконки темы/настроек вровень",
+	"Длинный баланс ужимается, а не переносит шапку на третью строку (было в 1.1.6)",
+	"На узком экране прячутся наименее важные сегменты полосы — total и расшифровка бонуса/пополнения",
+	"Правило работы с серверами: скрипт готовим локально, на сервер — один заход «залить, запустить, проверить»",
 	"Рабочее пространство из нескольких папок и запросы, идущие параллельно, работают как раньше",
 }
 
 var HighlightsEN = []string{
-	"Remote work rule sharpened: prepare the script locally, then a single visit that uploads, runs and verifies it",
-	"No more assembling a script on the remote host with heredocs — same extra logins in disguise",
-	"Theme and settings icons sit on the model/cost row, and the balance strip has its spacing back",
-	"A dead SSH connection re-opens itself, and the HTTP pool is wider (8 per host, 5 minutes)",
+	"The header is a single row again: model, toggles, balance and the theme/settings icons line up",
+	"A long balance shrinks instead of pushing the header onto a third row (that was 1.1.6)",
+	"On narrow screens the least valuable strip segments hide — total and the bonus/topped-up breakdown",
+	"Remote work rule: prepare the script locally, then a single visit that uploads, runs and verifies it",
 	"Requests in parallel chats and the multi-folder workspace keep working as before",
 }
 

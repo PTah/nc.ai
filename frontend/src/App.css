@@ -2670,17 +2670,19 @@ input[type="radio"]:focus-visible {
   min-height: var(--topbar-h);
   gap: calc(0.55rem * var(--ui-scale)) var(--chrome-gap);
   padding: calc(0.45rem * var(--ui-scale)) calc(0.9rem * var(--ui-scale));
+  /* Резерв под иконки темы и настроек держим на шапке (она position: relative), а не
+     на .nc-top-controls: в 1.1.6 отступ переехал туда и отнял место у строки с
+     моделями — длинный баланс уехал на третью строку. Иконки стоят вне потока, места
+     они не занимают, но перекрывать баланс не должны. */
+  padding-right: calc(5.6rem * var(--ui-scale));
 }
-/* Иконки темы и настроек держатся за строку с моделями и расходами: раньше они
-   были привязаны к центру всей шапки, а на 13" шапка двухстрочная — иконки
-   оказывались НАД строкой моделей. Теперь резерв и позиционирование живут в том
-   же блоке .nc-top-controls: на широком экране это та же строка, на узком —
-   иконки уходят на последнюю строку контролов, а не висят сверху. */
-.nc-top-controls { position: relative; padding-right: calc(5rem * var(--ui-scale)); }
+/* Иконки темы и настроек держатся за последнюю строку шапки (модели + расходы):
+   раньше они были привязаны к её центру и на двухстрочной шапке оказывались НАД
+   строкой моделей. */
 .nc-top-sep-actions {
   top: auto;
-  right: 0;
-  bottom: 0;
+  right: calc(0.9rem * var(--ui-scale));
+  bottom: calc(0.3rem * var(--ui-scale));
   transform: none;
 }
 .nc-top-brand strong { font-size: calc(0.95rem * var(--ui-font)); }
@@ -2705,6 +2707,7 @@ input[type="radio"]:focus-visible {
   display: flex;
   flex-wrap: nowrap;
   align-items: baseline;
+  flex: 0 1 auto;
   min-width: 0;
   max-width: 100%;
   overflow: hidden;
@@ -2735,9 +2738,14 @@ input[type="radio"]:focus-visible {
     justify-content: flex-start;
     gap: calc(0.4rem * var(--ui-scale)) calc(0.6rem * var(--ui-scale));
   }
-  /* Длинный баланс держим одной строкой (flex + overflow в базовом правиле):
-     перенос на отдельную строку съедал высоту шапки. */
+  /* Длинный баланс держим одной строкой и даём ему сжиматься: у .nc-top-controls > *
+     стоит min-width: max-content, из-за этого полоса не ужималась, а переносилась на
+     отдельную строку — шапка становилась трёхстрочной. */
   .nc-cost { flex: 0 1 auto; }
+  /* На узком экране убираем наименее важные сегменты вместо переноса строки:
+     «total» и расшифровку баланса (бонус/пополнение). Полный текст — в title полосы. */
+  .nc-cost-total, .nc-cost-total + .nc-cost-sep { display: none; }
+  .nc-cost-bal-detail { display: none; }
   .nc-chat-head { flex-wrap: wrap; row-gap: 0.3rem; }
   .nc-actions { margin-left: auto; }
 }
