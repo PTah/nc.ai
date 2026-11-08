@@ -2670,8 +2670,18 @@ input[type="radio"]:focus-visible {
   min-height: var(--topbar-h);
   gap: calc(0.55rem * var(--ui-scale)) var(--chrome-gap);
   padding: calc(0.45rem * var(--ui-scale)) calc(0.9rem * var(--ui-scale));
-  /* запас под закреплённые справа иконки темы/настроек */
-  padding-right: calc(5.6rem * var(--ui-scale));
+}
+/* Иконки темы и настроек держатся за строку с моделями и расходами: раньше они
+   были привязаны к центру всей шапки, а на 13" шапка двухстрочная — иконки
+   оказывались НАД строкой моделей. Теперь резерв и позиционирование живут в том
+   же блоке .nc-top-controls: на широком экране это та же строка, на узком —
+   иконки уходят на последнюю строку контролов, а не висят сверху. */
+.nc-top-controls { position: relative; padding-right: calc(5rem * var(--ui-scale)); }
+.nc-top-sep-actions {
+  top: auto;
+  right: 0;
+  bottom: 0;
+  transform: none;
 }
 .nc-top-brand strong { font-size: calc(0.95rem * var(--ui-font)); }
 .nc-top-field { font-size: calc(0.78rem * var(--ui-font)); gap: calc(0.4rem * var(--ui-scale)); }
@@ -2689,6 +2699,16 @@ input[type="radio"]:focus-visible {
   font-size: calc(0.78rem * var(--ui-font));
   padding: calc(0.2rem * var(--ui-scale)) calc(0.5rem * var(--ui-scale));
   gap: calc(0.35rem * var(--ui-scale));
+  /* Одна строка: длинный баланс не должен выдавливать шапку на лишнюю строку.
+     Раньше здесь стоял display: inline-block + дети inline — это убивало flex-gap,
+     и сегменты слипались («$1.2820·total $18.3472·cache»). */
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: baseline;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
 }
 
 /* ── Вкладки и панель действий чата ──────────────────────────────────── */
@@ -2715,18 +2735,9 @@ input[type="radio"]:focus-visible {
     justify-content: flex-start;
     gap: calc(0.4rem * var(--ui-scale)) calc(0.6rem * var(--ui-scale));
   }
-  /* Длинный баланс раньше переносился на отдельную строку: держим его одной
-     строкой с многоточием, полный текст — в title (он там уже есть). */
-  .nc-cost {
-    min-width: 0;
-    max-width: 100%;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    display: inline-block;
-    white-space: nowrap;
-    vertical-align: middle;
-  }
-  .nc-cost > * { display: inline; }
+  /* Длинный баланс держим одной строкой (flex + overflow в базовом правиле):
+     перенос на отдельную строку съедал высоту шапки. */
+  .nc-cost { flex: 0 1 auto; }
   .nc-chat-head { flex-wrap: wrap; row-gap: 0.3rem; }
   .nc-actions { margin-left: auto; }
 }
