@@ -234,12 +234,28 @@ func (s *Store) Recall(root, query string, limit int) []Note {
 // Stale reports whether a file mentioned by the note changed after the note was
 // written. That is the honest way to use memory: trust it until the code moves.
 func Stale(root string, n Note) bool {
+	return staleWith(root, n, nil)
+}
+
+// Resolver переводит путь из заметки в абсолютный. Нужен рабочему пространству
+// из нескольких папок: ключ памяти там — служебная папка, а пути в заметках
+// начинаются с имени папки («api/main.go»).
+type Resolver func(ref string) string
+
+func staleWith(root string, n Note, resolve Resolver) bool {
 	root = cleanRoot(root)
 	if root == "" || len(n.Refs) == 0 || n.Updated == 0 {
 		return false
 	}
 	for _, ref := range n.Refs {
-		st, err := os.Stat(filepath.Join(root, filepath.FromSlash(ref)))
+		full := filepath.Join(root, filepath.FromSlash(ref))
+		if resolve != nil {
+			full = resolve(ref)
+			if full == "" {
+				continue
+			}
+		}
+		st, err := os.Stat(full)
 		if err != nil {
 			continue
 		}
@@ -255,8 +271,17 @@ func Brief(root string, maxBytes int) string {
 	return Default().Brief(root, maxBytes)
 }
 
+// BriefWith — Brief для рабочего пространства: пути заметок разворачивает resolve.
+func BriefWith(root string, maxBytes int, resolve Resolver) string {
+	return Default().briefWith(root, maxBytes, resolve)
+}
+
 // Brief renders this store's memory block for root.
 func (s *Store) Brief(root string, maxBytes int) string {
+	return s.briefWith(root, maxBytes, nil)
+}
+
+func (s *Store) briefWith(root string, maxBytes int, resolve Resolver) string {
 	root = cleanRoot(root)
 	m := s.Get(root)
 	if len(m.Notes) == 0 {
@@ -274,7 +299,7 @@ func (s *Store) Brief(root string, maxBytes int) string {
 		if len(n.Refs) > 0 {
 			line += " (" + strings.Join(n.Refs, ", ") + ")"
 		}
-		if Stale(root, n) {
+		if staleWith(root, n, resolve) {
 			line += " — файл изменён после записи, проверь"
 		}
 		if b.Len()+len(line)+1 > maxBytes {
@@ -289,6 +314,11 @@ func (s *Store) Brief(root string, maxBytes int) string {
 
 // FormatNotes renders notes for the recall tool output.
 func FormatNotes(root string, notes []Note) string {
+	return FormatNotesWith(root, notes, nil)
+}
+
+// FormatNotesWith — FormatNotes для рабочего пространства (см. Resolver).
+func FormatNotesWith(root string, notes []Note, resolve Resolver) string {
 	if len(notes) == 0 {
 		return ""
 	}
@@ -298,7 +328,7 @@ func FormatNotes(root string, notes []Note) string {
 		if len(n.Refs) > 0 {
 			line += " (" + strings.Join(n.Refs, ", ") + ")"
 		}
-		if Stale(root, n) {
+		if staleWith(root, n, resolve) {
 			line += " [stale: файл изменён]"
 		}
 		b.WriteString(line)

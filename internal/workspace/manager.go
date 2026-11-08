@@ -15,10 +15,20 @@ import (
 type Project struct {
 	Name    string   `json:"name"`
 	Path    string   `json:"path"`
-	Roots   []string `json:"roots,omitempty"` // folders merged into this workspace; [0] == Path
+	Roots   []string `json:"roots,omitempty"` // folders merged into this workspace; [0] == Path (кроме Workspace)
 	Opened  string   `json:"opened"`
 	IconURL string   `json:"iconUrl,omitempty"` // data URL from project folder icon, if any
 	Locked  bool     `json:"locked,omitempty"`  // chat cannot send here and the agent will not run
+	// Workspace — именованное рабочее пространство из нескольких папок. Path у него
+	// служебный (папка в AppData: ключ чатов и замка), Roots — реальные папки с
+	// кодом, ровно в том порядке, в каком их задал пользователь.
+	Workspace bool `json:"workspace,omitempty"`
+}
+
+// Folder — одна папка рабочего пространства и её имя в общем дереве.
+type Folder struct {
+	Name string `json:"name"` // верхнеуровневое имя в дереве и в путях агента
+	Path string `json:"path"` // абсолютный путь на диске
 }
 
 type Entry struct {
@@ -48,6 +58,15 @@ func (m *Manager) List() []Project {
 	// Resolve icons outside the lock copy: cheap reads, keeps List payload fresh
 	// if the user drops an icon into the project folder while the app is open.
 	for i := range out {
+		if out[i].Workspace {
+			for _, r := range out[i].Roots {
+				if u := FindIconDataURL(r); u != "" {
+					out[i].IconURL = u
+					break
+				}
+			}
+			continue
+		}
 		out[i].IconURL = FindIconDataURL(out[i].Path)
 	}
 	// В панели проектов список должен идти по алфавиту, а не в порядке
@@ -86,6 +105,16 @@ func (m *Manager) Open(path string) (*Project, error) {
 	found := false
 	for i, existing := range m.projects {
 		if existing.Path == abs {
+			if existing.Workspace {
+				// Рабочее пространство: имя, папки и признак не трогаем, только
+				// делаем его активным.
+				existing.Opened = p.Opened
+				m.projects[i] = existing
+				m.active = abs
+				m.roots = nil
+				out := existing
+				return &out, nil
+			}
 			// Keep roots added to this workspace earlier; only refresh metadata.
 			if len(existing.Roots) > 0 {
 				p.Roots = append([]string{}, existing.Roots...)
@@ -205,6 +234,13 @@ func (m *Manager) Scoped(root string) *Manager {
 	return &Manager{active: root, projects: []Project{}, roots: roots}
 }
 
+// ScopedFolder — представление ровно на одну папку, без раскрытия корней
+// проекта, который может лежать по этому пути (для git внутри Workspace).
+func (m *Manager) ScopedFolder(path string) *Manager {
+	path = strings.TrimSpace(path)
+	return &Manager{active: path, projects: []Project{}, roots: []string{path}}
+}
+
 // RootsOf returns the folders merged into the workspace identified by path.
 // If path is empty or unknown it returns the active workspace roots.
 func (m *Manager) RootsOf(path string) []string {
@@ -213,6 +249,11 @@ func (m *Manager) RootsOf(path string) []string {
 	key := strings.TrimSpace(path)
 	if key == "" {
 		key = m.active
+	}
+	// Представление прогона (Scoped) уже знает корни своего проекта; повторное
+	// Scoped() на нём (реестр инструментов делает именно так) не должно их терять.
+	if len(m.roots) > 0 && key == m.active {
+		return append([]string{}, m.roots...)
 	}
 	for i := range m.projects {
 		if m.projects[i].Path == key {
@@ -295,14 +336,64 @@ func (m *Manager) multiRoot() bool {
 // primaryRoot returns the anchor folder of the active workspace (the one the
 // workspace is named after and where chats live).
 func (m *Manager) primaryRoot() string {
-	if m.active != "" {
-		return m.active
+	if roots := m.rootsFor(); len(roots) > 0 {
+		return roots[0]
 	}
-	root, err := m.ActiveRoot()
-	if err != nil {
-		return ""
+	return ""
+}
+
+// PrimaryRoot — первая реальная папка активного рабочего пространства: там по
+// умолчанию запускается терминал, лежат правила и считаются git/lints. Для
+// обычного проекта это сам проект (ActiveRoot); для Workspace — его первая папка,
+// потому что ActiveRoot у него служебный ключ без кода.
+func (m *Manager) PrimaryRoot() (string, error) {
+	root := m.primaryRoot()
+	if root == "" {
+		return "", fmt.Errorf("no active project")
 	}
-	return root
+	return root, nil
+}
+
+// Roots — все папки активного рабочего пространства (для обычного проекта — одна).
+func (m *Manager) Roots() []string {
+	return m.rootsFor()
+}
+
+// Folders — папки активного рабочего пространства с именами из общего дерева.
+func (m *Manager) Folders() []Folder {
+	entries := m.rootEntries()
+	out := make([]Folder, 0, len(entries))
+	for _, e := range entries {
+		out = append(out, Folder{Name: e.virt, Path: e.root})
+	}
+	return out
+}
+
+// IsMultiRoot сообщает, что в активном рабочем пространстве больше одной папки.
+func (m *Manager) IsMultiRoot() bool { return m.multiRoot() }
+
+// FolderFor возвращает папку по её имени из общего дерева («api», «web-2»).
+// Пустое имя — первая папка. Нужна инструментам, у которых есть аргумент
+// repo/folder (git, lints).
+func (m *Manager) FolderFor(name string) (Folder, error) {
+	entries := m.rootEntries()
+	if len(entries) == 0 {
+		return Folder{}, fmt.Errorf("no active project")
+	}
+	name = strings.TrimSpace(name)
+	if name == "" || name == "." {
+		return Folder{Name: entries[0].virt, Path: entries[0].root}, nil
+	}
+	for _, e := range entries {
+		if strings.EqualFold(e.virt, name) || strings.EqualFold(filepath.Base(e.root), name) {
+			return Folder{Name: e.virt, Path: e.root}, nil
+		}
+	}
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		names = append(names, e.virt)
+	}
+	return Folder{}, fmt.Errorf("папка %q не найдена в рабочем пространстве; доступные: %s", name, strings.Join(names, ", "))
 }
 
 // resolveRoot maps a workspace-relative path to (physical root, remainder).
@@ -391,6 +482,85 @@ func (m *Manager) SetActive(path string) error {
 	return nil
 }
 
+// CleanRoots нормализует список папок рабочего пространства: абсолютные пути,
+// только существующие каталоги, без повторов, порядок сохраняется. Первая же
+// ошибка возвращается вместе с именем папки — пользователь сразу видит, какая
+// из папок не подошла.
+func CleanRoots(roots []string) ([]string, error) {
+	out := make([]string, 0, len(roots))
+	for _, r := range roots {
+		r = strings.TrimSpace(r)
+		if r == "" {
+			continue
+		}
+		abs, err := filepath.Abs(r)
+		if err != nil {
+			return nil, err
+		}
+		st, err := os.Stat(abs)
+		if err != nil {
+			return nil, fmt.Errorf("папка недоступна: %s", abs)
+		}
+		if !st.IsDir() {
+			return nil, fmt.Errorf("не папка: %s", abs)
+		}
+		dup := false
+		for _, have := range out {
+			if strings.EqualFold(have, abs) {
+				dup = true
+				break
+			}
+		}
+		if !dup {
+			out = append(out, abs)
+		}
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("добавьте хотя бы одну папку")
+	}
+	return out, nil
+}
+
+// UpsertWorkspace создаёт рабочее пространство с ключом key или обновляет имя и
+// папки существующего. Активный проект не меняет — это делает вызывающий.
+func (m *Manager) UpsertWorkspace(key, name string, roots []string) (*Project, error) {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return nil, fmt.Errorf("workspace key is empty")
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil, fmt.Errorf("введите имя рабочего пространства")
+	}
+	clean, err := CleanRoots(roots)
+	if err != nil {
+		return nil, err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.projects {
+		if m.projects[i].Path == key {
+			opened := m.projects[i].Opened
+			m.projects[i] = Project{Name: name, Path: key, Roots: clean, Opened: opened, Workspace: true}
+			if m.active == key {
+				m.roots = nil
+			}
+			out := m.projects[i]
+			return &out, nil
+		}
+	}
+	p := Project{
+		Name:      name,
+		Path:      key,
+		Roots:     clean,
+		Opened:    time.Now().Format(time.RFC3339),
+		Workspace: true,
+	}
+	m.projects = append([]Project{p}, m.projects...)
+	out := p
+	return &out, nil
+}
+
 // AddRoot merges an existing folder into the workspace identified by
 // projectPath. The anchor folder (projectPath) always stays first.
 func (m *Manager) AddRoot(projectPath, root string) (*Project, error) {
@@ -423,8 +593,12 @@ func (m *Manager) AddRoot(projectPath, root string) (*Project, error) {
 	}
 	p := &m.projects[idx]
 	roots := []string{p.Path}
+	if p.Workspace {
+		// У рабочего пространства Path — служебный ключ, не папка с кодом.
+		roots = nil
+	}
 	for _, r := range p.Roots {
-		if r != "" && r != p.Path && !stringInSlice(roots, r) {
+		if r != "" && (p.Workspace || r != p.Path) && !stringInSlice(roots, r) {
 			roots = append(roots, r)
 		}
 	}
@@ -463,16 +637,19 @@ func (m *Manager) RemoveRoot(projectPath, root string) (*Project, error) {
 		return nil, fmt.Errorf("workspace not found: %s", projPath)
 	}
 	p := &m.projects[idx]
-	if abs == p.Path {
+	if !p.Workspace && abs == p.Path {
 		return nil, fmt.Errorf("нельзя убрать главную папку рабочего пространства")
 	}
-	roots := p.Roots[:0]
+	roots := make([]string, 0, len(p.Roots))
 	for _, r := range p.Roots {
 		if r != abs {
 			roots = append(roots, r)
 		}
 	}
 	if len(roots) == 0 {
+		if p.Workspace {
+			return nil, fmt.Errorf("в рабочем пространстве должна остаться хотя бы одна папка")
+		}
 		roots = []string{p.Path}
 	}
 	p.Roots = roots
@@ -779,7 +956,7 @@ func (m *Manager) Mkdir(rel string) error {
 
 // SearchFiles finds files whose relative path or content contains query (simple scan).
 func (m *Manager) SearchFiles(query string, limit int) ([]string, error) {
-	root, err := m.ActiveRoot()
+	root, err := m.PrimaryRoot()
 	if err != nil {
 		return nil, err
 	}

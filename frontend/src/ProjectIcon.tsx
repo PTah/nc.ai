@@ -26,13 +26,33 @@ export function DefaultProjectIcon() {
   )
 }
 
+/** Workspace из нескольких папок: стопка карточек вместо одной папки. */
+export function WorkspaceProjectIcon() {
+  return (
+    <span className="nc-project-icon nc-project-icon-default" aria-hidden>
+      <svg viewBox="0 0 20 20" width="14" height="14" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path
+          d="M6.5 4.25h7.25a1.25 1.25 0 0 1 1.25 1.25v7.25"
+          stroke="currentColor"
+          strokeWidth="1.35"
+          strokeLinecap="round"
+          opacity="0.55"
+        />
+        <rect x="2.5" y="6.5" width="11" height="11" rx="1.6" stroke="currentColor" strokeWidth="1.35" />
+        <path d="M5.2 10.25h5.6M5.2 13.25h3.6" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round" />
+      </svg>
+    </span>
+  )
+}
+
 type Props = {
   src?: string
   name: string
+  workspace?: boolean
 }
 
 /** Project list icon: folder asset when present, otherwise the default glyph. */
-export default function ProjectIcon({src, name}: Props) {
+export default function ProjectIcon({src, name, workspace}: Props) {
   if (src) {
     return (
       <img
@@ -45,5 +65,5 @@ export default function ProjectIcon({src, name}: Props) {
       />
     )
   }
-  return <DefaultProjectIcon />
+  return workspace ? <WorkspaceProjectIcon /> : <DefaultProjectIcon />
 }

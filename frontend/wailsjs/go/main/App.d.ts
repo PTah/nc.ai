@@ -71,6 +71,8 @@ export function ComposerDrafts():Promise<Record<string, string>>;
 
 export function CreateProject(arg1:string,arg2:string):Promise<workspace.Project>;
 
+export function CreateWorkspace(arg1:string,arg2:Array<string>):Promise<workspace.Project>;
+
 export function CursorRulesStatus(arg1:string):Promise<Array<rules.Status>>;
 
 export function DefaultProjectParentDir():Promise<string>;
@@ -356,6 +358,8 @@ export function SwitchChatSession(arg1:string):Promise<string>;
 export function TerminalResize(arg1:number,arg2:number):Promise<void>;
 
 export function TerminalWrite(arg1:string):Promise<void>;
+
+export function UpdateWorkspace(arg1:string,arg2:string,arg3:Array<string>):Promise<workspace.Project>;
 
 export function UpsertLocalEndpoint(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string,arg6:string,arg7:number):Promise<Record<string, any>>;
 

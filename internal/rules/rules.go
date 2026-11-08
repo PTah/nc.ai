@@ -25,15 +25,21 @@ type Rule struct {
 // Bundle contains all Cursor rules discovered for the current context.
 type Bundle struct {
 	GlobalDir  string `json:"globalDir"`
-	ProjectDir string `json:"projectDir"`
+	ProjectDir string `json:"projectDir"` // .cursor/rules первой папки
 	Global     []Rule `json:"global"`
 	Project    []Rule `json:"project"`
+	// ProjectDirs — .cursor/rules всех папок рабочего пространства (для проверки
+	// путей при открытии правила из интерфейса).
+	ProjectDirs []string `json:"-"`
 }
 
 // Load discovers Cursor rules:
 //   - global: ~/.cursor/rules/*.mdc|*.md and legacy ~/.cursorrules
 //   - project: <project>/.cursor/rules/*.mdc|*.md, legacy <project>/.cursorrules, AGENTS.md
-func Load(projectRoot string) Bundle {
+//
+// Рабочее пространство из нескольких папок передаёт все папки: правила каждой
+// складываются в один список (в пути правила видно, из какой папки оно).
+func Load(projectRoots ...string) Bundle {
 	b := Bundle{
 		Global:  []Rule{},
 		Project: []Rule{},
@@ -48,9 +54,16 @@ func Load(projectRoot string) Bundle {
 		}
 		sort.Slice(b.Global, func(i, j int) bool { return b.Global[i].Path < b.Global[j].Path })
 	}
-	if projectRoot != "" {
-		b.ProjectDir = filepath.Join(projectRoot, ".cursor", "rules")
-		b.Project = append(b.Project, loadFromDir(b.ProjectDir, "project", home, projectRoot)...)
+	for _, projectRoot := range projectRoots {
+		if projectRoot == "" {
+			continue
+		}
+		dir := filepath.Join(projectRoot, ".cursor", "rules")
+		if b.ProjectDir == "" {
+			b.ProjectDir = dir
+		}
+		b.ProjectDirs = append(b.ProjectDirs, dir)
+		b.Project = append(b.Project, loadFromDir(dir, "project", home, projectRoot)...)
 		if r, ok := loadFile(filepath.Join(projectRoot, ".cursorrules"), "project", home, projectRoot); ok {
 			r.AlwaysApply = true
 			b.Project = append(b.Project, r)
@@ -59,8 +72,8 @@ func Load(projectRoot string) Bundle {
 			r.AlwaysApply = true
 			b.Project = append(b.Project, r)
 		}
-		sort.Slice(b.Project, func(i, j int) bool { return b.Project[i].Path < b.Project[j].Path })
 	}
+	sort.Slice(b.Project, func(i, j int) bool { return b.Project[i].Path < b.Project[j].Path })
 	return b
 }
 

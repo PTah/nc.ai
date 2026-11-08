@@ -4,6 +4,7 @@ package config
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -172,6 +173,10 @@ type Settings struct {
 	// ProjectRoots persists extra folders merged into a workspace (keyed by the
 	// workspace anchor path). The anchor itself is not duplicated here.
 	ProjectRoots map[string][]string `json:"projectRoots,omitempty"`
+	// Workspaces — именованные рабочие пространства из нескольких папок
+	// (как .code-workspace в Cursor). Ключ — служебная папка в AppData, в ней нет
+	// кода: она нужна только как стабильный идентификатор чатов и замка.
+	Workspaces []WorkspaceDef `json:"workspaces,omitempty"`
 	// LastProjectParent is the folder the user last created a project in; the
 	// open/create dialogs start from it.
 	LastProjectParent string `json:"lastProjectParent,omitempty"`
@@ -2038,6 +2043,62 @@ func (s *Store) SetProjectRoots(path string, roots []string) error {
 	} else {
 		s.settings.ProjectRoots[path] = append([]string{}, roots...)
 	}
+	s.mu.Unlock()
+	return s.Save()
+}
+
+// WorkspaceDef описывает рабочее пространство: имя и список реальных папок.
+type WorkspaceDef struct {
+	Key   string   `json:"key"` // путь служебной папки (идентификатор чатов)
+	Name  string   `json:"name"`
+	Roots []string `json:"roots"`
+}
+
+// GetWorkspace возвращает определение рабочего пространства по ключу.
+func (s *Store) GetWorkspace(key string) (WorkspaceDef, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, w := range s.settings.Workspaces {
+		if sameLockPath(w.Key, key) {
+			w.Roots = append([]string{}, w.Roots...)
+			return w, true
+		}
+	}
+	return WorkspaceDef{}, false
+}
+
+// SaveWorkspace добавляет или обновляет рабочее пространство и сохраняет настройки.
+func (s *Store) SaveWorkspace(def WorkspaceDef) error {
+	if strings.TrimSpace(def.Key) == "" {
+		return fmt.Errorf("workspace key is empty")
+	}
+	def.Roots = append([]string{}, def.Roots...)
+	s.mu.Lock()
+	replaced := false
+	for i, w := range s.settings.Workspaces {
+		if sameLockPath(w.Key, def.Key) {
+			s.settings.Workspaces[i] = def
+			replaced = true
+			break
+		}
+	}
+	if !replaced {
+		s.settings.Workspaces = append(s.settings.Workspaces, def)
+	}
+	s.mu.Unlock()
+	return s.Save()
+}
+
+// RemoveWorkspace удаляет рабочее пространство из настроек (папки на диске не трогает).
+func (s *Store) RemoveWorkspace(key string) error {
+	s.mu.Lock()
+	out := make([]WorkspaceDef, 0, len(s.settings.Workspaces))
+	for _, w := range s.settings.Workspaces {
+		if !sameLockPath(w.Key, key) {
+			out = append(out, w)
+		}
+	}
+	s.settings.Workspaces = out
 	s.mu.Unlock()
 	return s.Save()
 }

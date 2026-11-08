@@ -59,32 +59,65 @@ func (r *Registry) CommandScopeIssue(name, argsJSON string) *ScopeIssue {
 	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
 		return nil
 	}
-	root := strings.TrimSpace(r.WSRoot)
-	if root == "" {
-		if wd, err := os.Getwd(); err == nil {
-			root = wd
+	var roots []string
+	if r.WS != nil {
+		roots = r.ws().Roots()
+	}
+	if len(roots) == 0 {
+		if root := strings.TrimSpace(r.WSRoot); root != "" {
+			roots = []string{root}
+		} else if wd, err := os.Getwd(); err == nil {
+			roots = []string{wd}
 		}
 	}
-	cwd := root
-	if strings.TrimSpace(args.Cwd) != "" {
-		cwd = filepath.Join(root, args.Cwd)
+	if len(roots) == 0 {
+		return nil
 	}
-	return checkCommandScope(root, r.otherProjectRoots(), cwd, args.Command)
+	cwd := roots[0]
+	if rel := strings.TrimSpace(args.Cwd); rel != "" {
+		cwd = filepath.Join(roots[0], rel)
+		if r.WS != nil {
+			// Имя папки рабочего пространства («api/src») разворачивается в её путь.
+			if full, err := r.ws().Resolve(rel); err == nil {
+				cwd = full
+			}
+		}
+	}
+	return checkCommandScopeRoots(roots, r.otherProjectRoots(roots), cwd, args.Command)
 }
 
-// otherProjectRoots — папки других проектов, известных приложению.
-func (r *Registry) otherProjectRoots() []string {
+// otherProjectRoots — папки других проектов, известных приложению (без папок
+// текущего рабочего пространства).
+func (r *Registry) otherProjectRoots(own []string) []string {
 	if r.WS == nil {
 		return nil
 	}
 	cur := strings.TrimSpace(r.WSRoot)
 	var out []string
-	for _, p := range r.WS.List() {
-		root := strings.TrimSpace(p.Path)
-		if root == "" || samePath(root, cur) {
-			continue
+	add := func(root string) {
+		root = strings.TrimSpace(root)
+		if root == "" {
+			return
+		}
+		for _, o := range own {
+			if samePath(root, o) {
+				return
+			}
 		}
 		out = append(out, root)
+	}
+	for _, p := range r.WS.List() {
+		if samePath(p.Path, cur) {
+			continue
+		}
+		if p.Workspace {
+			// Путь рабочего пространства — служебный ключ; настоящие папки — Roots.
+			for _, root := range p.Roots {
+				add(root)
+			}
+			continue
+		}
+		add(p.Path)
 	}
 	return out
 }
@@ -107,19 +140,44 @@ var (
 
 // checkCommandScope — ядро проверки (без Registry, чтобы легко тестировать).
 func checkCommandScope(root string, others []string, cwd, command string) *ScopeIssue {
+	return checkCommandScopeRoots([]string{root}, others, cwd, command)
+}
+
+// insideAny — путь лежит хотя бы в одной из папок рабочего пространства.
+func insideAny(path string, roots []string) bool {
+	for _, r := range roots {
+		if inside(path, r) {
+			return true
+		}
+	}
+	return false
+}
+
+// checkCommandScopeRoots — то же для рабочего пространства из нескольких папок:
+// все его папки считаются «внутри проекта». Первая папка — база по умолчанию.
+func checkCommandScopeRoots(rawRoots []string, others []string, cwd, command string) *ScopeIssue {
 	command = strings.TrimSpace(command)
 	if command == "" {
 		return nil
 	}
 	mutating := looksMutating(command)
-	root = absClean(root)
+	roots := make([]string, 0, len(rawRoots))
+	for _, r := range rawRoots {
+		if r = absClean(r); r != "" {
+			roots = append(roots, r)
+		}
+	}
+	root := ""
+	if len(roots) > 0 {
+		root = roots[0]
+	}
 	if cwd = strings.TrimSpace(cwd); cwd == "" {
 		cwd = root
 	}
 	base := absClean(cwd)
 	// Рабочий каталог сам может быть вне проекта (например, агент передал cwd
 	// другого проекта) — это тоже повод спросить.
-	if root != "" && base != "" && !inside(base, root) && (mutating || !systemOrTemp(base)) {
+	if root != "" && base != "" && !insideAny(base, roots) && (mutating || !systemOrTemp(base)) {
 		for _, other := range others {
 			if other = absClean(other); other != "" && inside(base, other) {
 				return &ScopeIssue{Reason: "другой проект", What: other, Path: base, Mutating: mutating}
@@ -151,7 +209,7 @@ func checkCommandScope(root string, others []string, cwd, command string) *Scope
 			continue
 		}
 		resolved := absClean(resolvePath(raw, base))
-		if resolved == "" || inside(resolved, root) {
+		if resolved == "" || insideAny(resolved, roots) {
 			continue
 		}
 		for _, other := range others {

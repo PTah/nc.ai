@@ -2800,6 +2800,24 @@ input[type="radio"]:focus-visible {
   color: var(--muted);
 }
 
+/* ── Workspace из нескольких папок ────────────────────────────────────── */
+.nc-project-sub {
+  display: block;
+  font-size: 0.68rem;
+  line-height: 1.25;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nc-ws-dlg .nc-addroot-list { max-height: 14rem; margin-bottom: 0.5rem; }
+.nc-ws-dlg .nc-addroot-list li { align-items: center; }
+.nc-ws-folder-name { flex: 0 0 auto; font-weight: 600; max-width: 8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nc-ws-dlg .nc-addroot-list code { flex: 1 1 auto; min-width: 0; color: var(--muted); }
+.nc-ws-folder-actions { flex: 0 0 auto; display: inline-flex; gap: 0.15rem; }
+.nc-ws-folder-actions button { padding: 0.05rem 0.4rem; }
+
 /* ── Прогресс клонирования в диалоге Clone repository ─────────────────── */
 .nc-clone-progress {
   margin: 0 0 0.6rem;

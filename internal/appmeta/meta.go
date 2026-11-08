@@ -35,7 +35,7 @@ import "time"
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "1.1.12"
+	Version = "1.1.14"
 )
 
 // DeepSeekProRetireRFC3339 is the announced V4 Pro retirement instant, empty
@@ -81,19 +81,19 @@ func retiredAt(at time.Time, now time.Time) bool {
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
-	"Рабочая область из нескольких папок: «Add folders to workspace…» → «Выбрать ещё…» → «Готово», сколько нужно",
-	"Папки можно просто перетащить в окно — все брошенные каталоги станут корнями активной области",
-	"Диалог объясняет устройство области: якорь (чаты, настройки, замок) и дополнительные корни; якорь убрать нельзя",
-	"Дерево файлов, поиск, grep и правила Cursor работают по всем корням сразу",
+	"Исправлено: в workspace из нескольких папок прогон больше не срывается на «сигнал не дошёл» пока идёт индекс",
+	"Workspace из нескольких папок: Menu → New workspace… — название и 2–4 папки в одном чате, как в Cursor",
+	"Папки можно бросить в окно; агент видит все сразу (пути api/main.go), git и терминал — по имени папки",
 	"Рабочее пространство из нескольких папок и запросы, идущие параллельно, работают как раньше",
+	"Дерево файлов, поиск, grep, find_symbol, правила Cursor и память работают по всем папкам сразу",
 }
 
 var HighlightsEN = []string{
-	"A workspace of several folders: “Add folders to workspace…” → “Add another…” → “Done”, as many as needed",
-	"Folders can simply be dropped into the window — every dropped directory becomes a root of the active workspace",
-	"The dialog explains the model: an anchor (chats, settings, lock) plus extra roots; the anchor cannot be removed",
-	"The file tree, search, grep and Cursor rules cover all roots at once",
+	"Fixed: multi-folder workspaces no longer abort with “completion signal lost” while the index is still building",
+	"Multi-folder workspace: Menu → New workspace… — a name and 2–4 folders in one chat, like Cursor",
+	"Drop folders into the window; the agent sees them all (paths like api/main.go); git and terminal take a folder name",
 	"Requests in parallel chats and the multi-folder workspace keep working as before",
+	"The file tree, search, grep, find_symbol, Cursor rules and memory cover every folder at once",
 }
 
 // UICopy is localized chrome for the Welcome splash.

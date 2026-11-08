@@ -50,6 +50,21 @@ func (s *Service) WithRoot(root string) *Service {
 	return &cp
 }
 
+// WithFolder returns a copy pinned to one real folder (a repository inside a
+// multi-folder workspace). Unlike WithRoot the path is taken literally: it is
+// never expanded into the roots of a project that happens to live there.
+func (s *Service) WithFolder(path string) *Service {
+	if s == nil {
+		return nil
+	}
+	cp := *s
+	cp.Root = path
+	if strings.TrimSpace(path) != "" {
+		cp.WS = s.WS.ScopedFolder(path)
+	}
+	return &cp
+}
+
 // root returns the project this service is pinned to (the run's project), or
 // the project the user has open right now.
 func (s *Service) root() (string, error) {

@@ -234,7 +234,7 @@ func (r *Registry) Execute(ctx context.Context, call llm.ToolCall) (string, erro
 		if strings.TrimSpace(from) == "" || strings.TrimSpace(to) == "" {
 			return "", fmt.Errorf("from and to are required")
 		}
-		if _, err := r.Git.Mv(from, to); err == nil {
+		if err := r.gitMv(from, to); err == nil {
 			r.stampFileHeader(to, "Moved")
 			return fmt.Sprintf("moved %s → %s (git)", from, to), nil
 		}
@@ -349,11 +349,13 @@ func (r *Registry) Execute(ctx context.Context, call llm.ToolCall) (string, erro
 		if strings.TrimSpace(pattern) == "" {
 			return "", fmt.Errorf("name is required")
 		}
-		idx, err := r.projectIndex()
+		found, err := r.searchIndexes(intArg(args, "limit"), func(idx *projindex.Index, limit int) []projindex.Hit {
+			return idx.FindSymbol(pattern, limit)
+		})
 		if err != nil {
 			return "", err
 		}
-		hits := filterHits(idx.FindSymbol(pattern, intArg(args, "limit")), stringArg(args, "path"))
+		hits := filterHits(found, stringArg(args, "path"))
 		if len(hits) == 0 {
 			return fmt.Sprintf("(no symbol matched %q — try project_search with the concept, then grep)", pattern), nil
 		}
@@ -377,7 +379,7 @@ func (r *Registry) Execute(ctx context.Context, call llm.ToolCall) (string, erro
 		if strings.TrimSpace(text) == "" {
 			text, _ = args["note"].(string)
 		}
-		root, err := r.projectRoot()
+		root, err := r.chatProjectKey()
 		if err != nil {
 			return "", err
 		}
@@ -387,7 +389,7 @@ func (r *Registry) Execute(ctx context.Context, call llm.ToolCall) (string, erro
 		}
 		return fmt.Sprintf("remembered %s: %s", n.ID, n.Text), nil
 	case "recall":
-		root, err := r.projectRoot()
+		root, err := r.chatProjectKey()
 		if err != nil {
 			return "", err
 		}
@@ -395,9 +397,9 @@ func (r *Registry) Execute(ctx context.Context, call llm.ToolCall) (string, erro
 		if len(notes) == 0 {
 			return "(project memory is empty for this query — save a fact with remember)", nil
 		}
-		return projmem.FormatNotes(root, notes), nil
+		return projmem.FormatNotesWith(root, notes, r.memoryResolver()), nil
 	case "forget":
-		root, err := r.projectRoot()
+		root, err := r.chatProjectKey()
 		if err != nil {
 			return "", err
 		}
@@ -414,11 +416,13 @@ func (r *Registry) Execute(ctx context.Context, call llm.ToolCall) (string, erro
 		if strings.TrimSpace(query) == "" {
 			return "", fmt.Errorf("query is required")
 		}
-		idx, err := r.projectIndex()
+		found, err := r.searchIndexes(intArg(args, "limit"), func(idx *projindex.Index, limit int) []projindex.Hit {
+			return idx.Search(query, limit)
+		})
 		if err != nil {
 			return "", err
 		}
-		hits := filterHits(idx.Search(query, intArg(args, "limit")), stringArg(args, "path"))
+		hits := filterHits(found, stringArg(args, "path"))
 		if len(hits) == 0 {
 			return fmt.Sprintf("(no index hit for %q — fall back to grep)", query), nil
 		}
@@ -432,9 +436,20 @@ func (r *Registry) Execute(ctx context.Context, call llm.ToolCall) (string, erro
 			return "", fmt.Errorf("command must be a single line (no newlines)")
 		}
 		relCwd, _ := args["cwd"].(string)
-		cwd, err := r.ws().ActiveRoot()
+		cwd, err := r.ws().PrimaryRoot()
 		if err != nil {
 			return "", err
+		}
+		if strings.TrimSpace(relCwd) == "" || relCwd == "." {
+			// В рабочем пространстве из нескольких папок «просто команда» была бы
+			// запущена в первой из них — почти всегда не там, где нужно модели.
+			if fs, ferr := r.folders(); ferr == nil && len(fs) > 1 {
+				names := make([]string, 0, len(fs))
+				for _, f := range fs {
+					names = append(names, f.Name)
+				}
+				return "", fmt.Errorf("в рабочем пространстве несколько папок (%s): передайте cwd — имя папки, в которой запускать команду", strings.Join(names, ", "))
+			}
 		}
 		if strings.TrimSpace(relCwd) != "" && relCwd != "." {
 			full, err := r.ws().Resolve(relCwd)
@@ -544,11 +559,21 @@ func (r *Registry) Execute(ctx context.Context, call llm.ToolCall) (string, erro
 		u, _ := args["url"].(string)
 		return r.webFetch(ctx, u)
 	case "git_status":
-		return r.Git.Status()
+		ts, err := r.gitTargets(stringArg(args, "repo"), nil, true)
+		if err != nil {
+			return "", err
+		}
+		return gitEach(ts, func(t gitTarget) (string, error) { return t.svc.Status() })
 	case "git_diff":
 		path, _ := args["path"].(string)
 		staged, _ := args["staged"].(bool)
-		out, err := r.Git.Diff(path, staged)
+		ts, err := r.gitTargets(stringArg(args, "repo"), []string{path}, strings.TrimSpace(path) == "")
+		if err != nil {
+			return "", err
+		}
+		out, err := gitEach(ts, func(t gitTarget) (string, error) {
+			return t.svc.Diff(t.rel(path), staged)
+		})
 		if err != nil {
 			return "", err
 		}
@@ -557,18 +582,30 @@ func (r *Registry) Execute(ctx context.Context, call llm.ToolCall) (string, erro
 	case "git_log":
 		path, _ := args["path"].(string)
 		n := intArg(args, "n")
-		return r.Git.Log(n, path)
+		ts, err := r.gitTargets(stringArg(args, "repo"), []string{path}, false)
+		if err != nil {
+			return "", err
+		}
+		return ts[0].svc.Log(n, ts[0].rel(path))
 	case "git_commit":
 		msg, _ := args["message"].(string)
 		paths := stringSlice(args["paths"])
-		if len(paths) > 0 {
-			return r.Git.CommitPaths(msg, paths)
+		ts, err := r.gitTargets(stringArg(args, "repo"), paths, false)
+		if err != nil {
+			return "", err
 		}
-		return r.Git.Commit(msg)
+		if len(paths) > 0 {
+			return ts[0].svc.CommitPaths(msg, ts[0].rels(paths))
+		}
+		return ts[0].svc.Commit(msg)
 	case "git_push":
 		remote, _ := args["remote"].(string)
 		branch, _ := args["branch"].(string)
-		return r.Git.Push(remote, branch)
+		ts, err := r.gitTargets(stringArg(args, "repo"), nil, false)
+		if err != nil {
+			return "", err
+		}
+		return ts[0].svc.Push(remote, branch)
 	case "ssh_exec":
 		host, _ := args["host"].(string)
 		command, _ := args["command"].(string)
@@ -611,17 +648,8 @@ func stringArg(args map[string]any, key string) string {
 	return strings.TrimSpace(s)
 }
 
-// projectIndex returns the cached symbol index of the run's project. The store
-// re-parses only files that changed, so calling it per tool call is cheap.
-func (r *Registry) projectIndex() (*projindex.Index, error) {
-	root, err := r.projectRoot()
-	if err != nil {
-		return nil, err
-	}
-	return projindex.Default().Get(root)
-}
-
-// projectRoot is the absolute path of the run's project.
+// projectRoot is the key of the run's project (for a Workspace — its service
+// folder, not a code folder; use folders()/PrimaryRoot for code paths).
 func (r *Registry) projectRoot() (string, error) {
 	ws := r.ws()
 	if ws == nil {
@@ -688,13 +716,16 @@ func stringSlice(v any) []string {
 }
 
 func (r *Registry) envInfo() string {
-	root, _ := r.ws().ActiveRoot()
+	root, _ := r.ws().PrimaryRoot()
+	folders, _ := r.folders()
 	sh := shell.ResolveShell(r.Shell)
 	var b strings.Builder
 	fmt.Fprintf(&b, "os=%s\n", runtime.GOOS)
 	fmt.Fprintf(&b, "arch=%s\n", runtime.GOARCH)
 	fmt.Fprintf(&b, "shell=%s\n", sh)
-	if root != "" {
+	if len(folders) > 1 {
+		fmt.Fprintf(&b, "workspace_folders=%s\n", workspaceSummary(folders))
+	} else if root != "" {
 		fmt.Fprintf(&b, "workspace=%s\n", root)
 	}
 	if v := toolVersion("go", "version"); v != "" {
@@ -835,6 +866,10 @@ func LiteTool(name string) bool {
 		return false
 	}
 }
+
+// repoProp — необязательный аргумент git-инструментов: имя папки рабочего
+// пространства (как в дереве файлов). Для проекта из одной папки не нужен.
+var repoProp = map[string]any{"type": "string", "description": "Workspace folder name; only for multi-folder workspaces"}
 
 func allToolSpecs() []llm.ToolSpec {
 	return []llm.ToolSpec{
@@ -982,7 +1017,7 @@ func allToolSpecs() []llm.ToolSpec {
 			"type": "object",
 			"properties": map[string]any{
 				"command":       map[string]any{"type": "string", "description": "Single line, no newlines; add -y/--yes; no pagers"},
-				"cwd":           map[string]any{"type": "string", "description": "Relative directory under the workspace root"},
+				"cwd":           map[string]any{"type": "string", "description": "Relative directory under the workspace root; with several workspace folders it is required and starts with the folder name (e.g. api/src)"},
 				"timeout_sec":   map[string]any{"type": "integer", "description": "Time limit (default 120, max 1800). On timeout the whole process tree is killed — builds and installs that take longer should run with is_background=true"},
 				"is_background": map[string]any{"type": "boolean", "description": "Start as a background job (max 8, default limit 30 min) and poll it with command_status"},
 				"explanation":   map[string]any{"type": "string", "description": "Short why, shown in the approval dialog"},
@@ -1008,9 +1043,9 @@ func allToolSpecs() []llm.ToolSpec {
 					"items": map[string]any{
 						"type": "object",
 						"properties": map[string]any{
-							"id":      map[string]any{"type": "string"},
-							"content": map[string]any{"type": "string"},
-							"status":  map[string]any{"type": "string", "description": "pending | in_progress | completed | cancelled"},
+							"id":        map[string]any{"type": "string"},
+							"content":   map[string]any{"type": "string"},
+							"status":    map[string]any{"type": "string", "description": "pending | in_progress | completed | cancelled"},
 							"blockedBy": map[string]any{"type": "string", "description": "id задачи, от которой зависит этот пункт (пусто — можно брать сразу; заполнено — ждёт выполнения указанной задачи)"},
 						},
 						"required": []string{"id", "content", "status"},
@@ -1059,12 +1094,13 @@ func allToolSpecs() []llm.ToolSpec {
 			},
 			"required": []string{"url"},
 		}),
-		fn("git_status", "Git status", map[string]any{"type": "object", "properties": map[string]any{}}),
+		fn("git_status", "Git status (every folder when the workspace has several)", map[string]any{"type": "object", "properties": map[string]any{"repo": repoProp}}),
 		fn("git_diff", "Git diff", map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"path":   map[string]any{"type": "string"},
 				"staged": map[string]any{"type": "boolean"},
+				"repo":   repoProp,
 			},
 		}),
 		fn("git_log", "Recent commit log (read-only). Call with git_status and git_diff before committing.", map[string]any{
@@ -1072,6 +1108,7 @@ func allToolSpecs() []llm.ToolSpec {
 			"properties": map[string]any{
 				"n":    map[string]any{"type": "integer", "description": "How many commits (default 15, max 50)"},
 				"path": map[string]any{"type": "string", "description": "Optional path to limit the log"},
+				"repo": repoProp,
 			},
 		}),
 		fn("git_commit", "Commit. Pass paths of files you changed. Only when the user explicitly asked to commit.", map[string]any{
@@ -1079,6 +1116,7 @@ func allToolSpecs() []llm.ToolSpec {
 			"properties": map[string]any{
 				"message":     map[string]any{"type": "string"},
 				"paths":       map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Files to stage; omit only if you must commit all tracked changes"},
+				"repo":        repoProp,
 				"explanation": map[string]any{"type": "string"},
 			},
 			"required": []string{"message"},
@@ -1088,6 +1126,7 @@ func allToolSpecs() []llm.ToolSpec {
 			"properties": map[string]any{
 				"remote": map[string]any{"type": "string"},
 				"branch": map[string]any{"type": "string"},
+				"repo":   repoProp,
 			},
 		}),
 		fn("ssh_exec", "Run command on remote host via SSH (keys from ~/.ssh). The connection is reused per host and a dead one is re-opened once, but every call still costs a session on the remote side: plan the whole sequence first (checks, changes, verification) and put it into 1-2 calls, chained with && or ; (PowerShell: ';'), instead of one call per step. Finish by verifying on the remote side.", map[string]any{

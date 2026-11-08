@@ -11,6 +11,8 @@ package main
 
 import (
 	"context"
+	crand "crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -251,16 +253,14 @@ func (a *App) startup(ctx context.Context) {
 	}
 
 	for _, p := range a.cfg.Get().RecentProjects {
-		_, _ = a.ws.Open(p)
-		a.applyPersistedRoots(p)
+		a.restoreProject(p)
 	}
 	// Re-activate the project that was open when the app was closed, so the
 	// chat shown on startup matches where the user left off.
 	if last := a.cfg.LastProject(); last != "" {
 		for _, p := range a.cfg.Get().RecentProjects {
 			if p == last {
-				_, _ = a.ws.Open(p)
-				a.applyPersistedRoots(p)
+				a.restoreProject(p)
 				break
 			}
 		}
@@ -331,6 +331,11 @@ func (a *App) backgroundNewsRefresh() {
 
 func (a *App) backgroundRepoCheck() {
 	for _, p := range a.ws.List() {
+		if p.Workspace {
+			// Путь рабочего пространства — служебный ключ, не репозиторий. Папки
+			// из него проверяются, только если они сами открыты как проекты.
+			continue
+		}
 		ch := checkRepo(p.Name, p.Path)
 		if ch.Err != "" || ch.Behind <= 0 {
 			continue
@@ -1675,8 +1680,7 @@ func nonzero(v, def int) int {
 
 // loadRules re-scans Cursor rules (global + active project) and caches them.
 func (a *App) loadRules() rules.Bundle {
-	root, _ := a.ws.ActiveRoot()
-	b := rules.Load(root)
+	b := rules.Load(a.ws.Roots()...)
 	a.rulesMu.Lock()
 	a.cursorRules = b
 	a.rulesMu.Unlock()
@@ -1715,6 +1719,11 @@ func (a *App) allowedCursorRulePath(abs string) bool {
 	}
 	if b.ProjectDir != "" {
 		dirs = append(dirs, filepath.Clean(b.ProjectDir))
+	}
+	for _, d := range b.ProjectDirs {
+		if d != "" {
+			dirs = append(dirs, filepath.Clean(d))
+		}
 	}
 	for _, d := range dirs {
 		if d == "" {
@@ -1890,7 +1899,7 @@ func (a *App) SaveShell(path string) error {
 	}
 	// Restart interactive terminal so the new shell takes effect.
 	if a.term != nil {
-		root, _ := a.ws.ActiveRoot()
+		root, _ := a.ws.PrimaryRoot()
 		a.ensureTerminal(root)
 	}
 	return nil
@@ -3442,6 +3451,31 @@ func (a *App) SaveGitAuth(_, _ string) error {
 
 // --- workspace ---
 
+// restoreProject возвращает в список проект из RecentProjects после запуска:
+// обычную папку или рабочее пространство из нескольких папок.
+func (a *App) restoreProject(path string) {
+	if def, ok := a.cfg.GetWorkspace(path); ok {
+		// Недоступная папка (отключённый диск) не должна ронять всё пространство:
+		// берём только те, что на месте.
+		var alive []string
+		for _, r := range def.Roots {
+			if st, err := os.Stat(r); err == nil && st.IsDir() {
+				alive = append(alive, r)
+			}
+		}
+		if len(alive) == 0 {
+			return
+		}
+		_ = os.MkdirAll(def.Key, 0o700)
+		if _, err := a.ws.UpsertWorkspace(def.Key, def.Name, alive); err == nil {
+			_, _ = a.ws.Open(def.Key)
+		}
+		return
+	}
+	_, _ = a.ws.Open(path)
+	a.applyPersistedRoots(path)
+}
+
 // applyPersistedRoots re-attaches extra folders to a workspace after restart.
 func (a *App) applyPersistedRoots(anchor string) {
 	for _, r := range a.cfg.GetProjectRoots(anchor) {
@@ -3450,6 +3484,10 @@ func (a *App) applyPersistedRoots(anchor string) {
 }
 
 func (a *App) persistProjectRoots(anchor string, roots []string) error {
+	if def, ok := a.cfg.GetWorkspace(anchor); ok {
+		def.Roots = append([]string{}, roots...)
+		return a.cfg.SaveWorkspace(def)
+	}
 	extra := make([]string, 0, len(roots))
 	for _, r := range roots {
 		if r != "" && r != anchor {
@@ -3549,7 +3587,7 @@ func (a *App) projectDialogDir() string {
 			return dir
 		}
 	}
-	if root, err := a.ws.ActiveRoot(); err == nil && root != "" {
+	if root, err := a.ws.PrimaryRoot(); err == nil && root != "" {
 		return filepath.Dir(root)
 	}
 	if home, err := os.UserHomeDir(); err == nil {
@@ -3696,6 +3734,152 @@ func (a *App) OpenProject(path string) (*workspace.Project, error) {
 	return p, nil
 }
 
+// workspaceBrief — компактная карта символов для промпта: одна на проект или по
+// блоку на каждую папку рабочего пространства (бюджет делится поровну).
+func workspaceBrief(folders []workspace.Folder, budget int) string {
+	switch len(folders) {
+	case 0:
+		return ""
+	case 1:
+		idx, err := projindex.Default().Get(folders[0].Path)
+		if err != nil {
+			return ""
+		}
+		return projindex.Brief(idx, budget)
+	}
+	per := budget / len(folders)
+	if per < 500 {
+		per = 500
+	}
+	parts := make([]string, 0, len(folders))
+	for _, f := range folders {
+		idx, err := projindex.Default().Get(f.Path)
+		if err != nil {
+			continue
+		}
+		if b := projindex.Brief(idx, per); b != "" {
+			parts = append(parts, "### "+f.Name+"\n"+b)
+		}
+	}
+	return strings.Join(parts, "\n\n")
+}
+
+// workspaceFoldersBlock объясняет модели устройство рабочего пространства из
+// нескольких папок. Для одной папки пусто — поведение проекта не меняется.
+func workspaceFoldersBlock(folders []workspace.Folder) string {
+	if len(folders) < 2 {
+		return ""
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "<workspace_folders>\nThis workspace has %d separate folders (projects). Every path in tools starts with the folder name, e.g. %s/README.md.\n", len(folders), folders[0].Name)
+	for _, f := range folders {
+		fmt.Fprintf(&b, "- %s = %s\n", f.Name, filepath.ToSlash(f.Path))
+	}
+	b.WriteString("Search tools (grep, glob, find_files, find_symbol, project_search) cover all folders; pass path=<folder> to narrow.\n")
+	b.WriteString("run_terminal requires cwd = the folder to run in (e.g. cwd=\"" + folders[0].Name + "\"). git_* take repo = folder name; git_status/git_diff without repo show every folder; commit and push one repository at a time.\n")
+	b.WriteString("</workspace_folders>")
+	return b.String()
+}
+
+// workspacesDir — где лежат служебные папки-ключи рабочих пространств.
+func (a *App) workspacesDir() (string, error) {
+	base, err := a.cfg.AppDataDir()
+	if err != nil {
+		return "", err
+	}
+	dir := filepath.Join(base, "workspaces")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	return dir, nil
+}
+
+// workspaceKeyDirOwned — папка действительно служебная (лежит прямо в
+// <AppData>/workspaces): только такую можно удалять вместе с пространством.
+func (a *App) workspaceKeyDirOwned(path string) bool {
+	base, err := a.workspacesDir()
+	if err != nil {
+		return false
+	}
+	return filepath.Clean(filepath.Dir(path)) == filepath.Clean(base)
+}
+
+// defaultWorkspaceName — имя по умолчанию из названий папок: «api + web + docs».
+func defaultWorkspaceName(roots []string) string {
+	names := make([]string, 0, 3)
+	for i, r := range roots {
+		if i == 3 {
+			names = append(names, "…")
+			break
+		}
+		names = append(names, filepath.Base(r))
+	}
+	return strings.Join(names, " + ")
+}
+
+// CreateWorkspace создаёт рабочее пространство из нескольких папок и открывает
+// его: один чат, в котором агент видит все папки сразу. Папки на диске не
+// копируются и не меняются — пространство хранит только их список.
+func (a *App) CreateWorkspace(name string, roots []string) (*workspace.Project, error) {
+	clean, err := workspace.CleanRoots(roots)
+	if err != nil {
+		return nil, err
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = defaultWorkspaceName(clean)
+	}
+	base, err := a.workspacesDir()
+	if err != nil {
+		return nil, err
+	}
+	id := make([]byte, 6)
+	if _, err := crand.Read(id); err != nil {
+		return nil, err
+	}
+	key := filepath.Join(base, "ws-"+hex.EncodeToString(id))
+	if err := os.MkdirAll(key, 0o700); err != nil {
+		return nil, err
+	}
+	if err := a.cfg.SaveWorkspace(config.WorkspaceDef{Key: key, Name: name, Roots: clean}); err != nil {
+		_ = os.RemoveAll(key)
+		return nil, err
+	}
+	if _, err := a.ws.UpsertWorkspace(key, name, clean); err != nil {
+		_ = a.cfg.RemoveWorkspace(key)
+		_ = os.RemoveAll(key)
+		return nil, err
+	}
+	return a.OpenProject(key)
+}
+
+// UpdateWorkspace меняет имя и список папок существующего рабочего пространства.
+func (a *App) UpdateWorkspace(key, name string, roots []string) (*workspace.Project, error) {
+	def, ok := a.cfg.GetWorkspace(key)
+	if !ok {
+		return nil, fmt.Errorf("рабочее пространство не найдено: %s", key)
+	}
+	clean, err := workspace.CleanRoots(roots)
+	if err != nil {
+		return nil, err
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = defaultWorkspaceName(clean)
+	}
+	p, err := a.ws.UpsertWorkspace(def.Key, name, clean)
+	if err != nil {
+		return nil, err
+	}
+	def.Name, def.Roots = name, clean
+	if err := a.cfg.SaveWorkspace(def); err != nil {
+		return nil, err
+	}
+	a.loadRules()
+	runtime.EventsEmit(a.ctx, "projects:changed", nil)
+	return p, nil
+}
+
 // PickProjectRootDir asks for a folder to merge into the active workspace.
 func (a *App) PickProjectRootDir() (string, error) {
 	return runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{
@@ -3801,6 +3985,14 @@ func (a *App) CloseProject(path, chatAction string) (*workspace.Project, error) 
 	}
 	_ = a.cfg.RemoveRecentProject(abs)
 	_ = a.cfg.SetProjectRoots(abs, nil)
+	if _, ok := a.cfg.GetWorkspace(abs); ok {
+		// Рабочее пространство целиком живёт в настройках: папки с кодом остаются
+		// на диске, удаляется только определение и служебная папка-ключ.
+		_ = a.cfg.RemoveWorkspace(abs)
+		if a.workspaceKeyDirOwned(abs) {
+			_ = os.RemoveAll(abs)
+		}
+	}
 	if wasActive {
 		a.mu.Lock()
 		a.history = nil
@@ -4387,11 +4579,17 @@ func (a *App) RunAgentInSession(sessionID, runID, userMessage string, attachment
 	}
 	a.runProjects[runKey] = projKey
 	a.mu.Unlock()
-	// Маркер активного прогона ставится внутри горутины прогона (ниже): build.sh
-	// читает running.json и не перезапускает клиент поверх работающего агента.
-	// Раньше маркер ставился и снимался здесь, в синхронной части, а сам прогон
-	// уходил в горутину — файл удалялся через миллисекунды, и «идёт прогон» было
-	// не видно ни build.sh, ни скриптам перезапуска.
+	// Маркер — сразу, до тяжёлой подготовки (дерево, индекс символов по всем
+	// папкам workspace, MCP до 20 с). Иначе UI уже «занят», а ActiveRuns ещё
+	// пуст: watchdog через ~6 с пишет «прогон завершён, сигнал не дошёл» и
+	// выкидывает очередь, хотя бэкенд только индексирует папки.
+	a.markRunStart(sid)
+	handedOff := false
+	defer func() {
+		if !handedOff {
+			a.markRunEnd(sid)
+		}
+	}()
 
 	hasImages := false
 	attNames := make([]string, 0, len(attachments))
@@ -4403,7 +4601,9 @@ func (a *App) RunAgentInSession(sessionID, runID, userMessage string, attachment
 			hasImages = true
 		}
 	}
-	bundle := a.loadRules()
+	// Правила — папок проекта этого прогона (а не того, что открыт сейчас), и всех
+	// папок, если это рабочее пространство из нескольких.
+	bundle := rules.Load(a.ws.Scoped(projKey).Roots()...)
 	hints := rules.ExtractHintPaths(userMessage, attNames...)
 	cfg := a.cfg.Get()
 	// Провайдер чата (если выбран вручную) — иначе провайдер проекта.
@@ -4470,23 +4670,32 @@ func (a *App) RunAgentInSession(sessionID, runID, userMessage string, attachment
 	// the usual "where does X live" before the model spends a single tool call;
 	// the tree below stays as the literal path list.
 	memText := ""
-	if root, rerr := wsRun.ActiveRoot(); rerr == nil {
-		if idx, ierr := projindex.Default().Get(root); ierr == nil {
-			if brief := projindex.Brief(idx, briefBudget); brief != "" {
-				if projectMap != "" {
-					projectMap = brief + "\n\n<workspace_tree>\n" + projectMap + "\n</workspace_tree>"
-				} else {
-					projectMap = brief
-				}
-			}
+	runFolders := wsRun.Folders()
+	if brief := workspaceBrief(runFolders, briefBudget); brief != "" {
+		if projectMap != "" {
+			projectMap = brief + "\n\n<workspace_tree>\n" + projectMap + "\n</workspace_tree>"
+		} else {
+			projectMap = brief
 		}
+	}
+	if block := workspaceFoldersBlock(runFolders); block != "" {
+		projectMap = block + "\n\n" + projectMap
+	}
+	if key, rerr := wsRun.ActiveRoot(); rerr == nil {
 		// Facts saved by earlier runs: not a tool call, just context. Empty when
-		// nothing was remembered yet.
+		// nothing was remembered yet. Ключ памяти — проект/рабочее пространство
+		// целиком, а пути заметок разворачиваются по папкам.
 		memBudget := 1200
 		if localLite {
 			memBudget = 500
 		}
-		memText = projmem.Brief(root, memBudget)
+		memText = projmem.BriefWith(key, memBudget, func(ref string) string {
+			p, err := wsRun.Resolve(ref)
+			if err != nil {
+				return ""
+			}
+			return p
+		})
 	}
 
 	// Every run gets its own tool registry copy pinned to the run's project:
@@ -4667,8 +4876,8 @@ func (a *App) RunAgentInSession(sessionID, runID, userMessage string, attachment
 		)})
 	}
 
+	handedOff = true
 	go func() {
-		a.markRunStart(sid)
 		defer a.markRunEnd(sid)
 		a.setRunActive(true)
 		defer a.setRunActive(false)
@@ -4704,6 +4913,18 @@ func (a *App) RunAgentInSession(sessionID, runID, userMessage string, attachment
 			}
 			a.emitRun(sid, runID, evt)
 		}
+		// Паника в прогоне раньше оставляла UI «занятым» без done/error — тот же
+		// симптом, что и у watchdog. Сообщаем в чат и закрываем дорожку.
+		defer func() {
+			if rec := recover(); rec != nil {
+				msg := fmt.Sprintf("внутренний сбой прогона: %v", rec)
+				a.logAgentLine(msg)
+				if stillCurrent() {
+					a.emitRun(sid, runID, agent.Event{Type: "error", Content: msg})
+					a.emitRun(sid, runID, agent.Event{Type: "persist", Content: "1"})
+				}
+			}
+		}()
 		var newHist []llm.Message
 		var err error
 		runStart := time.Now()
@@ -4950,7 +5171,7 @@ func (a *App) ensureTerminal(cwd string) {
 }
 
 func (a *App) StartTerminal() error {
-	root, err := a.ws.ActiveRoot()
+	root, err := a.ws.PrimaryRoot()
 	if err != nil {
 		root = ""
 	}
@@ -4982,7 +5203,7 @@ func (a *App) TerminalResize(cols, rows int) error {
 }
 
 func (a *App) RunShell(command string) (map[string]any, error) {
-	root, _ := a.ws.ActiveRoot()
+	root, _ := a.ws.PrimaryRoot()
 	shellPath := shell.ResolveShell(a.cfg.Get().Shell)
 	res, err := shell.Run(a.ctx, command, root, shellPath, 0)
 	if err != nil {

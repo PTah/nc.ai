@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -14,12 +15,31 @@ import (
 )
 
 func (r *Registry) readLints(paths []string) (string, error) {
-	root, err := r.ws().ActiveRoot()
+	folders, err := r.folders()
 	if err != nil {
 		return "", err
 	}
 	if len(paths) == 0 {
-		return runGoVet(root, "./...")
+		if len(folders) == 1 {
+			return runGoVet(folders[0].Path, "./...")
+		}
+		// Несколько папок: go vet только там, где есть Go-модуль.
+		var parts []string
+		for _, f := range folders {
+			if _, serr := os.Stat(filepath.Join(f.Path, "go.mod")); serr != nil {
+				continue
+			}
+			out, verr := runGoVet(f.Path, "./...")
+			if verr != nil && out == "" {
+				parts = append(parts, fmt.Sprintf("## %s\n%v", f.Name, verr))
+				continue
+			}
+			parts = append(parts, "## "+f.Name+"\n"+out)
+		}
+		if len(parts) == 0 {
+			return "(в папках рабочего пространства нет Go-модулей — передайте paths)", nil
+		}
+		return strings.Join(parts, "\n\n"), nil
 	}
 	var parts []string
 	seenPkg := map[string]bool{}
@@ -40,6 +60,10 @@ func (r *Registry) readLints(paths []string) (string, error) {
 				continue
 			}
 			seenPkg[pkg] = true
+			root := folders[0].Path
+			if f, ok := folderOfPath(folders, full); ok {
+				root = f.Path
+			}
 			out, err := runGoVet(root, pkg)
 			if err != nil && out == "" {
 				parts = append(parts, fmt.Sprintf("%s: %v", rel, err))

@@ -42,9 +42,9 @@ import {
   CancelClone,
   CloneRepo,
   CloneTargetPath,
-  AddProjectRoot,
   AddProjectRoots,
-  RemoveProjectRoot,
+  CreateWorkspace,
+  UpdateWorkspace,
   PickProjectRootDir,
   PathIsDir,
   ClearTodos,
@@ -194,7 +194,18 @@ import LockIcon from './LockIcon'
 import {applyChatFindMarks, clearChatFindMarks, focusChatFindHit, type ChatFindHit} from './chatFind'
 import {fmtDate, fmtDateTime} from './datetime'
 
-type Project = { name: string; path: string; opened?: string; iconUrl?: string; roots?: string[]; locked?: boolean }
+type Project = { name: string; path: string; opened?: string; iconUrl?: string; roots?: string[]; locked?: boolean; workspace?: boolean }
+
+/** Папка, в которой живёт код проекта (терминал, `cd`): у workspace путь — служебный, код в первой папке. */
+function projectCodeDir(p: {path: string; roots?: string[]; workspace?: boolean}): string {
+  return p.workspace && p.roots && p.roots.length > 0 ? p.roots[0] : p.path
+}
+
+/** Последняя часть пути для подписей папок workspace. */
+function folderBaseName(p: string): string {
+  const parts = p.replace(/[\\/]+$/, '').split(/[\\/]/)
+  return parts[parts.length - 1] || p
+}
 type FileEntry = { name: string; path: string; isDir: boolean }
 type ChatItem =
   | { kind: 'user' | 'assistant' | 'system'; content: string; attachments?: ChatAttPreview[]; at?: number }
@@ -2089,7 +2100,7 @@ export default function App() {
     saving: boolean
     error: string
   } | null>(null)
-  const [projectCtx, setProjectCtx] = useState<{x: number; y: number; path: string; name: string} | null>(null)
+  const [projectCtx, setProjectCtx] = useState<{x: number; y: number; path: string; name: string; workspace?: boolean} | null>(null)
   const [closeProjectDlg, setCloseProjectDlg] = useState<{path: string; name: string} | null>(null)
   const [projectMenu, setProjectMenu] = useState(false)
   const [menuPos, setMenuPos] = useState<{left: number; top: number} | null>(null)
@@ -2105,9 +2116,11 @@ export default function App() {
   // Прогресс клонирования из событий бэкенда: этап + процент + подробность
   // (мегабайты / файлы / проценты git). Без него в диалоге висело «Клонирую…».
   const [cloneProgress, setCloneProgress] = useState<{phase: string; percent: number; detail: string} | null>(null)
-  // Диалог «папки рабочей области»: после добавления остаётся открытым, чтобы
-  // сразу добавить ещё (системный выбор папки у Wails одиночный).
-  const [addRootsDlg, setAddRootsDlg] = useState<{added: string[]} | null>(null)
+  // Диалог рабочего пространства (как .code-workspace в Cursor): имя + список
+  // папок. key пуст — создаём новое, иначе правим существующее. Выбор папки у
+  // Wails одиночный, поэтому диалог остаётся открытым: «Добавить папку…» можно
+  // нажимать сколько нужно, либо бросать папки в окно.
+  const [wsDlg, setWsDlg] = useState<{key: string; name: string; roots: string[]; err: string; busy: boolean} | null>(null)
   const cloneGenRef = useRef(0)
   const cloneAbortRef = useRef(false)
   const [pendingCloseChatId, setPendingCloseChatId] = useState<string | null>(null)
@@ -4824,49 +4837,110 @@ export default function App() {
     void RequestExit()
   }
 
-  async function addRootToActive() {
+  /** Диалог «New workspace»: пустой или с заранее заданными папками. */
+  function openWorkspaceDlg(seed: string[] = []) {
     setProjectMenu(false)
-    const anchor = active?.path
-    if (!anchor) return
+    setProjectCtx(null)
+    setWsDlg({key: '', name: '', roots: seed, err: '', busy: false})
+  }
+
+  /**
+   * Пункт меню «Workspace…»: у открытого workspace правит его папки; у обычного
+   * проекта создаёт новый workspace, уже с папкой(ами) этого проекта — сам проект
+   * и его чаты при этом не меняются.
+   */
+  function openWorkspaceFromActive() {
+    setProjectMenu(false)
+    if (!active) return
+    if (active.workspace) {
+      editWorkspace(active)
+      return
+    }
+    const seed = (active.roots && active.roots.length > 0 ? active.roots : [active.path])
+    openWorkspaceDlg(seed)
+  }
+
+  function editWorkspace(p: Project) {
+    setProjectMenu(false)
+    setProjectCtx(null)
+    setWsDlg({key: p.path, name: p.name, roots: [...(p.roots ?? [])], err: '', busy: false})
+  }
+
+  function wsAddRoots(dirs: string[]) {
+    setWsDlg((prev) => {
+      if (!prev) return prev
+      const have = new Set(prev.roots.map((r) => r.toLowerCase()))
+      const next = [...prev.roots]
+      for (const d of dirs) {
+        if (d && !have.has(d.toLowerCase())) {
+          have.add(d.toLowerCase())
+          next.push(d)
+        }
+      }
+      return {...prev, roots: next, err: ''}
+    })
+  }
+
+  async function wsPickFolder() {
     try {
       const dir = await PickProjectRootDir()
-      if (!dir) return
-      const p = await AddProjectRoot(anchor, dir)
-      setActive(p)
-      setProjects(asList(await ListProjects()))
-      await refreshFiles('.')
-      void refreshRules()
-      // Диалог не закрываем: в рабочую область обычно добавляют несколько папок,
-      // а системный выбор папки одиночный — «Выбрать ещё…» повторяет его без
-      // похода в меню.
-      setAddRootsDlg({added: [dir]})
+      if (dir) wsAddRoots([dir])
     } catch (e) {
-      if (activeSessionId) setSessionItems(activeSessionId, (m) => [...m, {kind: 'system', content: String(e)}])
+      setWsDlg((prev) => (prev ? {...prev, err: String(e)} : prev))
     }
   }
 
-  /** Ещё одна папка в рабочую область, не закрывая диалог. */
-  async function addMoreRoots() {
-    const anchor = active?.path
-    if (!anchor) return
+  function wsRemoveRoot(root: string) {
+    setWsDlg((prev) => (prev ? {...prev, roots: prev.roots.filter((r) => r !== root), err: ''} : prev))
+  }
+
+  function wsMoveRoot(root: string, delta: -1 | 1) {
+    setWsDlg((prev) => {
+      if (!prev) return prev
+      const i = prev.roots.indexOf(root)
+      const j = i + delta
+      if (i < 0 || j < 0 || j >= prev.roots.length) return prev
+      const next = [...prev.roots]
+      ;[next[i], next[j]] = [next[j], next[i]]
+      return {...prev, roots: next}
+    })
+  }
+
+  async function saveWorkspaceDlg() {
+    if (!wsDlg || wsDlg.busy) return
+    if (wsDlg.roots.length === 0) {
+      setWsDlg({...wsDlg, err: 'Добавьте хотя бы одну папку'})
+      return
+    }
+    setWsDlg({...wsDlg, busy: true, err: ''})
     try {
-      const dir = await PickProjectRootDir()
-      if (!dir) return
-      const p = await AddProjectRoot(anchor, dir)
-      setActive(p)
-      setProjects(asList(await ListProjects()))
-      await refreshFiles('.')
-      void refreshRules()
-      setAddRootsDlg((prev) => ({added: [...(prev?.added ?? []), dir]}))
+      if (wsDlg.key) {
+        const p = await UpdateWorkspace(wsDlg.key, wsDlg.name, wsDlg.roots)
+        setProjects(asList(await ListProjects()))
+        if (active?.path === p.path) {
+          setActive(p)
+          setExpanded({})
+          await refreshFiles('.')
+          void refreshRules()
+        }
+        setWsDlg(null)
+        return
+      }
+      const p = await CreateWorkspace(wsDlg.name, wsDlg.roots)
+      setWsDlg(null)
+      await openProject(p.path)
     } catch (e) {
-      if (activeSessionId) setSessionItems(activeSessionId, (m) => [...m, {kind: 'system', content: String(e)}])
+      setWsDlg((prev) => (prev ? {...prev, busy: false, err: String(e)} : prev))
     }
   }
 
-  /** Папки, брошенные в окно, становятся корнями рабочей области. */
+  /**
+   * Папки, брошенные в окно. Открыт диалог workspace — добавляем в него; открыт
+   * workspace — дописываем в него; обычный проект не трогаем, а предлагаем
+   * собрать workspace из его папки и брошенных.
+   */
   async function dropFoldersIntoWorkspace(paths: string[]) {
-    const anchor = active?.path
-    if (!anchor || paths.length === 0) return
+    if (paths.length === 0) return
     const dirs: string[] = []
     for (const p of paths) {
       try {
@@ -4876,32 +4950,24 @@ export default function App() {
       }
     }
     if (dirs.length === 0) return
-    try {
-      const p = await AddProjectRoots(anchor, dirs)
-      setActive(p)
-      setProjects(asList(await ListProjects()))
-      await refreshFiles('.')
-      void refreshRules()
-      setAddRootsDlg({added: dirs})
-    } catch (e) {
-      if (activeSessionId) setSessionItems(activeSessionId, (m) => [...m, {kind: 'system', content: String(e)}])
+    if (wsDlg) {
+      wsAddRoots(dirs)
+      return
     }
-  }
-
-  async function removeRootFromActive(root: string) {
-    setProjectMenu(false)
-    setProjectCtx(null)
-    const anchor = active?.path
-    if (!anchor) return
-    try {
-      const p = await RemoveProjectRoot(anchor, root)
-      setActive(p)
-      setProjects(asList(await ListProjects()))
-      await refreshFiles('.')
-      void refreshRules()
-    } catch (e) {
-      if (activeSessionId) setSessionItems(activeSessionId, (m) => [...m, {kind: 'system', content: String(e)}])
+    if (active?.workspace) {
+      try {
+        const p = await AddProjectRoots(active.path, dirs)
+        setActive(p)
+        setProjects(asList(await ListProjects()))
+        await refreshFiles('.')
+        void refreshRules()
+      } catch (e) {
+        if (activeSessionId) setSessionItems(activeSessionId, (m) => [...m, {kind: 'system', content: String(e)}])
+      }
+      return
     }
+    const base = active ? (active.roots && active.roots.length > 0 ? active.roots : [active.path]) : []
+    openWorkspaceDlg([...base, ...dirs.filter((d) => !base.includes(d))])
   }
 
   function closeCloneDlg() {
@@ -5042,7 +5108,7 @@ export default function App() {
     await restoreChat(p.path)
     void refreshRules()
     if (showTerm) {
-      xtermRef.current?.writeln(`\r\n$ cd ${p.path}`)
+      xtermRef.current?.writeln(`\r\n$ cd ${projectCodeDir(p)}`)
       await StartTerminal()
     }
     focusComposer()
@@ -5066,7 +5132,7 @@ export default function App() {
       await restoreChat(next.path)
       void refreshRules()
       if (showTerm) {
-        xtermRef.current?.writeln(`\r\n$ cd ${next.path}`)
+        xtermRef.current?.writeln(`\r\n$ cd ${projectCodeDir(next)}`)
         await StartTerminal()
       }
       return
@@ -6615,28 +6681,16 @@ async function refreshYandexModels(opts?: {applyPreferred?: boolean; notify?: bo
                   <button type="button" role="menuitem" onClick={() => void openCloneDlg()}>
                     Clone repository…
                   </button>
-                  <button type="button" role="menuitem" disabled={!active} onClick={() => void addRootToActive()}>
-                    Add folders to workspace…
+                  <button type="button" role="menuitem" onClick={() => openWorkspaceDlg()}>
+                    New workspace…
+                  </button>
+                  <button type="button" role="menuitem" disabled={!active} onClick={() => openWorkspaceFromActive()}>
+                    {active?.workspace ? 'Edit workspace folders…' : 'Workspace from this project…'}
                   </button>
                   <p className="nc-menu-hint">
-                    Рабочая область: первая папка проекта — якорь (чаты, настройки), добавленные — её корни.
-                    Можно бросить папки прямо в окно.
+                    Workspace — несколько папок с проектами в одном чате: агент видит их все сразу. Папки на диске
+                    не копируются. Можно бросить папки прямо в окно.
                   </p>
-                  {(active?.roots?.length ?? 0) > 1 && (
-                    <div className="nc-menu-sub">Workspace folders · {active?.roots?.length}</div>
-                  )}
-                  {(active?.roots ?? []).filter((r) => r !== active?.path).map((r) => (
-                    <button
-                      key={r}
-                      type="button"
-                      role="menuitem"
-                      className="nc-menu-root-item"
-                      title={`Убрать ${r}`}
-                      onClick={() => void removeRootFromActive(r)}
-                    >
-                      ✕ {r}
-                    </button>
-                  ))}
                 </div>
                 <div className="nc-menu-section">
                   <div className="nc-menu-heading">File</div>
@@ -6697,16 +6751,19 @@ async function refreshYandexModels(opts?: {applyPreferred?: boolean; notify?: bo
                   onContextMenu={(e) => {
                     e.preventDefault()
                     e.stopPropagation()
-                    setProjectCtx({x: e.clientX, y: e.clientY, path: p.path, name: p.name})
+                    setProjectCtx({x: e.clientX, y: e.clientY, path: p.path, name: p.name, workspace: p.workspace})
                   }}
-                  title={running ? `${p.path} — идёт работа` : p.path}
+                  title={`${p.workspace ? (p.roots ?? []).join('\n') : p.path}${running ? ' — идёт работа' : ''}`}
                 >
-                  <ProjectIcon src={p.iconUrl} name={p.name} />
+                  <ProjectIcon src={p.iconUrl} name={p.name} workspace={p.workspace} />
                   <span className="nc-project-name">
                     {running ? (
                       <span className="nc-spin" title="Идёт работа" aria-label="Идёт работа" />
                     ) : null}
                     {p.name}
+                    {p.workspace ? (
+                      <span className="nc-project-sub">{(p.roots ?? []).map(folderBaseName).join(' · ')}</span>
+                    ) : null}
                   </span>
                 </button>
               </li>
@@ -9405,13 +9462,26 @@ async function refreshYandexModels(opts?: {applyPreferred?: boolean; notify?: bo
           onMouseDown={(e) => e.stopPropagation()}
           onClick={(e) => e.stopPropagation()}
         >
+          {projectCtx.workspace ? (
+            <button
+              type="button"
+              role="menuitem"
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={() => {
+                const wp = asList(projects).find((x) => x.path === projectCtx.path)
+                if (wp) editWorkspace(wp)
+              }}
+            >
+              Папки workspace…
+            </button>
+          ) : null}
           <button
             type="button"
             role="menuitem"
             onMouseDown={(e) => e.stopPropagation()}
             onClick={() => void requestCloseProject(projectCtx.path, projectCtx.name)}
           >
-            Закрыть папку проекта
+            {projectCtx.workspace ? 'Закрыть workspace' : 'Закрыть папку проекта'}
           </button>
         </div>
       )}
@@ -9605,37 +9675,70 @@ async function refreshYandexModels(opts?: {applyPreferred?: boolean; notify?: bo
         </div>
       )}
 
-      {addRootsDlg && (
-        <div className="nc-modal-backdrop" role="presentation" onClick={() => setAddRootsDlg(null)}>
+      {wsDlg && (
+        <div className="nc-modal-backdrop" role="presentation" onClick={() => { if (!wsDlg.busy) setWsDlg(null) }}>
           <div
-            className="nc-modal"
+            className="nc-modal nc-new-project nc-ws-dlg"
             role="dialog"
-            aria-labelledby="nc-addroot-title"
+            aria-labelledby="nc-ws-title"
             onClick={(e) => e.stopPropagation()}
           >
-            <h2 id="nc-addroot-title">Папки в рабочей области</h2>
+            <p className="nc-confirm-app">{info.name || 'NotCursor.ai'}</p>
+            <h2 id="nc-ws-title">{wsDlg.key ? 'Папки workspace' : 'Новый workspace'}</h2>
             <p className="nc-help">
-              Первая папка проекта — <b>якорь</b>: в ней лежат чаты, настройки и замок проекта. Остальные —
-              дополнительные корни: их видно в дереве файлов, а инструменты, правила и поиск работают по всем
-              сразу. Агент видит корни как одну рабочую область.
+              Workspace — это несколько папок с проектами в <b>одном чате</b>, как в Cursor. Агент видит все папки
+              сразу: файлы и поиск работают по всем, пути начинаются с имени папки (<code>api/main.go</code>), git и
+              терминал выбирают папку по имени. Сами папки не копируются и не меняются.
             </p>
-            <ul className="nc-addroot-list">
-              {(active?.roots ?? [active?.path ?? '']).map((r) => (
-                <li key={r}>
-                  <code>{r}</code>
-                  {r === active?.path ? <span className="nc-addroot-anchor">якорь</span> : null}
-                </li>
-              ))}
-            </ul>
-            {addRootsDlg.added.length > 0 ? (
-              <p className="nc-help">Добавлено в этот заход: {addRootsDlg.added.length}</p>
-            ) : null}
+            <div className="nc-new-project-field">
+              <span>Название</span>
+              <input
+                autoFocus
+                value={wsDlg.name}
+                placeholder={wsDlg.roots.length > 0 ? wsDlg.roots.slice(0, 3).map(folderBaseName).join(' + ') : 'например, Backend + Web'}
+                spellCheck={false}
+                onChange={(e) => {
+                  const value = e.target.value
+                  setWsDlg((prev) => (prev ? {...prev, name: value, err: ''} : prev))
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !wsDlg.busy) void saveWorkspaceDlg()
+                  if (e.key === 'Escape' && !wsDlg.busy) setWsDlg(null)
+                }}
+              />
+            </div>
+            <div className="nc-new-project-field">
+              <span>Папки ({wsDlg.roots.length})</span>
+              {wsDlg.roots.length === 0 ? (
+                <p className="nc-help">Пока пусто — нажмите «Добавить папку…» или бросьте папки в окно.</p>
+              ) : (
+                <ul className="nc-addroot-list">
+                  {wsDlg.roots.map((r, i) => (
+                    <li key={r}>
+                      <span className="nc-ws-folder-name">{folderBaseName(r)}</span>
+                      <code title={r}>{r}</code>
+                      {i === 0 ? <span className="nc-addroot-anchor" title="Первая папка: git, терминал и память по умолчанию">первая</span> : null}
+                      <span className="nc-ws-folder-actions">
+                        <button type="button" className="nc-ghost" title="Выше" disabled={i === 0 || wsDlg.busy} onClick={() => wsMoveRoot(r, -1)}>↑</button>
+                        <button type="button" className="nc-ghost" title="Убрать из workspace" disabled={wsDlg.busy} onClick={() => wsRemoveRoot(r)}>✕</button>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <div className="nc-new-project-row">
+                <button type="button" className="nc-ghost" disabled={wsDlg.busy} onClick={() => void wsPickFolder()}>
+                  Добавить папку…
+                </button>
+              </div>
+            </div>
+            {wsDlg.err ? <p className="nc-rule-edit-err" role="alert">{wsDlg.err}</p> : null}
             <div className="nc-close-project-actions">
-              <button type="button" className="nc-ghost" onClick={() => void addMoreRoots()}>
-                Выбрать ещё…
+              <button type="button" className="nc-ghost" disabled={wsDlg.busy} onClick={() => setWsDlg(null)}>
+                Отмена
               </button>
-              <button type="button" onClick={() => setAddRootsDlg(null)}>
-                Готово
+              <button type="button" disabled={wsDlg.busy || wsDlg.roots.length === 0} onClick={() => void saveWorkspaceDlg()}>
+                {wsDlg.busy ? 'Сохраняю…' : wsDlg.key ? 'Сохранить' : 'Создать workspace'}
               </button>
             </div>
           </div>

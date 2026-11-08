@@ -114,6 +114,10 @@ export function CreateProject(arg1, arg2) {
   return window['go']['main']['App']['CreateProject'](arg1, arg2);
 }
 
+export function CreateWorkspace(arg1, arg2) {
+  return window['go']['main']['App']['CreateWorkspace'](arg1, arg2);
+}
+
 export function CursorRulesStatus(arg1) {
   return window['go']['main']['App']['CursorRulesStatus'](arg1);
 }
@@ -684,6 +688,10 @@ export function TerminalResize(arg1, arg2) {
 
 export function TerminalWrite(arg1) {
   return window['go']['main']['App']['TerminalWrite'](arg1);
+}
+
+export function UpdateWorkspace(arg1, arg2, arg3) {
+  return window['go']['main']['App']['UpdateWorkspace'](arg1, arg2, arg3);
 }
 
 export function UpsertLocalEndpoint(arg1, arg2, arg3, arg4, arg5, arg6, arg7) {
