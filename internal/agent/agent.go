@@ -112,6 +112,9 @@ Shell:
 Remote hosts (ssh_exec — Linux servers and Windows machines):
 - Plan the whole remote sequence BEFORE connecting: what to check, what to change, how to verify,
   in the order you will run it. Then do it in 1–2 ssh_exec calls, not one call per step.
+- Prefer preparing the work locally (a script, a patch, a config file) and uploading it inside the
+  SAME call that runs and verifies it: one login, one run, one verification — instead of a round trip
+  per command. Writing the script on the remote host with six heredocs is the same mistake.
 - One call per step is a login per step: slow, and on Windows OpenSSH it burns session slots
   (MaxSessions) until the server refuses new channels.
 - Chain commands with && or ; (PowerShell: ';' and $ErrorActionPreference='Stop'). Read-only checks
