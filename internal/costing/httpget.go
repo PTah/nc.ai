@@ -1,3 +1,4 @@
+// Edited by nc.ai 1.1.4 on macbook 2026-11-08 19:05:06
 package costing
 
 import (
@@ -32,8 +33,11 @@ var priceHTTPClient = &http.Client{
 			KeepAlive: 30 * time.Second,
 		}).DialContext,
 		ForceAttemptHTTP2:     true,
-		MaxIdleConns:          4,
-		IdleConnTimeout:       30 * time.Second,
+		MaxIdleConns:          16,
+		// Цены и баланс идут пачкой к одному хосту (litellm, pricing, gitea):
+		// дефолтные 2 простаивающих соединения пересоздавались на каждый заход.
+		MaxIdleConnsPerHost:   6,
+		IdleConnTimeout:       5 * time.Minute,
 		TLSHandshakeTimeout:   8 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
 		ResponseHeaderTimeout: 15 * time.Second,

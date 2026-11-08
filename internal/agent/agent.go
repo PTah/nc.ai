@@ -2,6 +2,7 @@
 // Edited by nc.ai 0.8.6.4 on Papasha 2026-10-16 15:44:03
 // Edited by nc.ai 0.8.8.0 on macbook 2026-10-18 19:21:38
 // Edited by nc.ai 0.8.9.7 on new-admin-pc 2026-10-28 09:27:01
+// Edited by nc.ai 1.1.4 on macbook 2026-11-08 19:06:11
 package agent
 
 import (
@@ -107,6 +108,19 @@ Shell:
 - Commands longer than ~2 minutes: is_background=true (or timeout_sec up to 1800) — and tell the
   user up front how long the step may take.
 - Never include newlines in command.
+
+Remote hosts (ssh_exec — Linux servers and Windows machines):
+- Plan the whole remote sequence BEFORE connecting: what to check, what to change, how to verify,
+  in the order you will run it. Then do it in 1–2 ssh_exec calls, not one call per step.
+- One call per step is a login per step: slow, and on Windows OpenSSH it burns session slots
+  (MaxSessions) until the server refuses new channels.
+- Chain commands with && or ; (PowerShell: ';' and $ErrorActionPreference='Stop'). Read-only checks
+  first, changes second, verification last — all inside the same call where possible.
+- Windows: assume cmd.exe unless you know otherwise — wrap PowerShell as
+  powershell -NoProfile -Command "..."; quote with double quotes outside and single quotes inside;
+  never start interactive tools; never leave background processes or tail -f style commands behind.
+- Finish on the remote side: verify the result there (exit code, file content, service state) and
+  say what you checked. If you started something long-lived, state how it is verified later.
 
 Git:
 - Do not commit or push unless the user explicitly asked.

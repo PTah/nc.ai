@@ -35,7 +35,7 @@ import "time"
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "1.1.4"
+	Version = "1.1.5"
 )
 
 // DeepSeekProRetireRFC3339 is the announced V4 Pro retirement instant, empty
@@ -81,18 +81,18 @@ func retiredAt(at time.Time, now time.Time) bool {
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
-	"Интерфейс подстраивается под экран: на 13–16\" шапка, вкладки и отступы плотнее, на большом мониторе — как раньше",
-	"Перенос строк шапки больше не оставляет пустой левый край: контролы встают с начала строки, а не по правому краю",
-	"Settings → Interface → «Плотность интерфейса»: авто, компактно, обычно, просторно — выбор запоминается на этой машине",
-	"Длинный баланс держится одной строкой с многоточием (полный текст в подсказке) и не занимает лишнюю строку шапки",
+	"Мёртвое SSH-соединение больше не залипает: после сна ноутбука или перезагрузки Windows коннект переоткрывается сам, один раз",
+	"Лимит каналов OpenSSH на Windows («administratively prohibited») лечится новым соединением — шаги агента не встают",
+	"Пул HTTP-соединений шире: до 8 простаивающих на хост и 5 минут жизни вместо 90 секунд — меньше TLS-handshake на каждом шаге",
+	"Агент сначала планирует работу на удалённой машине и делает её одним-двумя подключениями с проверкой на месте",
 	"Рабочее пространство из нескольких папок и запросы, идущие параллельно, работают как раньше",
 }
 
 var HighlightsEN = []string{
-	"The UI adapts to the screen: on 13–16\" the header, tabs and paddings get denser; on a large monitor nothing changes",
-	"Wrapped header rows no longer leave the left edge empty: controls start at the line beginning instead of hugging the right",
-	"Settings → Interface → “Interface density”: auto, compact, normal, comfortable — the choice is remembered on this machine",
-	"The long balance stays on one line with an ellipsis (full text in the tooltip) instead of claiming an extra header row",
+	"A dead SSH connection no longer sticks: after laptop sleep or a Windows reboot it is re-opened automatically, exactly once",
+	"The OpenSSH channel limit on Windows (“administratively prohibited”) is cured by a fresh connection, so agent steps don't stall",
+	"A wider HTTP pool: up to 8 idle connections per host kept for 5 minutes instead of 90 seconds — fewer TLS handshakes per step",
+	"The agent plans remote work first and performs it in one or two connections, verifying on the spot",
 	"Requests in parallel chats and the multi-folder workspace keep working as before",
 }
 

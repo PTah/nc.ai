@@ -1,4 +1,5 @@
 // Edited by nc.ai 1.0.9 on new-admin-pc 2026-11-03 10:54:26
+// Edited by nc.ai 1.1.4 on macbook 2026-11-08 19:05:15
 package sshx
 
 import (
@@ -11,6 +12,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -30,6 +32,51 @@ type Service struct {
 type sshConn struct {
 	c        *ssh.Client
 	lastUsed time.Time
+}
+
+// ErrConnLost — соединение с хостом умерло (сон ноутбука, ребут Windows, сброс
+// NAT, исчерпаны каналы OpenSSH). Такое соединение нельзя держать в кэше.
+var ErrConnLost = errors.New("ssh: соединение потеряно")
+
+// maxCachedConns — верхняя граница открытых логинов: агент ходит на разные хосты
+// и с разными ключами, десятки висящих сессий никому не нужны.
+const maxCachedConns = 8
+
+// isTransportErr отличает поломку соединения от честного «команда вернула не 0».
+// Первое лечится реконнектом, второе — разбором вывода.
+func isTransportErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	var exit *ssh.ExitError
+	if errors.As(err, &exit) {
+		return false // удалённая команда отработала и вернула код
+	}
+	var missing *ssh.ExitMissingError
+	if errors.As(err, &missing) {
+		return true // «remote command exited without exit status» — канал умер
+	}
+	msg := strings.ToLower(err.Error())
+	for _, needle := range []string{
+		"connection lost",
+		"closed network connection",
+		"broken pipe",
+		"connection reset",
+		"unexpected packet",
+		"administratively prohibited", // исчерпан MaxSessions на OpenSSH (Windows любит)
+		"session not found",
+		"eof",
+	} {
+		if strings.Contains(msg, needle) {
+			return true
+		}
+	}
+	return false
+}
+
+// connKey — ключ переиспользования: хост, порт, пользователь и способ входа.
+func connKey(host string, port int, user, authID string) string {
+	return fmt.Sprintf("%s|%d|%s|%s", host, port, user, authID)
 }
 
 // sshIdleTimeout — сколько держать открытое соединение без команд, прежде чем
@@ -210,35 +257,107 @@ func (s *Service) Exec(host, user string, port int, keyName, password, command s
 	if authID == "" {
 		authID = "default"
 	}
-	key := fmt.Sprintf("%s|%d|%s|%s", host, port, user, authID)
+	key := connKey(host, port, user, authID)
 
 	// Переиспользуем уже открытое соединение: один логин на хост, дальше только
 	// каналы. Это убирает спам «Successful SSH login» на каждый шаг агента.
+	client, cached, err := s.clientFor(key, addr, cfg)
+	if err != nil {
+		return "", err
+	}
+	out, runErr := s.runSession(client, command, timeout)
+	if runErr == nil || !isTransportErr(runErr) {
+		return out, runErr
+	}
+	// Соединение умерло — выбрасываем его из кэша и делаем РОВНО один реконнект.
+	// Раньше мёртвый клиент оставался в conns навсегда: lastUsed обновлялся каждой
+	// попыткой, reapLoop его не видел по простою, и каждый шаг агента падал на
+	// NewSession. Новый коннект открывался только со сменой ключа/пароля — снаружи
+	// это выглядело как «коннект на каждый запрос» (и так копились логины на Windows).
+	s.drop(key, client)
+	if !cached {
+		return out, runErr // только что открыли и уже сломалось — второй раз не долбим
+	}
+	fresh, derr := ssh.Dial("tcp", addr, cfg)
+	if derr != nil {
+		return out, runErr
+	}
+	s.put(key, fresh)
+	return s.runSession(fresh, command, timeout)
+}
+
+// clientFor отдаёт живое соединение из кэша или открывает новое.
+// Второе значение — было ли оно взято из кэша (нужно, чтобы не реконнектить
+// соединение, которое только что установили).
+func (s *Service) clientFor(key, addr string, cfg *ssh.ClientConfig) (*ssh.Client, bool, error) {
 	s.mu.Lock()
-	entry := s.conns[key]
-	if entry != nil && entry.c != nil {
-		entry.lastUsed = time.Now()
-		client := entry.c
+	if e := s.conns[key]; e != nil && e.c != nil {
+		e.lastUsed = time.Now()
+		c := e.c
 		s.mu.Unlock()
-		return s.runSession(client, command, timeout)
+		return c, true, nil
 	}
 	s.mu.Unlock()
 
 	client, err := ssh.Dial("tcp", addr, cfg)
 	if err != nil {
-		return "", err
+		return nil, false, err
+	}
+	s.put(key, client)
+	return client, false, nil
+}
+
+// oldestKey — ключ самого давно использованного соединения (для вытеснения).
+func oldestKey(conns map[string]*sshConn) string {
+	oldKey := ""
+	var oldest time.Time
+	for k, e := range conns {
+		if oldKey == "" || e.lastUsed.Before(oldest) {
+			oldKey, oldest = k, e.lastUsed
+		}
+	}
+	return oldKey
+}
+
+// put кладёт соединение в кэш, вытесняя самое давно использованное сверх лимита.
+func (s *Service) put(key string, c *ssh.Client) {
+	if c == nil {
+		return
 	}
 	s.mu.Lock()
-	s.conns[key] = &sshConn{c: client, lastUsed: time.Now()}
+	defer s.mu.Unlock()
+	for len(s.conns) >= maxCachedConns {
+		oldKey := oldestKey(s.conns)
+		if oldKey == "" {
+			break
+		}
+		if e := s.conns[oldKey]; e != nil && e.c != nil {
+			_ = e.c.Close()
+		}
+		delete(s.conns, oldKey)
+	}
+	s.conns[key] = &sshConn{c: c, lastUsed: time.Now()}
+}
+
+// drop убирает соединение из кэша и закрывает его.
+func (s *Service) drop(key string, c *ssh.Client) {
+	s.mu.Lock()
+	if e := s.conns[key]; e != nil && (c == nil || e.c == c) {
+		delete(s.conns, key)
+	}
 	s.mu.Unlock()
-	return s.runSession(client, command, timeout)
+	if c != nil {
+		_ = c.Close()
+	}
 }
 
 // runSession открывает канал на уже установленном соединении и исполняет команду.
 func (s *Service) runSession(client *ssh.Client, command string, timeout time.Duration) (string, error) {
 	session, err := client.NewSession()
 	if err != nil {
-		return "", err
+		// NewSession падает, когда соединение уже мертво или на OpenSSH исчерпан
+		// лимит каналов (MaxSessions) — и то и другое лечится новым коннектом.
+		return "", fmt.Errorf("%w: %v", ErrConnLost, err)
 	}
 	defer session.Close()
 
@@ -273,6 +392,9 @@ func (s *Service) runSession(client *ssh.Client, command string, timeout time.Du
 		return out + fmt.Sprintf("\nERROR: удалённая команда не уложилась в %s — SSH-сессия закрыта", timeout), nil
 	}
 	if runErr != nil {
+		if isTransportErr(runErr) {
+			return out, fmt.Errorf("%w: %v", ErrConnLost, runErr)
+		}
 		return out + "\nERROR: " + runErr.Error(), nil
 	}
 	return out, nil

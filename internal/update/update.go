@@ -111,8 +111,11 @@ var Client = &http.Client{
 		}).DialContext,
 		ForceAttemptHTTP2:     false,
 		TLSNextProto:          map[string]func(string, *tls.Conn) http.RoundTripper{},
-		MaxIdleConns:          4,
-		IdleConnTimeout:       30 * time.Second,
+		MaxIdleConns:          8,
+		// Проверка обновлений и скачивание ассетов идут в один хост (зеркало LAN
+		// или api.github.com) — без этого дефолт 2 соединения на хост.
+		MaxIdleConnsPerHost:   4,
+		IdleConnTimeout:       5 * time.Minute,
 		TLSHandshakeTimeout:   10 * time.Second,
 		ResponseHeaderTimeout: 30 * time.Second,
 		ExpectContinueTimeout: time.Second,

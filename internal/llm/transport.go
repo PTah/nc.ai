@@ -1,3 +1,4 @@
+// Edited by nc.ai 1.1.4 on macbook 2026-11-08 19:05:02
 package llm
 
 import (
@@ -135,8 +136,15 @@ func newProviderTransport(mode HTTPProtocol, stream bool) *http.Transport {
 			KeepAlive: 30 * time.Second,
 		}).DialContext,
 		ForceAttemptHTTP2:     mode != ProtocolHTTP11,
-		MaxIdleConns:          10,
-		IdleConnTimeout:       90 * time.Second,
+		// Пул общий на всё приложение, поэтому считаем не «на запрос», а на
+		// параллельные прогоны: несколько чатов в работе + опрос баланса + каталог
+		// моделей бьют в один хост одновременно.
+		MaxIdleConns:        32,
+		// Дефолт Go — 2 на хост: при трёх параллельных чатах лишние соединения
+		// закрывались сразу после ответа, и следующий шаг снова делал TCP+TLS.
+		MaxIdleConnsPerHost: 8,
+		// 90 с — короче паузы «подумал и вернулся»; держим, пока приложение живо.
+		IdleConnTimeout:       5 * time.Minute,
 		TLSHandshakeTimeout:   15 * time.Second,
 		ExpectContinueTimeout: time.Second,
 	}

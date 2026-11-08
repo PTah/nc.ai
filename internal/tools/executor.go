@@ -1,4 +1,5 @@
 // Edited by nc.ai 0.8.5.4 on new-admin-pc 2026-10-13 10:28:27
+// Edited by nc.ai 1.1.4 on macbook 2026-11-08 19:06:15
 package tools
 
 import (
@@ -1089,7 +1090,7 @@ func allToolSpecs() []llm.ToolSpec {
 				"branch": map[string]any{"type": "string"},
 			},
 		}),
-		fn("ssh_exec", "Run command on remote host via SSH (keys from ~/.ssh). The connection is reused per host. For several actions on one host, put them in ONE call (chain with && or ;) instead of one call per step — fewer logins and faster.", map[string]any{
+		fn("ssh_exec", "Run command on remote host via SSH (keys from ~/.ssh). The connection is reused per host and a dead one is re-opened once, but every call still costs a session on the remote side: plan the whole sequence first (checks, changes, verification) and put it into 1-2 calls, chained with && or ; (PowerShell: ';'), instead of one call per step. Finish by verifying on the remote side.", map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"host":     map[string]any{"type": "string"},
