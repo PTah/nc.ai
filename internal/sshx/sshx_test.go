@@ -41,15 +41,15 @@ func TestIsTransportErr(t *testing.T) {
 // Ключ кэша стабилен: иначе одно и то же соединение не переиспользуется и на
 // каждый вызов уходит новый логин.
 func TestConnKeyStable(t *testing.T) {
-	a := connKey("192.168.1.10", 22, "user", "default")
-	b := connKey("192.168.1.10", 22, "user", "default")
+	a := connKey("server.example", 22, "user", "default")
+	b := connKey("server.example", 22, "user", "default")
 	if a != b {
 		t.Fatalf("ключ нестабилен: %q != %q", a, b)
 	}
-	if a == connKey("192.168.1.10", 2222, "user", "default") {
+	if a == connKey("server.example", 2222, "user", "default") {
 		t.Error("порт должен входить в ключ")
 	}
-	if a == connKey("192.168.1.10", 22, "user", "password") {
+	if a == connKey("server.example", 22, "user", "password") {
 		t.Error("способ входа должен входить в ключ: ключ и пароль — разные соединения")
 	}
 }
