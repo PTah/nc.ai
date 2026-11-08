@@ -51,11 +51,16 @@ type cloneCandidate struct {
 	url  string
 }
 
-// Clone клонирует репозиторий в <parentDir>/<имя репозитория>. Способ доступа
-// выбирается сам: если SSH настроен и хост отвечает — клонируем по SSH, иначе
-// по HTTPS. Если не сработало ни то, ни другое — возвращаем ошибку со всеми
-// попытками, чтобы пользователь понял, чего не хватает.
+// ErrCloneCanceled — пользователь нажал «Отмена» (или закрыл диалог) во время clone.
+var ErrCloneCanceled = errors.New("клонирование отменено")
+
+// Clone клонирует репозиторий в <parentDir>/<имя репозитория>.
+// Для github.com сначала пробуем REST zipball (API часто живёт, когда git-pack
+// ползёт), затем SSH/HTTPS. ctx отменяется из CancelClone — убивает git и обрыв HTTP.
 func (s *Service) Clone(ctx context.Context, rawURL, parentDir string) (*CloneResult, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	remote, err := parseRemote(rawURL)
 	if err != nil {
 		return nil, err
@@ -73,13 +78,32 @@ func (s *Service) Clone(ctx context.Context, rawURL, parentDir string) (*CloneRe
 	}
 
 	res := &CloneResult{Path: target}
-	for _, c := range remote.candidates(remote.sshReachable(ctx)) {
-		err := s.cloneOne(ctx, c.url, target)
-		if err == nil {
+	// GitHub: API первым, без 8с SSH-probe — zipball часто жив, пока git-pack ползёт.
+	sshReady := false
+	if remote.githubZipballURL() == "" {
+		sshReady = remote.sshReachable(ctx)
+	}
+	for _, c := range remote.candidates(sshReady) {
+		if err := ctx.Err(); err != nil {
+			_ = os.RemoveAll(target)
+			return nil, ErrCloneCanceled
+		}
+		var attemptErr error
+		switch c.kind {
+		case "api":
+			attemptErr = s.cloneGitHubAPI(ctx, remote, target)
+		default:
+			attemptErr = s.cloneOne(ctx, c.url, target)
+		}
+		if attemptErr == nil {
 			res.UsedURL, res.Method = c.url, c.kind
 			return res, nil
 		}
-		res.Attempts = append(res.Attempts, CloneAttempt{Kind: c.kind, URL: c.url, Err: firstLine(err.Error())})
+		if errors.Is(attemptErr, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
+			_ = os.RemoveAll(target)
+			return nil, ErrCloneCanceled
+		}
+		res.Attempts = append(res.Attempts, CloneAttempt{Kind: c.kind, URL: c.url, Err: firstLine(attemptErr.Error())})
 		// Недоклонированное убираем, чтобы следующая попытка шла в чистую папку.
 		_ = os.RemoveAll(target)
 	}
@@ -111,11 +135,18 @@ func (s *Service) cloneOne(ctx context.Context, remoteURL, target string) error 
 	cmd.Stdout = &out
 	cmd.Stderr = &out
 	err := cmd.Run()
+	if errors.Is(ctx.Err(), context.Canceled) {
+		return context.Canceled
+	}
 	if ctx.Err() == context.DeadlineExceeded {
 		return fmt.Errorf("превышен лимит ожидания %s", gitNetworkTimeout)
 	}
 	if err != nil {
-		return errors.New(strings.TrimSpace(out.String()))
+		msg := strings.TrimSpace(out.String())
+		if msg == "" {
+			msg = err.Error()
+		}
+		return errors.New(msg)
 	}
 	return nil
 }
@@ -201,24 +232,28 @@ func (i *remoteInfo) httpsURL() string {
 	return fmt.Sprintf("https://%s%s", i.host, ensureGitSuffix(i.path))
 }
 
-// candidates: своя ссылка пользователя первой, затем альтернативный способ.
-// Если SSH настроен и хост отвечает — SSH идёт первым.
+// candidates: для GitHub — сначала REST zipball (API), затем git SSH/HTTPS.
+// Если SSH настроен и хост отвечает — SSH раньше HTTPS.
 func (i *remoteInfo) candidates(sshReady bool) []cloneCandidate {
 	primary := cloneCandidate{kind: i.kind, url: i.raw}
 	if i.kind == "other" {
 		return []cloneCandidate{primary}
+	}
+	var out []cloneCandidate
+	if api := i.githubZipballURL(); api != "" {
+		out = append(out, cloneCandidate{kind: "api", url: api})
 	}
 	alt := cloneCandidate{kind: "https", url: i.httpsURL()}
 	if i.kind == "https" {
 		alt = cloneCandidate{kind: "ssh", url: i.sshURL()}
 	}
 	if alt.url == primary.url {
-		return []cloneCandidate{primary}
+		return append(out, primary)
 	}
 	if i.kind == "https" && sshReady {
-		return []cloneCandidate{alt, primary}
+		return append(out, alt, primary)
 	}
-	return []cloneCandidate{primary, alt}
+	return append(out, primary, alt)
 }
 
 func (i *remoteInfo) repoName() string {
@@ -277,7 +312,12 @@ func cloneFailureText(remote *remoteInfo, attempts []CloneAttempt) string {
 	for _, a := range attempts {
 		fmt.Fprintf(&b, "• %s (%s): %s\n", strings.ToUpper(a.Kind), a.URL, a.Err)
 	}
-	b.WriteString("Доступа нет ни по SSH, ни по HTTPS. Проверьте: ключ добавлен в аккаунт (Settings → SSH keys) и лежит в ~/.ssh; " +
+	if remote != nil && githubAPIHost(remote.host) {
+		b.WriteString("Не сработали GitHub API (zipball), SSH и HTTPS. ")
+	} else {
+		b.WriteString("Доступа нет ни по SSH, ни по HTTPS. ")
+	}
+	b.WriteString("Проверьте: ключ добавлен в аккаунт (Settings → SSH keys) и лежит в ~/.ssh; " +
 		"либо есть логин/токен для HTTPS (git credential manager), а у ключа/токена есть права на этот репозиторий.")
 	return b.String()
 }

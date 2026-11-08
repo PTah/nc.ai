@@ -57,6 +57,8 @@ export function ClearYandexKey():Promise<void>;
 
 export function ClearZaiKey():Promise<void>;
 
+export function CancelClone():Promise<void>;
+
 export function CloneRepo(arg1:string,arg2:string):Promise<Record<string, any>>;
 
 export function CloneTargetPath(arg1:string,arg2:string):Promise<string>;

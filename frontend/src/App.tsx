@@ -39,6 +39,7 @@ import {
   CreateProject,
   DefaultProjectParentDir,
   DeleteChatSession,
+  CancelClone,
   CloneRepo,
   CloneTargetPath,
   AddProjectRoot,
@@ -2076,11 +2077,13 @@ export default function App() {
   const [newProjectErr, setNewProjectErr] = useState('')
   const [newProjectBusy, setNewProjectBusy] = useState(false)
   // Диалог клонирования: ссылка, куда клонировать, предпросмотр пути и ошибка
-  // (в ней перечислены попытки SSH и HTTPS, если доступа нет ни там, ни там).
+  // (в ней перечислены попытки API/SSH/HTTPS, если доступа нет).
   const [cloneDlg, setCloneDlg] = useState<{url: string; parent: string} | null>(null)
   const [cloneTarget, setCloneTarget] = useState('')
   const [cloneErr, setCloneErr] = useState('')
   const [cloneBusy, setCloneBusy] = useState(false)
+  const cloneGenRef = useRef(0)
+  const cloneAbortRef = useRef(false)
   const [pendingCloseChatId, setPendingCloseChatId] = useState<string | null>(null)
   const [projects, setProjects] = useState<Project[]>([])
   const [active, setActive] = useState<Project | null>(null)
@@ -4817,10 +4820,14 @@ export default function App() {
   }
 
   function closeCloneDlg() {
-    if (cloneBusy) return
+    cloneGenRef.current += 1
+    if (cloneBusy) {
+      void CancelClone()
+    }
     setCloneDlg(null)
     setCloneErr('')
     setCloneTarget('')
+    setCloneBusy(false)
   }
 
   async function pickCloneParent() {
@@ -4834,23 +4841,32 @@ export default function App() {
   }
 
   async function runClone() {
-    if (!cloneDlg) return
+    if (!cloneDlg || cloneBusy) return
     const url = cloneDlg.url.trim()
     const parent = cloneDlg.parent
     if (!url || !parent) return
+    const gen = ++cloneGenRef.current
     setCloneBusy(true)
     setCloneErr('')
     try {
       const res = await CloneRepo(url, parent)
+      if (cloneGenRef.current !== gen) return
       setCloneDlg(null)
       setCloneTarget('')
       const path = String((res as {path?: string})?.path || '')
       if (path) await openProject(path)
       setProjects(asList(await ListProjects()))
     } catch (e) {
-      setCloneErr(String(e))
+      if (cloneGenRef.current !== gen) return
+      const msg = String(e)
+      if (/клонирование отменено/i.test(msg)) {
+        setCloneDlg(null)
+        setCloneTarget('')
+        return
+      }
+      setCloneErr(msg)
     } finally {
-      setCloneBusy(false)
+      if (cloneGenRef.current === gen) setCloneBusy(false)
     }
   }
 
@@ -9402,8 +9418,8 @@ async function refreshYandexModels(opts?: {applyPreferred?: boolean; notify?: bo
             <p className="nc-confirm-app">{info.name || 'NotCursor.ai'}</p>
             <h2 id="nc-clone-title">Клонировать репозиторий</h2>
             <p className="nc-help">
-              Способ доступа выбирается сам: если SSH настроен и хост отвечает — клонируем по SSH,
-              иначе по HTTPS. Если доступа нет ни там, ни там, покажем, чего не хватает.
+              Для GitHub сначала качаем архив через API (обычно быстрее git-pack), затем SSH и HTTPS.
+              «Отмена» сразу обрывает скачивание. Если доступа нет — покажем, чего не хватает.
             </p>
             <div className="nc-new-project-field">
               <span>Ссылка на репозиторий</span>
@@ -9418,7 +9434,7 @@ async function refreshYandexModels(opts?: {applyPreferred?: boolean; notify?: bo
                   setCloneDlg((prev) => (prev ? {...prev, url: value} : prev))
                 }}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter') void runClone()
+                  if (e.key === 'Enter' && !cloneBusy) void runClone()
                   if (e.key === 'Escape') closeCloneDlg()
                 }}
               />
@@ -9440,8 +9456,8 @@ async function refreshYandexModels(opts?: {applyPreferred?: boolean; notify?: bo
             {cloneTarget ? <p className="nc-new-project-path">Появится папка: {cloneTarget}</p> : null}
             {cloneErr ? <p className="nc-rule-edit-err" style={{whiteSpace: 'pre-line'}}>{cloneErr}</p> : null}
             <div className="nc-close-project-actions">
-              <button type="button" className="nc-ghost" disabled={cloneBusy} onClick={closeCloneDlg}>
-                Отмена
+              <button type="button" className="nc-ghost" onClick={closeCloneDlg}>
+                {cloneBusy ? 'Отменить' : 'Отмена'}
               </button>
               <button
                 type="button"

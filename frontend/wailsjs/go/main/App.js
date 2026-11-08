@@ -86,6 +86,10 @@ export function ClearZaiKey() {
   return window['go']['main']['App']['ClearZaiKey']();
 }
 
+export function CancelClone() {
+  return window['go']['main']['App']['CancelClone']();
+}
+
 export function CloneRepo(arg1, arg2) {
   return window['go']['main']['App']['CloneRepo'](arg1, arg2);
 }

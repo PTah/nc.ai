@@ -73,6 +73,10 @@ type App struct {
 	rulesMu sync.RWMutex
 	cancels map[string]context.CancelFunc
 	runGens map[string]uint64
+	// cloneMu / cloneCancel — активный CloneRepo; CancelClone обрывает git/HTTP.
+	cloneMu        sync.Mutex
+	cloneCancel    context.CancelFunc
+	cloneCancelGen uint64
 	// activeRuns — сессии с идущими прогонами (число = сколько параллельных
 	// дорожек работает в сессии); зеркалится в running.json, чтобы build.sh не
 	// перезапускал клиент посреди работы.
@@ -3605,11 +3609,27 @@ func todoRows(items []tools.Todo) []map[string]any {
 }
 
 // CloneRepo клонирует репозиторий в выбранную папку и сразу открывает его как
-// проект. Способ доступа выбирается сам: SSH, если он настроен и хост отвечает,
-// иначе HTTPS. Если не сработало ни то, ни другое — возвращаем ошибку, в которой
-// перечислены обе попытки.
+// проект. Для GitHub сначала REST zipball, затем SSH/HTTPS. CancelClone обрывает.
 func (a *App) CloneRepo(rawURL, parentDir string) (map[string]any, error) {
-	res, err := a.tools.Git.Clone(context.Background(), rawURL, parentDir)
+	ctx, cancel := context.WithCancel(context.Background())
+	a.cloneMu.Lock()
+	if a.cloneCancel != nil {
+		a.cloneCancel()
+	}
+	a.cloneCancelGen++
+	gen := a.cloneCancelGen
+	a.cloneCancel = cancel
+	a.cloneMu.Unlock()
+	defer func() {
+		cancel()
+		a.cloneMu.Lock()
+		if a.cloneCancelGen == gen {
+			a.cloneCancel = nil
+		}
+		a.cloneMu.Unlock()
+	}()
+
+	res, err := a.tools.Git.Clone(ctx, rawURL, parentDir)
 	if err != nil {
 		return nil, err
 	}
@@ -3626,6 +3646,17 @@ func (a *App) CloneRepo(rawURL, parentDir string) (map[string]any, error) {
 		"method": res.Method,
 		"url":    res.UsedURL,
 	}, nil
+}
+
+// CancelClone обрывает текущий CloneRepo (git clone / скачивание zipball) и
+// чистит недокачанную папку на стороне gitx.
+func (a *App) CancelClone() {
+	a.cloneMu.Lock()
+	cancel := a.cloneCancel
+	a.cloneMu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
 }
 
 // CloneTargetPath — предпросмотр папки, куда ляжет репозиторий (для диалога Clone).

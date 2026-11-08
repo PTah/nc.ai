@@ -2,6 +2,7 @@ package gitx
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -87,10 +88,18 @@ func TestCandidatesOrder(t *testing.T) {
 	if sshFirst[0].kind != "ssh" || sshFirst[1].kind != "https" {
 		t.Fatalf("с рабочим SSH первым должен идти ssh: %+v", sshFirst)
 	}
-	ssh, _ := parseRemote("git@github.com:PTah/nc.ai.git")
+	ssh, _ := parseRemote("git@git.example.com:team/Pentest.git")
 	got := ssh.candidates(false)
 	if got[0].kind != "ssh" || got[1].kind != "https" {
 		t.Fatalf("для ssh-ссылки порядок: %+v", got)
+	}
+	gh, _ := parseRemote("https://github.com/zhu1090093659/dsh-trading")
+	ghc := gh.candidates(false)
+	if len(ghc) != 3 || ghc[0].kind != "api" || ghc[1].kind != "https" || ghc[2].kind != "ssh" {
+		t.Fatalf("GitHub: API первым, затем https, ssh: %+v", ghc)
+	}
+	if ghc[0].url != "https://api.github.com/repos/zhu1090093659/dsh-trading/zipball" {
+		t.Fatalf("zipball url=%q", ghc[0].url)
 	}
 	local, _ := parseRemote("file:///D:/repos/origin")
 	if got := local.candidates(true); len(got) != 1 || got[0].kind != "other" {
@@ -174,5 +183,25 @@ func TestCloneFailureText(t *testing.T) {
 		if !strings.Contains(text, want) {
 			t.Errorf("в тексте ошибки нет %q:\n%s", want, text)
 		}
+	}
+}
+
+// Отмена до старта: ErrCloneCanceled и никаких хвостов в целевой папке.
+func TestCloneCanceledContext(t *testing.T) {
+	base := t.TempDir()
+	origin := filepath.Join(base, "origin")
+	if err := os.MkdirAll(origin, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	gitRun(t, origin, "init", "-q", "-b", "master")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	parent := filepath.Join(base, "work")
+	_, err := New(nil).Clone(ctx, origin, parent)
+	if !errors.Is(err, ErrCloneCanceled) {
+		t.Fatalf("ожидали ErrCloneCanceled, получили %v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(parent, "origin")); statErr == nil {
+		t.Fatal("после отмены папка клона должна быть удалена")
 	}
 }
