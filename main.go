@@ -5,10 +5,14 @@ package main
 import (
 	"embed"
 	"os"
+	stdruntime "runtime"
+	"strings"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+	"github.com/wailsapp/wails/v2/pkg/options/windows"
+	"github.com/wailsapp/wails/v2/pkg/runtime"
 
 	"notcursor.ai/app/internal/update"
 )
@@ -29,6 +33,7 @@ func main() {
 	if update.ApplyUpdate(os.Args[1:]) {
 		return
 	}
+	hardenWebView2Occlusion()
 	app := NewApp()
 	_ = app.cfg.Load()
 	s := app.cfg.Get()
@@ -70,6 +75,16 @@ func main() {
 		OnDomReady:    app.domReady,
 		OnShutdown:    app.shutdown,
 		OnBeforeClose: app.beforeClose,
+		Windows: &windows.Options{
+			// После сна Windows WebView2 часто поднимает пустую поверхность:
+			// мягко перезагружаем только фронт, Go-процесс и черновики остаются.
+			OnResume: func() {
+				if app.ctx == nil {
+					return
+				}
+				runtime.WindowReloadApp(app.ctx)
+			},
+		},
 		Bind: []interface{}{
 			app,
 		},
@@ -77,6 +92,25 @@ func main() {
 	if err != nil {
 		println("Error:", err.Error())
 	}
+}
+
+// hardenWebView2Occlusion снижает шанс «белого окна» после долгого minimize:
+// WebView2 иначе считает окно occluded и подвешивает GPU/render.
+func hardenWebView2Occlusion() {
+	if stdruntime.GOOS != "windows" {
+		return
+	}
+	const key = "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"
+	const flag = "--disable-features=CalculateNativeWinOcclusion"
+	cur := strings.TrimSpace(os.Getenv(key))
+	if cur == "" {
+		_ = os.Setenv(key, flag)
+		return
+	}
+	if strings.Contains(cur, "CalculateNativeWinOcclusion") {
+		return
+	}
+	_ = os.Setenv(key, cur+" "+flag)
 }
 
 func startState(maximised bool) options.WindowStartState {

@@ -35,7 +35,7 @@ import "time"
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "1.1.14"
+	Version = "1.1.15"
 )
 
 // DeepSeekProRetireRFC3339 is the announced V4 Pro retirement instant, empty
@@ -81,7 +81,7 @@ func retiredAt(at time.Time, now time.Time) bool {
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
-	"Исправлено: в workspace из нескольких папок прогон больше не срывается на «сигнал не дошёл» пока идёт индекс",
+	"Исправлено: после долгого простоя окно больше не остаётся белым пятном — UI мягко перерисовывается",
 	"Workspace из нескольких папок: Menu → New workspace… — название и 2–4 папки в одном чате, как в Cursor",
 	"Папки можно бросить в окно; агент видит все сразу (пути api/main.go), git и терминал — по имени папки",
 	"Рабочее пространство из нескольких папок и запросы, идущие параллельно, работают как раньше",
@@ -89,7 +89,7 @@ var HighlightsRU = []string{
 }
 
 var HighlightsEN = []string{
-	"Fixed: multi-folder workspaces no longer abort with “completion signal lost” while the index is still building",
+	"Fixed: after long idle the window no longer stays a blank white surface — the UI soft-recovers",
 	"Multi-folder workspace: Menu → New workspace… — a name and 2–4 folders in one chat, like Cursor",
 	"Drop folders into the window; the agent sees them all (paths like api/main.go); git and terminal take a folder name",
 	"Requests in parallel chats and the multi-folder workspace keep working as before",

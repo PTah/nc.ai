@@ -2,6 +2,9 @@ import React, {Component, ReactNode} from 'react'
 import {createRoot} from 'react-dom/client'
 import './style.css'
 import App from './App'
+import {installWebviewRecover} from './webviewRecover'
+
+installWebviewRecover()
 
 class ErrorBoundary extends Component<{children: ReactNode}, {error: Error | null}> {
   state = {error: null as Error | null}
