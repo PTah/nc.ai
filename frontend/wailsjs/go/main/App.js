@@ -250,6 +250,10 @@ export function ListZaiModels() {
   return window['go']['main']['App']['ListZaiModels']();
 }
 
+export function LoadArchivedChat(arg1) {
+  return window['go']['main']['App']['LoadArchivedChat'](arg1);
+}
+
 export function LoadChat(arg1) {
   return window['go']['main']['App']['LoadChat'](arg1);
 }

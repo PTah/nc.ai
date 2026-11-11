@@ -1,5 +1,6 @@
 // Edited by nc.ai 0.9.4 on new-admin-pc 2026-10-30 09:20:13
 // Edited by nc.ai 1.1.8 on macbook 2026-11-08 20:53:08
+// Edited by nc.ai 1.1.15 on new-admin-pc 2026-11-11 10:48:43
 package chatstore
 
 import (
@@ -9,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -211,17 +213,37 @@ func (s *Store) ListArchived() ([]ArchivedChat, error) {
 		if !ok {
 			continue
 		}
+		// Список архивов нужен только для отрисовки метаданных. Полный транскрипт
+		// и история модели у каждого чата могут весить мегабайты: если тащить их
+		// все разом, фронт надолго блокируется на JSON.parse (именно из-за этого
+		// приложение «замирало» после архивации чата). Контент грузится отдельно —
+		// см. LoadArchived.
+		chat.ItemsJSON = ""
+		chat.History = nil
 		out = append(out, chat)
 	}
 	// Newest first.
-	for i := 0; i < len(out); i++ {
-		for j := i + 1; j < len(out); j++ {
-			if out[j].ArchivedAt.After(out[i].ArchivedAt) {
-				out[i], out[j] = out[j], out[i]
-			}
-		}
-	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ArchivedAt.After(out[j].ArchivedAt) })
 	return out, nil
+}
+
+// LoadArchived returns one archived chat (with full transcript and history) by
+// its file name. fileName must be a plain file name inside chat_archive.
+func (s *Store) LoadArchived(fileName string) (*ArchivedChat, error) {
+	if filepath.Base(fileName) != fileName || strings.ContainsAny(fileName, `/\`) {
+		return nil, fmt.Errorf("invalid archive file name")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	data, err := os.ReadFile(filepath.Join(s.archiveDir(), fileName))
+	if err != nil {
+		return nil, err
+	}
+	chat, ok := parseArchivedFile(data, fileName)
+	if !ok {
+		return nil, fmt.Errorf("cannot parse archived chat")
+	}
+	return &chat, nil
 }
 
 func parseArchivedFile(data []byte, fileName string) (ArchivedChat, bool) {

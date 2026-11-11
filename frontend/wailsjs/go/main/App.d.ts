@@ -139,6 +139,8 @@ export function ListYandexModels():Promise<main.ModelCatalog>;
 
 export function ListZaiModels():Promise<main.ModelCatalog>;
 
+export function LoadArchivedChat(arg1:string):Promise<chatstore.ArchivedChat>;
+
 export function LoadChat(arg1:string):Promise<string>;
 
 export function LoadChatTranscript(arg1:string):Promise<main.ChatTranscript>;

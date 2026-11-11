@@ -7,6 +7,7 @@
 // Edited by nc.ai 1.0.0 on Papasha 2026-10-31 10:38:44
 // Edited by nc.ai 1.0.6 on new-admin-pc 2026-11-02 10:31:10
 // Edited by nc.ai 1.1.10 on macbook 2026-11-08 21:13:24
+// Edited by nc.ai 1.1.15 on new-admin-pc 2026-11-11 10:48:51
 package main
 
 import (
@@ -4209,6 +4210,15 @@ func (a *App) ListArchivedChats() ([]chatstore.ArchivedChat, error) {
 		return nil, nil
 	}
 	return a.chats.ListArchived()
+}
+
+// LoadArchivedChat returns one archived chat with its full transcript and
+// history. The list only carries metadata to keep the UI responsive.
+func (a *App) LoadArchivedChat(fileName string) (*chatstore.ArchivedChat, error) {
+	if a.chats == nil {
+		return nil, fmt.Errorf("chat store unavailable")
+	}
+	return a.chats.LoadArchived(fileName)
 }
 
 // AppDataDir returns the app data root (Windows: %AppData%\Roaming\NotCursor).

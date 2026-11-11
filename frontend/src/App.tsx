@@ -19,6 +19,7 @@
 // Edited by nc.ai 1.0.3 on Papasha 2026-11-01 12:09:40
 // Edited by nc.ai 1.0.6 on new-admin-pc 2026-11-02 10:32:15
 // Edited by nc.ai 1.1.3 on macbook 2026-11-08 18:53:16
+// Edited by nc.ai 1.1.15 on new-admin-pc 2026-11-11 10:49:01
 import {FormEvent, MouseEvent as ReactMouseEvent, useCallback, useEffect, useMemo, useRef, useState} from 'react'
 import {Terminal} from '@xterm/xterm'
 import {FitAddon} from '@xterm/addon-fit'
@@ -59,6 +60,7 @@ import {
   GetUsageStats,
   GetWelcome,
   ListArchivedChats,
+  LoadArchivedChat,
   ListChatSessions,
   ListDir,
   ListModelPrices,
@@ -305,6 +307,7 @@ type RuleStatus = {
 
 type ArchiveChat = {
   id: string
+  fileName: string
   projectName: string
   title: string
   archivedAt: string
@@ -329,22 +332,25 @@ function formatArchiveAt(raw: unknown): string {
   return fmtDateTime(raw)
 }
 
-function mapArchivedFromGo(raw: unknown): ArchiveChat | null {
+function mapArchivedFromGo(raw: unknown, withItems = false): ArchiveChat | null {
   if (!raw || typeof raw !== 'object') return null
   const r = raw as Record<string, unknown>
   const id = String(r.id || r.fileName || '')
   if (!id) return null
   let items: ChatItem[] = []
-  const itemsJson = String(r.itemsJson || '[]')
-  try {
-    const parsed = JSON.parse(itemsJson || '[]')
-    if (Array.isArray(parsed)) items = parsed as ChatItem[]
-  } catch {
-    items = []
+  if (withItems) {
+    const itemsJson = String(r.itemsJson || '[]')
+    try {
+      const parsed = JSON.parse(itemsJson || '[]')
+      if (Array.isArray(parsed)) items = parsed as ChatItem[]
+    } catch {
+      items = []
+    }
   }
   const messageCount = Number(r.messageCount) || items.length
   return {
     id,
+    fileName: String(r.fileName || ''),
     projectName: String(r.projectName || '(unknown)'),
     title: String(r.title || 'Chat'),
     archivedAt: formatArchiveAt(r.archivedAt),
@@ -4212,7 +4218,7 @@ export default function App() {
   async function refreshArchives() {
     try {
       const rows = await ListArchivedChats()
-      const mapped = asList(rows).map(mapArchivedFromGo).filter((c): c is ArchiveChat => c != null)
+      const mapped = asList(rows).map((r) => mapArchivedFromGo(r)).filter((c): c is ArchiveChat => c != null)
       setArchives(mapped)
       return mapped
     } catch {
@@ -4782,6 +4788,21 @@ export default function App() {
     setArchiveProjectFilter('')
     setShowArchives(true)
     void refreshArchives()
+  }
+
+  async function openArchivedChat(c: ArchiveChat) {
+    if (!c.fileName) {
+      setArchiveView(c)
+      return
+    }
+    try {
+      const raw = await LoadArchivedChat(c.fileName)
+      const full = mapArchivedFromGo(raw, true)
+      if (full) setArchiveView(full)
+    } catch {
+      // Метаданные уже на экране — показываем их, если полный чат не загрузился.
+      setArchiveView(c)
+    }
   }
 
   function toggleShowFiles() {
@@ -9889,7 +9910,7 @@ async function refreshYandexModels(opts?: {applyPreferred?: boolean; notify?: bo
                           key={c.id}
                           type="button"
                           className="nc-archives-chat"
-                          onClick={() => setArchiveView(c)}
+                          onClick={() => void openArchivedChat(c)}
                         >
                           <span className="nc-archives-chat-title">{c.title}</span>
                           <span className="nc-archives-chat-meta">
