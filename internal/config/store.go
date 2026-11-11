@@ -1,5 +1,6 @@
 // Edited by nc.ai 0.8.5.2 on macbook 2026-10-12 20:40:10
 // Edited by nc.ai 0.8.9.0 on new-admin-pc 2026-10-19 16:20:35
+// Edited by nc.ai 1.1.15 on macbook 2026-11-11 21:30:05
 package config
 
 import (
@@ -32,14 +33,21 @@ const (
 
 // MCPServerSettings is one MCP server card in Settings (no secrets in JSON).
 type MCPServerSettings struct {
-	ID           string            `json:"id"`
-	Label        string            `json:"label,omitempty"`
-	Enabled      bool              `json:"enabled"`
-	Transport    string            `json:"transport,omitempty"`
-	Command      string            `json:"command,omitempty"`
-	Args         []string          `json:"args,omitempty"`
-	Env          map[string]string `json:"env,omitempty"`
-	CWD          string            `json:"cwd,omitempty"`
+	ID        string            `json:"id"`
+	Label     string            `json:"label,omitempty"`
+	Enabled   bool              `json:"enabled"`
+	Transport string            `json:"transport,omitempty"`
+	Command   string            `json:"command,omitempty"`
+	Args      []string          `json:"args,omitempty"`
+	Env       map[string]string `json:"env,omitempty"`
+	CWD       string            `json:"cwd,omitempty"`
+	// URL — адрес hosted-сервера (transport=http). Токены сюда не пишем:
+	// авторизация — отдельным хранилищем секретов.
+	URL string `json:"url,omitempty"`
+	// Headers — статические заголовки запроса, кроме Authorization
+	// (его подставляет UI из хранилища секретов).
+	Headers      map[string]string `json:"headers,omitempty"`
+	AllowPrivate bool              `json:"allowPrivate,omitempty"`
 	TimeoutSec   int               `json:"timeoutSec,omitempty"`
 	EnabledTools []string          `json:"enabledTools,omitempty"`
 }
@@ -130,6 +138,11 @@ const updateMirrorSecretID = "update-mirror-token"
 type Settings struct {
 	// ActiveProvider selects which LLM backend is used ("deepseek" | "zai" | "openrouter" | "local").
 	ActiveProvider string `json:"activeProvider,omitempty"`
+
+	// FallbackProvider/FallbackModel — второй провайдер на случай, когда основной
+	// упёрся в длинный лимит (429) или перегружен. Пусто = фолбэка нет.
+	FallbackProvider string `json:"fallbackProvider,omitempty"`
+	FallbackModel    string `json:"fallbackModel,omitempty"`
 
 	DeepSeekAPIKey string `json:"deepseekApiKey"`
 	DeepSeekModel  string `json:"deepseekModel"`
@@ -798,6 +811,36 @@ func (s *Store) SetActiveProvider(provider string) error {
 // ActiveAPIKey returns the API key for the active provider.
 func (s *Store) ActiveAPIKey() string {
 	return s.APIKey(s.Provider())
+}
+
+// FallbackProvider — провайдер на случай длинного лимита у основного ("" = нет).
+func (s *Store) FallbackProvider() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return strings.TrimSpace(s.settings.FallbackProvider)
+}
+
+// FallbackModel — модель фолбэк-провайдера ("" = его модель по умолчанию).
+func (s *Store) FallbackModel() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return strings.TrimSpace(s.settings.FallbackModel)
+}
+
+// SetFallbackProvider сохраняет фолбэк-провайдера; пусто — выключает фолбэк.
+func (s *Store) SetFallbackProvider(provider string) error {
+	s.mu.Lock()
+	s.settings.FallbackProvider = strings.TrimSpace(provider)
+	s.mu.Unlock()
+	return s.Save()
+}
+
+// SetFallbackModel сохраняет модель фолбэка (пусто — модель провайдера по умолчанию).
+func (s *Store) SetFallbackModel(model string) error {
+	s.mu.Lock()
+	s.settings.FallbackModel = strings.TrimSpace(model)
+	s.mu.Unlock()
+	return s.Save()
 }
 
 func (s *Store) APIKey(provider string) string {
@@ -1846,6 +1889,51 @@ func (s *Store) SetUpdateMirrorToken(token string) error {
 		err = s.sec.Set(updateMirrorSecretID, token)
 		if err == nil {
 			s.keys[updateMirrorSecretID] = token
+		}
+	}
+	s.mu.Unlock()
+	return err
+}
+
+// mcpOAuthSecretPrefix — ключ секрета на каждый MCP-сервер с OAuth:
+// "mcp.oauth.<id>". Значение — JSON с access/refresh токенами.
+const mcpOAuthSecretPrefix = "mcp.oauth."
+
+// MCPOAuthSecret возвращает сохранённый JSON OAuth-токенов сервера (пусто — нет).
+func (s *Store) MCPOAuthSecret(serverID string) string {
+	key := mcpOAuthSecretPrefix + serverID
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if v, ok := s.keys[key]; ok {
+		return v
+	}
+	if err := s.ensureSecretsLocked(); err != nil {
+		return ""
+	}
+	v, err := s.sec.Get(key)
+	if err != nil {
+		return ""
+	}
+	s.keys[key] = v
+	return v
+}
+
+// SetMCPOAuthSecret сохраняет JSON OAuth-токенов сервера (пусто — удалить).
+func (s *Store) SetMCPOAuthSecret(serverID, value string) error {
+	key := mcpOAuthSecretPrefix + serverID
+	s.mu.Lock()
+	if err := s.ensureSecretsLocked(); err != nil {
+		s.mu.Unlock()
+		return err
+	}
+	var err error
+	if value == "" {
+		err = s.sec.Delete(key)
+		delete(s.keys, key)
+	} else {
+		err = s.sec.Set(key, value)
+		if err == nil {
+			s.keys[key] = value
 		}
 	}
 	s.mu.Unlock()

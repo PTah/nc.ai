@@ -20,6 +20,7 @@
 // Edited by nc.ai 1.0.6 on new-admin-pc 2026-11-02 10:32:15
 // Edited by nc.ai 1.1.3 on macbook 2026-11-08 18:53:16
 // Edited by nc.ai 1.1.15 on new-admin-pc 2026-11-11 10:49:01
+// Edited by nc.ai 1.1.15 on macbook 2026-11-11 21:30:10
 import {FormEvent, MouseEvent as ReactMouseEvent, useCallback, useEffect, useMemo, useRef, useState} from 'react'
 import {Terminal} from '@xterm/xterm'
 import {FitAddon} from '@xterm/addon-fit'
@@ -133,6 +134,8 @@ import {
   SaveSubagentsAllowWrite,
   SaveSubagentsMaxPerRun,
   SaveMCPServers,
+  StartMCPLogin,
+  MCPLogoutOAuth,
   MCPStatuses,
   MCPPresets,
   ApplyMCPPreset,
@@ -2344,6 +2347,10 @@ export default function App() {
   const [subagentsAllowWrite, setSubagentsAllowWrite] = useState(false)
   const [subagentsMaxPerRun, setSubagentsMaxPerRun] = useState(3)
   const [mcpServers, setMcpServers] = useState<Array<Record<string, any>>>([])
+  // Адрес для добавления hosted-сервера (transport=http) в Settings → MCP.
+  const [mcpNewUrl, setMcpNewUrl] = useState('')
+  // Итог OAuth-входа: id сервера → сообщение (ошибка или «подключено»).
+  const [mcpAuthMsg, setMcpAuthMsg] = useState<Record<string, string>>({})
   const [mcpStatuses, setMcpStatuses] = useState<Array<Record<string, any>>>([])
   const [mcpPresets, setMcpPresets] = useState<Array<Record<string, any>>>([])
   // ✓ у пресета: сервер установлен и реально работает (state=running), иначе ↓.
@@ -8586,6 +8593,39 @@ async function refreshYandexModels(opts?: {applyPreferred?: boolean; notify?: bo
                 </button>
               ))}
             </div>
+            <div className="nc-mcp-add" style={{display: 'flex', gap: 6, margin: '0.4rem 0'}}>
+              <input
+                value={mcpNewUrl}
+                onChange={(e) => setMcpNewUrl(e.target.value)}
+                placeholder="https://api.example.com/mcp"
+                style={{flex: 1}}
+              />
+              <button
+                type="button"
+                disabled={!mcpNewUrl.trim()}
+                onClick={() => {
+                  const url = mcpNewUrl.trim()
+                  let host = ''
+                  try { host = new URL(url).host } catch { host = '' }
+                  const id = (host || 'remote').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'remote'
+                  const next = [...mcpServers, {
+                    id, label: host || 'URL-сервер', enabled: true, transport: 'http',
+                    url, timeoutSec: 120, enabledTools: [],
+                  }]
+                  setMcpServers(next)
+                  setMcpNewUrl('')
+                  void SaveMCPServers(next as any)
+                    .then(() => MCPStatuses().then((v) => setMcpStatuses(asList(v))).catch(() => undefined))
+                    .catch(() => undefined)
+                }}
+              >
+                Добавить URL-сервер
+              </button>
+            </div>
+            <p className="nc-help" style={{marginTop: 0}}>
+              URL-сервер — hosted MCP (Streamable HTTP). Только https, кроме localhost; токен
+              авторизации пока задаётся вручную в настройках сервера. Интерактивный вход (OAuth) — следующий шаг.
+            </p>
             {mcpServers.length === 0 ? (
               <p className="nc-help">Серверов пока нет — добавьте пресет выше.</p>
             ) : (
@@ -8611,8 +8651,45 @@ async function refreshYandexModels(opts?: {applyPreferred?: boolean; notify?: bo
                         {st.error ? ` · ${st.error}` : ''}
                       </span>
                     </label>
+                    {String(srv.transport || '') === 'http' && (
+                      <div style={{display: 'flex', gap: 6, alignItems: 'center', margin: '0.3rem 0'}}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const id = String(srv.id)
+                            setMcpAuthMsg((m) => ({ ...m, [id]: 'открываю браузер…' }))
+                            void StartMCPLogin(id)
+                              .then((res) => {
+                                setMcpAuthMsg((m) => ({ ...m, [id]: res }))
+                                return MCPStatuses().then((v) => setMcpStatuses(asList(v))).catch(() => undefined)
+                              })
+                              .catch((e) => setMcpAuthMsg((m) => ({ ...m, [id]: String(e?.message || e) })))
+                          }}
+                        >
+                          Войти
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const id = String(srv.id)
+                            void MCPLogoutOAuth(id)
+                              .then(() => setMcpAuthMsg((m) => ({ ...m, [id]: 'вышли из сервера' })))
+                              .catch((e) => setMcpAuthMsg((m) => ({ ...m, [id]: String(e?.message || e) })))
+                          }}
+                        >
+                          Выйти
+                        </button>
+                        {mcpAuthMsg[String(srv.id)] ? (
+                          <span className="nc-help" style={{margin: 0}}>{mcpAuthMsg[String(srv.id)]}</span>
+                        ) : null}
+                      </div>
+                    )}
                     <p className="nc-help" style={{margin: '0.2rem 0'}}>
-                      <code>{String(srv.command || '')} {(srv.args as string[] | undefined)?.join(' ') || ''}</code>
+                      {String(srv.transport || '') === 'http' ? (
+                        <code>{String(srv.url || '')}</code>
+                      ) : (
+                        <code>{String(srv.command || '')} {(srv.args as string[] | undefined)?.join(' ') || ''}</code>
+                      )}
                     </p>
                     {tools.length > 0 ? (
                       <div className="nc-mcp-tools">

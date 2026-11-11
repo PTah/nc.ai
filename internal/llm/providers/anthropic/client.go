@@ -1,3 +1,4 @@
+// Edited by nc.ai 1.1.15 on macbook 2026-11-11 21:45:09
 package anthropic
 
 import (
@@ -181,7 +182,7 @@ func mapAPIError(status int, body []byte, h http.Header) error {
 				detail += " (" + q + ")"
 			}
 		}
-		return &llm.RateLimitError{Provider: "Anthropic", Detail: detail, Wait: llm.RetryAfter(h)}
+		return llm.NewRateLimitError("Anthropic", h, body)
 	case 500, 502, 503, 504, 529:
 		return fmt.Errorf("Anthropic временно недоступен (%d): %s", status, msg)
 	}

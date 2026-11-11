@@ -266,6 +266,14 @@ export function LocalBuildHash() {
   return window['go']['main']['App']['LocalBuildHash']();
 }
 
+export function MCPAuthStatus(arg1) {
+  return window['go']['main']['App']['MCPAuthStatus'](arg1);
+}
+
+export function MCPLogoutOAuth(arg1) {
+  return window['go']['main']['App']['MCPLogoutOAuth'](arg1);
+}
+
 export function MCPPresets() {
   return window['go']['main']['App']['MCPPresets']();
 }
@@ -474,6 +482,14 @@ export function SaveEndSound(arg1) {
   return window['go']['main']['App']['SaveEndSound'](arg1);
 }
 
+export function SaveFallbackModel(arg1) {
+  return window['go']['main']['App']['SaveFallbackModel'](arg1);
+}
+
+export function SaveFallbackProvider(arg1) {
+  return window['go']['main']['App']['SaveFallbackProvider'](arg1);
+}
+
 export function SaveGitAuth(arg1, arg2) {
   return window['go']['main']['App']['SaveGitAuth'](arg1, arg2);
 }
@@ -652,6 +668,10 @@ export function SetSessionModel(arg1, arg2) {
 
 export function SetSessionProvider(arg1, arg2) {
   return window['go']['main']['App']['SetSessionProvider'](arg1, arg2);
+}
+
+export function StartMCPLogin(arg1) {
+  return window['go']['main']['App']['StartMCPLogin'](arg1);
 }
 
 export function StartMCPServer(arg1) {

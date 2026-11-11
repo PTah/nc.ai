@@ -50,7 +50,7 @@ func TestFilterCodingModels(t *testing.T) {
 }
 
 func TestMapAPIError402(t *testing.T) {
-	err := mapAPIError(402, []byte(`{"error":{"message":"Insufficient credits"}}`))
+	err := mapAPIError(402, []byte(`{"error":{"message":"Insufficient credits"}}`), nil)
 	if err == nil || !strings.Contains(err.Error(), "кредитов") {
 		t.Fatalf("got %v", err)
 	}

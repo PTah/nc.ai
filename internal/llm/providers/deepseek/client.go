@@ -150,7 +150,7 @@ func (c *Client) chat(ctx context.Context, req *llm.ChatRequest, stream bool, on
 				if llm.StreamUnsupported(status.Status) {
 					return c.ChatCompletion(ctx, req)
 				}
-				return nil, mapAPIError(status.Status, status.Body)
+				return nil, mapAPIError(status.Status, status.Body, status.Header)
 			}
 			return nil, err
 		}
@@ -170,7 +170,7 @@ func (c *Client) chat(ctx context.Context, req *llm.ChatRequest, stream bool, on
 		return nil, err
 	}
 	if res.StatusCode >= 300 {
-		return nil, mapAPIError(res.StatusCode, data)
+		return nil, mapAPIError(res.StatusCode, data, res.Header)
 	}
 	var out llm.ChatResponse
 	if err := json.Unmarshal(data, &out); err != nil {
@@ -203,7 +203,7 @@ type apiErrorBody struct {
 }
 
 // mapAPIError turns DeepSeek JSON error payloads into short user-facing messages.
-func mapAPIError(status int, body []byte) error {
+func mapAPIError(status int, body []byte, h http.Header) error {
 	var payload apiErrorBody
 	_ = json.Unmarshal(body, &payload)
 	msg := strings.TrimSpace(payload.Error.Message)
@@ -218,7 +218,7 @@ func mapAPIError(status int, body []byte) error {
 		}
 		return fmt.Errorf("DeepSeek: доступ запрещён (403).")
 	case 429:
-		return fmt.Errorf("Превышен лимит запросов DeepSeek, попробуйте позднее…")
+		return llm.NewRateLimitError("DeepSeek", h, body)
 	case 500, 502, 503:
 		return fmt.Errorf("DeepSeek временно недоступен (%d), попробуйте позднее…", status)
 	}
@@ -271,7 +271,7 @@ func (c *Client) ListModels(ctx context.Context) ([]ModelInfo, error) {
 		return nil, err
 	}
 	if res.StatusCode >= 300 {
-		return nil, mapAPIError(res.StatusCode, data)
+		return nil, mapAPIError(res.StatusCode, data, res.Header)
 	}
 	var out modelsListResponse
 	if err := json.Unmarshal(data, &out); err != nil {

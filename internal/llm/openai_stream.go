@@ -1,3 +1,4 @@
+// Edited by nc.ai 1.1.15 on macbook 2026-11-11 21:28:24
 package llm
 
 import (
@@ -142,6 +143,11 @@ func consumeOpenAISSE(r io.Reader, onDelta func(StreamDelta), idle time.Duration
 		reasoning         strings.Builder
 		tools             = map[int]*toolCallAcc{}
 		usage             *Usage
+		// started/lastLine/lineCount нужны только для диагностики обрыва: по ним
+		// видно, сколько секунд поток молчал перед ошибкой чтения.
+		started   = time.Now()
+		lastLine  time.Time
+		lineCount int
 	)
 
 	idleTimer := time.NewTimer(idle)
@@ -153,11 +159,20 @@ func consumeOpenAISSE(r io.Reader, onDelta func(StreamDelta), idle time.Duration
 		case l, ok := <-lines:
 			if !ok {
 				if err := <-errs; err != nil {
-					return nil, fmt.Errorf("stream read: %w", err)
+					// Сколько молчали до обрыва: если поток уже отдавал данные,
+					// считаем от последней строки, иначе от старта запроса.
+					silence := time.Since(started)
+					if !lastLine.IsZero() {
+						silence = time.Since(lastLine)
+					}
+					return nil, fmt.Errorf("stream read: обрыв после %s тишины (строк получено: %d): %w",
+						humanShortDuration(silence), lineCount, err)
 				}
 				return finishOpenAIStream(id, model, finish, &content, &reasoning, tools, usage), nil
 			}
 			line = l
+			lastLine = time.Now()
+			lineCount++
 			if idle > 0 {
 				idleTimer.Reset(idle)
 			}

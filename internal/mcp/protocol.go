@@ -1,4 +1,5 @@
 // Edited by nc.ai 0.8.5.4 on new-admin-pc 2026-10-13 10:27:58
+// Edited by nc.ai 1.1.15 on macbook 2026-11-11 21:27:31
 // Package mcp implements a minimal Model Context Protocol client (stdio MVP).
 package mcp
 
@@ -15,12 +16,21 @@ type ServerConfig struct {
 	ID        string            `json:"id"`
 	Label     string            `json:"label,omitempty"`
 	Enabled   bool              `json:"enabled"`
-	Transport string            `json:"transport,omitempty"` // stdio | http (MVP: stdio)
+	Transport string            `json:"transport,omitempty"` // stdio | http
 	Command   string            `json:"command,omitempty"`
 	Args      []string          `json:"args,omitempty"`
 	Env       map[string]string `json:"env,omitempty"`
 	CWD       string            `json:"cwd,omitempty"`
-	TimeoutSec int              `json:"timeoutSec,omitempty"`
+	// URL — эндпоинт hosted-сервера для transport=http (например
+	// https://api.suno.com/mcp). Только https, кроме localhost.
+	URL string `json:"url,omitempty"`
+	// Headers — статические заголовки запроса (Authorization: Bearer …).
+	// Токен хранится в settings.json не должен: значения подставляет UI.
+	Headers map[string]string `json:"headers,omitempty"`
+	// AllowPrivate разрешает http и адреса из RFC1918 (домашний Gitea,
+	// локальный шлюз). По умолчанию выключено — защита от SSRF.
+	AllowPrivate bool `json:"allowPrivate,omitempty"`
+	TimeoutSec   int  `json:"timeoutSec,omitempty"`
 	// EnabledTools — allowlist of local tool names (without the mcp__ prefix).
 	// Empty = none exposed to the model (safe default).
 	EnabledTools []string `json:"enabledTools,omitempty"`
@@ -38,9 +48,15 @@ func (c *ServerConfig) Normalize() {
 	}
 	c.Transport = strings.ToLower(strings.TrimSpace(c.Transport))
 	if c.Transport == "" {
-		c.Transport = "stdio"
+		// Адрес без команды — это hosted-сервер; иначе локальный процесс.
+		if strings.TrimSpace(c.URL) != "" && strings.TrimSpace(c.Command) == "" {
+			c.Transport = "http"
+		} else {
+			c.Transport = "stdio"
+		}
 	}
 	c.Command = strings.TrimSpace(c.Command)
+	c.URL = strings.TrimSpace(c.URL)
 	if c.TimeoutSec <= 0 {
 		c.TimeoutSec = 60
 	}

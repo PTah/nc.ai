@@ -8,6 +8,7 @@
 // Edited by nc.ai 1.0.6 on new-admin-pc 2026-11-02 10:31:10
 // Edited by nc.ai 1.1.10 on macbook 2026-11-08 21:13:24
 // Edited by nc.ai 1.1.15 on new-admin-pc 2026-11-11 10:48:51
+// Edited by nc.ai 1.1.15 on macbook 2026-11-11 21:30:05
 package main
 
 import (
@@ -222,6 +223,7 @@ func (a *App) startup(ctx context.Context) {
 	a.tools.Chats = a.chats
 	a.tools.Shell = shell.ResolveShell(a.cfg.Get().Shell)
 	a.mcp = mcp.NewManager()
+	a.mcp.SetCredentialSource(mcpCredentialSource{cfg: a.cfg})
 	a.mcp.OnEvent = func(msg string) { a.logAgentLine("mcp " + msg) }
 	a.syncMCPFromConfig()
 	// Включённые MCP-серверы поднимаем сразу, а не на первом прогоне: к первому
@@ -906,6 +908,7 @@ func (a *App) syncMCPFromConfig() {
 		cfgs = append(cfgs, mcp.ServerConfig{
 			ID: s.ID, Label: s.Label, Enabled: s.Enabled, Transport: s.Transport,
 			Command: s.Command, Args: s.Args, Env: s.Env, CWD: s.CWD,
+			URL: s.URL, Headers: s.Headers, AllowPrivate: s.AllowPrivate,
 			TimeoutSec: s.TimeoutSec, EnabledTools: s.EnabledTools,
 		})
 	}
@@ -917,8 +920,95 @@ func cfgMCPFromMCP(c mcp.ServerConfig) config.MCPServerSettings {
 	return config.MCPServerSettings{
 		ID: c.ID, Label: c.Label, Enabled: c.Enabled, Transport: c.Transport,
 		Command: c.Command, Args: c.Args, Env: c.Env, CWD: c.CWD,
+		URL: c.URL, Headers: c.Headers, AllowPrivate: c.AllowPrivate,
 		TimeoutSec: c.TimeoutSec, EnabledTools: c.EnabledTools,
 	}
+}
+
+// mcpCredentialSource — адаптер хранилища секретов (keychain / Credential
+// Manager) для OAuth-токенов MCP. В settings.json токены не попадают.
+type mcpCredentialSource struct{ cfg *config.Store }
+
+func (s mcpCredentialSource) LoadMCPOAuth(id string) (mcp.Credentials, bool) {
+	raw := strings.TrimSpace(s.cfg.MCPOAuthSecret(id))
+	if raw == "" {
+		return mcp.Credentials{}, false
+	}
+	var c mcp.Credentials
+	if err := json.Unmarshal([]byte(raw), &c); err != nil || c.AccessToken == "" {
+		return mcp.Credentials{}, false
+	}
+	return c, true
+}
+
+func (s mcpCredentialSource) SaveMCPOAuth(id string, c mcp.Credentials) error {
+	raw, err := json.Marshal(c)
+	if err != nil {
+		return err
+	}
+	return s.cfg.SetMCPOAuthSecret(id, string(raw))
+}
+
+func (s mcpCredentialSource) ClearMCPOAuth(id string) error {
+	return s.cfg.SetMCPOAuthSecret(id, "")
+}
+
+// StartMCPLogin проводит OAuth-вход для hosted MCP-сервера: открывает браузер,
+// ждёт редирект на локальный порт, сохраняет токен в секреты и перезапускает
+// сервер. Возвращает человекочитаемый статус для UI.
+func (a *App) StartMCPLogin(serverID string) (string, error) {
+	cfg, ok := a.mcpConfig(serverID)
+	if !ok {
+		return "", fmt.Errorf("MCP-сервер %q не найден", serverID)
+	}
+	if strings.EqualFold(cfg.Transport, "stdio") {
+		return "", fmt.Errorf("MCP-сервер %q локальный (stdio) — вход по OAuth ему не нужен", serverID)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
+	defer cancel()
+	if _, err := mcp.AuthorizeServer(ctx, cfg, mcpCredentialSource{cfg: a.cfg}, mcp.AuthOptions{
+		OpenURL: func(u string) error {
+			if a.ctx == nil {
+				return fmt.Errorf("окно приложения ещё не готово")
+			}
+			runtime.BrowserOpenURL(a.ctx, u)
+			return nil
+		},
+	}); err != nil {
+		a.logAgentLine("mcp oauth: " + err.Error())
+		return "", err
+	}
+	restartCtx, cancelStart := context.WithTimeout(context.Background(), 40*time.Second)
+	defer cancelStart()
+	if _, err := a.mcp.Start(restartCtx, serverID); err != nil {
+		return "токен сохранён, но сервер не поднялся", nil
+	}
+	return "подключено", nil
+}
+
+// MCPAuthStatus сообщает, есть ли для сервера сохранённый OAuth-токен.
+func (a *App) MCPAuthStatus(serverID string) bool {
+	raw := strings.TrimSpace(a.cfg.MCPOAuthSecret(serverID))
+	return raw != ""
+}
+
+// MCPLogoutOAuth удаляет сохранённый токен сервера (выход).
+func (a *App) MCPLogoutOAuth(serverID string) error {
+	if err := a.cfg.SetMCPOAuthSecret(serverID, ""); err != nil {
+		return err
+	}
+	a.mcp.Stop(serverID)
+	return nil
+}
+
+// mcpConfig находит конфиг сервера по id в менеджере (там уже нормализованные).
+func (a *App) mcpConfig(serverID string) (mcp.ServerConfig, bool) {
+	for _, c := range a.mcp.Configs() {
+		if c.ID == serverID {
+			return c, true
+		}
+	}
+	return mcp.ServerConfig{}, false
 }
 
 // GetMCPServers returns configured MCP servers (settings).
@@ -2188,6 +2278,22 @@ func (a *App) ClearDeepSeekKey() error {
 	}
 	a.refreshProvider()
 	return nil
+}
+
+// SaveFallbackProvider задаёт резервного провайдера ("" — выключить фолбэк).
+func (a *App) SaveFallbackProvider(provider string) error {
+	if err := a.cfg.SetFallbackProvider(provider); err != nil {
+		return err
+	}
+	if p := strings.TrimSpace(provider); p != "" {
+		a.logAgentLine("fallback provider saved: " + p)
+	}
+	return nil
+}
+
+// SaveFallbackModel задаёт модель резервного провайдера ("" — его дефолтная).
+func (a *App) SaveFallbackModel(model string) error {
+	return a.cfg.SetFallbackModel(model)
 }
 
 func (a *App) SaveDeepSeekModel(model string) error {
@@ -4767,6 +4873,16 @@ func (a *App) RunAgentInSession(sessionID, runID, userMessage string, attachment
 		SubagentsMaxSteps:   a.cfg.SubagentsMaxSteps(),
 		SubagentsAllowWrite: a.cfg.SubagentsAllowWrite(),
 		SubagentsMaxPerRun:  a.cfg.SubagentsMaxPerRun(),
+	}
+	// Резервный провайдер: один переход, когда основной упёрся в длинный лимит
+	// или перегружен. Тот же провайдер и Local с картинками в резерв не берём.
+	if fb := strings.TrimSpace(a.cfg.FallbackProvider()); fb != "" && fb != provider {
+		if !(strings.HasPrefix(fb, "local") && hasImages) {
+			runner.FallbackProvider = a.buildProviderFor(fb, a.cfg.FallbackModel())
+			runner.FallbackModel = a.cfg.FallbackModel()
+			runner.FallbackID = fb
+			a.logAgentLine("fallback provider: " + fb)
+		}
 	}
 	if a.mcp != nil {
 		a.syncMCPFromConfig()

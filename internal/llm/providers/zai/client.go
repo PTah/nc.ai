@@ -1,3 +1,4 @@
+// Edited by nc.ai 1.1.15 on macbook 2026-11-11 21:45:05
 package zai
 
 import (
@@ -129,7 +130,7 @@ func (c *Client) ListModels(ctx context.Context) ([]ModelInfo, error) {
 		return nil, err
 	}
 	if res.StatusCode >= 300 {
-		return nil, mapAPIError(res.StatusCode, data)
+		return nil, mapAPIError(res.StatusCode, data, res.Header)
 	}
 	var out modelsListResponse
 	if err := json.Unmarshal(data, &out); err != nil {
@@ -336,7 +337,7 @@ func (c *Client) chat(ctx context.Context, req *llm.ChatRequest, stream bool, on
 		if err != nil {
 			var status *llm.HTTPStatusError
 			if errors.As(err, &status) {
-				return nil, mapAPIError(status.Status, status.Body)
+				return nil, mapAPIError(status.Status, status.Body, status.Header)
 			}
 			return nil, err
 		}
@@ -356,7 +357,7 @@ func (c *Client) chat(ctx context.Context, req *llm.ChatRequest, stream bool, on
 		return nil, err
 	}
 	if res.StatusCode >= 300 {
-		return nil, mapAPIError(res.StatusCode, data)
+		return nil, mapAPIError(res.StatusCode, data, res.Header)
 	}
 	var out llm.ChatResponse
 	if err := json.Unmarshal(data, &out); err != nil {
@@ -453,15 +454,21 @@ type apiErrorBody struct {
 }
 
 // mapAPIError turns Z.ai JSON error payloads into short user-facing messages.
-func mapAPIError(status int, body []byte) error {
+func mapAPIError(status int, body []byte, h http.Header) error {
 	var payload apiErrorBody
 	_ = json.Unmarshal(body, &payload)
 	code := fmt.Sprint(payload.Error.Code)
 	switch code {
 	case "1305":
+		// Перегрузка сервиса: ждать бессмысленно, это не лимит по ключу.
 		return fmt.Errorf("Модель перегружена, попробуйте позднее…")
 	case "1302":
-		return fmt.Errorf("Превышен лимит запросов, попробуйте позднее…")
+		return llm.NewRateLimitError("Z.AI (GLM)", h, body)
+	}
+	if status == 429 {
+		return llm.NewRateLimitError("Z.AI (GLM)", h, body)
+	}
+	switch code {
 	case "1113":
 		return fmt.Errorf("Недостаточно баланса Z.ai. Выберите бесплатную модель (glm-4.7-flash) или пополните счёт / включите Coding Plan")
 	case "1210":

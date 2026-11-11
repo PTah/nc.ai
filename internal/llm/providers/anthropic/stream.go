@@ -1,3 +1,4 @@
+// Edited by nc.ai 1.1.15 on macbook 2026-11-11 21:28:36
 package anthropic
 
 import (
@@ -9,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"notcursor.ai/app/internal/llm"
 )
@@ -87,6 +89,14 @@ type toolAcc struct {
 	args strings.Builder
 }
 
+// humanShort — «45 с», «3 мин» для сообщения об обрыве потока.
+func humanShort(d time.Duration) string {
+	if d < time.Minute {
+		return fmt.Sprintf("%.0f с", d.Seconds())
+	}
+	return fmt.Sprintf("%.0f мин", d.Minutes())
+}
+
 // consumeAnthropicSSE собирает финальный ответ из потока событий Anthropic.
 func consumeAnthropicSSE(r io.Reader, onDelta func(llm.StreamDelta)) (*llm.ChatResponse, error) {
 	sc := bufio.NewScanner(r)
@@ -102,10 +112,16 @@ func consumeAnthropicSSE(r io.Reader, onDelta func(llm.StreamDelta)) (*llm.ChatR
 		cacheRead       int
 		cacheCreate     int
 		outputTokens    int
+		// Для диагностики обрыва: сколько секунд поток молчал до ошибки чтения.
+		started   = time.Now()
+		lastLine  time.Time
+		lineCount int
 	)
 
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
+		lastLine = time.Now()
+		lineCount++
 		if line == "" || strings.HasPrefix(line, ":") || strings.HasPrefix(line, "event:") {
 			continue
 		}
@@ -179,7 +195,12 @@ func consumeAnthropicSSE(r io.Reader, onDelta func(llm.StreamDelta)) (*llm.ChatR
 		}
 	}
 	if err := sc.Err(); err != nil {
-		return nil, fmt.Errorf("anthropic: stream read: %w", err)
+		silence := time.Since(started)
+		if !lastLine.IsZero() {
+			silence = time.Since(lastLine)
+		}
+		return nil, fmt.Errorf("anthropic: stream read: обрыв после %s тишины (строк получено: %d): %w",
+			humanShort(silence), lineCount, err)
 	}
 
 	msg := llm.Message{

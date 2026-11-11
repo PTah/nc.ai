@@ -1,3 +1,4 @@
+<!-- Edited by nc.ai 1.1.15 on macbook 2026-11-11 21:46:26 -->
 # Протоколы обмена с AI-провайдерами
 
 Каталог описывает **wire-format** запросов/ответов, которые использует NotCursor.ai.
@@ -20,7 +21,18 @@ type Provider interface {
 Общие правила поверх любого провайдера:
 
 - **Инлайн-thinking**: ведущие блоки `<think>`, `<thinking>`, `<reasoning>` в `content` отделяются в reasoning — и в потоке дельт, и в собранном ответе (`internal/llm/think.go`). Литеральный тег в середине ответа не трогается.
-- **Лимиты**: `429` превращается в `*llm.RateLimitError` с разбором `Retry-After` и `x-ratelimit-reset-*`; агент ждёт лимит (до 60 сек) и повторяет запрос сам, суточный лимит не ждёт (`internal/llm/ratelimit.go`).
+- **Лимиты**: любой `429` (и Z.ai `1302`) превращается в `*llm.RateLimitError` — у **всех** провайдеров,
+  через общий `llm.NewRateLimitError`. Разбираются `Retry-After` (секунды и HTTP-дата),
+  `x-ratelimit-reset-*` (длительность `6m0s` **или** unix-время сброса), `anthropic-ratelimit-*-reset`
+  (RFC3339) и остаток из `x-ratelimit-remaining-*`; из тела берётся `limit_source` (OpenRouter:
+  `requests` / `tokens` / `credits`) и печатается как «лимит по токенам». Агент ждёт лимит (до 60 сек)
+  и повторяет запрос сам, суточный/длинный лимит не ждёт — отдаёт ошибку с подсказкой сброса
+  (`internal/llm/ratelimit.go`).
+- **Фолбэк**: `fallbackProvider` + `fallbackModel` в `settings.json` — при длинном лимите (ожидание
+  больше минуты) или перегрузке (503/529) прогон один раз переключается на резерв
+  (`agent.Runner.switchToFallback`): в чат уходит `notice`, `Provider`/`ProviderID`/`runModel`
+  заменяются, запрос повторяется. Второго переключения нет — защита от цикла. Local в резерв не
+  подставляется, если в запросе есть изображения.
 
 Код в `internal/llm/providers/*` и `internal/agent` **следует документам этой папки**. Если поведение API изменилось — сначала обновить протокол, потом код.
 

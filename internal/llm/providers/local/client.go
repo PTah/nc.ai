@@ -1,3 +1,4 @@
+// Edited by nc.ai 1.1.15 on macbook 2026-11-11 21:45:09
 package local
 
 import (
@@ -425,7 +426,7 @@ func mapAPIError(status int, body []byte, h http.Header) error {
 				detail += " (" + q + ")"
 			}
 		}
-		return &llm.RateLimitError{Provider: "Local API", Detail: detail, Wait: llm.RetryAfter(h)}
+		return llm.NewRateLimitError("Local API", h, body)
 	case 500, 502, 503:
 		return fmt.Errorf("Local API временно недоступен (%d).", status)
 	}

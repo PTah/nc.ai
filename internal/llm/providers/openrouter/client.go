@@ -186,7 +186,7 @@ func (c *Client) ListModels(ctx context.Context) ([]ModelInfo, error) {
 		return nil, err
 	}
 	if res.StatusCode >= 300 {
-		return nil, mapAPIError(res.StatusCode, data)
+		return nil, mapAPIError(res.StatusCode, data, res.Header)
 	}
 	var out modelsListResponse
 	if err := json.Unmarshal(data, &out); err != nil {
@@ -365,7 +365,7 @@ func (c *Client) chat(ctx context.Context, req *llm.ChatRequest, stream bool, on
 		if err != nil {
 			var status *llm.HTTPStatusError
 			if errors.As(err, &status) {
-				return nil, mapAPIError(status.Status, status.Body)
+				return nil, mapAPIError(status.Status, status.Body, status.Header)
 			}
 			return nil, err
 		}
@@ -385,7 +385,7 @@ func (c *Client) chat(ctx context.Context, req *llm.ChatRequest, stream bool, on
 		return nil, err
 	}
 	if res.StatusCode >= 300 {
-		return nil, mapAPIError(res.StatusCode, data)
+		return nil, mapAPIError(res.StatusCode, data, res.Header)
 	}
 	var out llm.ChatResponse
 	if err := json.Unmarshal(data, &out); err != nil {
@@ -405,7 +405,7 @@ type apiErrorBody struct {
 	} `json:"error"`
 }
 
-func mapAPIError(status int, body []byte) error {
+func mapAPIError(status int, body []byte, h http.Header) error {
 	var payload apiErrorBody
 	_ = json.Unmarshal(body, &payload)
 	msg := strings.TrimSpace(payload.Error.Message)
@@ -421,7 +421,7 @@ func mapAPIError(status int, body []byte) error {
 		}
 		return fmt.Errorf("OpenRouter: доступ запрещён (403).")
 	case 429:
-		return fmt.Errorf("Превышен лимит запросов OpenRouter, попробуйте позднее…")
+		return llm.NewRateLimitError("OpenRouter", h, body)
 	case 500, 502, 503:
 		return fmt.Errorf("OpenRouter временно недоступен (%d), попробуйте позднее…", status)
 	}

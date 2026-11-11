@@ -129,6 +129,31 @@ func Presets() []Preset {
 			UsageHint: "Для фактов/решений между сессиями: cognify → search. Для навигации по коду " +
 				"предпочитай Codebase Memory / Code Review Graph, не Cognee.",
 		},
+		{
+			ID:    "semgrep",
+			Label: "Semgrep (security review)",
+			Description: "Формальный статический анализ: готовые правила Semgrep, свои правила, AST. " +
+				"Источник: PyPI semgrep-mcp (github.com/semgrep/semgrep). Работает локально, код никуда не уходит. " +
+				"Инструменты Semgrep Cloud (semgrep_findings) требуют SEMGREP_APP_TOKEN в env сервера.",
+			Server: ServerConfig{
+				ID:         "semgrep",
+				Label:      "Semgrep",
+				Enabled:    true,
+				Transport:  "stdio",
+				Command:    "uvx",
+				Args:       []string{"semgrep-mcp"},
+				TimeoutSec: 240,
+			},
+			Install: InstallSpec{
+				Kind:    "uvx",
+				Package: "semgrep-mcp",
+			},
+			SuggestedTools: []string{"security_check", "semgrep_scan", "semgrep_scan_with_custom_rule"},
+			UsageHint: "Сначала security_check по изменённым файлам (быстро, готовый набор правил), затем " +
+				"semgrep_scan с нужным config, если нужен более широкий охват. Вывод — конкретные " +
+				"находки с file:line и правилом; не пересказывай его в чате, а сведи в findings[]. " +
+				"Не запускай по всему репозиторию без причины — это долго.",
+		},
 	}
 }
 

@@ -147,6 +147,10 @@ export function LoadChatTranscript(arg1:string):Promise<main.ChatTranscript>;
 
 export function LocalBuildHash():Promise<string>;
 
+export function MCPAuthStatus(arg1:string):Promise<boolean>;
+
+export function MCPLogoutOAuth(arg1:string):Promise<void>;
+
 export function MCPPresets():Promise<Array<mcp.Preset>>;
 
 export function MCPStatuses():Promise<Array<mcp.Status>>;
@@ -251,6 +255,10 @@ export function SaveDeepSeekModel(arg1:string):Promise<void>;
 
 export function SaveEndSound(arg1:boolean):Promise<void>;
 
+export function SaveFallbackModel(arg1:string):Promise<void>;
+
+export function SaveFallbackProvider(arg1:string):Promise<void>;
+
 export function SaveGitAuth(arg1:string,arg2:string):Promise<void>;
 
 export function SaveHTTP2PingSec(arg1:number):Promise<void>;
@@ -340,6 +348,8 @@ export function SetProjectLocked(arg1:string,arg2:boolean):Promise<void>;
 export function SetSessionModel(arg1:string,arg2:string):Promise<void>;
 
 export function SetSessionProvider(arg1:string,arg2:string):Promise<void>;
+
+export function StartMCPLogin(arg1:string):Promise<string>;
 
 export function StartMCPServer(arg1:string):Promise<mcp.Status>;
 

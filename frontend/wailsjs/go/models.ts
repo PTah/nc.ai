@@ -239,6 +239,9 @@ export namespace config {
 	    args?: string[];
 	    env?: Record<string, string>;
 	    cwd?: string;
+	    url?: string;
+	    headers?: Record<string, string>;
+	    allowPrivate?: boolean;
 	    timeoutSec?: number;
 	    enabledTools?: string[];
 	
@@ -256,6 +259,9 @@ export namespace config {
 	        this.args = source["args"];
 	        this.env = source["env"];
 	        this.cwd = source["cwd"];
+	        this.url = source["url"];
+	        this.headers = source["headers"];
+	        this.allowPrivate = source["allowPrivate"];
 	        this.timeoutSec = source["timeoutSec"];
 	        this.enabledTools = source["enabledTools"];
 	    }
@@ -734,6 +740,9 @@ export namespace mcp {
 	    args?: string[];
 	    env?: Record<string, string>;
 	    cwd?: string;
+	    url?: string;
+	    headers?: Record<string, string>;
+	    allowPrivate?: boolean;
 	    timeoutSec?: number;
 	    enabledTools?: string[];
 	
@@ -751,6 +760,9 @@ export namespace mcp {
 	        this.args = source["args"];
 	        this.env = source["env"];
 	        this.cwd = source["cwd"];
+	        this.url = source["url"];
+	        this.headers = source["headers"];
+	        this.allowPrivate = source["allowPrivate"];
 	        this.timeoutSec = source["timeoutSec"];
 	        this.enabledTools = source["enabledTools"];
 	    }

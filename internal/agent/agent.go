@@ -233,6 +233,13 @@ type Runner struct {
 	LocalModels []LocalModelInfo
 	// ProviderID is "deepseek", "zai", "openrouter", "qwen", "kimi", "yandex", "local", or "local:<id>".
 	ProviderID string
+	// FallbackProvider — второй провайдер, на который переключаемся ровно один
+	// раз, если основной упёрся в длинный лимит (429) или перегружен.
+	// FallbackID нужен для маршрутизации модели (isLocal и т.п.).
+	FallbackProvider llm.Provider
+	FallbackModel    string
+	FallbackID       string
+	fallbackUsed     bool
 	// Route context for AutoModels (filled by the app before Run*).
 	UserText      string
 	HasImages     bool
@@ -761,8 +768,79 @@ func (r *Runner) budget() time.Duration {
 // chat calls the provider (streaming when available) and retries transient network errors,
 // emitting a "reconnect" event before each attempt so the UI can show progress.
 // streamed is true when content/reasoning deltas were already pushed via emit.
+// switchToFallback переключает прогон на резервного провайдера. Возвращает
+// true, если переключение состоялось и запрос надо повторить.
+//
+// Переключаемся только на «безнадёжных» ошибках: длинный лимит (429 с ожиданием
+// больше минуты — суточный или исчерпанная квота) и перегрузка провайдера.
+// Короткий лимит выгоднее переждать: смена провайдера может стоить дороже.
+func (r *Runner) switchToFallback(err error, req *llm.ChatRequest, emit EmitFunc) bool {
+	if r.fallbackUsed || r.FallbackProvider == nil {
+		return false
+	}
+	var rate *llm.RateLimitError
+	reason := ""
+	if errors.As(err, &rate) {
+		if rate.Wait <= maxRateLimitWait {
+			return false
+		}
+		reason = "исчерпан лимит"
+		if rate.LimitSource != "" {
+			reason += " " + rate.LimitSource
+		}
+	} else if isOverloadedError(err) {
+		reason = "провайдер перегружен"
+	} else {
+		return false
+	}
+
+	from := r.ProviderID
+	r.fallbackUsed = true
+	r.Provider = r.FallbackProvider
+	if id := strings.TrimSpace(r.FallbackID); id != "" {
+		r.ProviderID = id
+	}
+	if m := strings.TrimSpace(r.FallbackModel); m != "" {
+		r.runModel = m
+		r.ModelOverride = m
+		if req != nil {
+			req.Model = m
+		}
+	}
+	to := strings.TrimSpace(r.FallbackID)
+	if to == "" {
+		to = "резервный провайдер"
+	}
+	r.logf("fallback: %s → %s (%s): %v", from, to, reason, err)
+	if emit != nil {
+		emit(Event{Type: "notice", Content: fmt.Sprintf(
+			"Основной провайдер не может ответить (%s) — продолжаю на резервном (%s).", reason, to)})
+	}
+	return true
+}
+
+// isOverloadedError — перегрузка на стороне провайдера (503/529, «overloaded»).
+func isOverloadedError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	for _, needle := range []string{"перегружен", "overloaded", "529", "503"} {
+		if strings.Contains(msg, needle) {
+			return true
+		}
+	}
+	return false
+}
+
 func (r *Runner) chat(ctx context.Context, req *llm.ChatRequest, emit EmitFunc) (resp *llm.ChatResponse, streamed bool, err error) {
 	resp, streamed, err = r.chatOnce(ctx, req, emit)
+	// Основной провайдер отказал по лимиту/перегрузке и ничего не успел отдать:
+	// один раз переходим на резервный. Если текст уже пошёл в UI — не переходим,
+	// иначе пользователь увидит ответ дважды.
+	if err != nil && !streamed && r.switchToFallback(err, req, emit) {
+		resp, streamed, err = r.chatOnce(ctx, req, emit)
+	}
 	// Суммарное время ожидания в серии ретраев ограничиваем: иначе сеть, которая
 	// рвёт каждую попытку, растягивает прогон на десятки минут без пользы.
 	var waited time.Duration

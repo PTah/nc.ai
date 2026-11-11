@@ -1,3 +1,4 @@
+// Edited by nc.ai 1.1.15 on macbook 2026-11-11 21:44:33
 package llm
 
 import (
@@ -16,6 +17,9 @@ type RateLimitError struct {
 	Provider string
 	Detail   string
 	Wait     time.Duration // 0 — провайдер не сказал, когда можно повторить
+	// LimitSource — что именно кончилось, если провайдер сказал:
+	// "requests" / "tokens" / "credits" (OpenRouter и подобные).
+	LimitSource string
 }
 
 func (e *RateLimitError) Error() string {
@@ -26,12 +30,79 @@ func (e *RateLimitError) Error() string {
 		b.WriteString(", повтор через ")
 		b.WriteString(FormatWait(e.Wait))
 	}
+	if s := limitSourceRU(e.LimitSource); s != "" {
+		b.WriteString(", лимит ")
+		b.WriteString(s)
+	}
 	if d := strings.TrimSpace(e.Detail); d != "" {
 		b.WriteString(": ")
 		b.WriteString(d)
 	}
 	b.WriteString(".")
 	return b.String()
+}
+
+// limitSourceRU переводит машинный limit_source в понятное «по запросам/токенам».
+func limitSourceRU(src string) string {
+	switch strings.ToLower(strings.TrimSpace(src)) {
+	case "":
+		return ""
+	case "requests", "request", "rpm", "rpd", "per-day", "day":
+		return "по запросам"
+	case "tokens", "token", "tpm", "tpd":
+		return "по токенам"
+	case "credits", "credit", "balance", "quota":
+		return "по кредитам"
+	}
+	return "по " + strings.TrimSpace(src)
+}
+
+// NewRateLimitError собирает ошибку 429: текст из тела, ожидание из заголовков,
+// источник лимита из тела (OpenRouter отдаёт limit_source — по запросам или по
+// токенам кончился лимит).
+func NewRateLimitError(provider string, h http.Header, body []byte) *RateLimitError {
+	detail := APIErrorMessage(body)
+	if detail == "" && len(body) > 0 {
+		detail = TruncateRunes(strings.TrimSpace(string(body)), 300)
+	}
+	// Остаток из заголовков («запросы: 5, осталось 0») — это то, по чему видно,
+	// действительно ли лимит исчерпан.
+	if q := RateLimitQuota(h); q != "" {
+		if detail != "" {
+			detail += " (" + q + ")"
+		} else {
+			detail = q
+		}
+	}
+	return &RateLimitError{
+		Provider:    provider,
+		Detail:      detail,
+		Wait:        RetryAfter(h),
+		LimitSource: RateLimitSource(body),
+	}
+}
+
+// RateLimitSource достаёт limit_source из тела ошибки: OpenRouter кладёт его в
+// error.metadata.limit_source, часть прокси — в корень.
+func RateLimitSource(body []byte) string {
+	var payload struct {
+		Error struct {
+			Metadata struct {
+				LimitSource string `json:"limit_source"`
+			} `json:"metadata"`
+			LimitSource string `json:"limit_source"`
+		} `json:"error"`
+		LimitSource string `json:"limit_source"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return ""
+	}
+	for _, v := range []string{payload.Error.Metadata.LimitSource, payload.Error.LimitSource, payload.LimitSource} {
+		if s := strings.TrimSpace(v); s != "" {
+			return s
+		}
+	}
+	return ""
 }
 
 // FormatWait печатает длительность по-человечески: «42 сек», «2 мин 5 сек».
@@ -83,12 +154,40 @@ func RetryAfter(h http.Header) time.Duration {
 		if v == "" {
 			continue
 		}
-		d, err := time.ParseDuration(v)
-		if err != nil {
+		if d, err := time.ParseDuration(v); err == nil {
+			if d > best {
+				best = d
+			}
 			continue
 		}
-		if d > best {
-			best = d
+		// Часть прокси отдаёт unix-время сброса (секунды), часть — просто секунды.
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil {
+			var d time.Duration
+			if n > 1_000_000_000 {
+				d = time.Until(time.Unix(n, 0))
+			} else {
+				d = time.Duration(n) * time.Second
+			}
+			if d > best {
+				best = d
+			}
+		}
+	}
+	// Anthropic: момент сброса окна в RFC3339 (anthropic-ratelimit-*-reset).
+	for _, key := range []string{
+		"Anthropic-Ratelimit-Requests-Reset",
+		"Anthropic-Ratelimit-Tokens-Reset",
+		"Anthropic-Ratelimit-Input-Tokens-Reset",
+		"Anthropic-Ratelimit-Output-Tokens-Reset",
+	} {
+		v := strings.TrimSpace(h.Get(key))
+		if v == "" {
+			continue
+		}
+		if t, err := time.Parse(time.RFC3339, v); err == nil {
+			if d := time.Until(t); d > best {
+				best = d
+			}
 		}
 	}
 	if best < 0 {

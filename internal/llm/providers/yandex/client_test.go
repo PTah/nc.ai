@@ -69,11 +69,11 @@ func TestFilterModels(t *testing.T) {
 }
 
 func TestMapAPIError(t *testing.T) {
-	err := mapAPIError(401, []byte(`{"error":{"message":"Unauthorized"}}`))
+	err := mapAPIError(401, []byte(`{"error":{"message":"Unauthorized"}}`), nil)
 	if err == nil || !strings.Contains(err.Error(), "ключ") {
 		t.Fatalf("401: got %v", err)
 	}
-	err = mapAPIError(429, []byte(`{"error":{"message":"rate limit"}}`))
+	err = mapAPIError(429, []byte(`{"error":{"message":"rate limit"}}`), nil)
 	if err == nil || !strings.Contains(err.Error(), "лимит") {
 		t.Fatalf("429: got %v", err)
 	}

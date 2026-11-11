@@ -30,8 +30,9 @@ type Status struct {
 type Manager struct {
 	mu       sync.Mutex
 	configs  []ServerConfig
-	sessions map[string]*Session // id → live
-	states   map[string]string   // id → state text
+	sessions map[string]liveSession // id → live (stdio-процесс или HTTP-эндпоинт)
+	creds    CredentialSource       // OAuth-токены hosted-серверов (nil = только статические заголовки)
+	states   map[string]string      // id → state text
 	errors   map[string]string
 	// lifetime is the base context for MCP child processes. It must NOT be a
 	// per-run/per-call context: otherwise Stop (or any run cancellation) kills
@@ -69,12 +70,20 @@ func (m *Manager) HasEnabled() bool {
 func NewManager() *Manager {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Manager{
-		sessions:       map[string]*Session{},
+		sessions:       map[string]liveSession{},
 		states:         map[string]string{},
 		errors:         map[string]string{},
 		lifetime:       ctx,
 		lifetimeCancel: cancel,
 	}
+}
+
+// SetCredentialSource задаёт хранилище OAuth-токенов для hosted-серверов.
+// Вызывается один раз при старте приложения, до первого Start.
+func (m *Manager) SetCredentialSource(src CredentialSource) {
+	m.mu.Lock()
+	m.creds = src
+	m.mu.Unlock()
 }
 
 // SetConfigs replaces the config list (does not auto-start).
@@ -186,7 +195,16 @@ func (m *Manager) Start(ctx context.Context, id string) (Status, error) {
 	m.errors[cfg.ID] = ""
 	m.mu.Unlock()
 
-	sess, err := StartStdio(m.lifetime, cfg)
+	var (
+		sess liveSession
+		err  error
+	)
+	switch cfg.Transport {
+	case "http":
+		sess, err = StartHTTP(m.lifetime, cfg, m.creds)
+	default:
+		sess, err = StartStdio(m.lifetime, cfg)
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if err != nil {

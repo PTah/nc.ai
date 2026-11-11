@@ -1,7 +1,9 @@
+// Edited by nc.ai 1.1.15 on macbook 2026-11-11 21:45:56
 package zai
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -67,7 +69,7 @@ func TestThinkingDisabled(t *testing.T) {
 
 func TestMapAPIError1305(t *testing.T) {
 	body := []byte(`{"error":{"code":"1305","message":"The service may be temporarily overloaded, please try again later"}}`)
-	err := mapAPIError(429, body)
+	err := mapAPIError(429, body, nil)
 	if err == nil || err.Error() != "Модель перегружена, попробуйте позднее…" {
 		t.Fatalf("got %v", err)
 	}
@@ -75,8 +77,14 @@ func TestMapAPIError1305(t *testing.T) {
 
 func TestMapAPIError1302(t *testing.T) {
 	body := []byte(`{"error":{"code":"1302","message":"Rate limit reached for requests"}}`)
-	err := mapAPIError(429, body)
-	if err == nil || err.Error() != "Превышен лимит запросов, попробуйте позднее…" {
+	err := mapAPIError(429, body, nil)
+	// 1302 — лимит запросов: отдаём RateLimitError, чтобы агент ждал сброса
+	// по заголовкам, а не молотил повторы вслепую.
+	var rl *llm.RateLimitError
+	if !errors.As(err, &rl) {
+		t.Fatalf("want *llm.RateLimitError, got %T: %v", err, err)
+	}
+	if !strings.Contains(err.Error(), "лимит запросов") {
 		t.Fatalf("got %v", err)
 	}
 }

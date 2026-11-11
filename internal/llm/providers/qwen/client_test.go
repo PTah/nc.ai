@@ -66,11 +66,11 @@ func TestBaseURLFor(t *testing.T) {
 }
 
 func TestMapAPIError(t *testing.T) {
-	err := mapAPIError(401, []byte(`{"error":{"message":"Invalid API key"}}`))
+	err := mapAPIError(401, []byte(`{"error":{"message":"Invalid API key"}}`), nil)
 	if err == nil || !strings.Contains(err.Error(), "ключ") {
 		t.Fatalf("401: got %v", err)
 	}
-	err = mapAPIError(429, []byte(`{"error":{"message":"Requests rate limit exceeded"}}`))
+	err = mapAPIError(429, []byte(`{"error":{"message":"Requests rate limit exceeded"}}`), nil)
 	if err == nil || !strings.Contains(err.Error(), "лимит") {
 		t.Fatalf("429: got %v", err)
 	}
