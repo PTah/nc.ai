@@ -1,9 +1,26 @@
 <!-- Created by nc.ai 1.1.4 on macbook 2026-11-08 19:06:49 -->
+<!-- Edited by nc.ai 1.2.0 on new-admin-pc 2026-11-12 11:40:56 -->
 # Соединения: серверы, провайдеры, MCP
 
 Правило, из которого всё вытекает: **соединение открывается один раз и живёт, пока в нём есть смысл**.
 Каждый лишний коннект — это лишний TLS-handshake, лишний логин в журнале Windows и лишний канал,
 который может упереться в лимит сервера.
+
+## Windows: SSH нет, путь — WinRM
+
+На всех Windows-хостах из `logins` `sshd` не установлен (порт 22 закрыт), поэтому SSH — только для
+Linux. Для Windows работает PowerShell Remoting (WinRM, порт 5985):
+
+- **Обращаться по FQDN, а не по IP.** По IP клиент вынужден идти NTLM (`NtLmSsp`) и требует
+  `TrustedHosts`; по полному имени (`host.b26.example.com`) — Kerberos, `TrustedHosts` не нужен,
+  вид входа в журнале чище (один `Kerberos`, без леса `NtLmSsp`).
+- Явные креды обязательны, если текущая учётка не в домене или хост не резолвится:
+  `New-PSSession -ComputerName host.b26.example.com -Credential (Get-Credential)`.
+- Одна `PSSession` на хост, команды — `Invoke-Command -Session $s`. Проверено (2026-11-12):
+  10 команд внутри одной сессии дают **0** новых записей 4624, а 10 отдельных
+  `Invoke-Command -ComputerName` — **41** (см. `docs/security-review.md`, раздел «Проверка 4624»).
+- Журнал `Security` на русской Windows локализован: события считать по XML-полям
+  (`LogonType`, `TargetUserName`, `LogonProcessName`), а не по тексту сообщения.
 
 ## SSH (`internal/sshx`)
 

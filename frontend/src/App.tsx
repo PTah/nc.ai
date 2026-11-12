@@ -138,6 +138,8 @@ import {
   SaveSubagentsAllowWrite,
   SaveSubagentsMaxPerRun,
   SaveSubagentsParallel,
+  RestoreItemsFromHistory,
+  LogUIError,
   SaveMCPServers,
   StartMCPLogin,
   MCPLogoutOAuth,
@@ -2414,6 +2416,7 @@ export default function App() {
   const assistantBuf = useRef<Record<string, string>>({})
   const finishedRunKeysRef = useRef<Set<string>>(new Set())
   const activeSessionRef = useRef('')
+  const restoreRetryRef = useRef(0)
   const noticeQueueRef = useRef<string[]>([])
   // Сообщения очереди, про которые уже сказали «уйдёт после текущего ответа» —
   // подсказка не должна повторяться на каждый клик.
@@ -4265,53 +4268,102 @@ export default function App() {
     }
   }
 
-  async function restoreChat(projectPath: string) {
+  // Восстановление чата должно быть НЕразрушающим: раньше любая ошибка в цепочке
+  // (ListChatSessions → LoadChatTranscript → JSON.parse → applyUsageStats) уходила
+  // в общий catch и молча обнуляла состояние — пустые вкладки, пустой чат, «как
+  // будто заданий не было». Теперь: ошибку показываем, состояние не трогаем,
+  // а пустой транскрипт при живой истории пересобираем из истории сессии.
+  async function loadTranscriptOnce(projectPath: string) {
+    const bundle = await ListChatSessions(projectPath)
+    const list = asList((bundle as any)?.sessions).map((s: any) => ({
+      id: String(s.id || ''),
+      title: String(s.title || ''),
+      model: String(s.model || ''),
+    }))
+    const transcript = await LoadChatTranscript(projectPath)
+    const activeId = String(transcript?.sessionId || (bundle as any)?.activeId || list[0]?.id || '')
+    let items: ChatItem[] = []
     try {
-      // Load sessions and transcript first, then commit all state in one batch.
-      // (refreshSessions() would set activeSessionId mid-way and the debounced
-      // persist effect could then save an empty transcript over real history.)
-      // Список вкладок и сам транскрипт должны прийти из ОДНОГО проекта: раньше
-      // здесь стояли ListChatSessions() (активный проект бэкенда) и
-      // LoadChat(projectPath) (запрашиваемый проект) — при рассинхроне транскрипт
-      // одного проекта записывался в чат другого и затирал его автосохранением.
-      const bundle = await ListChatSessions(projectPath)
-      const list = asList((bundle as any)?.sessions).map((s: any) => ({
-        id: String(s.id || ''),
-        title: String(s.title || ''),
-        model: String(s.model || ''),
-      }))
-      const transcript = await LoadChatTranscript(projectPath)
-      const activeId = String(transcript?.sessionId || (bundle as any)?.activeId || list[0]?.id || '')
       const parsed = JSON.parse(transcript?.itemsJson || '[]')
-      const loaded: ChatItem[] = Array.isArray(parsed) && parsed.length > 0
-        ? parsed as ChatItem[]
-        : [{kind: 'system', content: 'Чат с агентом. История пуста — задайте задачу. Можно вставить скриншот (Ctrl+V) или перетащить файл.'}]
-      // У идущего прогона текст в памяти свежее, чем на диске: запись отложенная,
-      // и disk-версия отстаёт на чанк (а то и на половину ответа). Раньше сюда
-      // подставлялся disk-вариант, и переход в идущий чат откатывал ответ к
-      // последнему сохранённому чанку — в чате оставался обрыв посреди фразы.
-      const hasLive = Boolean(activeId && busyBySessionRef.current[activeId])
-      const liveItems = activeId ? itemsBySessionRef.current[activeId] : undefined
-      const base = hasLive && liveItems && liveItems.length > 0 ? liveItems : loaded
-      const staged = hasLive ? {items: base, changed: false} : markInterruptedSteps(base)
-      if (staged.changed) setInterruptedSeen(true)
-      const chatItems = staged.items
-      setSessions(list)
-      if (activeId) {
-        setItemsBySession((prev) => ({...prev, [activeId]: chatItems}))
-        setActiveSessionId(activeId)
-        applyRetryState(chatItems)
-      } else if (list[0]) {
-        setItemsBySession((prev) => ({...prev, [list[0].id]: chatItems}))
-        setActiveSessionId(list[0].id)
-        applyRetryState(chatItems)
-      }
-      await applyUsageStats()
-    } catch {
-      setItemsBySession({})
-      setSessions([])
-      setActiveSessionId('')
+      if (Array.isArray(parsed) && parsed.length > 0) items = parsed as ChatItem[]
+    } catch (e) {
+      void LogUIError('restore-chat', `itemsJson не разобрался: ${String(e)}`).catch(() => undefined)
     }
+    // Транскрипт пуст, а история сессии на диске жива (типичный случай после
+    // мягкой перезагрузки WebView): пересобираем реплики из истории.
+    const historyLen = Number((transcript as any)?.historyLen || 0)
+    if (items.length === 0 && activeId && historyLen > 0) {
+      try {
+        const rebuilt = await RestoreItemsFromHistory(projectPath, activeId)
+        const parsed = JSON.parse(rebuilt || '[]')
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          items = parsed as ChatItem[]
+          void LogUIError('restore-chat', `транскрипт пуст — восстановил ${parsed.length} реплик из истории (${historyLen} сообщений)`).catch(() => undefined)
+          items = [...items, {kind: 'system', content: `↩ Чат восстановлен из истории сессии (${parsed.length} реплик): транскрипт на диске оказался пустым.`}] as ChatItem[]
+        }
+      } catch (e) {
+        void LogUIError('restore-chat', `пересборка из истории не удалась: ${String(e)}`).catch(() => undefined)
+      }
+    }
+    return {list, activeId, items}
+  }
+
+  async function restoreChat(projectPath: string) {
+    let attempt: {list: ChatSessionMeta[]; activeId: string; items: ChatItem[]} | null = null
+    let lastErr: unknown = null
+    for (let i = 0; i < 2 && !attempt; i++) {
+      try {
+        attempt = await loadTranscriptOnce(projectPath)
+      } catch (e) {
+        lastErr = e
+        // Один повтор: после перезагрузки WebView бэкенд может быть занят
+        // записью большого транскрипта или стартом прогона.
+        await new Promise((r) => window.setTimeout(r, 350))
+      }
+    }
+    if (!attempt) {
+      const msg = `⚠ Не удалось восстановить чат: ${String(lastErr)}. История на диске цела — повторим автоматически.`
+      void LogUIError('restore-chat', `restore failed: ${String(lastErr)}`).catch(() => undefined)
+      if (activeSessionId && itemsBySessionRef.current[activeSessionId]?.length) {
+        setSessionItems(activeSessionId, (m) => [...m, {kind: 'system', content: msg}])
+      }
+      // Транзиентный сбой (бэкенд занят большим сохранением/стартом прогона)
+      // лечится повтором — но не бесконечно.
+      if (restoreRetryRef.current < 3) {
+        restoreRetryRef.current += 1
+        window.setTimeout(() => void restoreChat(projectPath), 1200 * restoreRetryRef.current)
+      }
+      return
+    }
+    restoreRetryRef.current = 0
+    const {list, activeId, items} = attempt
+    // У идущего прогона текст в памяти свежее, чем на диске: запись отложенная,
+    // и disk-версия отстаёт на чанк (а то и на половину ответа). Раньше сюда
+    // подставлялся disk-вариант, и переход в идущий чат откатывал ответ к
+    // последнему сохранённому чанку — в чате оставался обрыв посреди фразы.
+    const hasLive = Boolean(activeId && busyBySessionRef.current[activeId])
+    const liveItems = activeId ? itemsBySessionRef.current[activeId] : undefined
+    const loaded: ChatItem[] = items.length > 0
+      ? items
+      : [{kind: 'system', content: 'Чат с агентом. История пуста — задайте задачу. Можно вставить скриншот (Ctrl+V) или перетащить файл.'}]
+    const base = hasLive && liveItems && liveItems.length > 0 ? liveItems : loaded
+    const staged = hasLive ? {items: base, changed: false} : markInterruptedSteps(base)
+    if (staged.changed) setInterruptedSeen(true)
+    const chatItems = staged.items
+    setSessions(list)
+    if (activeId) {
+      setItemsBySession((prev) => ({...prev, [activeId]: chatItems}))
+      setActiveSessionId(activeId)
+      applyRetryState(chatItems)
+    } else if (list[0]) {
+      setItemsBySession((prev) => ({...prev, [list[0].id]: chatItems}))
+      setActiveSessionId(list[0].id)
+      applyRetryState(chatItems)
+    }
+    // Статистика/каталог моделей — отдельно: их сбой не должен стирать чат.
+    void applyUsageStats().catch((e) => {
+      void LogUIError('restore-usage', String(e)).catch(() => undefined)
+    })
   }
 
   async function switchSession(id: string) {
@@ -4324,10 +4376,28 @@ export default function App() {
     }
     try {
       const raw = await SwitchChatSession(id)
-      const parsed = JSON.parse(raw || '[]')
-      const loadedItems: ChatItem[] = Array.isArray(parsed) && parsed.length > 0
-        ? parsed as ChatItem[]
-        : [{kind: 'system', content: 'Новый чат. Задайте задачу или вставьте файл/скриншот.'}]
+      let loadedItems: ChatItem[] = []
+      try {
+        const parsed = JSON.parse(raw || '[]')
+        if (Array.isArray(parsed) && parsed.length > 0) loadedItems = parsed as ChatItem[]
+      } catch (e) {
+        void LogUIError('switch-chat', `itemsJson не разобрался: ${String(e)}`).catch(() => undefined)
+      }
+      if (loadedItems.length === 0) {
+        // Транскрипт пуст, но история сессии может быть жива — пересобираем.
+        try {
+          const rebuilt = JSON.parse((await RestoreItemsFromHistory(active?.path || '', id)) || '[]')
+          if (Array.isArray(rebuilt) && rebuilt.length > 0) {
+            loadedItems = rebuilt as ChatItem[]
+            void LogUIError('switch-chat', `транскрипт пуст — восстановил ${rebuilt.length} реплик из истории`).catch(() => undefined)
+          }
+        } catch (e) {
+          void LogUIError('switch-chat', `пересборка из истории не удалась: ${String(e)}`).catch(() => undefined)
+        }
+      }
+      if (loadedItems.length === 0) {
+        loadedItems = [{kind: 'system', content: 'Новый чат. Задайте задачу или вставьте файл/скриншот.'}]
+      }
       // См. restoreChat: диск не должен затирать чат, в котором идёт прогон.
       const hasLive = Boolean(busyBySessionRef.current[id])
       const liveItems = itemsBySessionRef.current[id]

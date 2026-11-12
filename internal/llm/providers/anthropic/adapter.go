@@ -115,7 +115,7 @@ func buildRequest(req *llm.ChatRequest, model string) (*apiRequest, error) {
 	}
 
 	system := systemPrompt(req.Messages)
-	thinking := thinkingConfig(req.Thinking)
+	thinking := thinkingConfig(req.Thinking, model)
 	out := &apiRequest{
 		Model:       model,
 		MaxTokens:   maxTokens,
@@ -128,10 +128,17 @@ func buildRequest(req *llm.ChatRequest, model string) (*apiRequest, error) {
 	}
 	if thinking != nil {
 		// Расширенное рассуждение живёт при temperature=1: поле не отправляем,
-		// иначе API отвечает 400. И max_tokens должен быть больше бюджета.
+		// иначе API отвечает 400. И max_tokens должен быть больше бюджета,
+		// но не вылезать за максимум вывода модели.
 		out.Temperature = nil
-		if b, ok := numberAsInt(thinking["budget_tokens"]); ok && out.MaxTokens <= b {
-			out.MaxTokens = b + b/2
+		if b, ok := numberAsInt(thinking["budget_tokens"]); ok {
+			maxOut := modelMaxOutput(model)
+			if need := b + 1024; out.MaxTokens < need {
+				out.MaxTokens = need
+			}
+			if out.MaxTokens > maxOut {
+				out.MaxTokens = maxOut
+			}
 		}
 	}
 	if len(out.Messages) == 0 {
@@ -140,11 +147,11 @@ func buildRequest(req *llm.ChatRequest, model string) (*apiRequest, error) {
 	return out, nil
 }
 
-// thinkingConfig переводит канонический req.Thinking в anthropic-вид.
-// nil — рассуждение выключено (или карта говорит disabled). Бюджет по умолчанию
-// 4096 токенов и всегда меньше max_tokens — иначе API отвечает 400.
-func thinkingConfig(thinking map[string]any) map[string]any {
-	if thinking == nil {
+// thinkingConfig переводит канонический req.Thinking в anthropic-вид. nil —
+// рассуждение выключено: не запрошено, disabled, или модель его не умеет.
+// Бюджет всегда в [1024, maxOutput-1024], иначе API отвечает 400.
+func thinkingConfig(thinking map[string]any, model string) map[string]any {
+	if thinking == nil || !supportsThinking(model) {
 		return nil
 	}
 	if t, ok := thinking["type"].(string); ok && strings.EqualFold(strings.TrimSpace(t), "disabled") {
@@ -154,8 +161,51 @@ func thinkingConfig(thinking map[string]any) map[string]any {
 	if v, ok := numberAsInt(thinking["budget_tokens"]); ok && v > 0 {
 		budget = v
 	}
-	out := map[string]any{"type": "enabled", "budget_tokens": budget}
-	return out
+	if budget < 1024 {
+		budget = 1024
+	}
+	if maxOut := modelMaxOutput(model); budget > maxOut-1024 {
+		if maxOut <= 2048 {
+			return nil // места на рассуждение + ответ нет — выключаем
+		}
+		budget = maxOut - 1024
+	}
+	return map[string]any{"type": "enabled", "budget_tokens": budget}
+}
+
+// supportsThinking — модели с extended thinking. Чужие anthropic-совместимые
+// эндпоинты и claude-3.x ответят 400, если слать им thinking.
+func supportsThinking(model string) bool {
+	lm := strings.ToLower(strings.TrimSpace(model))
+	for _, m := range thinkingModels {
+		if strings.Contains(lm, m) {
+			return true
+		}
+	}
+	return false
+}
+
+// thinkingModels — подстроки моделей, умеющих extended thinking: 3.7+ и 4.x.
+// Всё, что ниже (claude-3, 3.5), на параметр `thinking` отвечает 400.
+var thinkingModels = []string{
+	"claude-sonnet-4", "claude-opus-4", "claude-haiku-4-5",
+	"claude-3-7-sonnet",
+}
+
+// modelMaxOutput — максимум выходных токенов модели (для капа max_tokens).
+// Неизвестной модели даём консервативный запас: перебор ловит API.
+func modelMaxOutput(model string) int {
+	lm := strings.ToLower(strings.TrimSpace(model))
+	switch {
+	case strings.Contains(lm, "claude-haiku-4-5"), strings.Contains(lm, "claude-3-5-haiku"):
+		return 8192
+	case strings.Contains(lm, "claude-opus-4"), strings.Contains(lm, "claude-opus-4-1"):
+		return 32000
+	case strings.Contains(lm, "claude-sonnet-4"), strings.Contains(lm, "claude-3-7-sonnet"), strings.Contains(lm, "claude-3-5-sonnet"):
+		return 64000
+	default:
+		return 8192
+	}
 }
 
 func numberAsInt(v any) (int, bool) {

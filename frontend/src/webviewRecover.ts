@@ -1,3 +1,4 @@
+// Edited by nc.ai 1.2.0 on new-admin-pc 2026-11-12 11:30:51
 /**
  * WebView2 on Windows can leave a blank (white) surface after the window was
  * minimised / occluded for a long time: the Go host stays alive, the HWND frame
@@ -10,7 +11,11 @@ import {WindowGetSize, WindowReloadApp, WindowSetSize} from '../wailsjs/runtime/
 
 const BRIEF_MS = 5_000
 const KICK_MS = 30_000
-const RELOAD_MS = 2 * 60_000
+// Раньше здесь был безусловный soft-reload после 2 минут в фоне. Он стоил дорого:
+// перезагрузка WebView теряет состояние React, и любой сбой восстановления чата
+// выглядел как «заданий не было». Теперь перезагружаем ТОЛЬКО если поверхность
+// реально пустая (белый экран), а не просто «долго были в другом окне».
+const BLANK_CHECK_MS = 600
 const RELOAD_COOLDOWN_MS = 60_000
 const RELOAD_FLAG = 'nc.webviewRecover.reloadAt'
 
@@ -94,14 +99,9 @@ export function installWebviewRecover(): void {
       if (hiddenFor >= KICK_MS) {
         await nudgeNativeWindow()
       }
-      if (hiddenFor >= RELOAD_MS) {
-        await new Promise<void>((r) => window.setTimeout(r, 350))
-        if (!document.hidden) {
-          // After a long occlusion the surface is often white while the DOM is
-          // still “fine” in memory — soft-reload the frontend once.
-          softReloadUI()
-        }
-      } else if (looksBlank()) {
+      // Даём композитору шанс перерисовать, и только потом решаем про reload.
+      await new Promise<void>((r) => window.setTimeout(r, BLANK_CHECK_MS))
+      if (!document.hidden && looksBlank()) {
         softReloadUI()
       }
     } finally {

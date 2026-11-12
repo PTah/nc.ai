@@ -548,6 +548,7 @@ export namespace main {
 	    sessionId: string;
 	    project: string;
 	    itemsJson: string;
+	    historyLen: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new ChatTranscript(source);
@@ -558,6 +559,7 @@ export namespace main {
 	        this.sessionId = source["sessionId"];
 	        this.project = source["project"];
 	        this.itemsJson = source["itemsJson"];
+	        this.historyLen = source["historyLen"];
 	    }
 	}
 	export class ModelGroup {

@@ -1563,6 +1563,17 @@ func (a *App) logAgentLine(line string) {
 	_, _ = fmt.Fprintf(f, "%s %s\n", time.Now().Format("02.01.2006 15:04:05"), line)
 }
 
+// LogUIError пишет в agent.log сбои фронтенда (восстановление чата, потеря
+// транскрипта). Без этого пустой чат после перезагрузки WebView не оставлял
+// никакого следа: пользователь видел «история пуста», а в логах — тишина.
+func (a *App) LogUIError(where, message string) {
+	where = strings.TrimSpace(where)
+	if where == "" {
+		where = "ui"
+	}
+	a.logAgentLine(fmt.Sprintf("[ui] %s: %s", where, truncateRunes(message, 500)))
+}
+
 func (a *App) emit(evt agent.Event) {
 	if a.ctx == nil {
 		return
@@ -4176,6 +4187,10 @@ type ChatTranscript struct {
 	SessionID string `json:"sessionId"`
 	Project   string `json:"project"`
 	ItemsJSON string `json:"itemsJson"`
+	// HistoryLen — сколько сообщений (llm.Message) лежит в истории сессии.
+	// Нужен фронту, чтобы отличить «чат действительно пуст» от «транскрипт
+	// потерялся при перезагрузке WebView, а история на диске цела».
+	HistoryLen int `json:"historyLen"`
 }
 
 // LoadChatTranscript возвращает активный чат указанного проекта (пусто — текущий)
@@ -4204,7 +4219,25 @@ func (a *App) LoadChatTranscript(projectPath string) (*ChatTranscript, error) {
 	if strings.TrimSpace(items) == "" {
 		items = "[]"
 	}
-	return &ChatTranscript{SessionID: sess.ID, Project: projectPath, ItemsJSON: items}, nil
+	return &ChatTranscript{SessionID: sess.ID, Project: projectPath, ItemsJSON: items, HistoryLen: len(sess.History)}, nil
+}
+
+// RestoreItemsFromHistory пересобирает транскрипт чата из истории сессии
+// (llm.Message). Нужен, когда itemsJson пуст/битый, а история на диске жива:
+// после перезагрузки WebView пользователь должен увидеть прежний диалог, а не
+// «история пуста». Карточки инструментов не восстанавливаются — только реплики.
+func (a *App) RestoreItemsFromHistory(projectPath, sessionID string) (string, error) {
+	if a.chats == nil {
+		return "[]", fmt.Errorf("chat store unavailable")
+	}
+	if strings.TrimSpace(projectPath) == "" {
+		projectPath = a.projectKey()
+	}
+	sess, err := a.chats.Get(projectPath, sessionID)
+	if err != nil {
+		return "[]", err
+	}
+	return chatstore.ItemsFromHistory(sess.History), nil
 }
 
 // ListChatSessions returns all chat tabs for the given project (empty — the open one).

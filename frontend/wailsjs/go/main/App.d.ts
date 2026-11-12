@@ -147,6 +147,8 @@ export function LoadChatTranscript(arg1:string):Promise<main.ChatTranscript>;
 
 export function LocalBuildHash():Promise<string>;
 
+export function LogUIError(arg1:string,arg2:string):Promise<void>;
+
 export function MCPAuthStatus(arg1:string):Promise<boolean>;
 
 export function MCPLogoutOAuth(arg1:string):Promise<void>;
@@ -212,6 +214,8 @@ export function ResetNetworkStats():Promise<void>;
 export function ResolveToolApproval(arg1:string,arg2:string,arg3:boolean):Promise<void>;
 
 export function ResolveUserAsk(arg1:string,arg2:string,arg3:string):Promise<void>;
+
+export function RestoreItemsFromHistory(arg1:string,arg2:string):Promise<string>;
 
 export function RunAgent(arg1:string):Promise<void>;
 

@@ -85,29 +85,69 @@ go vet ./... && go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 - Не тянет CodeQL/Joern/CPG в `internal/` — это отдельные внешние серверы, если понадобятся.
 - Не отправляет код в облако: `security_check`/`semgrep_scan` работают локально.
 
-## Проверка 4624 (одна запись на пачку SSH-команд)
+## Проверка 4624 (одна запись на пачку команд)
 
-Агент держит одну SSH-сессию на хост, поэтому серия команд должна давать **один** вход в журнале
-Windows, а не запись на каждую команду. Проверяется только на машине с SSH-сервером и правами
-администратора (журнал Security иначе не читается):
+Проверено вживую 2026-11-12 на доменном контроллере `WIN-DC01` (10.0.0.1) учёткой
+`b26\jdoe` из `D:\Soft\Git\logins` (админ, журнал Security читается).
+
+**Результат замера:**
+
+| Сценарий | Записей 4624 |
+|---|---|
+| 10 команд внутри одной `PSSession` (WinRM) | **0** новых |
+| открытие самой сессии | 1–3 (type 3, `NtLmSsp`/`Kerberos`) |
+| 10 отдельных `Invoke-Command -ComputerName` | **41** |
+
+То есть «одна сессия на хост» работает: команды внутри неё не логинятся заново, а наивный вызов
+«по одному соединению на шаг» даёт ~4 записи на команду. На Windows-хостах `sshd` не установлен
+(порт 22 закрыт на всех из `logins`), поэтому путь там — WinRM-сессия, а не ssh.
+
+Замер (Windows-клиент, журнал локализован — поэтому считаем по **XML-полям**, а не по тексту
+сообщения; `Message -match 'Logon Type:'` на русской Windows не находит ничего):
 
 ```powershell
-# 1. Сколько входов было до серии
-$before = (Get-WinEvent -FilterHashtable @{LogName='Security'; Id=4624} -MaxEvents 200 |
-  Where-Object { $_.Message -match 'Logon Type:\s+5' }).Count
+# креды из logins (пароль не печатать)
+$p='D:\Soft\Git\logins'; $lines=Get-Content $p
+$hdr=($lines[10].TrimStart('#') -split "`t") | ForEach-Object { $_.Trim() }
+$pwIdx=[array]::IndexOf($hdr,'password')
+$f=($lines | Where-Object { $_ -match '^HP-SERV' } | Select-Object -First 1) -split "`t"
+$cred=New-Object System.Management.Automation.PSCredential($f[4].Trim(),
+  (ConvertTo-SecureString $f[$pwIdx].Trim() -AsPlainText -Force))
 
-# 2. Пять команд в одной сессии (брокер переиспользует соединение)
-& "$HOME\CursorRules\scripts\Invoke-RemoteSession.ps1" -Target user@host -Command "hostname"
-& "$HOME\CursorRules\scripts\Invoke-RemoteSession.ps1" -Target user@host -Command "whoami"
-& "$HOME\CursorRules\scripts\Invoke-RemoteSession.ps1" -Target user@host -Command "uname -a"
-& "$HOME\CursorRules\scripts\Invoke-RemoteSession.ps1" -Target user@host -Command "echo ok"
-& "$HOME\CursorRules\scripts\Invoke-RemoteSession.ps1" -Target user@host -Command "echo \$\$"
+$sb={ param($from) @(Get-WinEvent -FilterHashtable @{LogName='Security';Id=4624;StartTime=$from} |
+  ForEach-Object { $d=@{}; ([xml]$_.ToXml()).Event.EventData.Data |
+    ForEach-Object { $d[$_.Name]=$_.'#text' }
+    if($d['TargetUserName'] -eq 'jdoe'){ [pscustomobject]@{ Time=$_.TimeCreated; Type=$d['LogonType']; Process=$d['LogonProcessName'] } } }) }
 
-# 3. Прирост записей: ожидается 1 (type 5 — network logon), а не 5
-$after = (Get-WinEvent -FilterHashtable @{LogName='Security'; Id=4624} -MaxEvents 200 |
-  Where-Object { $_.Message -match 'Logon Type:\s+5' }).Count
-$after - $before
+# 1. одна сессия + 10 команд
+$s=New-PSSession -ComputerName 10.0.0.1 -Credential $cred
+$a0=Invoke-Command -Session $s -ScriptBlock { (Get-Date).AddSeconds(-1) }
+1..10 | ForEach-Object { Invoke-Command -Session $s -ScriptBlock { hostname } | Out-Null }
+$a1=Invoke-Command -Session $s -ScriptBlock { (Get-Date).AddSeconds(-1) }
+
+# 2. те же 10 команд отдельными соединениями
+1..10 | ForEach-Object { Invoke-Command -ComputerName 10.0.0.1 -Credential $cred -ScriptBlock { hostname } | Out-Null }
+$a2=Invoke-Command -Session $s -ScriptBlock { (Get-Date).AddSeconds(-1) }
+
+$all=Invoke-Command -Session $s -ScriptBlock $sb -ArgumentList $a0
+"в сессии: " + @($all | Where-Object { $_.Time -ge $a0 -and $_.Time -lt $a1 }).Count
+"по одному соединению: " + @($all | Where-Object { $_.Time -ge $a1 -and $_.Time -lt $a2 }).Count
+Remove-PSSession $s
 ```
+
+Ожидаемо: первая строка `0`, вторая — десятки. Если в первой не ноль — сессия переоткрывается
+(проверить живость брокера/консоли MCP, а не `ControlMaster` — на Windows OpenSSH мультиплексирование
+не работает).
+
+Мелочи, на которые легко попасться:
+
+- Журнал на русской Windows локализован: `Logon Type` / `Account Name` в тексте нет, только
+  `Тип входа` / `Имя учетной записи`. Считать по XML-полям (`LogonType`, `TargetUserName`,
+  `LogonProcessName`) — они не переводятся.
+- Аудит входа включён не везде: на `HP-SERV` (10.0.0.1) за сутки **ноль** событий 4624,
+  на контроллере домена — тысячи. Проверять на DC или на хосте с включённым
+  `Audit Logon` (Success).
+- WinRM по IP требует явных кредов: без `-Credential` клиент ругается на TrustedHosts.
 
 Если прирост больше единицы — сессия переоткрывается (проверить `ControlMaster`/`ControlPersist`
 или, на Windows-брокере, живость консоли MCP).

@@ -266,6 +266,10 @@ export function LocalBuildHash() {
   return window['go']['main']['App']['LocalBuildHash']();
 }
 
+export function LogUIError(arg1, arg2) {
+  return window['go']['main']['App']['LogUIError'](arg1, arg2);
+}
+
 export function MCPAuthStatus(arg1) {
   return window['go']['main']['App']['MCPAuthStatus'](arg1);
 }
@@ -396,6 +400,10 @@ export function ResolveToolApproval(arg1, arg2, arg3) {
 
 export function ResolveUserAsk(arg1, arg2, arg3) {
   return window['go']['main']['App']['ResolveUserAsk'](arg1, arg2, arg3);
+}
+
+export function RestoreItemsFromHistory(arg1, arg2) {
+  return window['go']['main']['App']['RestoreItemsFromHistory'](arg1, arg2);
 }
 
 export function RunAgent(arg1) {

@@ -97,6 +97,54 @@ func TestThinkingBlocksDroppedWhenThinkingDisabled(t *testing.T) {
 	}
 }
 
+// Модель без extended thinking и чужие anthropic-совместимые эндпоинты не
+// получают thinking, даже если агент его просит, — иначе 400.
+func TestThinkingGatedByModelSupport(t *testing.T) {
+	maxTok := 4096
+	req := &llm.ChatRequest{
+		Messages:  []llm.Message{{Role: "user", Content: "привет"}},
+		Thinking:  map[string]any{"type": "enabled"},
+		MaxTokens: &maxTok,
+	}
+	for _, m := range []string{"claude-3-opus-20240229", "claude-2.1", "deepseek-chat"} {
+		out, err := buildRequest(req, m)
+		if err != nil {
+			t.Fatalf("buildRequest(%s): %v", m, err)
+		}
+		if out.Thinking != nil {
+			t.Fatalf("модель %s не умеет thinking, а он ушёл: %+v", m, out.Thinking)
+		}
+	}
+	out, err := buildRequest(req, "claude-sonnet-4-20250514")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Thinking == nil {
+		t.Fatal("sonnet-4 должен получить thinking")
+	}
+}
+
+// Бюджет меньше 1024 запрещён API — зажимаем до минимума.
+func TestThinkingBudgetClamped(t *testing.T) {
+	maxTok := 3000
+	req := &llm.ChatRequest{
+		Messages:  []llm.Message{{Role: "user", Content: "привет"}},
+		Thinking:  map[string]any{"type": "enabled", "budget_tokens": 128},
+		MaxTokens: &maxTok,
+	}
+	out, err := buildRequest(req, "claude-sonnet-4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, ok := out.Thinking["budget_tokens"].(int)
+	if !ok || b < 1024 {
+		t.Fatalf("budget_tokens=%v, want >=1024", out.Thinking["budget_tokens"])
+	}
+	if out.MaxTokens <= b {
+		t.Fatalf("max_tokens=%d не больше бюджета %d", out.MaxTokens, b)
+	}
+}
+
 func TestParseResponseKeepsSignature(t *testing.T) {
 	resp := &apiResponse{
 		ID:    "msg_1",

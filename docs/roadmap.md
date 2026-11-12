@@ -67,7 +67,7 @@
 | 7 | ~~Anthropic `signature`~~ — сделано в 1.2.0: `llm.ThinkingBlock`, блоки возвращаются в tool-loop с подписью, `thinking` включается по `req.Thinking`, при выключенном рассуждении блоки не отправляются; тесты `anthropic/thinking_test.go` | `internal/llm/providers/anthropic/adapter.go`, `stream.go` | готово |
 | 8 | ~~Параллельные подагенты~~ — сделано в 1.2.0: `SubagentsParallel` (1–8), семафор в `runTask`, группа `task` идёт одновременно; по умолчанию по очереди | `internal/agent/subrun.go`, `Settings → Agent` | готово |
 | 9 | ~~Замеры «граф быстрее grep»~~ — сделано в 1.2.0: `cmd/indexprobe`, отчёт `docs/reports/2026-11-12-index-vs-grep.md` (20 вызовов/3.3 КБ против 40/392 КБ) | `cmd/indexprobe/main.go` | готово |
-| 10 | Проверка 4624 на живой Windows: **не выполнена** — на этом ПК нет `sshd`, журнал Security требует прав администратора. Рецепт проверки — `docs/security-review.md`, раздел «Проверка 4624» | Windows + журнал Security | 5 минут |
+| 10 | ~~Проверка 4624 на живой Windows~~ — **сделано 2026-11-12** на `WIN-DC01` (доменная учётка из `logins`, админ): 10 команд в одной `PSSession` → **0** новых 4624, 10 отдельных `Invoke-Command` → **41**. На Windows-хостах `sshd` не установлен, путь — WinRM. Рецепт и грабли (локализованный журнал, аудит не везде) — `docs/security-review.md` | Windows + журнал Security | готово |
 
 ### Лимиты провайдеров: что уже сделано и что осталось (1.1.16+)
 

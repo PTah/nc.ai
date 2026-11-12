@@ -1,3 +1,4 @@
+// Edited by nc.ai 1.2.0 on new-admin-pc 2026-11-12 11:08:00
 package tools
 
 import (
@@ -5,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -75,10 +77,20 @@ func TestMultiRootScopeKnowsAllFolders(t *testing.T) {
 	if issue := run.CommandScopeIssue("run_terminal", cmd); issue != nil {
 		t.Fatalf("путь в соседней папке пространства — не «вне проекта»: %+v", issue)
 	}
-	cmd = `{"command":"echo x > /usr/local/nc-ai-outside.txt","cwd":"api"}`
+	cmd = `{"command":"echo x > ` + outsidePath(t) + `","cwd":"api"}`
 	if issue := run.CommandScopeIssue("run_terminal", cmd); issue == nil {
 		t.Fatal("путь вне пространства должен требовать подтверждения")
 	}
+}
+
+// outsidePath — абсолютный путь, заведомо лежащий вне корней пространства, на
+// любой ОС: на Windows `/usr/local` не считается абсолютным, поэтому тест раньше
+// падал именно там.
+func outsidePath(t *testing.T) string {
+	if runtime.GOOS == "windows" {
+		return filepath.ToSlash(filepath.Join(os.TempDir(), "nc-ai-outside.txt"))
+	}
+	return "/usr/local/nc-ai-outside.txt"
 }
 
 func TestMultiRootFileToolsUseFolderNames(t *testing.T) {
