@@ -147,6 +147,21 @@ Remove-PSSession $s
 - Аудит входа включён не везде: на `HP-SERV` (10.0.0.1) за сутки **ноль** событий 4624,
   на контроллере домена — тысячи. Проверять на DC или на хосте с включённым
   `Audit Logon` (Success).
+
+## Размер и хранение журнала Security
+
+Меняется **одной политикой на весь домен**, а не на каждой машине:
+Computer Configuration → Policies → Administrative Templates → Windows Components →
+Event Log Service → Security → «Specify the maximum log file size» и «Control the Event Log
+behavior when the log file reaches its maximum size» (retention). На отдельной машине то же самое
+делает `wevtutil sl Security /maxsize:<байт> /retention:<0|1|2>`.
+
+При 2–3 тыс. записей 4624 в час на DC дефолтных 20 МБ хватает на ~10–15 часов — журнал
+прокручивается быстрее суток. Рекомендация: `MaxSize` ≥ 512 МБ (524288 КБ) и retention = 0
+(перезаписывать по мере заполнения), чтобы разбор инцидента всегда имел хотя бы сутки входов.
+Замечание по применению: настройка кладётся в `registry.pol` GPO, поэтому править её надо через
+GPMC на машине с доступом к SYSVOL (по сети от доменной учётки с отфильтрованным токеном GPMC
+отдаёт Access Denied — это нормальная защита UAC).
 - WinRM по IP требует явных кредов: без `-Credential` клиент ругается на TrustedHosts.
 
 Если прирост больше единицы — сессия переоткрывается (проверить `ControlMaster`/`ControlPersist`

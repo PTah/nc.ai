@@ -2440,6 +2440,10 @@ export default function App() {
   const lastRequestRef = useRef<{text: string; atts: PendingAtt[]} | null>(null)
   const lastModelRef = useRef<Record<string, string>>({})
   const busyBySessionRef = useRef<Record<string, boolean>>({})
+  // registeredRunsRef: runId, о которых фронт уже знает (завёл дорожку). Нужен,
+  // чтобы setRunLaneItems не заводил дубликат, когда событие пришло раньше, чем
+  // useEffect доcинхронил состояние — иначе «Stop» гаснет или дорожка двоится.
+  const registeredRunsRef = useRef<Record<string, boolean>>({})
   const queuesRef = useRef<Record<string, QueuedMsg[]>>({})
   const itemsBySessionRef = useRef<Record<string, ChatItem[]>>({})
   const runLanesRef = useRef<Record<string, Record<string, ChatItem[]>>>({})
@@ -2992,6 +2996,17 @@ export default function App() {
 
   const setRunLaneItems = useCallback((sessionId: string, runId: string, updater: (prev: ChatItem[]) => ChatItem[]) => {
     if (!sessionId || !runId) return
+    const key = `${sessionId}|${runId}`
+    // Самовосстановление: если прогон пережил перезагрузку WebView, а события всё
+    // ещё идут, дорожка (runOrder/busy) может отсутствовать. Тогда ответ рисуется,
+    // но Stop неактивен и «идёт прогон» блокирует выход — поднимаем busy из потока.
+    if (!registeredRunsRef.current[key]) {
+      registeredRunsRef.current[key] = true
+      setRunOrder((prev) => prev[sessionId]?.includes(runId)
+        ? prev
+        : {...prev, [sessionId]: [...asList(prev[sessionId]), runId]})
+      setRunCountBySession((prev) => ({...prev, [sessionId]: (prev[sessionId] || 0) + 1}))
+    }
     // runLanesRef — единственный источник правды по содержимому дорожек:
     // обновляем его синхронно, а состояние зеркалим. Иначе finishRunLane,
     // читая ref, синхронизированный через useEffect, мог получить устаревший
@@ -3009,6 +3024,7 @@ export default function App() {
   // of the same chat are still running.
   const finishRunLane = useCallback((sessionId: string, runId: string) => {
     if (!sessionId) return
+    delete registeredRunsRef.current[`${sessionId}|${runId}`]
     const prev = runLanesRef.current
     const lane = asList(prev[sessionId]?.[runId])
     const lanes = {...(prev[sessionId] || {})}
@@ -3071,7 +3087,10 @@ export default function App() {
   // останавливать — со стороны это выглядело как «кнопки не реагируют».
   const abandonRuns = useCallback((sid: string) => {
     const lanes = Object.keys(runLanesRef.current[sid] || {})
-    for (const runId of lanes) finishRunLane(sid, runId)
+    for (const runId of lanes) {
+      finishRunLane(sid, runId)
+      delete registeredRunsRef.current[`${sid}|${runId}`]
+    }
     setRunCountBySession((prev) => (prev[sid] ? {...prev, [sid]: 0} : prev))
     setRunOrder((prev) => (prev[sid]?.length ? {...prev, [sid]: []} : prev))
   }, [finishRunLane])
@@ -3097,12 +3116,13 @@ export default function App() {
   }, [abandonRuns, setSessionItems])
   reconcileRunsRef.current = reconcileRuns
 
-  // Watchdog: пока на экране есть «занятые» чаты, раз в 3 с сверяемся с
-  // бэкендом. Две подряд сверки «прогонов нет» (≈6 с) — событие завершения
-  // потеряно, закрываем дорожки сами. Иначе очередь и Stop висят до перезапуска.
+  // Watchdog: раз в 3 с сверяем экран с бэкендом в ОБЕ стороны.
+  //  - busy на экране, а бэкенд свободен (2 раза подряд) — событие завершения
+  //    потеряно, закрываем дорожки сами (очередь и Stop иначе висят до перезапуска).
+  //  - бэкенд говорит «идёт прогон», а экран уже сбросил busy (перезагрузка WebView
+  //    посреди прогона) — возвращаем busy, чтобы Stop был активен и выход не
+  //    зависал на «идёт прогон» без возможности остановиться.
   useEffect(() => {
-    const ids = Object.keys(busyBySession).filter((sid) => busyBySession[sid])
-    if (ids.length === 0) return
     let cancelled = false
     const zeros: Record<string, number> = {}
     const tick = async () => {
@@ -3113,9 +3133,15 @@ export default function App() {
         return
       }
       if (cancelled) return
-      for (const sid of ids) {
-        if (!busyBySessionRef.current[sid]) continue
-        if (live.includes(sid)) {
+      const liveSet = new Set(live)
+      for (const sid of liveSet) {
+        if (!busyBySessionRef.current[sid]) {
+          setRunCountBySession((prev) => ({...prev, [sid]: Math.max(1, prev[sid] || 0)}))
+        }
+      }
+      const busyIds = Object.keys(busyBySessionRef.current).filter((sid) => busyBySessionRef.current[sid])
+      for (const sid of busyIds) {
+        if (liveSet.has(sid)) {
           zeros[sid] = 0
           continue
         }
@@ -3131,7 +3157,7 @@ export default function App() {
       cancelled = true
       window.clearInterval(timer)
     }
-  }, [busyBySession, reconcileRuns])
+  }, [reconcileRuns])
 
   // Closes the streaming reasoning block and stamps how long the model thought.
   const closeReasoningIn = useCallback((key: string, apply: (updater: (prev: ChatItem[]) => ChatItem[]) => void) => {
@@ -6193,6 +6219,7 @@ async function refreshYandexModels(opts?: {applyPreferred?: boolean; notify?: bo
     // into that lane. The backend routes events back by this same id.
     const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     const key = `${sid}|${runId}`
+    registeredRunsRef.current[key] = true
     lastRequestRef.current = {text, atts}
     setRetryVisible(false)
     assistantBuf.current[key] = ''
