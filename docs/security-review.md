@@ -147,6 +147,38 @@ Remove-PSSession $s
 - Аудит входа включён не везде: на `HP-SERV` (10.0.0.1) за сутки **ноль** событий 4624,
   на контроллере домена — тысячи. Проверять на DC или на хосте с включённым
   `Audit Logon` (Success).
+- WinRM по IP требует явных кредов: без `-Credential` клиент ругается на TrustedHosts.
+
+## Зависший gpupdate /force: Software Installation с недоступным источником
+
+Зафиксировано 2026-11-12 на `HP-SERV`: `gpupdate /force` висел 5+ минут, плодя дочерние `svchost`
+(CSE) с большим CPU. В `Microsoft-Windows-GroupPolicy/Operational` ошибок нет, но перед каждым
+зависанием — событие **8016** «Расширение Software Installation запрашивает процесс режима
+синхронизации».
+
+Причина: GPO **«Install LLDP agent»** публикует MSI через Software Installation с источником
+`\\b26\NETLOGON\lldp\`, а этот путь **недоступен** (отказано в доступе), пакет не установлен.
+На каждом `/force` CSE Software Installation снова лезет в мёртвый источник и ждёт.
+
+Что сделано (обратимо): у GPO выставлен флаг «computer-side disabled» (AD-атрибут `flags`: было `0`,
+стало `2`), бэкап в `C:\Temp\gpo-backup-<ts>-lldp` на DC. После этого `gpupdate /force` на HP-SERV
+занимает **8 секунд**.
+
+Как вернуть/починить:
+
+```powershell
+# вернуть GPO как было (flags=0), если LLDP нужен
+$de = New-Object DirectoryServices.DirectoryEntry('LDAP://CN={49FA48AF-E923-4D11-8917-57123476DF48},CN=Policies,CN=System,DC=b26,DC=example,DC=ru')
+$de.Properties['flags'][0] = 0; $de.CommitChanges()
+```
+
+Правильный долгий фикс (если агент нужен): не хранить MSI на `NETLOGON`/`SYSVOL` (Microsoft это не
+поддерживает), а положить пакет на обычную файловую шару/DFS с правом чтения для `Domain Computers`,
+и перевыпустить пакет в GPO. Если LLDP не нужен — удалить GPO.
+
+Совет на будущее: на серверах с назначенными (assigned) пакетами Software Installation **не
+использовать `gpupdate /force`** — он инициирует синхронизацию установки; хватает
+`gpupdate /target:user` или обычного обновления политики.
 
 ## Размер и хранение журнала Security
 
@@ -156,13 +188,10 @@ Event Log Service → Security → «Specify the maximum log file size» и «Co
 behavior when the log file reaches its maximum size» (retention). На отдельной машине то же самое
 делает `wevtutil sl Security /maxsize:<байт> /retention:<0|1|2>`.
 
-При 2–3 тыс. записей 4624 в час на DC дефолтных 20 МБ хватает на ~10–15 часов — журнал
-прокручивается быстрее суток. Рекомендация: `MaxSize` ≥ 512 МБ (524288 КБ) и retention = 0
-(перезаписывать по мере заполнения), чтобы разбор инцидента всегда имел хотя бы сутки входов.
+Текущее состояние домена (проверено 2026-11-12): GPO уже задаёт **1 ГБ и «перезаписывать по мере
+заполнения»** (`HKLM\SOFTWARE\Policies\Microsoft\Windows\EventLog\Security`: `MaxSize=1048576` КБ,
+`Retention=0`). При 2–3 тыс. записей 4624 в час это ≈ 2–3 недели истории — достаточно; поднимать до
+2 ГБ смысл есть только если нужен гарантированный месяц.
 Замечание по применению: настройка кладётся в `registry.pol` GPO, поэтому править её надо через
 GPMC на машине с доступом к SYSVOL (по сети от доменной учётки с отфильтрованным токеном GPMC
 отдаёт Access Denied — это нормальная защита UAC).
-- WinRM по IP требует явных кредов: без `-Credential` клиент ругается на TrustedHosts.
-
-Если прирост больше единицы — сессия переоткрывается (проверить `ControlMaster`/`ControlPersist`
-или, на Windows-брокере, живость консоли MCP).

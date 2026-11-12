@@ -2444,6 +2444,11 @@ export default function App() {
   // чтобы setRunLaneItems не заводил дубликат, когда событие пришло раньше, чем
   // useEffect доcинхронил состояние — иначе «Stop» гаснет или дорожка двоится.
   const registeredRunsRef = useRef<Record<string, boolean>>({})
+  // finishedAtRef: когда по сессии последний раз приходил done/error. Нужен
+  // watchdog'у, чтобы не «воскрешать» busy сразу после штатного завершения:
+  // ActiveRuns ещё мгновение отдаёт сессию, и раньше это давало ложную запись
+  // «сигнал о завершении не дошёл» после КАЖДОГО ответа.
+  const finishedAtRef = useRef<Record<string, number>>({})
   const queuesRef = useRef<Record<string, QueuedMsg[]>>({})
   const itemsBySessionRef = useRef<Record<string, ChatItem[]>>({})
   const runLanesRef = useRef<Record<string, Record<string, ChatItem[]>>>({})
@@ -3047,6 +3052,7 @@ export default function App() {
   // own project (backend resolves the owner), so the answer is never lost.
   const finishRunUI = useCallback((sid: string, runId?: string) => {
     if (!sid) return
+    finishedAtRef.current[sid] = Date.now()
     const key = runId ? `${sid}|${runId}` : sid
     if (runId) {
       if (finishedRunKeysRef.current.has(key)) return
@@ -3107,11 +3113,18 @@ export default function App() {
     }
     if (!busyBySessionRef.current[sid]) return false
     if (live.includes(sid)) return false
+    const hadLanes = Object.keys(runLanesRef.current[sid] || {}).length > 0
     abandonRuns(sid)
-    setSessionItems(sid, (m) => [...m, {
-      kind: 'system',
-      content: '↩ Прогон на бэкенде уже завершён, а сигнал о завершении не дошёл — состояние чата восстановлено, очередь пошла дальше.',
-    }])
+    // Записку в чат пишем только если реально закрывали дорожку (было что
+    // терять). Иначе это ложное срабатывание — достаточно строки в логе.
+    if (hadLanes) {
+      setSessionItems(sid, (m) => [...m, {
+        kind: 'system',
+        content: '↩ Прогон на бэкенде уже завершён, а сигнал о завершении не дошёл — состояние чата восстановлено, очередь пошла дальше.',
+      }])
+    } else {
+      void LogUIError('reconcile-runs', `backend свободен, а UI считал сессию занятой (sid=${sid}) — busy снят без потери дорожек`).catch(() => undefined)
+    }
     return true
   }, [abandonRuns, setSessionItems])
   reconcileRunsRef.current = reconcileRuns
@@ -3135,9 +3148,11 @@ export default function App() {
       if (cancelled) return
       const liveSet = new Set(live)
       for (const sid of liveSet) {
-        if (!busyBySessionRef.current[sid]) {
-          setRunCountBySession((prev) => ({...prev, [sid]: Math.max(1, prev[sid] || 0)}))
-        }
+        if (busyBySessionRef.current[sid]) continue
+        // Только что пришёл done/error, а ActiveRuns ещё мгновение отдаёт сессию:
+        // не воскрешаем busy, иначе через 6 с получим ложное «сигнал не дошёл».
+        if (Date.now() - (finishedAtRef.current[sid] || 0) < 15000) continue
+        setRunCountBySession((prev) => ({...prev, [sid]: Math.max(1, prev[sid] || 0)}))
       }
       const busyIds = Object.keys(busyBySessionRef.current).filter((sid) => busyBySessionRef.current[sid])
       for (const sid of busyIds) {
