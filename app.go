@@ -10,6 +10,7 @@
 // Edited by nc.ai 1.1.15 on new-admin-pc 2026-11-11 10:48:51
 // Edited by nc.ai 1.1.15 on macbook 2026-11-11 21:30:05
 // Edited by nc.ai 1.1.17 on new-admin-pc 2026-11-12 09:48:50
+// Edited by nc.ai 1.2.4 on macbook 2026-11-12 20:10:09
 package main
 
 import (
@@ -40,6 +41,7 @@ import (
 	"notcursor.ai/app/internal/costing"
 	"notcursor.ai/app/internal/dockicon"
 	"notcursor.ai/app/internal/fsx"
+	"notcursor.ai/app/internal/gitrepo"
 	"notcursor.ai/app/internal/gitx"
 	"notcursor.ai/app/internal/llm"
 	"notcursor.ai/app/internal/llm/providers/anthropic"
@@ -98,6 +100,10 @@ type App struct {
 	updMu   sync.Mutex
 	updInfo update.Info
 	updAt   time.Time
+	// updateSeenMu/lastUpdateVersion — чтобы фоновая перепроверка не показывала
+	// одну и ту же плашку об обновлении каждые полчаса.
+	updateSeenMu      sync.Mutex
+	lastUpdateVersion string
 	// priceNoticeSeen remembers the last failure notice per provider: a flaky
 	// price endpoint should not repeat the same line in the chat.
 	priceNoticeMu   sync.Mutex
@@ -221,6 +227,7 @@ func (a *App) startup(ctx context.Context) {
 	}
 	a.tools = tools.NewRegistry(a.ws, a.sshDir)
 	a.tools.SwitchProject = a.resolveProjectSwitch
+	a.tools.CreateProject = a.createProjectForAgent
 	a.tools.Chats = a.chats
 	a.tools.Shell = shell.ResolveShell(a.cfg.Get().Shell)
 	a.mcp = mcp.NewManager()
@@ -308,6 +315,7 @@ func (a *App) backgroundLoop() {
 	a.backgroundRepoCheck()
 	lastNews := time.Now()
 	lastRepos := time.Now()
+	lastUpdate := time.Now()
 	ticker := time.NewTicker(30 * time.Minute)
 	defer ticker.Stop()
 	for {
@@ -315,6 +323,13 @@ func (a *App) backgroundLoop() {
 		case <-a.ctx.Done():
 			return
 		case now := <-ticker.C:
+			// Перепроверка обновлений: локальное зеркало может быть недоступно
+			// минуту-другую (VPN, Wi-Fi), и без повтора приложение остаётся на
+			// GitHub до перезапуска.
+			if now.Sub(lastUpdate) >= 30*time.Minute {
+				lastUpdate = now
+				a.checkUpdateAndNotify()
+			}
 			if now.Sub(lastNews) >= 8*time.Hour {
 				lastNews = now
 				a.backgroundNewsRefresh()
@@ -464,9 +479,28 @@ func (a *App) autoCheckUpdate() {
 	case <-a.ctx.Done():
 		return
 	}
-	if info := a.checkUpdate(); info.Available {
-		runtime.EventsEmit(a.ctx, "update:available", info)
+	a.checkUpdateAndNotify()
+}
+
+// checkUpdateAndNotify проверяет обновления и трогает UI только если появилась
+// версия, о которой мы ещё не сообщали: фоновую перепроверку (раз в 30 минут)
+// иначе пришлось бы показывать одной и той же плашкой.
+//
+// Сам перепровод нужен из-за локального зеркала: разовый обрыв маршрута до
+// домашнего Gitea раньше оставлял приложение «на GitHub» до перезапуска.
+func (a *App) checkUpdateAndNotify() {
+	info := a.checkUpdate()
+	if !info.Available {
+		return
 	}
+	a.updateSeenMu.Lock()
+	seen := a.lastUpdateVersion
+	a.lastUpdateVersion = info.Latest
+	a.updateSeenMu.Unlock()
+	if seen == info.Latest {
+		return
+	}
+	runtime.EventsEmit(a.ctx, "update:available", info)
 }
 
 // checkUpdate сверяет текущую версию с последним релизом: сначала со своего
@@ -2044,11 +2078,19 @@ func (a *App) GetProviderNews(force bool) (providernews.Payload, error) {
 	}
 	fresh, rerr := providernews.Refresh(context.Background(), prev)
 	if rerr != nil {
+		a.logAgentLine("news refresh failed: " + rerr.Error())
 		return payload, rerr
+	}
+	// Сбой отдельного источника не валит обновление (лента просто остаётся
+	// прежней), но в логе это должно быть видно: иначе «не ответили: …» в UI
+	// ничем не подтвердить.
+	for _, se := range fresh.Errors {
+		a.logAgentLine(fmt.Sprintf("news source %s failed: %s", se.Provider, se.Message))
 	}
 	analyzed, notice := a.analyzeNewsItems(&fresh)
 	out := providernews.PayloadOf(fresh, time.Now())
 	if notice != "" {
+		a.logAgentLine("news analysis notice: " + notice)
 		out.AnalysisNotice = notice
 	} else if analyzed > 0 {
 		out.AnalysisNotice = fmt.Sprintf("ИИ-анализ готов: %d записей", analyzed)
@@ -3661,6 +3703,191 @@ func (a *App) resolveProjectSwitch(ctx context.Context, name, handoff string) (s
 		"__switch_project__": map[string]any{"path": target, "handoff": handoff},
 	})
 	return string(payload), nil
+}
+
+// GitHosts отдаёт список хостингов для настроек, с флагом наличия токена
+// (сами токены в UI и логи не уходят).
+func (a *App) GitHosts() []map[string]any {
+	out := []map[string]any{}
+	for _, h := range a.cfg.GitHostsList() {
+		out = append(out, map[string]any{
+			"name":         h.Name,
+			"kind":         h.Kind,
+			"baseUrl":      h.BaseURL,
+			"sshBase":      h.SSHBase,
+			"owner":        h.Owner,
+			"pushToCreate": h.PushToCreate,
+			"default":      h.Default,
+			"hasToken":     a.cfg.GitTokenFor(h.Name) != "",
+		})
+	}
+	return out
+}
+
+// SaveGitHosts сохраняет список хостингов (имя, тип, адреса, владелец).
+func (a *App) SaveGitHosts(hosts []config.GitHost) error {
+	if err := a.cfg.SetGitHosts(hosts); err != nil {
+		return err
+	}
+	a.logAgentLine(fmt.Sprintf("git hosts saved: %d", len(hosts)))
+	return nil
+}
+
+// SaveGitTokenFor сохраняет токен хостинга (нужен только для создания репозитория
+// по API; push идут через обычный git на машине).
+func (a *App) SaveGitTokenFor(host, token string) error {
+	return a.cfg.SetGitTokenFor(host, token)
+}
+
+// createProjectForAgent — тул create_project: папка → git init с первым коммитом
+// → пустой репозиторий на Gitea/GitHub → push → проект в дашборде. Возвращает
+// маркер switch_project, чтобы прогон переехал в новый проект.
+//
+// Ошибка хостинга не отменяет локальную часть: проект уже создан и открыт, а в
+// ответе будет сказано, что именно не получилось (нет токена, нет прав, занято
+// имя) — так пользователь не теряет работу из-за сети.
+func (a *App) createProjectForAgent(ctx context.Context, args tools.CreateProjectArgs) (string, error) {
+	name := strings.TrimSpace(args.Name)
+	if name == "" {
+		return "", fmt.Errorf("name is required")
+	}
+	if strings.ContainsAny(name, `/\:*?"<>| `) {
+		return "", fmt.Errorf("имя проекта %q содержит недопустимые символы: пробелы и / \\ : * ? \" < > |", name)
+	}
+	parent := strings.TrimSpace(args.Dir)
+	if parent == "" {
+		parent = a.projectDialogDir()
+	}
+	p, err := a.ws.NewFolder(parent, name)
+	if err != nil {
+		return "", err
+	}
+	if absParent, err := filepath.Abs(parent); err == nil {
+		_ = a.cfg.SetLastProjectParent(absParent)
+	}
+
+	notes := []string{}
+	if _, err := a.tools.Git.InitRepo(p.Path, name, args.Description); err != nil {
+		return "", fmt.Errorf("репозиторий создан в %s, но git init не удался: %w", p.Path, err)
+	}
+	notes = append(notes, "локальный репозиторий создан, первый коммит сделан")
+
+	remoteURL := ""
+	// Хостинг ищем по имени из настроек («Home», «kalinamall», «github»). Если не
+	// указан — берём помеченный default.
+	hostName := strings.TrimSpace(args.Remote)
+	host, hostOK := gitrepo.Host{}, false
+	if hostName != "" && !strings.EqualFold(hostName, "none") && !strings.EqualFold(hostName, "local") {
+		if h, ok := a.cfg.GitHostByName(hostName); ok {
+			host = hostFromConfig(h)
+			hostOK = true
+		} else if h, ok := a.cfg.DefaultGitHost(); ok {
+			host = hostFromConfig(h)
+			hostOK = true
+			notes = append(notes, fmt.Sprintf("хостинг %q не найден — взял по умолчанию (%s)", hostName, host.Name))
+		} else {
+			notes = append(notes, fmt.Sprintf("хостинг %q не найден в настройках; проект остался локальным", hostName))
+		}
+	} else if hostName == "" {
+		if h, ok := a.cfg.DefaultGitHost(); ok {
+			host = hostFromConfig(h)
+			hostOK = true
+		}
+	}
+	if hostOK {
+		owner := host.OwnerOr(args.Owner)
+		token := a.cfg.GitTokenFor(host.Name)
+		sshURL, httpsURL := host.RepoURLs(owner, name)
+		created := false
+		if token != "" {
+			res, err := gitrepo.NewClient().Create(ctx, gitrepo.Request{
+				Kind:        host.KindOf(),
+				BaseURL:     host.BaseURL,
+				Token:       token,
+				Owner:       owner,
+				Name:        name,
+				Description: args.Description,
+				Private:     args.Private,
+			})
+			if err != nil {
+				notes = append(notes, fmt.Sprintf("репозиторий на %s не создан: %v", host.Name, err))
+			} else {
+				created = true
+				if s := strings.TrimSpace(res.SSHURL); s != "" {
+					sshURL = s
+				}
+				if c := strings.TrimSpace(res.CloneURL); c != "" {
+					httpsURL = c
+				}
+				if page := strings.TrimSpace(res.HTMLURL); page != "" {
+					notes = append(notes, "страница: "+page)
+				}
+			}
+		} else if host.PushToCreate {
+			// Gitea умеет создавать репозиторий первым push-ем: токен не нужен,
+			// работает по уже настроенным на машине ключам.
+			created = true
+			notes = append(notes, "хостинг без токена — репозиторий создаю первым push-ем")
+		} else {
+			notes = append(notes, fmt.Sprintf("у хостинга %s нет токена и не включено создание push-ем — "+
+				"репозиторий не создан, проект остался локальным", host.Name))
+		}
+		if created {
+			remoteURL = sshURL
+			if remoteURL == "" {
+				remoteURL = httpsURL
+			}
+			if remoteURL == "" {
+				notes = append(notes, "не удалось собрать адрес репозитория (проверьте baseUrl/sshBase хостинга)")
+			} else {
+				notes = append(notes, fmt.Sprintf("origin → %s", remoteURL))
+			}
+		}
+	}
+
+	if remoteURL != "" {
+		if err := a.tools.Git.AddRemote(p.Path, "origin", remoteURL); err != nil {
+			notes = append(notes, "remote не добавлен: "+err.Error())
+		} else if out, err := a.tools.Git.PushIn(p.Path, "origin", "master"); err != nil {
+			notes = append(notes, "push не прошёл: "+firstLine(out+"; "+err.Error()))
+		} else {
+			notes = append(notes, "ветка master запушена в origin")
+		}
+	}
+
+	a.logAgentLine("create_project: " + p.Path + " → " + strings.Join(notes, "; "))
+	handoff := fmt.Sprintf("Проект %s создан (%s). Дальше работаем в нём: %s.",
+		name, p.Path, strings.Join(notes, "; "))
+	payload, _ := json.Marshal(map[string]any{
+		"__switch_project__": map[string]any{"path": p.Path, "handoff": handoff},
+		"summary":            handoff,
+		"repoUrl":            remoteURL,
+	})
+	return string(payload), nil
+}
+
+// hostFromConfig превращает настройку хостинга в gitrepo.Host.
+func hostFromConfig(h config.GitHost) gitrepo.Host {
+	return gitrepo.Host{
+		Name:         h.Name,
+		Kind:         h.Kind,
+		BaseURL:      h.BaseURL,
+		SSHBase:      h.SSHBase,
+		Owner:        h.Owner,
+		PushToCreate: h.PushToCreate,
+	}
+}
+
+// firstLine обрезает длинный вывод git до одной строки для сообщений.
+func firstLine(s string) string {
+	s = strings.TrimSpace(s)
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		s = s[:i]
+	}
+	if len([]rune(s)) > 200 {
+		s = string([]rune(s)[:200])
+	}
+	return s
 }
 
 func (a *App) ListProjects() []workspace.Project {

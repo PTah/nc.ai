@@ -82,6 +82,12 @@ func (s *Service) run(args ...string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	return s.runIn(root, args...)
+}
+
+// runIn — тот же git, но в явно заданном каталоге: новый проект создаётся вне
+// текущего дерева, и открывать его в рабочем пространстве ради git init не нужно.
+func (s *Service) runIn(root string, args ...string) (string, error) {
 	timeout := gitCommandTimeout
 	if isNetworkCommand(args) {
 		timeout = gitNetworkTimeout
@@ -97,7 +103,7 @@ func (s *Service) run(args ...string) (string, error) {
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
-	err = cmd.Run()
+	err := cmd.Run()
 	out := strings.TrimSpace(stdout.String())
 	errText := strings.TrimSpace(stderr.String())
 	if err != nil {
@@ -183,6 +189,60 @@ func configuredSSHCommand(repoDir string) string {
 		}
 	}
 	return ""
+}
+
+// InitRepo готовит новый репозиторий: git init (ветка master), README.md,
+// .gitignore и первый коммит. Возвращает вывод коммита.
+func (s *Service) InitRepo(dir, name, description string) (string, error) {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
+		return "", fmt.Errorf("%s: здесь уже есть git-репозиторий", dir)
+	}
+	if out, err := s.runIn(dir, "init", "-b", "master"); err != nil {
+		return "", fmt.Errorf("git init: %w: %s", err, out)
+	}
+	readme := "# " + name + "\n"
+	if d := strings.TrimSpace(description); d != "" {
+		readme += "\n" + d + "\n"
+	}
+	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte(readme), 0o644); err != nil {
+		return "", err
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".gitignore")); os.IsNotExist(err) {
+		gitignore := ".DS_Store\nThumbs.db\nnode_modules/\nbuild/\ndist/\n.env\n"
+		if err := os.WriteFile(filepath.Join(dir, ".gitignore"), []byte(gitignore), 0o644); err != nil {
+			return "", err
+		}
+	}
+	if out, err := s.runIn(dir, "add", "-A"); err != nil {
+		return "", fmt.Errorf("git add: %w: %s", err, out)
+	}
+	out, err := s.runIn(dir, "commit", "-m", "chore: initial commit")
+	if err != nil {
+		return "", fmt.Errorf("git commit: %w: %s", err, out)
+	}
+	return out, nil
+}
+
+// AddRemote добавляет remote; если он уже есть — переписывает URL.
+func (s *Service) AddRemote(dir, name, url string) error {
+	if out, err := s.runIn(dir, "remote", "add", name, url); err == nil {
+		_ = out
+		return nil
+	}
+	if out, err := s.runIn(dir, "remote", "set-url", name, url); err != nil {
+		return fmt.Errorf("git remote: %w: %s", err, out)
+	}
+	return nil
+}
+
+// PushIn пушит ветку в указанном каталоге (используется новым проектом, который
+// ещё не открыт в рабочем пространстве). Сеть — с увеличенным таймаутом.
+func (s *Service) PushIn(dir, remote, branch string) (string, error) {
+	args := []string{"push", "-u", remote, branch}
+	return s.runIn(dir, args...)
 }
 
 func (s *Service) Status() (string, error) {

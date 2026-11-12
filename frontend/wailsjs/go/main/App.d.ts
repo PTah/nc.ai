@@ -109,6 +109,8 @@ export function GetWelcome(arg1:string):Promise<main.WelcomeInfo>;
 
 export function GetZaiBalance():Promise<zai.AccountBalance>;
 
+export function GitHosts():Promise<Array<Record<string, any>>>;
+
 export function InstallMCPPreset(arg1:string):Promise<mcp.InstallResult>;
 
 export function InstallUpdate():Promise<void>;
@@ -264,6 +266,10 @@ export function SaveFallbackModel(arg1:string):Promise<void>;
 export function SaveFallbackProvider(arg1:string):Promise<void>;
 
 export function SaveGitAuth(arg1:string,arg2:string):Promise<void>;
+
+export function SaveGitHosts(arg1:Array<config.GitHost>):Promise<void>;
+
+export function SaveGitTokenFor(arg1:string,arg2:string):Promise<void>;
 
 export function SaveHTTP2PingSec(arg1:number):Promise<void>;
 

@@ -22,6 +22,7 @@
 // Edited by nc.ai 1.1.15 on new-admin-pc 2026-11-11 10:49:01
 // Edited by nc.ai 1.1.15 on macbook 2026-11-11 21:30:10
 // Edited by nc.ai 1.1.17 on new-admin-pc 2026-11-12 09:49:52
+// Edited by nc.ai 1.2.5 on macbook 2026-11-12 20:30:12
 import {FormEvent, MouseEvent as ReactMouseEvent, useCallback, useEffect, useMemo, useRef, useState} from 'react'
 import {Terminal} from '@xterm/xterm'
 import {FitAddon} from '@xterm/addon-fit'
@@ -141,6 +142,9 @@ import {
   RestoreItemsFromHistory,
   LogUIError,
   SaveMCPServers,
+  GitHosts,
+  SaveGitHosts,
+  SaveGitTokenFor,
   StartMCPLogin,
   MCPLogoutOAuth,
   MCPStatuses,
@@ -2336,6 +2340,12 @@ export default function App() {
   const [mcpNewUrl, setMcpNewUrl] = useState('')
   // Итог OAuth-входа: id сервера → сообщение (ошибка или «подключено»).
   const [mcpAuthMsg, setMcpAuthMsg] = useState<Record<string, string>>({})
+  // Git-хостинги для тула create_project (имя → тип/адреса/владелец).
+  const [gitHosts, setGitHosts] = useState<Array<Record<string, any>>>([])
+  const [gitMsg, setGitMsg] = useState('')
+  const updateGitHost = (idx: number, patch: Record<string, any>) => {
+    setGitHosts((list) => list.map((h, i) => (i === idx ? { ...h, ...patch } : h)))
+  }
   const [mcpStatuses, setMcpStatuses] = useState<Array<Record<string, any>>>([])
   const [mcpPresets, setMcpPresets] = useState<Array<Record<string, any>>>([])
   // ✓ у пресета: сервер установлен и реально работает (state=running), иначе ↓.
@@ -3573,6 +3583,7 @@ export default function App() {
           setSubagentsParallel(s.subagentsParallel)
         }
         if (Array.isArray(s.mcpServers)) setMcpServers(s.mcpServers as Array<Record<string, any>>)
+        void GitHosts().then((v) => setGitHosts(asList(v as Array<Record<string, any>>))).catch(() => undefined)
         void MCPStatuses().then((v) => setMcpStatuses(asList(v as Array<Record<string, any>>))).catch(() => undefined)
         void MCPPresets().then((v) => setMcpPresets(asList(v as Array<Record<string, any>>))).catch(() => undefined)
         if (typeof s.appDataDir === 'string' && s.appDataDir) setAppDataDir(s.appDataDir)
@@ -8755,8 +8766,7 @@ async function refreshYandexModels(opts?: {applyPreferred?: boolean; notify?: bo
             </div>
             <div className="nc-mcp-add" style={{display: 'flex', gap: 6, margin: '0.4rem 0'}}>
               <input
-                value={mcpNewUrl}
-                onChange={(e) => setMcpNewUrl(e.target.value)}
+                value={mcpNewUrl}                onChange={(e) => setMcpNewUrl(e.target.value)}
                 placeholder="https://api.example.com/mcp"
                 style={{flex: 1}}
               />
@@ -8786,6 +8796,106 @@ async function refreshYandexModels(opts?: {applyPreferred?: boolean; notify?: bo
               URL-сервер — hosted MCP (Streamable HTTP). Только https, кроме localhost; токен
               авторизации пока задаётся вручную в настройках сервера. Интерактивный вход (OAuth) — следующий шаг.
             </p>
+            <h4 style={{margin: '0.9rem 0 0.3rem'}}>Git-хостинги (куда выкладывать новый репозиторий)</h4>
+            <p className="nc-help" style={{marginTop: 0}}>
+              Коммиты и пуши идут обычным git на машине — SSH-ключи и credential helper уже настроены,
+              дублировать входы не нужно. Токен нужен только чтобы <em>создать</em> репозиторий по API;
+              если у хостинга включено «создавать push-ем» (Gitea), токен не нужен вовсе.
+              Имя хостинга агент указывает в команде: «Выложи на Home / на гитхаб / на work».
+            </p>
+            {gitHosts.map((h, idx) => (
+              <div key={String(h.name || idx)} style={{border: '1px solid var(--nc-border, #3333)', borderRadius: 6, padding: '0.4rem 0.5rem', margin: '0.35rem 0'}}>
+                <div style={{display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap'}}>
+                  <input
+                    value={String(h.name || '')}
+                    placeholder="Home"
+                    style={{width: 110}}
+                    onChange={(e) => updateGitHost(idx, { name: e.target.value })}
+                  />
+                  <select value={String(h.kind || 'gitea')} onChange={(e) => updateGitHost(idx, { kind: e.target.value })}>
+                    <option value="gitea">Gitea</option>
+                    <option value="github">GitHub</option>
+                  </select>
+                  <input
+                    value={String(h.owner || '')}
+                    placeholder="владелец (PapaTramp)"
+                    style={{width: 160}}
+                    onChange={(e) => updateGitHost(idx, { owner: e.target.value })}
+                  />
+                  <label className="nc-help" style={{margin: 0, display: 'flex', gap: 4, alignItems: 'center'}}>
+                    <input
+                      type="checkbox"
+                      checked={Boolean(h.pushToCreate)}
+                      onChange={(e) => updateGitHost(idx, { pushToCreate: e.target.checked })}
+                    />
+                    создавать push-ем
+                  </label>
+                  <label className="nc-help" style={{margin: 0, display: 'flex', gap: 4, alignItems: 'center'}}>
+                    <input
+                      type="checkbox"
+                      checked={Boolean(h.default)}
+                      onChange={(e) => setGitHosts((list) => list.map((x, i) => ({ ...x, default: i === idx ? e.target.checked : false })))}
+                    />
+                    по умолчанию
+                  </label>
+                  <button type="button" onClick={() => setGitHosts((list) => list.filter((_, i) => i !== idx))}>Удалить</button>
+                </div>
+                <div style={{display: 'flex', gap: 6, alignItems: 'center', marginTop: 4, flexWrap: 'wrap'}}>
+                  <input
+                    value={String(h.baseUrl || '')}
+                    placeholder="https://git.example.com"
+                    style={{flex: 1}}
+                    onChange={(e) => updateGitHost(idx, { baseUrl: e.target.value })}
+                  />
+                  <input
+                    value={String(h.sshBase || '')}
+                    placeholder="git@git.example.com:2222"
+                    style={{flex: 1}}
+                    onChange={(e) => updateGitHost(idx, { sshBase: e.target.value })}
+                  />
+                  <input
+                    type="password"
+                    placeholder={h.hasToken ? 'токен задан (новый — Enter)' : 'токен (не обязателен)'}
+                    style={{width: 200}}
+                    onKeyDown={(e) => {
+                      if (e.key !== 'Enter') return
+                      const token = (e.target as HTMLInputElement).value.trim()
+                      const name = String(h.name || '').trim()
+                      if (!token || !name) {
+                        setGitMsg('сначала задайте имя хостинга и сохраните список')
+                        return
+                      }
+                      void SaveGitTokenFor(name, token)
+                        .then(() => {
+                          setGitMsg(`${name}: токен сохранён`)
+                          return GitHosts().then((v) => setGitHosts(asList(v) as any[])).catch(() => undefined)
+                        })
+                        .catch((err) => setGitMsg(String(err?.message || err)))
+                      ;(e.target as HTMLInputElement).value = ''
+                    }}
+                  />
+                </div>
+              </div>
+            ))}
+            <div style={{display: 'flex', gap: 6, alignItems: 'center', margin: '0.35rem 0'}}>
+              <button
+                type="button"
+                onClick={() => setGitHosts((list) => [...list, { name: '', kind: 'gitea', owner: '', baseUrl: '', sshBase: '', pushToCreate: true, default: list.length === 0 }])}
+              >
+                Добавить хостинг
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  void SaveGitHosts(gitHosts as any)
+                    .then(() => GitHosts().then((v) => { setGitHosts(asList(v) as any[]); setGitMsg('хостинги сохранены') }).catch(() => undefined))
+                    .catch((err) => setGitMsg(String(err?.message || err)))
+                }}
+              >
+                Сохранить
+              </button>
+              {gitMsg ? <span className="nc-help" style={{margin: 0}}>{gitMsg}</span> : null}
+            </div>
             {mcpServers.length === 0 ? (
               <p className="nc-help">Серверов пока нет — добавьте пресет выше.</p>
             ) : (

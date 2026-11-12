@@ -190,6 +190,10 @@ export function GetZaiBalance() {
   return window['go']['main']['App']['GetZaiBalance']();
 }
 
+export function GitHosts() {
+  return window['go']['main']['App']['GitHosts']();
+}
+
 export function InstallMCPPreset(arg1) {
   return window['go']['main']['App']['InstallMCPPreset'](arg1);
 }
@@ -500,6 +504,14 @@ export function SaveFallbackProvider(arg1) {
 
 export function SaveGitAuth(arg1, arg2) {
   return window['go']['main']['App']['SaveGitAuth'](arg1, arg2);
+}
+
+export function SaveGitHosts(arg1) {
+  return window['go']['main']['App']['SaveGitHosts'](arg1);
+}
+
+export function SaveGitTokenFor(arg1, arg2) {
+  return window['go']['main']['App']['SaveGitTokenFor'](arg1, arg2);
 }
 
 export function SaveHTTP2PingSec(arg1) {

@@ -54,6 +54,20 @@ type Registry struct {
 	// SwitchProject resolves a project name/path for the switch_project tool and
 	// returns the marker JSON. nil = switching unavailable.
 	SwitchProject func(ctx context.Context, name, handoff string) (string, error)
+	// CreateProject заводит новый проект «под ключ»: папка + git init + первый
+	// коммит + репозиторий на хостинге + push + проект в дашборде. Возвращает
+	// маркер switch_project, чтобы прогон переехал в новый проект.
+	CreateProject func(ctx context.Context, args CreateProjectArgs) (string, error)
+}
+
+// CreateProjectArgs — параметры инструмента create_project.
+type CreateProjectArgs struct {
+	Name        string
+	Dir         string
+	Remote      string // имя хостинга из настроек (Home, work, github) или none
+	Owner       string
+	Description string
+	Private     bool
 }
 
 // ForRun returns a per-run copy of the registry bound to root. PlanMode, the
@@ -539,6 +553,22 @@ func (r *Registry) Execute(ctx context.Context, call llm.ToolCall) (string, erro
 			return "", fmt.Errorf("переключение проектов недоступно")
 		}
 		return r.SwitchProject(ctx, name, handoff)
+	case "create_project":
+		if r.CreateProject == nil {
+			return "", fmt.Errorf("создание проектов недоступно")
+		}
+		private := true
+		if v, ok := args["private"].(bool); ok {
+			private = v
+		}
+		return r.CreateProject(ctx, CreateProjectArgs{
+			Name:        strings.TrimSpace(stringArg(args, "name")),
+			Dir:         strings.TrimSpace(stringArg(args, "dir")),
+			Remote:      strings.TrimSpace(stringArg(args, "remote")),
+			Owner:       strings.TrimSpace(stringArg(args, "owner")),
+			Description: strings.TrimSpace(stringArg(args, "description")),
+			Private:     private,
+		})
 	case "read_lints":
 		var paths []string
 		if raw, ok := args["paths"].([]any); ok {
@@ -1072,6 +1102,18 @@ func allToolSpecs() []llm.ToolSpec {
 				"handoff": map[string]any{"type": "string", "description": "Короткая сводка: что сделано и что делать дальше"},
 			},
 			"required": []string{"project"},
+		}),
+		fn("create_project", "Создать новый проект «под ключ»: папка, git init с первым коммитом, пустой репозиторий на git-хостинге из настроек (если указан remote), push и проект в дашборде; затем прогон переезжает в новый проект. Используй, когда пользователь просит «создай репо/проект и выложи на Home / на гитхаб / на work».", map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"name":        map[string]any{"type": "string", "description": "Имя проекта и репозитория (латиницей, без пробелов)"},
+				"dir":         map[string]any{"type": "string", "description": "Каталог, где создать папку проекта (пусто — как в диалоге «новый проект»)"},
+				"remote":      map[string]any{"type": "string", "description": "Имя хостинга из настроек (например Home, work, github). Пусто — хостинг по умолчанию; none — только локальный репозиторий"},
+				"owner":       map[string]any{"type": "string", "description": "Владелец/организация на хостинге (пусто — личный аккаунт токена)"},
+				"description": map[string]any{"type": "string", "description": "Описание репозитория (идёт в README и в API хостинга)"},
+				"private":     map[string]any{"type": "boolean", "description": "Приватный репозиторий (по умолчанию true)"},
+			},
+			"required": []string{"name"},
 		}),
 		fn("read_lints", "Diagnostics for files you just edited. Go: go vet on the package. Call only on files you changed.", map[string]any{
 			"type": "object",

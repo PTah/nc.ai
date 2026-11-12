@@ -2,6 +2,7 @@
 // Edited by nc.ai 0.8.9.0 on new-admin-pc 2026-10-19 16:20:35
 // Edited by nc.ai 1.1.15 on macbook 2026-11-11 21:30:05
 // Edited by nc.ai 1.1.17 on new-admin-pc 2026-11-12 09:48:38
+// Edited by nc.ai 1.2.5 on macbook 2026-11-12 20:28:47
 package config
 
 import (
@@ -147,6 +148,11 @@ type Settings struct {
 	// упёрся в длинный лимит (429) или перегружен. Пусто = фолбэка нет.
 	FallbackProvider string `json:"fallbackProvider,omitempty"`
 	FallbackModel    string `json:"fallbackModel,omitempty"`
+
+	// GitHosts — список хостингов для нового репозитория: имя (Home, kalinamall,
+	// github), тип, адреса и владелец. Имя хостинга агент указывает в
+	// create_project, поэтому «пуш в Home» однозначен.
+	GitHosts []GitHost `json:"gitHosts,omitempty"`
 
 	DeepSeekAPIKey string `json:"deepseekApiKey"`
 	DeepSeekModel  string `json:"deepseekModel"`
@@ -1928,6 +1934,123 @@ func (s *Store) SetUpdateMirrorToken(token string) error {
 // mcpOAuthSecretPrefix — ключ секрета на каждый MCP-сервер с OAuth:
 // "mcp.oauth.<id>". Значение — JSON с access/refresh токенами.
 const mcpOAuthSecretPrefix = "mcp.oauth."
+
+// GitHost — один хостинг git: имя для человека («Home»), тип (gitea/github),
+// адреса и владелец по умолчанию. Токен сюда не пишется — он в секретах под
+// ключом "git-token-<имя>", и нужен только для создания репозитория по API;
+// сами push/commit идут через обычный git на машине (SSH-ключи, credential
+// helper) и токена не требуют.
+type GitHost struct {
+	Name         string `json:"name"`
+	Kind         string `json:"kind"`              // gitea | github
+	BaseURL      string `json:"baseUrl,omitempty"` // https://git.example.com
+	SSHBase      string `json:"sshBase,omitempty"` // git@git.example.com:2222 или ssh://git@host:2222
+	Owner        string `json:"owner,omitempty"`   // владелец/организация по умолчанию
+	PushToCreate bool   `json:"pushToCreate,omitempty"`
+	Default      bool   `json:"default,omitempty"` // куда выкладывать, если не сказано
+}
+
+// GitHostsList возвращает копию списка хостингов.
+func (s *Store) GitHostsList() []GitHost {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]GitHost, len(s.settings.GitHosts))
+	copy(out, s.settings.GitHosts)
+	return out
+}
+
+// SetGitHosts сохраняет список хостингов (имена приводятся к trim).
+func (s *Store) SetGitHosts(hosts []GitHost) error {
+	clean := make([]GitHost, 0, len(hosts))
+	for _, h := range hosts {
+		h.Name = strings.TrimSpace(h.Name)
+		h.Kind = strings.ToLower(strings.TrimSpace(h.Kind))
+		h.BaseURL = strings.TrimRight(strings.TrimSpace(h.BaseURL), "/")
+		h.SSHBase = strings.TrimSpace(h.SSHBase)
+		h.Owner = strings.TrimSpace(h.Owner)
+		if h.Name == "" || h.Kind == "" {
+			continue
+		}
+		clean = append(clean, h)
+	}
+	s.mu.Lock()
+	s.settings.GitHosts = clean
+	s.mu.Unlock()
+	return s.Save()
+}
+
+// GitHostByName ищет хостинг по имени (регистр не важен).
+func (s *Store) GitHostByName(name string) (GitHost, bool) {
+	name = strings.ToLower(strings.TrimSpace(name))
+	for _, h := range s.GitHostsList() {
+		if strings.ToLower(h.Name) == name {
+			return h, true
+		}
+	}
+	return GitHost{}, false
+}
+
+// DefaultGitHost — хостинг с флагом default; если флага нет, берём первый.
+func (s *Store) DefaultGitHost() (GitHost, bool) {
+	hosts := s.GitHostsList()
+	for _, h := range hosts {
+		if h.Default {
+			return h, true
+		}
+	}
+	if len(hosts) > 0 {
+		return hosts[0], true
+	}
+	return GitHost{}, false
+}
+
+// GitTokenFor читает токен хостинга из системного хранилища секретов.
+func (s *Store) GitTokenFor(host string) string {
+	key := "git-token-" + strings.ToLower(strings.TrimSpace(host))
+	if key == "git-token-" {
+		return ""
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if v, ok := s.keys[key]; ok {
+		return v
+	}
+	if err := s.ensureSecretsLocked(); err != nil {
+		return ""
+	}
+	v, err := s.sec.Get(key)
+	if err != nil {
+		return ""
+	}
+	s.keys[key] = v
+	return v
+}
+
+// SetGitTokenFor сохраняет токен хостинга ("" — удалить).
+func (s *Store) SetGitTokenFor(host, token string) error {
+	name := strings.ToLower(strings.TrimSpace(host))
+	if name == "" {
+		return fmt.Errorf("пустое имя хостинга")
+	}
+	key := "git-token-" + name
+	s.mu.Lock()
+	if err := s.ensureSecretsLocked(); err != nil {
+		s.mu.Unlock()
+		return err
+	}
+	var serr error
+	if strings.TrimSpace(token) == "" {
+		serr = s.sec.Delete(key)
+		delete(s.keys, key)
+	} else {
+		serr = s.sec.Set(key, strings.TrimSpace(token))
+		if serr == nil {
+			s.keys[key] = strings.TrimSpace(token)
+		}
+	}
+	s.mu.Unlock()
+	return serr
+}
 
 // MCPOAuthSecret возвращает сохранённый JSON OAuth-токенов сервера (пусто — нет).
 func (s *Store) MCPOAuthSecret(serverID string) string {

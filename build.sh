@@ -27,6 +27,7 @@ UNIVERSAL=0
 COPY_TO=""
 INSTALL_DIR="${NC_INSTALL_DIR:-/Applications}"
 DO_INSTALL=1
+FORCE_INSTALL=0
 
 SIGN_ID="${NC_SIGN_ID:-}"
 
@@ -60,6 +61,7 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --no-install|-NoInstall) DO_INSTALL=0; shift ;;
+    --force-install|-ForceInstall) FORCE_INSTALL=1; shift ;;
     --sign|-Sign)
       if [[ $# -lt 2 || -z "${2:-}" ]]; then
         echo "Missing identity after $1" >&2
@@ -78,6 +80,10 @@ Usage: ./build.sh [--no-restart] [--force-restart] [--universal] [--install-to D
   --install-to DIR Replace DIR/NotCursor.app with the fresh bundle and relaunch
                    from there (default: /Applications, or \$NC_INSTALL_DIR).
   --no-install     Leave DIR untouched; artifact stays in build/bin.
+  --force-install  Replace the bundle even while NotCursor is running (по умолчанию
+                   пропускается: замена под работающим приложением сбивает
+                   разрешение «Локальная сеть» — зеркало обновлений перестаёт
+                   отвечать до перезапуска).
   --copy-to DIR    Also copy NotCursor.app into DIR (e.g. network share).
   --sign ID        Code-sign with a stable identity ID (default: \$NC_SIGN_ID, or a
                    certificate with "NotCursor"/"nc.ai" in its name). Without one the
@@ -298,18 +304,28 @@ if [[ "${DO_INSTALL}" -eq 1 ]]; then
     echo "Install skipped: no write permission for ${INSTALL_PARENT}" >&2
   else
     [[ "${NO_RESTART}" -eq 1 ]] || quit_app
-    if [[ -n "$(app_pids)" ]]; then
-      echo "NotCursor is still running - replacing the bundle on disk anyway" >&2
-    fi
-    rm -rf "${INSTALL_APP}"
-    ditto --norsrc --noextattr --noacl "${APP_PATH}" "${INSTALL_APP}"
-    xattr -dr com.apple.quarantine "${INSTALL_APP}" 2>/dev/null || true
-    if codesign --verify --deep --strict "${INSTALL_APP}" 2>/dev/null; then
-      INSTALLED_APP="${INSTALL_APP}"
-      echo "Installed: ${INSTALL_APP} (v$(app_version "${INSTALL_APP}"))"
+    if [[ -n "$(app_pids)" && "${NO_RESTART}" -eq 1 && "${FORCE_INSTALL}" -eq 0 ]]; then
+      # Замена бандла под работающим приложением ломает ему доступ в локальную
+      # сеть: macOS пересматривает TCC «Локальная сеть» при изменении бандла на
+      # диске, и до перезапуска зеркало (10.0.0.1) отвечает
+      # "no route to host", а проверка обновлений уходит на GitHub.
+      echo "Install skipped: NotCursor запущен, а перезапуск отключён (--no-restart)." >&2
+      echo "  Артефакт готов: ${APP_PATH} (v$(app_version "${APP_PATH}"))." >&2
+      echo "  Поставить: ./build.sh (с перезапуском) или --force-install осознанно." >&2
     else
-      echo "Installed bundle failed codesign verify - removing ${INSTALL_APP}" >&2
+      if [[ -n "$(app_pids)" ]]; then
+        echo "NotCursor is still running - replacing the bundle on disk anyway" >&2
+      fi
       rm -rf "${INSTALL_APP}"
+      ditto --norsrc --noextattr --noacl "${APP_PATH}" "${INSTALL_APP}"
+      xattr -dr com.apple.quarantine "${INSTALL_APP}" 2>/dev/null || true
+      if codesign --verify --deep --strict "${INSTALL_APP}" 2>/dev/null; then
+        INSTALLED_APP="${INSTALL_APP}"
+        echo "Installed: ${INSTALL_APP} (v$(app_version "${INSTALL_APP}"))"
+      else
+        echo "Installed bundle failed codesign verify - removing ${INSTALL_APP}" >&2
+        rm -rf "${INSTALL_APP}"
+      fi
     fi
   fi
 fi

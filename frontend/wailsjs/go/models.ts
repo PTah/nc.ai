@@ -230,6 +230,30 @@ export namespace chatstore {
 
 export namespace config {
 	
+	export class GitHost {
+	    name: string;
+	    kind: string;
+	    baseUrl?: string;
+	    sshBase?: string;
+	    owner?: string;
+	    pushToCreate?: boolean;
+	    default?: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new GitHost(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.kind = source["kind"];
+	        this.baseUrl = source["baseUrl"];
+	        this.sshBase = source["sshBase"];
+	        this.owner = source["owner"];
+	        this.pushToCreate = source["pushToCreate"];
+	        this.default = source["default"];
+	    }
+	}
 	export class MCPServerSettings {
 	    id: string;
 	    label?: string;

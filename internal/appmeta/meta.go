@@ -35,7 +35,7 @@ import "time"
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "1.2.4"
+	Version = "1.2.9"
 )
 
 // DeepSeekProRetireRFC3339 is the announced V4 Pro retirement instant, empty
@@ -81,19 +81,19 @@ func retiredAt(at time.Time, now time.Time) bool {
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
-	"Исправлено: после долгого простоя окно больше не остаётся белым пятном — UI мягко перерисовывается",
-	"Workspace из нескольких папок: Menu → New workspace… — название и 2–4 папки в одном чате, как в Cursor",
-	"Папки можно бросить в окно; агент видит все сразу (пути api/main.go), git и терминал — по имени папки",
-	"Рабочее пространство из нескольких папок и запросы, идущие параллельно, работают как раньше",
-	"Дерево файлов, поиск, grep, find_symbol, правила Cursor и память работают по всем папкам сразу",
+	"Новый проект одной фразой: «Создай репо и выложи на Home / на гитхаб / на work» — папка, git, репозиторий, push и проект в дашборде",
+	"MCP теперь и hosted: «Добавить URL-сервер» → «Войти» (OAuth с PKCE) — Suno и другие серверы по ссылке",
+	"Резервный провайдер: длинный лимит или перегрузка — прогон один раз продолжает на резерве, а не падает",
+	"Пресет «Semgrep (security review)»: статический анализ локально + чеклист ревью в docs/security-review.md",
+	"Обновления из своего Gitea больше не отваливаются до перезапуска: автоперепроверка раз в 30 минут",
 }
 
 var HighlightsEN = []string{
-	"Fixed: after long idle the window no longer stays a blank white surface — the UI soft-recovers",
-	"Multi-folder workspace: Menu → New workspace… — a name and 2–4 folders in one chat, like Cursor",
-	"Drop folders into the window; the agent sees them all (paths like api/main.go); git and terminal take a folder name",
-	"Requests in parallel chats and the multi-folder workspace keep working as before",
-	"The file tree, search, grep, find_symbol, Cursor rules and memory cover every folder at once",
+	"A new project in one sentence: \"create a repo and publish it to Home / github / work\" — folder, git, remote repo, push and a dashboard project",
+	"MCP now speaks hosted servers too: Add URL server → Sign in (OAuth + PKCE) — Suno and friends by link",
+	"Fallback provider: on a long rate limit or an overload the run continues once on the backup instead of failing",
+	"Semgrep (security review) preset: local static analysis plus a review checklist in docs/security-review.md",
+	"Updates from your own Gitea no longer break until restart: automatic re-check every 30 minutes",
 }
 
 // UICopy is localized chrome for the Welcome splash.

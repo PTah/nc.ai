@@ -1,3 +1,4 @@
+// Edited by nc.ai 1.2.7 on macbook 2026-11-12 20:53:01
 package appmeta
 
 import (
@@ -58,12 +59,17 @@ func TestDeepSeekProRetired(t *testing.T) {
 	}
 }
 
-func TestHighlightsMentionWorkspaceAndMultitask(t *testing.T) {
+func TestHighlightsMentionCurrentFeatures(t *testing.T) {
 	joined := strings.Join(HighlightsRU, "\n")
-	if !strings.Contains(joined, "несколько папок") && !strings.Contains(joined, "Рабочее пространство") {
-		t.Fatal("в списке «что нового» нет упоминания рабочего пространства из папок")
+	for _, want := range []string{"репо", "MCP", "Резервный"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("в списке «что нового» нет упоминания %q", want)
+		}
 	}
-	if !strings.Contains(joined, "параллельно") && !strings.Contains(joined, "Multitask") {
-		t.Fatal("в списке «что нового» нет упоминания параллельных запросов")
+	if n := len(HighlightsRU); n == 0 || n > 5 {
+		t.Fatalf("в сплэше должно быть 1–5 пунктов, сейчас %d", n)
+	}
+	if n := len(HighlightsEN); n == 0 || n > 5 {
+		t.Fatalf("EN highlights: 1–5 items, got %d", n)
 	}
 }
