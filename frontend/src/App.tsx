@@ -3115,16 +3115,15 @@ export default function App() {
     if (live.includes(sid)) return false
     const hadLanes = Object.keys(runLanesRef.current[sid] || {}).length > 0
     abandonRuns(sid)
-    // Записку в чат пишем только если реально закрывали дорожку (было что
-    // терять). Иначе это ложное срабатывание — достаточно строки в логе.
-    if (hadLanes) {
-      setSessionItems(sid, (m) => [...m, {
-        kind: 'system',
-        content: '↩ Прогон на бэкенде уже завершён, а сигнал о завершении не дошёл — состояние чата восстановлено, очередь пошла дальше.',
-      }])
-    } else {
-      void LogUIError('reconcile-runs', `backend свободен, а UI считал сессию занятой (sid=${sid}) — busy снят без потери дорожек`).catch(() => undefined)
-    }
+    // В чат НЕ пишем ничего: пользователю эта строка ничего не даёт и всплывает
+    // после обычных ответов (гонка с доставкой done). Диагностика — в agent.log:
+    // при hadLanes закрыли дорожку, иначе просто сняли залипший busy.
+    void LogUIError(
+      'reconcile-runs',
+      hadLanes
+        ? `backend свободен, а UI считал сессию занятой (sid=${sid}) — дорожка закрыта, частичный текст сохранён`
+        : `backend свободен, а UI считал сессию занятой (sid=${sid}) — busy снят без потери дорожек`,
+    ).catch(() => undefined)
     return true
   }, [abandonRuns, setSessionItems])
   reconcileRunsRef.current = reconcileRuns
