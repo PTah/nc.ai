@@ -1,6 +1,7 @@
 <!-- Edited by nc.ai 0.8.9.4 on macbook 2026-10-19 22:33:53 -->
 <!-- Edited by nc.ai 0.8.9.7 on new-admin-pc 2026-10-28 09:42:49 -->
 <!-- Edited by nc.ai 1.1.3 on macbook 2026-11-04 14:28:17 -->
+<!-- Edited by nc.ai 1.1.17 on new-admin-pc 2026-11-12 09:53:23 -->
 # Roadmap NotCursor.ai
 
 Планы за пределами ближайших патчей. Текущий релиз — см. `docs/releases/` / версию в `README`.
@@ -32,27 +33,28 @@
 
 ---
 
-## Состояние на 1.1.17 и что делать дальше (точка возобновления)
+## Состояние на 1.1.18 и что делать дальше (точка возобновления)
 
 Фазы 0–2 закрыты: краткость + диагностика обрыва, MCP Streamable HTTP со статическим токеном,
 пресет Semgrep, OAuth (discovery → DCR → PKCE → локальный редирект → refresh), токены в хранилище
 секретов, кнопки «Войти»/«Выйти»; плюс в 1.1.17 — единый разбор `429` у всех провайдеров и резервный
-провайдер (`fallbackProvider`/`fallbackModel`, `Runner.switchToFallback`). Релиз 1.1.17 собран и
-опубликован (GitHub + home).
+провайдер (`fallbackProvider`/`fallbackModel`, `Runner.switchToFallback`). В 1.1.18 — UI-поле резерва
+и ручной `clientId` для провайдеров без DCR. Релиз 1.1.17 собран и опубликован (GitHub + home).
 
 ### Ближайшее, по порядку
 
 | # | Задача | Где начинать | Размер |
 |---|---|---|---|
-| 1 | **UI-поле «Резервный провайдер / модель»** (сейчас только `settings.json` и `SaveFallbackProvider`/`SaveFallbackModel`) | `frontend/src/App.tsx` — секция Settings → Provider, рядом с выбором активного провайдера | 1–2 часа |
-| 2 | Живая проверка OAuth на Suno `api.suno.com/mcp` (вход + трек из чата) | Settings → MCP → «Добавить URL-сервер»; логи `agent.log` с префиксом `mcp` | 1 час |
-| 2 | Провайдеры **без** DCR: поле `clientId` в карточке сервера → передавать в `AuthorizeServer` | `internal/mcp/oauth.go` (`AuthorizeServer`), `internal/config/store.go` (`MCPServerSettings`), карточка в `App.tsx` | 2–3 часа |
-| 3 | Нотаризация macOS (Apple Developer ID) + подпись Windows-exe | `docs/build-and-release.md`, `docs/code-signing.md`; нужен Apple ID-аккаунт Developer Program и сертификат на Windows-ПК | внешняя зависимость |
-| 4 | diff viewer + LSP-подсказки + разнести `App.tsx` (10k строк) на хуки | `frontend/src/App.tsx`; начинать с блока MCP, его мы уже трогали | дни |
-| 5 | Anthropic `signature`: сохранять и возвращать thinking-блок | `internal/llm/providers/anthropic/adapter.go` (`signature` читается, но не отправляется), история в `chatstore` | 3–4 часа |
-| 6 | Подагенты параллельно (если есть слоты у сервера) | `internal/agent/subrun.go` (`RunSubagent`), `agent.go` (цикл tool call) | 1 день |
-| 7 | Замеры «меньше шагов до файла» / «граф быстрее grep» | нужен воспроизводимый набор задач на крупном репо | 1 день |
-| 8 | Проверка на живой Windows: пачка из 5 SSH-команд = **одна** запись 4624 | Windows-ПК + журнал Security | 5 минут |
+| 1 | ~~UI-поле «Резервный провайдер / модель»~~ — сделано в 1.1.18: Settings → Provider, поля **Резерв** и **Резерв: модель** | `frontend/src/App.tsx` | готово |
+| 2 | Ручная проверка фолбэка: OpenRouter free-tier → DeepSeek. Живой тест есть (`go test -tags live ./internal/agent -run Live`), на этом ПК ключа OpenRouter нет — сценарий «оба провайдера разом» не прогнан | `internal/agent/fallback_live_test.go` | 20 мин, нужен ключ OpenRouter |
+| 3 | OAuth на Suno `api.suno.com/mcp`: discovery + DCR + authorize-ссылка проверены вживую (`-run LiveSuno`); осталось ручное — согласие в браузере и трек из чата | Settings → MCP, лог `agent.log` | 15 мин, нужен аккаунт Suno |
+| 4 | ~~Провайдеры без DCR: поле `clientId` в карточке~~ — сделано в 1.1.18 (поле **client_id**, главнее сохранённого; без DCR и без `clientId` — понятная ошибка) | `internal/mcp/oauth.go`, карточка в `App.tsx` | готово |
+| 5 | Нотаризация macOS (Apple Developer ID) + подпись Windows-exe | `docs/build-and-release.md`, `docs/code-signing.md`; нужен Apple ID-аккаунт Developer Program и сертификат на Windows-ПК | внешняя зависимость |
+| 6 | diff viewer + LSP-подсказки + разнести `App.tsx` (10k строк) на хуки | `frontend/src/App.tsx`; начинать с блока MCP, его мы уже трогали | дни |
+| 7 | Anthropic `signature`: сохранять и возвращать thinking-блок | `internal/llm/providers/anthropic/adapter.go` (`signature` читается, но не отправляется), история в `chatstore` | 3–4 часа |
+| 8 | Подагенты параллельно (если есть слоты у сервера) | `internal/agent/subrun.go` (`RunSubagent`), `agent.go` (цикл tool call) | 1 день |
+| 9 | Замеры «меньше шагов до файла» / «граф быстрее grep» | нужен воспроизводимый набор задач на крупном репо | 1 день |
+| 10 | Проверка на живой Windows: пачка из 5 SSH-команд = **одна** запись 4624 | Windows-ПК + журнал Security | 5 минут |
 
 ### Лимиты провайдеров: что уже сделано и что осталось (1.1.16+)
 
@@ -73,8 +75,10 @@ credits). Короткий лимит агент пережидает, длин�
       один и тот же провайдер в резерв не ставится (`app.go`).
 - [x] Тесты: `internal/agent/fallback_test.go` — суточный лимит → резерв → успех, короткий лимит без
       смены провайдера, перегрузка, «фолбэк только один раз», отсутствие резерва.
-- [ ] UI: поле «Резервный провайдер / модель» в Settings → Provider (пока только `settings.json`).
-- [ ] Ручная проверка: OpenRouter free-tier + DeepSeek в резерве.
+- [x] UI: поле «Резервный провайдер / модель» в Settings → Provider (1.1.18).
+- [x] Живой тест резерва (`internal/agent/fallback_live_test.go`, тег `live`): реальный DeepSeek отвечает
+      после длинного `429` у основного провайдера. Полный сценарий «OpenRouter free → DeepSeek» —
+      после того как на машине появится ключ OpenRouter.
 - [x] Документация: README (раздел об ошибках провайдеров) + `docs/exchange-protocols/README.md`.
 
 ### Продолжение с другого компьютера

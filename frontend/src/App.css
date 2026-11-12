@@ -1116,6 +1116,9 @@ mark.nc-find-mark.nc-find-current {
   border-radius: 8px;
 }
 .nc-mcp-tools { display: flex; flex-wrap: wrap; gap: 0.35rem 0.7rem; margin: 0.3rem 0; }
+/* client_id для провайдеров без DCR — в одну строку с полем ввода. */
+.nc-mcp-client { display: flex; align-items: center; gap: 0.4rem; margin: 0.25rem 0; }
+.nc-mcp-client input { flex: 1 1 12rem; }
 .nc-mcp-actions { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.35rem; }
 .nc-tool-title { font-weight: 600; color: var(--tool-title); }
 .nc-tool-name {

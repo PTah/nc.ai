@@ -1,4 +1,5 @@
 // Created by nc.ai 1.1.15 on macbook 2026-11-11 21:38:43
+// Edited by nc.ai 1.1.17 on new-admin-pc 2026-11-12 09:49:30
 // Created by nc.ai 1.1.16 on macbook 2026-11-11
 package mcp
 
@@ -51,21 +52,31 @@ type oauthTestAS struct {
 	mu        sync.Mutex
 	verifier  string // code_verifier, который прислал клиент
 	refreshed int
+	registered int
+	// noDCR убирает registration_endpoint из discovery — провайдер без
+	// динамической регистрации клиента.
+	noDCR bool
 }
 
 func (a *oauthTestAS) start() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/.well-known/oauth-authorization-server", func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]any{
+		meta := map[string]any{
 			"issuer":                           a.srv.URL,
 			"authorization_endpoint":           a.srv.URL + "/authorize",
 			"token_endpoint":                   a.srv.URL + "/token",
-			"registration_endpoint":            a.srv.URL + "/register",
 			"code_challenge_methods_supported": []string{"S256"},
 			"scopes_supported":                 []string{"mcp"},
-		})
+		}
+		if !a.noDCR {
+			meta["registration_endpoint"] = a.srv.URL + "/register"
+		}
+		_ = json.NewEncoder(w).Encode(meta)
 	})
 	mux.HandleFunc("/register", func(w http.ResponseWriter, r *http.Request) {
+		a.mu.Lock()
+		a.registered++
+		a.mu.Unlock()
 		var body map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		if body["token_endpoint_auth_method"] != "none" {
@@ -206,6 +217,66 @@ func TestAuthorizeServer_StateMismatchRejected(t *testing.T) {
 	if _, err := AuthorizeServer(t.Context(), cfg, src, AuthOptions{OpenURL: open, Timeout: 3 * time.Second}); err == nil {
 		t.Fatal("ожидалась ошибка из-за неверного state")
 	} else if !strings.Contains(err.Error(), "вход отклонён") {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+}
+
+func TestAuthorizeServer_ManualClientIDWithoutDCR(t *testing.T) {
+	as := &oauthTestAS{t: t, noDCR: true}
+	as.start()
+	defer as.srv.Close()
+
+	cfg := ServerConfig{
+		ID: "corp", Label: "corp", Enabled: true, Transport: "http",
+		URL: as.srv.URL + "/mcp", TimeoutSec: 30, ClientID: "manual-client",
+	}
+	src := &memCreds{}
+	var seen url.Values
+	open := func(raw string) error {
+		u, err := url.Parse(raw)
+		if err != nil {
+			return err
+		}
+		seen = u.Query()
+		redirect := seen.Get("redirect_uri")
+		state := seen.Get("state")
+		go func() {
+			time.Sleep(20 * time.Millisecond)
+			resp, err := http.Get(redirect + "?code=code-1&state=" + url.QueryEscape(state))
+			if err == nil {
+				resp.Body.Close()
+			}
+		}()
+		return nil
+	}
+	creds, err := AuthorizeServer(t.Context(), cfg, src, AuthOptions{OpenURL: open, Timeout: 5 * time.Second})
+	if err != nil {
+		t.Fatalf("AuthorizeServer с ручным client_id: %v", err)
+	}
+	if got := seen.Get("client_id"); got != "manual-client" {
+		t.Fatalf("client_id = %q, want manual-client", got)
+	}
+	if creds.ClientID != "manual-client" {
+		t.Fatalf("сохранённый ClientID = %q", creds.ClientID)
+	}
+	as.mu.Lock()
+	defer as.mu.Unlock()
+	if as.registered != 0 {
+		t.Fatalf("DCR вызвана %d раз, хотя client_id задан вручную", as.registered)
+	}
+}
+
+func TestAuthorizeServer_NoDCRAndNoClientID(t *testing.T) {
+	as := &oauthTestAS{t: t, noDCR: true}
+	as.start()
+	defer as.srv.Close()
+
+	cfg := ServerConfig{ID: "corp", Transport: "http", URL: as.srv.URL + "/mcp", TimeoutSec: 30}
+	_, err := AuthorizeServer(t.Context(), cfg, &memCreds{}, AuthOptions{Timeout: 3 * time.Second})
+	if err == nil {
+		t.Fatal("ожидалась ошибка: ни DCR, ни client_id")
+	}
+	if !strings.Contains(err.Error(), "client_id") {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
 }

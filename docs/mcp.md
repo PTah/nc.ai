@@ -1,6 +1,7 @@
 <!-- Edited by nc.ai 0.8.5.3 on macbook 2026-10-12 21:50:37 -->
 <!-- Edited by nc.ai 0.8.5.4 on new-admin-pc 2026-10-13 10:29:40 -->
 <!-- Edited by nc.ai 1.1.15 on macbook 2026-11-11 21:31:17 -->
+<!-- Edited by nc.ai 1.1.17 on new-admin-pc 2026-11-12 09:53:11 -->
 # MCP в NotCursor — дизайн (без кода)
 
 Статус: **MVP stdio + автоустановка пресетов в 0.8.5.1** (`internal/mcp`, Settings → MCP).
@@ -162,8 +163,8 @@ Credential Manager на Windows). В `settings.json` секретов быть �
 - [x] Токен в системном хранилище секретов (`internal/secrets`: Keychain / Credential Manager),
       ключ `mcp.oauth.<id>`; в `settings.json` его нет.
 - [x] Кнопки «Войти» / «Выйти» у HTTP-сервера; ошибка входа показывается в карточке и в `agent.log`.
-- [ ] Провайдеры **без** динамической регистрации клиента (нужен `client_id` от сервиса) — пока не
-      подключаются автоматически, ждут ручного поля `clientId`.
+- [x] Провайдеры **без** динамической регистрации клиента: поле `clientId` в карточке HTTP-сервера
+      (пусто — регистрируемся сами через DCR; заданный `clientId` главнее сохранённого).
 
 #### Как подключить hosted-сервер (пошагово)
 
@@ -177,7 +178,12 @@ Credential Manager на Windows). В `settings.json` секретов быть �
 5. Дальше просто просите в чате: «сделай трек про …» — агент вызовет инструменты сервера.
 
 Если вместо окна согласия появляется ошибка «сервер не поддерживает автоматическую регистрацию
-клиента» — у провайдера нет DCR, нужен ручной `clientId` (пока не поддержано, см. роадмап).
+клиента» — у провайдера нет DCR. Возьмите `client_id` в кабинете провайдера и впишите его в поле
+**client_id** в карточке сервера (оно есть у любого HTTP-сервера), затем снова «Войти».
+
+Проверено вживую на `api.suno.com/mcp`: discovery `/.well-known/oauth-protected-resource` →
+`studio-api-prod.suno.com/api/v2/external/oauth`, DCR выдаёт `client_id`, authorize-ссылка собирается
+с PKCE S256, `resource` и локальным `redirect_uri` (`go test -tags live ./internal/mcp -run LiveSuno`).
 
 **Сервер со статическим токеном** (без OAuth): в карточке сервера в настройках укажите `headers`:
 

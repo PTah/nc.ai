@@ -1,5 +1,6 @@
 // Edited by nc.ai 0.8.5.4 on new-admin-pc 2026-10-13 10:27:58
 // Edited by nc.ai 1.1.15 on macbook 2026-11-11 21:27:31
+// Edited by nc.ai 1.1.17 on new-admin-pc 2026-11-12 09:48:43
 // Package mcp implements a minimal Model Context Protocol client (stdio MVP).
 package mcp
 
@@ -27,6 +28,9 @@ type ServerConfig struct {
 	// Headers — статические заголовки запроса (Authorization: Bearer …).
 	// Токен хранится в settings.json не должен: значения подставляет UI.
 	Headers map[string]string `json:"headers,omitempty"`
+	// ClientID — OAuth client_id, заданный вручную для провайдеров без
+	// динамической регистрации клиента (DCR). Пусто — регистрируемся сами.
+	ClientID string `json:"clientId,omitempty"`
 	// AllowPrivate разрешает http и адреса из RFC1918 (домашний Gitea,
 	// локальный шлюз). По умолчанию выключено — защита от SSRF.
 	AllowPrivate bool `json:"allowPrivate,omitempty"`
@@ -57,6 +61,7 @@ func (c *ServerConfig) Normalize() {
 	}
 	c.Command = strings.TrimSpace(c.Command)
 	c.URL = strings.TrimSpace(c.URL)
+	c.ClientID = strings.TrimSpace(c.ClientID)
 	if c.TimeoutSec <= 0 {
 		c.TimeoutSec = 60
 	}

@@ -1,4 +1,5 @@
 // Created by nc.ai 1.1.15 on macbook 2026-11-11 21:37:14
+// Edited by nc.ai 1.1.17 on new-admin-pc 2026-11-12 09:48:47
 // Created by nc.ai 1.1.16 on macbook 2026-11-11
 package mcp
 
@@ -100,9 +101,15 @@ func AuthorizeServer(ctx context.Context, cfg ServerConfig, src CredentialSource
 	redirectURI := fmt.Sprintf("http://%s/callback", ln.Addr().String())
 
 	clientID, scope := "", ""
-	if prev, ok := src.LoadMCPOAuth(cfg.ID); ok {
+	prev, havePrev := src.LoadMCPOAuth(cfg.ID)
+	if havePrev {
 		clientID = prev.ClientID
 		scope = prev.Scope
+	}
+	// Явный client_id из карточки сервера главнее всего: провайдеры без DCR
+	// (Suno, корпоративные шлюзы) выдают его вручную.
+	if id := strings.TrimSpace(cfg.ClientID); id != "" {
+		clientID = id
 	}
 	if meta.RegistrationEndpoint != "" && clientID == "" {
 		clientID, err = registerClient(ctx, meta.RegistrationEndpoint, redirectURI)
@@ -112,7 +119,7 @@ func AuthorizeServer(ctx context.Context, cfg ServerConfig, src CredentialSource
 	}
 	if clientID == "" {
 		return Credentials{}, fmt.Errorf("mcp %s: сервер не поддерживает автоматическую регистрацию клиента — "+
-			"нужен client_id от провайдера", cfg.ID)
+			"впишите client_id провайдера в карточку сервера", cfg.ID)
 	}
 
 	verifier, err := randomToken(32)

@@ -1,6 +1,7 @@
 // Edited by nc.ai 0.8.5.2 on macbook 2026-10-12 20:40:10
 // Edited by nc.ai 0.8.9.0 on new-admin-pc 2026-10-19 16:20:35
 // Edited by nc.ai 1.1.15 on macbook 2026-11-11 21:30:05
+// Edited by nc.ai 1.1.17 on new-admin-pc 2026-11-12 09:48:38
 package config
 
 import (
@@ -46,10 +47,13 @@ type MCPServerSettings struct {
 	URL string `json:"url,omitempty"`
 	// Headers — статические заголовки запроса, кроме Authorization
 	// (его подставляет UI из хранилища секретов).
-	Headers      map[string]string `json:"headers,omitempty"`
-	AllowPrivate bool              `json:"allowPrivate,omitempty"`
-	TimeoutSec   int               `json:"timeoutSec,omitempty"`
-	EnabledTools []string          `json:"enabledTools,omitempty"`
+	Headers map[string]string `json:"headers,omitempty"`
+	// ClientID — OAuth client_id для провайдеров без динамической регистрации
+	// (DCR). Пусто — регистрируемся сами, если сервер это умеет.
+	ClientID     string   `json:"clientId,omitempty"`
+	AllowPrivate bool     `json:"allowPrivate,omitempty"`
+	TimeoutSec   int      `json:"timeoutSec,omitempty"`
+	EnabledTools []string `json:"enabledTools,omitempty"`
 }
 
 // Qwen (DashScope) endpoints persisted in Settings.QwenEndpoint.

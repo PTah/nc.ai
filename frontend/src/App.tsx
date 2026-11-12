@@ -21,6 +21,7 @@
 // Edited by nc.ai 1.1.3 on macbook 2026-11-08 18:53:16
 // Edited by nc.ai 1.1.15 on new-admin-pc 2026-11-11 10:49:01
 // Edited by nc.ai 1.1.15 on macbook 2026-11-11 21:30:10
+// Edited by nc.ai 1.1.17 on new-admin-pc 2026-11-12 09:49:52
 import {FormEvent, MouseEvent as ReactMouseEvent, useCallback, useEffect, useMemo, useRef, useState} from 'react'
 import {Terminal} from '@xterm/xterm'
 import {FitAddon} from '@xterm/addon-fit'
@@ -124,6 +125,8 @@ import {
   ProjectHasChats,
   SaveActiveProvider,
   SaveAutoModels,
+  SaveFallbackProvider,
+  SaveFallbackModel,
   SaveLocalLite,
   SaveLocalSkipRules,
   SaveToolConfirm,
@@ -2325,6 +2328,10 @@ export default function App() {
     source: string
   } | null>(null)
   const [autoModels, setAutoModels] = useState(true)
+  // Резервный провайдер: используется один раз, когда основной упёрся в
+  // длинный лимит (429) или перегружен. Пусто — резерва нет.
+  const [fallbackProvider, setFallbackProvider] = useState('')
+  const [fallbackModel, setFallbackModel] = useState('')
   // End-of-run chime: on by default, the clip is embedded in the binary.
   const [endSound, setEndSound] = useState(true)
   const endSoundRef = useRef(true)
@@ -2522,6 +2529,17 @@ export default function App() {
                 ? Boolean(localBaseUrl.trim() && localModel.trim())
                 : deepseekKeySet
   const providerLabel = providerLabelOf(activeProvider)
+  // Варианты резерва: те же провайдеры, что в «Active», кроме активного —
+  // одинаковый провайдер в резерв не ставится (app.go).
+  const fallbackChoices = [
+    { id: 'deepseek', label: 'DeepSeek' },
+    { id: 'zai', label: 'Z.ai (GLM)' },
+    { id: 'openrouter', label: 'OpenRouter' },
+    { id: 'qwen', label: 'Qwen (DashScope)' },
+    { id: 'kimi', label: 'Kimi (Moonshot)' },
+    { id: 'yandex', label: 'Yandex AI Studio' },
+    ...localEndpoints.map((ep) => ({ id: `local:${ep.id}`, label: `Custom: ${ep.name}` })),
+  ].filter((p) => p.id !== activeProvider)
   const showBalance = activeProvider === 'zai' || activeProvider === 'openrouter' || activeProvider === 'deepseek' || activeProvider === 'kimi'
   const providerReadyLabel =
     isLocalProvider(activeProvider)
@@ -3466,6 +3484,8 @@ export default function App() {
         savedConfigRef.current = s as unknown as Record<string, any>
         const provider = parseProvider(s.activeProvider)
         setActiveProvider(provider)
+        setFallbackProvider(typeof s.fallbackProvider === 'string' ? s.fallbackProvider : '')
+        setFallbackModel(typeof s.fallbackModel === 'string' ? s.fallbackModel : '')
         setDeepseekKeySet(Boolean(s.deepseekKeySet))
         setZaiKeySet(Boolean(s.zaiKeySet))
         setOpenrouterKeySet(Boolean(s.openrouterKeySet))
@@ -7593,6 +7613,40 @@ async function refreshYandexModels(opts?: {applyPreferred?: boolean; notify?: bo
                 ))}
               </select>
             </label>
+            <label title="Один переход, когда основной провайдер упёрся в длинный лимит (429) или перегружен">
+              Резерв
+              <select
+                value={fallbackProvider}
+                onChange={(e) => {
+                  const next = e.target.value
+                  setFallbackProvider(next)
+                  void SaveFallbackProvider(next).catch(() => undefined)
+                }}
+              >
+                <option value="">— нет —</option>
+                {fallbackChoices.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {fallbackProvider ? (
+              <>
+                <label title="Пусто — модель резервного провайдера по умолчанию">
+                  Резерв: модель
+                  <input
+                    value={fallbackModel}
+                    placeholder="по умолчанию"
+                    onChange={(e) => setFallbackModel(e.target.value)}
+                    onBlur={() => void SaveFallbackModel(fallbackModel).catch(() => undefined)}
+                  />
+                </label>
+                <p className="nc-help">
+                  Резерв включается один раз за запрос: длинный лимит или перегрузка основного провайдера.
+                </p>
+              </>
+            ) : null}
             <p className="nc-help">Ключи хранятся отдельно; ниже — настройки только активного провайдера.</p>
             <label
               className="nc-top-check"
@@ -8683,6 +8737,25 @@ async function refreshYandexModels(opts?: {applyPreferred?: boolean; notify?: bo
                           <span className="nc-help" style={{margin: 0}}>{mcpAuthMsg[String(srv.id)]}</span>
                         ) : null}
                       </div>
+                    )}
+                    {String(srv.transport || '') === 'http' && (
+                      <label
+                        className="nc-mcp-client"
+                        title="Нужен провайдерам без динамической регистрации клиента (DCR): Suno, корпоративные шлюзы"
+                      >
+                        client_id
+                        <input
+                          value={String(srv.clientId || '')}
+                          placeholder="пусто — регистрируемся сами"
+                          onChange={(e) => {
+                            const next = mcpServers.map((s, i) =>
+                              i === idx ? { ...s, clientId: e.target.value } : s,
+                            )
+                            setMcpServers(next)
+                          }}
+                          onBlur={() => void SaveMCPServers(mcpServers as any).catch(() => undefined)}
+                        />
+                      </label>
                     )}
                     <p className="nc-help" style={{margin: '0.2rem 0'}}>
                       {String(srv.transport || '') === 'http' ? (

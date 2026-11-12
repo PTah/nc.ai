@@ -9,6 +9,7 @@
 // Edited by nc.ai 1.1.10 on macbook 2026-11-08 21:13:24
 // Edited by nc.ai 1.1.15 on new-admin-pc 2026-11-11 10:48:51
 // Edited by nc.ai 1.1.15 on macbook 2026-11-11 21:30:05
+// Edited by nc.ai 1.1.17 on new-admin-pc 2026-11-12 09:48:50
 package main
 
 import (
@@ -908,7 +909,7 @@ func (a *App) syncMCPFromConfig() {
 		cfgs = append(cfgs, mcp.ServerConfig{
 			ID: s.ID, Label: s.Label, Enabled: s.Enabled, Transport: s.Transport,
 			Command: s.Command, Args: s.Args, Env: s.Env, CWD: s.CWD,
-			URL: s.URL, Headers: s.Headers, AllowPrivate: s.AllowPrivate,
+			URL: s.URL, Headers: s.Headers, ClientID: s.ClientID, AllowPrivate: s.AllowPrivate,
 			TimeoutSec: s.TimeoutSec, EnabledTools: s.EnabledTools,
 		})
 	}
@@ -920,7 +921,7 @@ func cfgMCPFromMCP(c mcp.ServerConfig) config.MCPServerSettings {
 	return config.MCPServerSettings{
 		ID: c.ID, Label: c.Label, Enabled: c.Enabled, Transport: c.Transport,
 		Command: c.Command, Args: c.Args, Env: c.Env, CWD: c.CWD,
-		URL: c.URL, Headers: c.Headers, AllowPrivate: c.AllowPrivate,
+		URL: c.URL, Headers: c.Headers, ClientID: c.ClientID, AllowPrivate: c.AllowPrivate,
 		TimeoutSec: c.TimeoutSec, EnabledTools: c.EnabledTools,
 	}
 }
@@ -1685,6 +1686,8 @@ func (a *App) GetSettings() map[string]any {
 	}
 	return map[string]any{
 		"activeProvider":       provider,
+		"fallbackProvider":     s.FallbackProvider,
+		"fallbackModel":        s.FallbackModel,
 		"deepseekModel":        s.DeepSeekModel,
 		"deepseekProRetired":   appmeta.DeepSeekProRetired(time.Now()),
 		"deepseekKeySet":       a.cfg.HasAPIKey(config.ProviderDeepSeek),

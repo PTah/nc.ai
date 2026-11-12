@@ -18,6 +18,7 @@
 <!-- Edited by nc.ai 1.0.3 on Papasha 2026-11-01 12:10:11 -->
 <!-- Edited by nc.ai 1.0.0 on new-admin-pc 2026-11-02 09:59:06 -->
 <!-- Edited by nc.ai 1.1.3 on macbook 2026-11-08 18:54:30 -->
+<!-- Edited by nc.ai 1.1.17 on new-admin-pc 2026-11-12 09:53:11 -->
 # NotCursor.ai
 
 AI-агент для работы с кодом в отдельном окне: чат, дерево проекта, редактор и настоящий терминал.
@@ -29,7 +30,7 @@ AI-агент для работы с кодом в отдельном окне: 
 Keychain / Windows Credential Manager), история чатов — локально. Наружу уходит только запрос к
 тому провайдеру LLM, которого вы выбрали сами.
 
-**Версия:** `1.1.17` · **На выходе:** `build/bin/NotCursor.exe` (Windows) и `build/bin/NotCursor.app` (macOS)
+**Версия:** `1.1.18` · **На выходе:** `build/bin/NotCursor.exe` (Windows) и `build/bin/NotCursor.app` (macOS)
 
 ## Быстрый старт
 
@@ -117,8 +118,9 @@ macOS (собирается только на macOS-хосте; скрипт с�
   Короткий лимит агент пережидает и повторяет сам, суточный — сразу отдаёт ошибку с подсказкой.
 - **Резервный провайдер**: если основной упёрся в длинный лимит или перегружен, прогон один раз
   переходит на резерв и продолжает работу (в чате — строка «продолжаю на резервном»). Настраивается
-  в `settings.json`: `"fallbackProvider": "deepseek"`, `"fallbackModel": "deepseek-v4-flash"`
-  (пусто = выключено; Local в резерв не берётся, если в запросе есть картинки).
+  в Settings → Provider: поля **Резерв** и **Резерв: модель** (пусто = выключено; эквивалент в
+  `settings.json` — `"fallbackProvider": "deepseek"`, `"fallbackModel": "deepseek-v4-flash"`;
+  Local в резерв не берётся, если в запросе есть картинки).
 - Кнопка **↻ Models** перечитывает список моделей у активного провайдера. DeepSeek тоже ходит в
   `GET /models`, а не берёт список из кода.
 - Ключи не пишутся в `settings.json`: macOS Keychain, Windows Credential Manager, на Linux — файл с

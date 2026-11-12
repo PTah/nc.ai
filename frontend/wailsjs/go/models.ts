@@ -241,6 +241,7 @@ export namespace config {
 	    cwd?: string;
 	    url?: string;
 	    headers?: Record<string, string>;
+	    clientId?: string;
 	    allowPrivate?: boolean;
 	    timeoutSec?: number;
 	    enabledTools?: string[];
@@ -261,6 +262,7 @@ export namespace config {
 	        this.cwd = source["cwd"];
 	        this.url = source["url"];
 	        this.headers = source["headers"];
+	        this.clientId = source["clientId"];
 	        this.allowPrivate = source["allowPrivate"];
 	        this.timeoutSec = source["timeoutSec"];
 	        this.enabledTools = source["enabledTools"];
@@ -742,6 +744,7 @@ export namespace mcp {
 	    cwd?: string;
 	    url?: string;
 	    headers?: Record<string, string>;
+	    clientId?: string;
 	    allowPrivate?: boolean;
 	    timeoutSec?: number;
 	    enabledTools?: string[];
@@ -762,6 +765,7 @@ export namespace mcp {
 	        this.cwd = source["cwd"];
 	        this.url = source["url"];
 	        this.headers = source["headers"];
+	        this.clientId = source["clientId"];
 	        this.allowPrivate = source["allowPrivate"];
 	        this.timeoutSec = source["timeoutSec"];
 	        this.enabledTools = source["enabledTools"];
