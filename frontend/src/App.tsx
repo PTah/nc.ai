@@ -27,6 +27,7 @@ import {Terminal} from '@xterm/xterm'
 import {FitAddon} from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import './App.css'
+import { DiffBlock, looksLikeDiff } from './DiffView'
 import {
   AppInfo,
   ArchiveChatSession,
@@ -136,6 +137,7 @@ import {
   SaveSubagentsMaxSteps,
   SaveSubagentsAllowWrite,
   SaveSubagentsMaxPerRun,
+  SaveSubagentsParallel,
   SaveMCPServers,
   StartMCPLogin,
   MCPLogoutOAuth,
@@ -1354,33 +1356,6 @@ function markInterruptedSteps(items: ChatItem[]): {items: ChatItem[]; changed: b
   return {items: changed ? out : items, changed}
 }
 
-/** Unified diff (git_diff) looks like this; anything else stays a plain pre. */
-function looksLikeDiff(s: string): boolean {
-  return /^diff --git /m.test(s) || /^@@ /m.test(s) || /^\+\+\+ /m.test(s)
-}
-
-/** Minimal diff viewer: colour added/removed lines instead of a grey wall. */
-function DiffBlock({text}: {text: string}) {
-  const lines = text.split('\n')
-  return (
-    <pre className="nc-tool-pre nc-diff">
-      {lines.map((ln, i) => {
-        let cls = 'nc-diff-ctx'
-        if (ln.startsWith('diff --git') || ln.startsWith('index ') || ln.startsWith('---') || ln.startsWith('+++')) {
-          cls = 'nc-diff-meta'
-        } else if (ln.startsWith('@@')) {
-          cls = 'nc-diff-hunk'
-        } else if (ln.startsWith('+')) {
-          cls = 'nc-diff-add'
-        } else if (ln.startsWith('-')) {
-          cls = 'nc-diff-del'
-        }
-        return <span key={i} className={cls}>{ln + '\n'}</span>
-      })}
-    </pre>
-  )
-}
-
 function ToolCard({item, onReviewReturn}: {item: Extract<ChatItem, {kind: 'tool'}>; onReviewReturn?: (text: string) => void}) {
   const [accepted, setAccepted] = useState(false)
   const findings = useMemo(() => {
@@ -2353,6 +2328,7 @@ export default function App() {
   const [subagentsMaxSteps, setSubagentsMaxSteps] = useState(12)
   const [subagentsAllowWrite, setSubagentsAllowWrite] = useState(false)
   const [subagentsMaxPerRun, setSubagentsMaxPerRun] = useState(3)
+  const [subagentsParallel, setSubagentsParallel] = useState(1)
   const [mcpServers, setMcpServers] = useState<Array<Record<string, any>>>([])
   // Адрес для добавления hosted-сервера (transport=http) в Settings → MCP.
   const [mcpNewUrl, setMcpNewUrl] = useState('')
@@ -3549,6 +3525,9 @@ export default function App() {
         setSubagentsAllowWrite(Boolean(s.subagentsAllowWrite))
         if (typeof s.subagentsMaxPerRun === 'number' && s.subagentsMaxPerRun > 0) {
           setSubagentsMaxPerRun(s.subagentsMaxPerRun)
+        }
+        if (typeof s.subagentsParallel === 'number' && s.subagentsParallel > 0) {
+          setSubagentsParallel(s.subagentsParallel)
         }
         if (Array.isArray(s.mcpServers)) setMcpServers(s.mcpServers as Array<Record<string, any>>)
         void MCPStatuses().then((v) => setMcpStatuses(asList(v as Array<Record<string, any>>))).catch(() => undefined)
@@ -5898,6 +5877,11 @@ async function refreshYandexModels(opts?: {applyPreferred?: boolean; notify?: bo
       if (differs(clamp(Number(subagentsMaxPerRun) || 3, 1, 10), clamp(snapP, 1, 10))) {
         out.push('подагентов за прогон')
       }
+      const rawPar = num(s.subagentsParallel)
+      const snapPar = Number.isFinite(rawPar) && rawPar > 0 ? rawPar : 1
+      if (differs(clamp(Number(subagentsParallel) || 1, 1, 8), clamp(snapPar, 1, 8))) {
+        out.push('параллельных подагентов')
+      }
     }
     return out
   }
@@ -5993,6 +5977,7 @@ async function refreshYandexModels(opts?: {applyPreferred?: boolean; notify?: bo
     await SaveSubagentsMaxSteps(Math.max(1, Math.min(60, Number(subagentsMaxSteps) || 12)))
     await SaveSubagentsAllowWrite(subagentsAllowWrite)
     await SaveSubagentsMaxPerRun(Math.max(1, Math.min(10, Number(subagentsMaxPerRun) || 3)))
+    await SaveSubagentsParallel(Math.max(1, Math.min(8, Number(subagentsParallel) || 1)))
     await SaveAgentMaxSteps(unlimitedSteps ? -1 : (Number(maxSteps) || 120))
     await SaveMaxCostUSD(Number(maxCostUSD) || 0)
     await SaveAgentWarnSteps(warnSteps > 0 ? Number(warnSteps) : -1)
@@ -8588,6 +8573,16 @@ async function refreshYandexModels(opts?: {applyPreferred?: boolean; notify?: bo
                     }}
                   />
                   Subagent may write files
+                </label>
+                <label title="Сколько task-подагентов гоняем одновременно. 1 — по очереди (безопасно для Local и слабых квот)">
+                  Subagents in parallel
+                  <input
+                    type="number"
+                    min={1}
+                    max={8}
+                    value={subagentsParallel}
+                    onChange={(e) => setSubagentsParallel(Number(e.target.value))}
+                  />
                 </label>
                 <p className="nc-help">
                   Вложенный прогон экономит контекст родителя: поиск по репо → краткая сводка.

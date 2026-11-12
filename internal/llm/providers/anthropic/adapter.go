@@ -1,3 +1,4 @@
+// Edited by nc.ai 1.1.18 on new-admin-pc 2026-11-12 10:24:42
 // Package anthropic умеет говорить на Anthropic Messages API, оставаясь для
 // агента обычным llm.Provider: канон (OpenAI-shaped) ↔ Anthropic по маппингу из
 // docs/exchange-protocols/anthropic.md.
@@ -72,6 +73,7 @@ type apiRequest struct {
 	Tools       []apiTool      `json:"tools,omitempty"`
 	ToolChoice  map[string]any `json:"tool_choice,omitempty"`
 	Temperature *float64       `json:"temperature,omitempty"`
+	Thinking    map[string]any `json:"thinking,omitempty"`
 	Stream      bool           `json:"stream,omitempty"`
 }
 
@@ -113,19 +115,66 @@ func buildRequest(req *llm.ChatRequest, model string) (*apiRequest, error) {
 	}
 
 	system := systemPrompt(req.Messages)
+	thinking := thinkingConfig(req.Thinking)
 	out := &apiRequest{
 		Model:       model,
 		MaxTokens:   maxTokens,
 		System:      system,
-		Messages:    buildMessages(req.Messages),
+		Messages:    buildMessages(req.Messages, thinking != nil),
 		Tools:       buildTools(req.Tools),
 		ToolChoice:  toolChoice(req.ToolChoice),
 		Temperature: req.Temperature,
+		Thinking:    thinking,
+	}
+	if thinking != nil {
+		// Расширенное рассуждение живёт при temperature=1: поле не отправляем,
+		// иначе API отвечает 400. И max_tokens должен быть больше бюджета.
+		out.Temperature = nil
+		if b, ok := numberAsInt(thinking["budget_tokens"]); ok && out.MaxTokens <= b {
+			out.MaxTokens = b + b/2
+		}
 	}
 	if len(out.Messages) == 0 {
 		return nil, fmt.Errorf("anthropic: нет сообщений для отправки")
 	}
 	return out, nil
+}
+
+// thinkingConfig переводит канонический req.Thinking в anthropic-вид.
+// nil — рассуждение выключено (или карта говорит disabled). Бюджет по умолчанию
+// 4096 токенов и всегда меньше max_tokens — иначе API отвечает 400.
+func thinkingConfig(thinking map[string]any) map[string]any {
+	if thinking == nil {
+		return nil
+	}
+	if t, ok := thinking["type"].(string); ok && strings.EqualFold(strings.TrimSpace(t), "disabled") {
+		return nil
+	}
+	budget := 4096
+	if v, ok := numberAsInt(thinking["budget_tokens"]); ok && v > 0 {
+		budget = v
+	}
+	out := map[string]any{"type": "enabled", "budget_tokens": budget}
+	return out
+}
+
+func numberAsInt(v any) (int, bool) {
+	switch n := v.(type) {
+	case int:
+		return n, true
+	case int64:
+		return int(n), true
+	case float64:
+		return int(n), true
+	case json.Number:
+		i, err := n.Int64()
+		if err != nil {
+			return 0, false
+		}
+		return int(i), true
+	default:
+		return 0, false
+	}
 }
 
 // systemPrompt склеивает system-сообщения (в Anthropic это отдельное поле).
@@ -161,7 +210,7 @@ func partsText(parts []llm.ContentPart) string {
 
 // buildMessages собирает user/assistant-цепочку, склеивая подряд идущие
 // одинаковые роли (Anthropic ждёт чередование, а tool_result — user-turn).
-func buildMessages(msgs []llm.Message) []apiMessage {
+func buildMessages(msgs []llm.Message, keepThinking bool) []apiMessage {
 	out := make([]apiMessage, 0, len(msgs))
 	for _, m := range msgs {
 		switch strings.ToLower(strings.TrimSpace(m.Role)) {
@@ -175,7 +224,7 @@ func buildMessages(msgs []llm.Message) []apiMessage {
 			}
 			out = append(out, apiMessage{Role: "user", Content: []apiBlock{block}})
 		case "assistant":
-			blocks := assistantBlocks(m)
+			blocks := assistantBlocks(m, keepThinking)
 			if len(blocks) == 0 {
 				continue
 			}
@@ -258,8 +307,21 @@ func imageSource(raw string) (*apiImageSource, bool) {
 	return &apiImageSource{Type: "base64", MediaType: mediaType, Data: data}, true
 }
 
-func assistantBlocks(m llm.Message) []apiBlock {
+func assistantBlocks(m llm.Message, keepThinking bool) []apiBlock {
 	var out []apiBlock
+	if keepThinking {
+		// Блоки рассуждений идут первыми и только с подписью: без неё API
+		// отвечает 400, поэтому блоки без подписи (старые сообщения, другой
+		// провайдер) просто не отправляем.
+		for _, tb := range m.Thinking {
+			text := strings.TrimSpace(tb.Thinking)
+			sig := strings.TrimSpace(tb.Signature)
+			if text == "" || sig == "" {
+				continue
+			}
+			out = append(out, apiBlock{Type: "thinking", Thinking: tb.Thinking, Signature: sig})
+		}
+	}
 	if strings.TrimSpace(m.Content) != "" {
 		out = append(out, apiBlock{Type: "text", Text: m.Content})
 	}
@@ -354,6 +416,9 @@ func parseResponse(resp *apiResponse) *llm.ChatResponse {
 			text.WriteString(b.Text)
 		case "thinking":
 			think.WriteString(b.Thinking)
+			if sig := strings.TrimSpace(b.Signature); sig != "" {
+				msg.Thinking = append(msg.Thinking, llm.ThinkingBlock{Thinking: b.Thinking, Signature: sig})
+			}
 		case "tool_use":
 			args, err := json.Marshal(b.Input)
 			if err != nil || b.Input == nil {

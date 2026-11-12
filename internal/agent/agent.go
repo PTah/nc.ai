@@ -3,6 +3,7 @@
 // Edited by nc.ai 0.8.8.0 on macbook 2026-10-18 19:21:38
 // Edited by nc.ai 0.8.9.7 on new-admin-pc 2026-10-28 09:27:01
 // Edited by nc.ai 1.1.4 on macbook 2026-11-08 19:06:11
+// Edited by nc.ai 1.1.18 on new-admin-pc 2026-11-12 10:26:51
 package agent
 
 import (
@@ -318,6 +319,9 @@ type Runner struct {
 	SubagentsAllowWrite bool
 	// SubagentsMaxPerRun — сколько task за один родительский прогон.
 	SubagentsMaxPerRun int
+	// SubagentsParallel — сколько task-подагентов выполнять одновременно
+	// (0/1 = по очереди). Держим не больше, чем выдержит провайдер.
+	SubagentsParallel int
 	// Depth: 0 = родитель, 1 = подагент (без рекурсии task).
 	Depth int
 	// subagentMode — короткий системный промпт SubagentPrompt вместо полного.
@@ -329,6 +333,9 @@ type Runner struct {
 
 	subMu    sync.Mutex
 	subCount int
+	// subSem ограничивает число одновременно бегущих подагентов. nil — ещё не
+	// создан или параллельность выключена (тогда работает subMu как очередь).
+	subSem chan struct{}
 
 	lastEmittedModel string
 	// runModel locks the model for the rest of this Run* after the first pick
@@ -651,6 +658,13 @@ func (r *Runner) systemPrompt() string {
 		base += "\n\nMCP tools (names start with mcp__): for codebase navigation prefer graph/memory MCP " +
 			"before wide grep. Typical order: (1) index/build graph if needed, (2) query graph / search, " +
 			"(3) read_file on the returned paths, (4) apply_patch. Do not ignore MCP results and re-scan blindly."
+		// Когда у сервера реально есть поиск по символам/индексу/графу, «предпочитай»
+		// заменяем на жёсткий MCP-first: иначе модель всё равно начинае�� широким grep.
+		if mcpHasSearchTools(r.ExtraTools) {
+			base += "\nMCP-first rule (search tools are online): for 'where is X', «как устроено», symbol and " +
+				"file-layout questions call the MCP index/graph/search tool FIRST. Wide grep/glob is a fallback " +
+				"for when those return nothing relevant — and when you fall back, say in one line why."
+		}
 		if h := strings.TrimSpace(r.MCPUsageHint); h != "" {
 			base += "\n" + h
 		}
@@ -1356,6 +1370,7 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 				brokenToolJSON = true
 				msg.Content = "[invalid tool JSON omitted]"
 				msg.ReasoningContent = ""
+				msg.Thinking = nil
 			}
 		}
 		if brokenToolJSON && r.escalateEnabled() && r.isWeakAutoModel(model) {
@@ -1746,6 +1761,21 @@ func wantsFinish(text string) bool {
 	return t == "стоп" || t == "stop"
 }
 
+// mcpHasSearchTools — есть ли среди MCP-инструментов поиск/индекс/граф. Если
+// есть, MCP-first можно требовать жёстче, чем «предпочитай»: инструмент реально
+// отвечает на «где лежит X» одним вызовом.
+func mcpHasSearchTools(specs []llm.ToolSpec) bool {
+	for _, s := range specs {
+		name := strings.ToLower(s.Function.Name)
+		for _, k := range []string{"search", "index", "graph", "symbol", "memory", "recall"} {
+			if strings.Contains(name, k) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func (r *Runner) execTools(ctx context.Context, calls []llm.ToolCall, emit EmitFunc) ([]llm.Message, error) {
 	for _, call := range calls {
 		if call.ID == "" {
@@ -1753,11 +1783,20 @@ func (r *Runner) execTools(ctx context.Context, calls []llm.ToolCall, emit EmitF
 		}
 	}
 	parallel := len(calls) > 1
+	tasksOnly := true
 	for _, call := range calls {
 		if !tools.ReadOnlyTool(call.Function.Name) {
 			parallel = false
-			break
 		}
+		if call.Function.Name != "task" {
+			tasksOnly = false
+		}
+	}
+	// Подагенты — отдельная ветка: каждый сам ходит по инструментам и пишет
+	// файлы, поэтому «read-only» тут ни при чём. Гоним их одновременно только
+	// когда это включено в настройках; сколько именно — решает семафор в runTask.
+	if !parallel && tasksOnly && r.SubagentsParallel > 1 {
+		parallel = true
 	}
 	outs := make([]llm.Message, len(calls))
 	if !parallel {

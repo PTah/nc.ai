@@ -1,4 +1,5 @@
 // Edited by nc.ai 1.1.15 on macbook 2026-11-11 21:28:36
+// Edited by nc.ai 1.1.18 on new-admin-pc 2026-11-12 10:25:05
 package anthropic
 
 import (
@@ -71,6 +72,7 @@ type streamEvent struct {
 		Type        string `json:"type"`
 		Text        string `json:"text"`
 		Thinking    string `json:"thinking"`
+		Signature   string `json:"signature"`
 		PartialJSON string `json:"partial_json"`
 		StopReason  string `json:"stop_reason"`
 	} `json:"delta"`
@@ -108,6 +110,11 @@ func consumeAnthropicSSE(r io.Reader, onDelta func(llm.StreamDelta)) (*llm.ChatR
 		content         strings.Builder
 		reasoning       strings.Builder
 		tools           = map[int]*toolAcc{}
+		// Блоки рассуждений с подписями: Anthropic присылает thinking_delta,
+		// а в конце блока — signature_delta. Без подписи блок не переслать.
+		thinkBlocks []llm.ThinkingBlock
+		curThink    strings.Builder
+		curSig      strings.Builder
 		promptTokens    int
 		cacheRead       int
 		cacheCreate     int
@@ -117,6 +124,17 @@ func consumeAnthropicSSE(r io.Reader, onDelta func(llm.StreamDelta)) (*llm.ChatR
 		lastLine  time.Time
 		lineCount int
 	)
+	// flushThinking закрывает накопленный блок рассуждений: он попадает в
+	// сообщение только вместе с подписью — без неё API блок не примет.
+	flushThinking := func() {
+		text := curThink.String()
+		sig := strings.TrimSpace(curSig.String())
+		curThink.Reset()
+		curSig.Reset()
+		if text != "" && sig != "" {
+			thinkBlocks = append(thinkBlocks, llm.ThinkingBlock{Thinking: text, Signature: sig})
+		}
+	}
 
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
@@ -152,6 +170,10 @@ func consumeAnthropicSSE(r io.Reader, onDelta func(llm.StreamDelta)) (*llm.ChatR
 			if ev.ContentBlock != nil && ev.ContentBlock.Type == "tool_use" {
 				tools[ev.Index] = &toolAcc{id: ev.ContentBlock.ID, name: ev.ContentBlock.Name}
 			}
+			if ev.ContentBlock != nil && ev.ContentBlock.Type == "thinking" {
+				// Новый блок рассуждений: предыдущий (если был) закрываем.
+				flushThinking()
+			}
 		case "content_block_delta":
 			if ev.Delta == nil {
 				continue
@@ -167,9 +189,14 @@ func consumeAnthropicSSE(r io.Reader, onDelta func(llm.StreamDelta)) (*llm.ChatR
 			case "thinking_delta":
 				if ev.Delta.Thinking != "" {
 					reasoning.WriteString(ev.Delta.Thinking)
+					curThink.WriteString(ev.Delta.Thinking)
 					if onDelta != nil {
 						onDelta(llm.StreamDelta{ReasoningContent: ev.Delta.Thinking})
 					}
+				}
+			case "signature_delta":
+				if ev.Delta.Signature != "" {
+					curSig.WriteString(ev.Delta.Signature)
 				}
 			case "input_json_delta":
 				if acc, ok := tools[ev.Index]; ok && ev.Delta.PartialJSON != "" {
@@ -203,10 +230,12 @@ func consumeAnthropicSSE(r io.Reader, onDelta func(llm.StreamDelta)) (*llm.ChatR
 			humanShort(silence), lineCount, err)
 	}
 
+	flushThinking()
 	msg := llm.Message{
 		Role:             "assistant",
 		Content:          content.String(),
 		ReasoningContent: reasoning.String(),
+		Thinking:         thinkBlocks,
 	}
 	if len(tools) > 0 {
 		maxIdx := -1

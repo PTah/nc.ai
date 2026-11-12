@@ -606,6 +606,10 @@ export function SaveSubagentsMaxSteps(arg1) {
   return window['go']['main']['App']['SaveSubagentsMaxSteps'](arg1);
 }
 
+export function SaveSubagentsParallel(arg1) {
+  return window['go']['main']['App']['SaveSubagentsParallel'](arg1);
+}
+
 export function SaveTheme(arg1) {
   return window['go']['main']['App']['SaveTheme'](arg1);
 }

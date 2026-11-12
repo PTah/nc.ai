@@ -306,6 +306,9 @@ type Settings struct {
 
 	// SubagentsMaxPerRun — сколько task за один родительский прогон (0 = default).
 	SubagentsMaxPerRun int `json:"subagentsMaxPerRun,omitempty"`
+	// SubagentsParallel — сколько task-подагентов гоняем одновременно (0/1 =
+	// по очереди). Ставим 2–3, только если слотов модели/квоты хватает.
+	SubagentsParallel int `json:"subagentsParallel,omitempty"`
 
 	// MCPServers — реестр внешних MCP-серверов (см. docs/mcp.md). Секреты не здесь.
 	MCPServers []MCPServerSettings `json:"mcpServers,omitempty"`
@@ -1217,6 +1220,10 @@ const DefaultSubagentsMaxSteps = 12
 // DefaultSubagentsMaxPerRun — сколько task за один родительский прогон.
 const DefaultSubagentsMaxPerRun = 3
 
+// DefaultSubagentsParallel — подагенты по очереди: параллельность включают
+// осознанно, когда модель держит несколько одновременных запросов.
+const DefaultSubagentsParallel = 1
+
 func (s *Store) SubagentsEnabled() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -1271,6 +1278,25 @@ func (s *Store) SubagentsMaxPerRun() int {
 func (s *Store) SetSubagentsMaxPerRun(n int) error {
 	s.mu.Lock()
 	s.settings.SubagentsMaxPerRun = n
+	s.mu.Unlock()
+	return s.Save()
+}
+
+func (s *Store) SubagentsParallel() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.settings.SubagentsParallel <= 0 {
+		return DefaultSubagentsParallel
+	}
+	if s.settings.SubagentsParallel > 8 {
+		return 8
+	}
+	return s.settings.SubagentsParallel
+}
+
+func (s *Store) SetSubagentsParallel(n int) error {
+	s.mu.Lock()
+	s.settings.SubagentsParallel = n
 	s.mu.Unlock()
 	return s.Save()
 }

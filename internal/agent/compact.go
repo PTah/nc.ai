@@ -1,3 +1,4 @@
+// Edited by nc.ai 1.1.18 on new-admin-pc 2026-11-12 10:26:46
 package agent
 
 import (
@@ -90,6 +91,8 @@ func NeutralizeToollessAssistants(messages []llm.Message) []llm.Message {
 		}
 		m.Content = "[previous answer omitted — it guessed without tools; do not repeat it]"
 		m.ReasoningContent = ""
+		// Подпись без текста бесполезна: Anthropic требует блок целиком.
+		m.Thinking = nil
 	}
 	return out
 }

@@ -86,16 +86,41 @@ func (r *Runner) runTask(ctx context.Context, call llm.ToolCall, emit EmitFunc) 
 	if maxPer <= 0 {
 		maxPer = 3
 	}
-	// Serialize nested runs (Local usually has one model slot) and enforce the cap.
+	// Лимит «сколько всего» считаем под мьютексом, а одновременность — семафором:
+	// параллельных подагентов держим не больше SubagentsParallel, остальные ждут
+	// очередь. При SubagentsParallel <= 1 семафор на один слот повторяет прежнее
+	// поведение «строго по очереди».
 	r.subMu.Lock()
-	defer r.subMu.Unlock()
 	if r.subCount >= maxPer {
+		r.subMu.Unlock()
 		out := fmt.Sprintf("ERROR: subagent limit reached (%d per run). Summarize with what you have.", maxPer)
 		emit(Event{Type: "tool_start", Name: name, Content: call.Function.Arguments, CallID: call.ID})
 		emit(Event{Type: "tool_end", Name: name, Content: out, OK: false, CallID: call.ID})
 		return llm.ToolResultMessage(call.ID, out)
 	}
 	r.subCount++
+	if r.subSem == nil {
+		slots := r.SubagentsParallel
+		if slots < 1 {
+			slots = 1
+		}
+		if slots > 8 {
+			slots = 8
+		}
+		r.subSem = make(chan struct{}, slots)
+	}
+	sem := r.subSem
+	r.subMu.Unlock()
+
+	select {
+	case sem <- struct{}{}:
+		defer func() { <-sem }()
+	case <-ctx.Done():
+		out := "ERROR: subagent cancelled"
+		emit(Event{Type: "tool_start", Name: name, Content: call.Function.Arguments, CallID: call.ID})
+		emit(Event{Type: "tool_end", Name: name, Content: out, OK: false, CallID: call.ID})
+		return llm.ToolResultMessage(call.ID, out)
+	}
 
 	emit(Event{Type: "tool_start", Name: name, Content: call.Function.Arguments, CallID: call.ID})
 	emit(Event{

@@ -317,6 +317,8 @@ export function SaveSubagentsMaxPerRun(arg1:number):Promise<void>;
 
 export function SaveSubagentsMaxSteps(arg1:number):Promise<void>;
 
+export function SaveSubagentsParallel(arg1:number):Promise<void>;
+
 export function SaveTheme(arg1:string):Promise<void>;
 
 export function SaveToolConfirm(arg1:boolean):Promise<void>;

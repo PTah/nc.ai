@@ -1,4 +1,5 @@
 <!-- Created by nc.ai 1.1.15 on macbook 2026-11-11 21:31:31 -->
+<!-- Edited by nc.ai 1.1.18 on new-admin-pc 2026-11-12 10:33:39 -->
 <!-- Created by nc.ai 1.1.16 on macbook 2026-11-11 -->
 # Security review с MCP: Semgrep и чеклист
 
@@ -83,3 +84,30 @@ go vet ./... && go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 - Не заменяет ревью человеком и не блокирует коммиты.
 - Не тянет CodeQL/Joern/CPG в `internal/` — это отдельные внешние серверы, если понадобятся.
 - Не отправляет код в облако: `security_check`/`semgrep_scan` работают локально.
+
+## Проверка 4624 (одна запись на пачку SSH-команд)
+
+Агент держит одну SSH-сессию на хост, поэтому серия команд должна давать **один** вход в журнале
+Windows, а не запись на каждую команду. Проверяется только на машине с SSH-сервером и правами
+администратора (журнал Security иначе не читается):
+
+```powershell
+# 1. Сколько входов было до серии
+$before = (Get-WinEvent -FilterHashtable @{LogName='Security'; Id=4624} -MaxEvents 200 |
+  Where-Object { $_.Message -match 'Logon Type:\s+5' }).Count
+
+# 2. Пять команд в одной сессии (брокер переиспользует соединение)
+& "$HOME\CursorRules\scripts\Invoke-RemoteSession.ps1" -Target user@host -Command "hostname"
+& "$HOME\CursorRules\scripts\Invoke-RemoteSession.ps1" -Target user@host -Command "whoami"
+& "$HOME\CursorRules\scripts\Invoke-RemoteSession.ps1" -Target user@host -Command "uname -a"
+& "$HOME\CursorRules\scripts\Invoke-RemoteSession.ps1" -Target user@host -Command "echo ok"
+& "$HOME\CursorRules\scripts\Invoke-RemoteSession.ps1" -Target user@host -Command "echo \$\$"
+
+# 3. Прирост записей: ожидается 1 (type 5 — network logon), а не 5
+$after = (Get-WinEvent -FilterHashtable @{LogName='Security'; Id=4624} -MaxEvents 200 |
+  Where-Object { $_.Message -match 'Logon Type:\s+5' }).Count
+$after - $before
+```
+
+Если прирост больше единицы — сессия переоткрывается (проверить `ControlMaster`/`ControlPersist`
+или, на Windows-брокере, живость консоли MCP).

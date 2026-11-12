@@ -525,6 +525,20 @@ export namespace llm {
 		    return a;
 		}
 	}
+	export class ThinkingBlock {
+	    thinking: string;
+	    signature?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ThinkingBlock(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.thinking = source["thinking"];
+	        this.signature = source["signature"];
+	    }
+	}
 
 }
 

@@ -1,3 +1,4 @@
+// Edited by nc.ai 1.1.18 on new-admin-pc 2026-11-12 10:24:42
 package llm
 
 import "context"
@@ -14,6 +15,14 @@ type ImageURL struct {
 	Detail string `json:"detail,omitempty"` // low | high | original | auto
 }
 
+// ThinkingBlock — блок рассуждений Anthropic: текст + подпись. API требует
+// вернуть блок вместе с подписью байт-в-байт при продолжении tool-loop того же
+// хода, иначе следующий запрос отклоняется.
+type ThinkingBlock struct {
+	Thinking  string `json:"thinking"`
+	Signature string `json:"signature,omitempty"`
+}
+
 // Message is the canonical OpenAI-shaped chat message.
 type Message struct {
 	Role             string        `json:"role"`
@@ -23,6 +32,10 @@ type Message struct {
 	ToolCallID       string        `json:"tool_call_id,omitempty"`
 	ToolCalls        []ToolCall    `json:"tool_calls,omitempty"`
 	ReasoningContent string        `json:"reasoning_content,omitempty"`
+	// Thinking — сырые блоки Anthropic с подписями. Живут только в памяти
+	// прогона: остальным провайдерам поле чуждо, а на диск его писать незачем —
+	// Anthropic требует подпись лишь для продолжения текущего хода.
+	Thinking []ThinkingBlock `json:"-"`
 }
 
 type ToolCall struct {

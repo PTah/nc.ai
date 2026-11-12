@@ -33,6 +33,19 @@
 
 ---
 
+## Висит отдельно (не в роадмапе-чеках)
+
+Доводки, которые не входят в фазы, но должны быть на виду:
+
+1. **macOS-артефакты 1.1.18** — на маке не собраны; релиз v1.1.18 Windows-only, макбуку качать нечего.
+   Собрать на macOS (`wails build -platform darwin/universal`, упаковать `scripts/macos-zip-sidecar.sh`)
+   и долить `macos-arm64` + `macos-universal` (с `.sha256`) в тот же релиз на GitHub и home.
+2. **Suno до конца** — discovery, DCR и authorize-ссылка проверены живьём (`go test -tags live ./internal/mcp -run LiveSuno`);
+   остаётся ручное: согласие в браузере и трек из чата (нужен аккаунт Suno).
+3. **Отложено осознанно** (ждут внешнего события): DeepInfer (self-host), structured outputs / `seed`.
+
+---
+
 ## Состояние на 1.1.18 и что делать дальше (точка возобновления)
 
 Фазы 0–2 закрыты: краткость + диагностика обрыва, MCP Streamable HTTP со статическим токеном,
@@ -50,11 +63,11 @@
 | 3 | OAuth на Suno `api.suno.com/mcp`: discovery + DCR + authorize-ссылка проверены вживую (`-run LiveSuno`); осталось ручное — согласие в браузере и трек из чата | Settings → MCP, лог `agent.log` | 15 мин, нужен аккаунт Suno |
 | 4 | ~~Провайдеры без DCR: поле `clientId` в карточке~~ — сделано в 1.1.18 (поле **client_id**, главнее сохранённого; без DCR и без `clientId` — понятная ошибка) | `internal/mcp/oauth.go`, карточка в `App.tsx` | готово |
 | 5 | Нотаризация macOS (Apple Developer ID) + подпись Windows-exe | `docs/build-and-release.md`, `docs/code-signing.md`; нужен Apple ID-аккаунт Developer Program и сертификат на Windows-ПК | внешняя зависимость |
-| 6 | diff viewer + LSP-подсказки + разнести `App.tsx` (10k строк) на хуки | `frontend/src/App.tsx`; начинать с блока MCP, его мы уже трогали | дни |
-| 7 | Anthropic `signature`: сохранять и возвращать thinking-блок | `internal/llm/providers/anthropic/adapter.go` (`signature` читается, но не отправляется), история в `chatstore` | 3–4 часа |
-| 8 | Подагенты параллельно (если есть слоты у сервера) | `internal/agent/subrun.go` (`RunSubagent`), `agent.go` (цикл tool call) | 1 день |
-| 9 | Замеры «меньше шагов до файла» / «граф быстрее grep» | нужен воспроизводимый набор задач на крупном репо | 1 день |
-| 10 | Проверка на живой Windows: пачка из 5 SSH-команд = **одна** запись 4624 | Windows-ПК + журнал Security | 5 минут |
+| 6 | diff viewer был готов раньше; в 1.2.0 вынесен из `App.tsx` в `frontend/src/DiffView.tsx`. **Остаётся:** LSP-подсказки (нужен language server + протокол `textDocument/*` — отдельная задача) и дальнейший распил `App.tsx` на хуки (10k строк) | `frontend/src/App.tsx`, `frontend/src/DiffView.tsx` | дни |
+| 7 | ~~Anthropic `signature`~~ — сделано в 1.2.0: `llm.ThinkingBlock`, блоки возвращаются в tool-loop с подписью, `thinking` включается по `req.Thinking`, при выключенном рассуждении блоки не отправляются; тесты `anthropic/thinking_test.go` | `internal/llm/providers/anthropic/adapter.go`, `stream.go` | готово |
+| 8 | ~~Параллельные подагенты~~ — сделано в 1.2.0: `SubagentsParallel` (1–8), семафор в `runTask`, группа `task` идёт одновременно; по умолчанию по очереди | `internal/agent/subrun.go`, `Settings → Agent` | готово |
+| 9 | ~~Замеры «граф быстрее grep»~~ — сделано в 1.2.0: `cmd/indexprobe`, отчёт `docs/reports/2026-11-12-index-vs-grep.md` (20 вызовов/3.3 КБ против 40/392 КБ) | `cmd/indexprobe/main.go` | готово |
+| 10 | Проверка 4624 на живой Windows: **не выполнена** — на этом ПК нет `sshd`, журнал Security требует прав администратора. Рецепт проверки — `docs/security-review.md`, раздел «Проверка 4624» | Windows + журнал Security | 5 минут |
 
 ### Лимиты провайдеров: что уже сделано и что осталось (1.1.16+)
 
@@ -131,9 +144,13 @@ MCP-пресеты CodeGraph / codebase-memory, allowlist `enabledTools`, Local 
       **Сделано в 0.9.0** без MCP-зависимости: `<project_map>` с картой проекта, локальный индекс
       символов (`find_symbol` / `project_search`), память фактов (`remember` / `recall`) и поиск по
       прошлым чатам (`history_search`) — правило прописано в system prompt.
-- [ ] UsageHint у пресетов MCP уже намекает — усилить в системном промпте, когда сервер online и
-      в allowlist есть search/index tools.
-- [ ] Проверка: на крупном репо меньше шагов `grep`/`read_file` до нужного файла (лог прогона).
+- [x] UsageHint у пресетов MCP уже намекает — усилить в системном промпте, когда сервер online и
+      в allowlist есть search/index tools. **Сделано в 1.2.0**: `mcpHasSearchTools` +
+      жёсткий «MCP-first rule» в `Runner.systemPrompt`, тест `internal/agent/mcpfirst_test.go`.
+- [x] Проверка: на крупном репо меньше шагов `grep`/`read_file` до нужного файла (лог прогона).
+      **Замерено в 1.2.0**: `cmd/indexprobe` на 20 символах этого репо — 20 вызовов/3.3 КБ против
+      40 вызовов/392 КБ у `grep` + чтения файла (~120× меньше контекста), отчёт
+      `docs/reports/2026-11-12-index-vs-grep.md`.
 
 **Как:** правка промпта / `internal/mcp/presets.go` UsageHint + опциональный alwaysApply:false rule
 в каталоге; без новых зависимостей.
@@ -196,9 +213,13 @@ MVP `task` уже есть. Усиление по статье про патте
 - [x] Контракт выхода ребёнка расширить опционально: `findings[]` `{category, severity, file,
       message}` рядом с `summary` / `files[]` — агрегация без merge Markdown-отчётов.
       Сделано: `SubrunFinding` + `extractFindings` / `parseFindingsJSON` (`internal/agent/subrun.go`).
-- [ ] (Опц.) параллельные подагенты — см. этап 5; только если слотов модели хватает.
-- [ ] Always-rules гигиена (документация для пользователей): в always только необходимое на каждый
-      ход; остальное — description/globs в каталоге (`internal/rules` уже умеет).
+- [x] (Опц.) параллельные подагенты — см. этап 5; только если слотов модели хватает.
+      **Сделано в 1.2.0**: `Settings.SubagentsParallel` (1–8, по умолчанию 1 = по очереди),
+      семафор в `runTask`, параллельный запуск группы `task`-вызовов в `execTools`, поле в
+      Settings → Agent, тесты `internal/agent/subrun_parallel_test.go`.
+- [x] Always-rules гигиена (документация для пользователей): в always только необходимое на каждый
+      шаг, остальное — правила с `description`. **Сделано в 1.2.0**: `docs/always-rules.md`
+      (бюджет, признаки «пора чистить», команда подсчёта размера).
 
 **Как:** правка спеки/`task` summary schema в `subrun.go` + короткий оркестратор-hint в system;
 параллель — отдельно, не блокирует E1–E4.

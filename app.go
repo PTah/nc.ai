@@ -1745,6 +1745,7 @@ func (a *App) GetSettings() map[string]any {
 		"subagentsMaxSteps":    a.cfg.SubagentsMaxSteps(),
 		"subagentsAllowWrite":  a.cfg.SubagentsAllowWrite(),
 		"subagentsMaxPerRun":   a.cfg.SubagentsMaxPerRun(),
+		"subagentsParallel":    a.cfg.SubagentsParallel(),
 		"mcpServers":           a.cfg.MCPServers(),
 		"visionModel":          deepseek.VisionModel,
 		"appDataDir":           appData,
@@ -3185,6 +3186,10 @@ func (a *App) SaveSubagentsAllowWrite(on bool) error {
 
 func (a *App) SaveSubagentsMaxPerRun(n int) error {
 	return a.cfg.SetSubagentsMaxPerRun(n)
+}
+
+func (a *App) SaveSubagentsParallel(n int) error {
+	return a.cfg.SetSubagentsParallel(n)
 }
 
 func (a *App) SaveLocalLite(on bool) error {
@@ -4876,6 +4881,7 @@ func (a *App) RunAgentInSession(sessionID, runID, userMessage string, attachment
 		SubagentsMaxSteps:   a.cfg.SubagentsMaxSteps(),
 		SubagentsAllowWrite: a.cfg.SubagentsAllowWrite(),
 		SubagentsMaxPerRun:  a.cfg.SubagentsMaxPerRun(),
+		SubagentsParallel:   a.cfg.SubagentsParallel(),
 	}
 	// Резервный провайдер: один переход, когда основной упёрся в длинный лимит
 	// или перегружен. Тот же провайдер и Local с картинками в резерв не берём.
