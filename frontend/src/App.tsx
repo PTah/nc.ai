@@ -4220,6 +4220,32 @@ export default function App() {
     el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
   }, [])
 
+  // Доскролл вниз, пока лента «приклеена» к низу. Зовётся из эффекта на items и
+  // из ResizeObserver: высота ленты растёт не только от новых сообщений (todo,
+  // статус, раскрытие инструментов, картинки), и без этого окно «уезжает вверх».
+  const pinIfStick = useCallback(() => {
+    if (!stickToBottomRef.current) return
+    const el = chatRef.current
+    if (!el) return
+    el.scrollTop = el.scrollHeight
+  }, [])
+
+  // ResizeObserver на внутренний контейнер ленты и сам скроллер: любое изменение
+  // высоты контента или высоты окна → доскролл вниз, если мы у низа.
+  const threadInnerRef = useRef<HTMLDivElement | null>(null)
+  const stickObserverRef = useRef<ResizeObserver | null>(null)
+  const setThreadInnerRef = useCallback((node: HTMLDivElement | null) => {
+    stickObserverRef.current?.disconnect()
+    stickObserverRef.current = null
+    threadInnerRef.current = node
+    if (!node || typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(() => pinIfStick())
+    ro.observe(node)
+    if (node.parentElement) ro.observe(node.parentElement)
+    stickObserverRef.current = ro
+  }, [pinIfStick])
+  useEffect(() => () => { stickObserverRef.current?.disconnect() }, [])
+
   // Прогон завершился: если пользователь не отлистывал историю — доводим ленту
   // до самого низа. Финальный блок может дорастать уже после последнего чанка
   // стрима (подсветка кода, картинки, раскрытие markdown), поэтому «доводим»
@@ -7275,16 +7301,14 @@ async function refreshYandexModels(opts?: {applyPreferred?: boolean; notify?: bo
               className="nc-thread"
               ref={chatRef}
               onWheel={(e) => {
-                // Прокрутка вверх = пользователь читает выше: перестаём дёргать вниз.
-                if (e.deltaY < 0) {
-                  smoothScrollRef.current = false
-                  stickToBottomRef.current = false
-                }
+                // Отмена подавления: если пользователь сам крутит во время
+                // плавного скролла, пусть onScroll решает по расстоянию до низа.
+                if (e.deltaY < 0) smoothScrollRef.current = false
               }}
               onScroll={(e) => {
                 const el = e.currentTarget
                 const dist = el.scrollHeight - el.scrollTop - el.clientHeight
-                if (dist < 48) {
+                if (dist <= 80) {
                   stickToBottomRef.current = true
                   smoothScrollRef.current = false
                   setShowScrollDown(false)
@@ -7295,7 +7319,7 @@ async function refreshYandexModels(opts?: {applyPreferred?: boolean; notify?: bo
                 }
               }}
             >
-              <div className="nc-thread-inner">
+              <div className="nc-thread-inner" ref={setThreadInnerRef}>
                 <div
                   className="nc-chat-wsplit left"
                   title="Изменить ширину чата"
