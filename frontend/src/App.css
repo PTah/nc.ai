@@ -800,6 +800,42 @@ mark.nc-find-mark.nc-find-current {
      visible even when the chat pane is small. */
   overflow: visible;
 }
+/* Floating "to bottom" button over the transcript, glued above the input. */
+.nc-scroll-down {
+  position: absolute;
+  right: 1rem;
+  bottom: calc(100% + 0.7rem);
+  z-index: 7;
+  width: 2.3rem;
+  height: 2.3rem;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--composer-bg);
+  color: var(--text);
+  box-shadow: var(--shadow-md);
+  cursor: pointer;
+  font-size: 1.05rem;
+  line-height: 1;
+  transition: background .12s ease, border-color .12s ease, transform .08s ease;
+}
+.nc-scroll-down:hover { background: var(--hover-bg); border-color: var(--border-strong); }
+.nc-scroll-down:active { transform: translateY(1px); }
+.nc-scroll-down:focus-visible { outline: none; box-shadow: var(--ring); }
+.nc-scroll-down.has-new { border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); }
+.nc-scroll-down-dot {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--accent);
+  border: 2px solid var(--panel);
+}
 /* Pending questions: part of the chat column, glued above the input box. It sits
    in normal flow so the transcript above it is pushed up instead of covered. */
 .nc-queue-pending {

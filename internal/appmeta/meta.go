@@ -28,6 +28,7 @@
 // Edited by nc.ai 1.0.3 on Papasha 2026-11-01 12:10:05
 // Edited by nc.ai 1.0.0 on new-admin-pc 2026-11-02 09:59:06
 // Edited by nc.ai 1.1.3 on macbook 2026-11-08 18:54:24
+// Edited by nc.ai 1.2.9 on Papasha 2026-11-13 21:55:16
 package appmeta
 
 import "time"
@@ -35,7 +36,7 @@ import "time"
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "1.2.9"
+	Version = "1.2.10"
 )
 
 // DeepSeekProRetireRFC3339 is the announced V4 Pro retirement instant, empty
@@ -85,7 +86,7 @@ var HighlightsRU = []string{
 	"MCP теперь и hosted: «Добавить URL-сервер» → «Войти» (OAuth с PKCE) — Suno и другие серверы по ссылке",
 	"Резервный провайдер: длинный лимит или перегрузка — прогон один раз продолжает на резерве, а не падает",
 	"Пресет «Semgrep (security review)»: статический анализ локально + чеклист ревью в docs/security-review.md",
-	"Обновления из своего Gitea больше не отваливаются до перезапуска: автоперепроверка раз в 30 минут",
+	"Лента чата: кнопка «вниз» с точкой нового сообщения и автодоскролл до конца ответа",
 }
 
 var HighlightsEN = []string{
@@ -93,7 +94,7 @@ var HighlightsEN = []string{
 	"MCP now speaks hosted servers too: Add URL server → Sign in (OAuth + PKCE) — Suno and friends by link",
 	"Fallback provider: on a long rate limit or an overload the run continues once on the backup instead of failing",
 	"Semgrep (security review) preset: local static analysis plus a review checklist in docs/security-review.md",
-	"Updates from your own Gitea no longer break until restart: automatic re-check every 30 minutes",
+	"Chat transcript: a “jump to latest” button with a new-message dot, plus auto-scroll to the end of the answer",
 }
 
 // UICopy is localized chrome for the Welcome splash.

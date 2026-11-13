@@ -23,6 +23,7 @@
 // Edited by nc.ai 1.1.15 on macbook 2026-11-11 21:30:10
 // Edited by nc.ai 1.1.17 on new-admin-pc 2026-11-12 09:49:52
 // Edited by nc.ai 1.2.5 on macbook 2026-11-12 20:30:12
+// Edited by nc.ai 1.2.9 on Papasha 2026-11-13 21:45:22
 import {FormEvent, MouseEvent as ReactMouseEvent, useCallback, useEffect, useMemo, useRef, useState} from 'react'
 import {Terminal} from '@xterm/xterm'
 import {FitAddon} from '@xterm/addon-fit'
@@ -2411,6 +2412,16 @@ export default function App() {
   // Следуем за низом ленты только пока пользователь у низа: иначе чтение
   // выше «дёргалось» вниз на каждом новом чанке ответа.
   const stickToBottomRef = useRef(true)
+  // Идёт программный «плавный скролл вниз»: во время анимации не показываем
+  // кнопку заново (иначе она мигнёт, пока scrollTop ещё далеко от низа).
+  const smoothScrollRef = useRef(false)
+  // Прошлое значение busy для доскролла: нужен переход true→false, чтобы
+  // «довести» ленту до низа в конце ответа (отдельно от persist на 29xx).
+  const scrollPrevBusyRef = useRef(false)
+  // Кнопка «к последнему сообщению»: видна, когда пользователь ушёл вверх по
+  // ленте; точка-индикатор — когда внизу появилось новое сообщение.
+  const [showScrollDown, setShowScrollDown] = useState(false)
+  const [scrollDownHasNew, setScrollDownHasNew] = useState(false)
   const chatFindInputRef = useRef<HTMLInputElement>(null)
   const composerRef = useRef<HTMLTextAreaElement>(null)
   const draftSaveTimerRef = useRef<number | undefined>(undefined)
@@ -4186,12 +4197,55 @@ export default function App() {
     if (chatFindOpen) return
     const el = chatRef.current
     if (!el) return
-    if (!stickToBottomRef.current) return
+    if (!stickToBottomRef.current) {
+      // Пользователь читает историю: не дёргаем вниз, только помечаем, что
+      // внизу появилось новое сообщение (точка на кнопке «вниз»).
+      setScrollDownHasNew(true)
+      setShowScrollDown(true)
+      return
+    }
     // Один scroll на кадр: несколько синхронных «прыжков вниз» за рендер дают
     // дёрганье, когда шапка/статус меняют высоту.
     const raf = requestAnimationFrame(() => { el.scrollTop = el.scrollHeight })
     return () => cancelAnimationFrame(raf)
   }, [items, busy, activeSessionId, chatFindOpen])
+
+  const scrollChatToBottom = useCallback(() => {
+    const el = chatRef.current
+    if (!el) return
+    stickToBottomRef.current = true
+    smoothScrollRef.current = true
+    setShowScrollDown(false)
+    setScrollDownHasNew(false)
+    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+  }, [])
+
+  // Прогон завершился: если пользователь не отлистывал историю — доводим ленту
+  // до самого низа. Финальный блок может дорастать уже после последнего чанка
+  // стрима (подсветка кода, картинки, раскрытие markdown), поэтому «доводим»
+  // несколько раз, пока раскладка не успокоится. Если читал историю — не
+  // трогаем, кнопка «вниз» уже показывает, что внизу есть новое.
+  useEffect(() => {
+    const wasBusy = scrollPrevBusyRef.current
+    scrollPrevBusyRef.current = busy
+    if (!wasBusy || busy) return
+    if (!stickToBottomRef.current) return
+    const pin = () => {
+      const el = chatRef.current
+      if (!el || !stickToBottomRef.current) return
+      smoothScrollRef.current = false
+      el.scrollTop = el.scrollHeight
+    }
+    pin()
+    const t1 = window.setTimeout(pin, 120)
+    const t2 = window.setTimeout(pin, 480)
+    setShowScrollDown(false)
+    setScrollDownHasNew(false)
+    return () => {
+      window.clearTimeout(t1)
+      window.clearTimeout(t2)
+    }
+  }, [busy])
 
   useEffect(() => {
     chatFindOpenRef.current = chatFindOpen
@@ -4420,6 +4474,9 @@ export default function App() {
   async function switchSession(id: string) {
     if (!id || id === activeSessionId) return
     stickToBottomRef.current = true // в другом чате показываем актуальный низ
+    smoothScrollRef.current = false
+    setShowScrollDown(false)
+    setScrollDownHasNew(false)
     if (activeSessionId) {
       try {
         await persistSession(activeSessionId)
@@ -6361,6 +6418,9 @@ async function refreshYandexModels(opts?: {applyPreferred?: boolean; notify?: bo
       return
     }
     stickToBottomRef.current = true // свой вопрос — снова следим за низом
+    smoothScrollRef.current = false
+    setShowScrollDown(false)
+    setScrollDownHasNew(false)
     const text = stripUrlContext((overrideText ?? input).trim())
     const atts = pendingAtts
     if (!text && atts.length === 0) return
@@ -7216,11 +7276,23 @@ async function refreshYandexModels(opts?: {applyPreferred?: boolean; notify?: bo
               ref={chatRef}
               onWheel={(e) => {
                 // Прокрутка вверх = пользователь читает выше: перестаём дёргать вниз.
-                if (e.deltaY < 0) stickToBottomRef.current = false
+                if (e.deltaY < 0) {
+                  smoothScrollRef.current = false
+                  stickToBottomRef.current = false
+                }
               }}
               onScroll={(e) => {
                 const el = e.currentTarget
-                if (el.scrollHeight - el.scrollTop - el.clientHeight < 48) stickToBottomRef.current = true
+                const dist = el.scrollHeight - el.scrollTop - el.clientHeight
+                if (dist < 48) {
+                  stickToBottomRef.current = true
+                  smoothScrollRef.current = false
+                  setShowScrollDown(false)
+                  setScrollDownHasNew(false)
+                } else if (!smoothScrollRef.current && dist > 120) {
+                  stickToBottomRef.current = false
+                  setShowScrollDown(true)
+                }
               }}
             >
               <div className="nc-thread-inner">
@@ -7455,6 +7527,18 @@ async function refreshYandexModels(opts?: {applyPreferred?: boolean; notify?: bo
               </div>
             )}
             <div className="nc-composer-wrap">
+              {showScrollDown && (
+                <button
+                  type="button"
+                  className={`nc-scroll-down${scrollDownHasNew ? ' has-new' : ''}`}
+                  aria-label="К последнему сообщению"
+                  title="К последнему сообщению"
+                  onClick={() => scrollChatToBottom()}
+                >
+                  <span aria-hidden>↓</span>
+                  {scrollDownHasNew && <span className="nc-scroll-down-dot" aria-hidden />}
+                </button>
+              )}
               {showRunStatus && (
                 <div className="nc-run-status" title="Текущий этап работы агента">
                   <span className="nc-run-dot" aria-hidden />
