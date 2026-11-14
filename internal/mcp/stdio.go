@@ -1,6 +1,8 @@
+// Edited by nc.ai 1.2.13 on Papasha 2026-11-14 22:55:00
 // Edited by nc.ai 0.8.5.1 on new-admin-pc 2026-10-12 17:50:14
 // Edited by nc.ai 0.8.5.3 on macbook 2026-10-12 21:47:49
 // Edited by nc.ai 0.8.5.4 on new-admin-pc 2026-10-13 10:03:12
+// Edited by nc.ai 1.2.12 on Papasha 2026-11-14 21:54:36
 package mcp
 
 import (
@@ -23,6 +25,7 @@ type Session struct {
 	cfg ServerConfig
 
 	cmd    *exec.Cmd
+	tree   *treeGuard // guarantees the whole child tree dies with the session
 	stdin  io.WriteCloser
 	stdout *bufio.Reader
 	stderr io.ReadCloser
@@ -44,6 +47,7 @@ type Session struct {
 // StartStdio launches command and performs initialize + tools/list.
 func StartStdio(ctx context.Context, cfg ServerConfig) (*Session, error) {
 	cfg.Normalize()
+	rewriteCommand(&cfg)
 	if cfg.Transport != "stdio" {
 		return nil, fmt.Errorf("transport %q not supported in MVP (use stdio)", cfg.Transport)
 	}
@@ -52,7 +56,10 @@ func StartStdio(ctx context.Context, cfg ServerConfig) (*Session, error) {
 	}
 
 	cmd := exec.CommandContext(ctx, cfg.Command, cfg.Args...)
-	configureProcess(cmd)
+	guard, err := newTreeGuard(cmd)
+	if err != nil {
+		return nil, fmt.Errorf("start %s: %w", cfg.Command, err)
+	}
 	if cfg.CWD != "" {
 		cmd.Dir = cfg.CWD
 	}
@@ -60,25 +67,37 @@ func StartStdio(ctx context.Context, cfg ServerConfig) (*Session, error) {
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
+		guard.close()
 		return nil, err
 	}
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
 		_ = stdin.Close()
+		guard.close()
 		return nil, err
 	}
 	stderrPipe, err := cmd.StderrPipe()
 	if err != nil {
 		_ = stdin.Close()
+		guard.close()
 		return nil, err
 	}
 	if err := cmd.Start(); err != nil {
+		guard.close()
 		return nil, fmt.Errorf("start %s: %w", cfg.Command, err)
+	}
+	if err := guard.adopt(cmd.Process.Pid); err != nil {
+		// Attaching to the job failed: never run a process we cannot reap.
+		_ = cmd.Process.Kill()
+		_, _ = cmd.Process.Wait()
+		guard.close()
+		return nil, fmt.Errorf("start %s: attach to job: %w", cfg.Command, err)
 	}
 
 	s := &Session{
 		cfg:     cfg,
 		cmd:     cmd,
+		tree:    guard,
 		stdin:   stdin,
 		stdout:  bufio.NewReader(stdoutPipe),
 		stderr:  stderrPipe,
@@ -428,12 +447,18 @@ func (s *Session) failPending(err error) {
 	}
 }
 
-// Close kills the server process.
+// Close kills the server process and its whole child tree.
 func (s *Session) Close() {
 	if s == nil || !s.closed.CompareAndSwap(false, true) {
 		return
 	}
 	_ = s.stdin.Close()
+	// Kill the tree first (Windows job / Unix process group), then reap the
+	// direct child. The order matters on Windows: closing the job terminates
+	// descendants that Process.Kill would otherwise miss.
+	if s.tree != nil {
+		s.tree.close()
+	}
 	if s.cmd != nil && s.cmd.Process != nil {
 		_ = s.cmd.Process.Kill()
 		_, _ = s.cmd.Process.Wait()

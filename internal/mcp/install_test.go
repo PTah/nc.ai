@@ -1,3 +1,5 @@
+// Edited by nc.ai 1.2.13 on Papasha 2026-11-14 22:55:00
+// Edited by nc.ai 1.2.12 on Papasha 2026-11-14 22:13:33
 package mcp
 
 import (
@@ -14,11 +16,20 @@ func TestEnsureInstalled_NpxNoDownload(t *testing.T) {
 	if err != nil {
 		t.Fatalf("npx preset should not fail without network if npx exists: %v", err)
 	}
-	if cfg.Command != "npx" || len(cfg.Args) < 2 {
-		t.Fatalf("cfg=%+v", cfg)
-	}
 	if !res.OK {
 		t.Fatalf("res=%+v", res)
+	}
+	// The persisted config must not carry a cmd.exe wrapper: npx resolves to a
+	// direct `node <entry.js>` (or `node npx-cli.js` when offline).
+	joined := strings.ToLower(strings.Join(append([]string{cfg.Command}, cfg.Args...), " "))
+	if strings.Contains(joined, "cmd.exe") || strings.Contains(joined, "cmd /c") {
+		t.Fatalf("cmd.exe wrapper leaked into config: %q", joined)
+	}
+	if !strings.Contains(joined, "@agntk/codegraph-mcp") {
+		t.Fatalf("package missing from config: %q", joined)
+	}
+	if len(cfg.Args) < 1 {
+		t.Fatalf("cfg=%+v", cfg)
 	}
 }
 

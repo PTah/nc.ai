@@ -1,5 +1,7 @@
+// Edited by nc.ai 1.2.13 on Papasha 2026-11-14 22:55:00
 // Edited by nc.ai 0.8.5.1 on new-admin-pc 2026-10-12 17:49:52
 // Edited by nc.ai 0.8.6.0 on macbook 2026-10-13 22:31:30
+// Edited by nc.ai 1.2.12 on Papasha 2026-11-14 21:56:49
 package mcp
 
 import (
@@ -8,8 +10,22 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"notcursor.ai/app/internal/llm"
+)
+
+// Backoff для серверов, которые падают сразу после запуска. Авто-рестарт
+// (EnsureStarted / EnsureStartedBackground / Call) ждёт после каждой неудачи всё
+// дольше, а после mcpMaxAutoRestarts провалов подряд сдаётся совсем: дальше
+// сервер поднимает только человек кнопкой «Start» (этот путь порог не уважает и
+// сбрасывает счётчик). Без этого упавший на старте сервер перезапускался на
+// каждом шаге агента — отсюда и «процессов не прибавилось» в логах, и вечный
+// спавн-убийство node.exe.
+const (
+	mcpMinRestartInterval = 30 * time.Second
+	mcpMaxRestartInterval = 10 * time.Minute
+	mcpMaxAutoRestarts    = 5
 )
 
 // Status of one configured server from the UI's point of view.
@@ -34,6 +50,12 @@ type Manager struct {
 	creds    CredentialSource       // OAuth-токены hosted-серверов (nil = только статические заголовки)
 	states   map[string]string      // id → state text
 	errors   map[string]string
+	// lastFailed / failures track the last failed Start and the number of
+	// consecutive failures for a server. The auto-restart paths (EnsureStarted /
+	// EnsureStartedBackground / Call) use them to back off instead of hammering a
+	// crash-looping server on every agent step.
+	lastFailed map[string]time.Time
+	failures   map[string]int
 	// lifetime is the base context for MCP child processes. It must NOT be a
 	// per-run/per-call context: otherwise Stop (or any run cancellation) kills
 	// the server while the manager still thinks it is running.
@@ -73,6 +95,8 @@ func NewManager() *Manager {
 		sessions:       map[string]liveSession{},
 		states:         map[string]string{},
 		errors:         map[string]string{},
+		lastFailed:     map[string]time.Time{},
+		failures:       map[string]int{},
 		lifetime:       ctx,
 		lifetimeCancel: cancel,
 	}
@@ -86,17 +110,46 @@ func (m *Manager) SetCredentialSource(src CredentialSource) {
 	m.mu.Unlock()
 }
 
-// SetConfigs replaces the config list (does not auto-start).
+// SetConfigs replaces the config list (does not auto-start). A server whose
+// command/args/url changed gets its restart backoff cleared: the user fixed the
+// config, so the next attempt must be immediate instead of waiting for the old
+// crash-loop penalty.
 func (m *Manager) SetConfigs(cfgs []ServerConfig) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	prev := make(map[string]ServerConfig, len(m.configs))
+	for _, c := range m.configs {
+		prev[c.ID] = c
+	}
 	cp := make([]ServerConfig, len(cfgs))
 	for i := range cfgs {
 		c := cfgs[i]
 		c.Normalize()
 		cp[i] = c
+		if old, ok := prev[c.ID]; ok && sameLaunch(old, c) {
+			continue
+		}
+		delete(m.lastFailed, c.ID)
+		delete(m.failures, c.ID)
 	}
 	m.configs = cp
+}
+
+// sameLaunch reports whether two configs describe the same process to spawn or
+// the same HTTP endpoint (label/tool allowlist changes do not count).
+func sameLaunch(a, b ServerConfig) bool {
+	if a.Transport != b.Transport || a.Command != b.Command || a.URL != b.URL || a.CWD != b.CWD {
+		return false
+	}
+	if len(a.Args) != len(b.Args) {
+		return false
+	}
+	for i := range a.Args {
+		if a.Args[i] != b.Args[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // Configs returns a copy of current configs.
@@ -133,6 +186,9 @@ func (m *Manager) EnsureStarted(ctx context.Context) {
 		if s != nil && s.Alive() {
 			continue
 		}
+		if ok, _ := m.restartAllowed(c.ID); !ok {
+			continue // crash-looping server: back off, retry later
+		}
 		_, _ = m.Start(ctx, c.ID)
 	}
 }
@@ -148,6 +204,9 @@ func (m *Manager) EnsureStartedBackground() {
 			continue
 		}
 		if s := m.sessions[c.ID]; s != nil && s.Alive() {
+			continue
+		}
+		if ok, _ := m.restartDecisionLocked(c.ID); !ok {
 			continue
 		}
 		todo = append(todo, c.ID)
@@ -169,6 +228,73 @@ func (m *Manager) RunningIDs() []string {
 		}
 	}
 	return out
+}
+
+// restartAllowed reports whether an automatic restart of id is currently
+// allowed, plus the reason when it is not (shown to the user / written to the
+// agent log).
+func (m *Manager) restartAllowed(id string) (bool, string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.restartDecisionLocked(id)
+}
+
+// restartDecisionLocked is restartAllowed for callers that already hold m.mu
+// (sync.Mutex is not reentrant, so the locked variant must not be nested twice).
+func (m *Manager) restartDecisionLocked(id string) (bool, string) {
+	t, failed := m.lastFailed[id]
+	if !failed {
+		return true, ""
+	}
+	if n := m.failures[id]; n >= mcpMaxAutoRestarts {
+		return false, fmt.Sprintf(
+			"MCP server %q падал %d раз подряд — авто-перезапуск выключен, запустите его вручную (Settings → MCP)",
+			id, n)
+	}
+	wait := m.restartDelayLocked(id)
+	if elapsed := time.Since(t); elapsed < wait {
+		return false, fmt.Sprintf("MCP server %q перезапускался недавно и упал — следующая попытка через %s",
+			id, roundDuration(wait-elapsed))
+	}
+	return true, ""
+}
+
+// restartDelayLocked is the backoff before the next automatic attempt:
+// 30s, 1m, 2m, 4m, capped at mcpMaxRestartInterval.
+func (m *Manager) restartDelayLocked(id string) time.Duration {
+	n := m.failures[id]
+	if n <= 0 {
+		return 0
+	}
+	d := mcpMinRestartInterval
+	for i := 1; i < n; i++ {
+		if d >= mcpMaxRestartInterval {
+			return mcpMaxRestartInterval
+		}
+		d *= 2
+	}
+	if d > mcpMaxRestartInterval {
+		d = mcpMaxRestartInterval
+	}
+	return d
+}
+
+// ResetBackoff forgets the failure history of one server. Called when a human
+// explicitly starts the server from the UI: their decision beats our backoff.
+func (m *Manager) ResetBackoff(id string) {
+	id = sanitizeID(id)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.lastFailed, id)
+	delete(m.failures, id)
+}
+
+// roundDuration trims a wait to whole seconds (30s, 1m15s) for user-facing text.
+func roundDuration(d time.Duration) string {
+	if d < time.Second {
+		return "1s"
+	}
+	return d.Round(time.Second).String()
 }
 
 // Start connects one server by id. If a healthy session already exists it is
@@ -210,12 +336,22 @@ func (m *Manager) Start(ctx context.Context, id string) (Status, error) {
 	if err != nil {
 		m.states[cfg.ID] = "error"
 		m.errors[cfg.ID] = err.Error()
-		m.notify(fmt.Sprintf("start failed id=%s err=%s", cfg.ID, err))
+		m.failures[cfg.ID]++
+		m.lastFailed[cfg.ID] = time.Now()
+		if m.failures[cfg.ID] >= mcpMaxAutoRestarts {
+			m.notify(fmt.Sprintf("start failed id=%s failures=%d auto_restart=disabled err=%s",
+				cfg.ID, m.failures[cfg.ID], err))
+		} else {
+			m.notify(fmt.Sprintf("start failed id=%s failures=%d next_auto_restart_in=%s err=%s",
+				cfg.ID, m.failures[cfg.ID], m.restartDelayLocked(cfg.ID), err))
+		}
 		return m.statusLocked(cfg), err
 	}
 	m.sessions[cfg.ID] = sess
 	m.states[cfg.ID] = "running"
 	m.errors[cfg.ID] = ""
+	delete(m.lastFailed, cfg.ID)
+	delete(m.failures, cfg.ID)
 	m.notify(fmt.Sprintf("started id=%s tools=%d", cfg.ID, len(sess.Tools())))
 	return m.statusLocked(cfg), nil
 }
@@ -376,6 +512,9 @@ func (m *Manager) Call(ctx context.Context, prefixedName string, argsJSON string
 	s := m.sessions[serverID]
 	m.mu.Unlock()
 	if s == nil || !s.Alive() {
+		if ok, reason := m.restartAllowed(serverID); !ok {
+			return "", fmt.Errorf("%s", reason)
+		}
 		if _, err := m.Start(ctx, serverID); err != nil {
 			return "", err
 		}

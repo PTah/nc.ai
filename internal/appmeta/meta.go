@@ -36,7 +36,7 @@ import "time"
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "1.2.12"
+	Version = "1.2.13"
 )
 
 // DeepSeekProRetireRFC3339 is the announced V4 Pro retirement instant, empty
@@ -83,7 +83,7 @@ func retiredAt(at time.Time, now time.Time) bool {
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
 	"Новый проект одной фразой: «Создай репо и выложи на Home / на гитхаб / на work» — папка, git, репозиторий, push и проект в дашборде",
-	"MCP теперь и hosted: «Добавить URL-сервер» → «Войти» (OAuth с PKCE) — Suno и другие серверы по ссылке",
+	"MCP-серверы больше не оставляют висящих процессов: при остановке гасится всё дерево (node.exe и npx не остаются в памяти), npx запускается напрямую через node, а сервер, упавший на старте, не перезапускается на каждом шаге — растущий backoff и лимит попыток",
 	"Резервный провайдер: длинный лимит или перегрузка — прогон один раз продолжает на резерве, а не падает",
 	"Стабильность длинных чатов: обрезка огромных tool-выводов и data:-картинок при сохранении, дебаунс записи и лимит рендера ленты (кнопка «показать раньше»)",
 	"Очередь чата: «Отправить» дописывает запрос вслед идущему прогону, «Параллельно» — отдельной дорожкой; в вопросах агента один вариант помечен «рекомендую»",
@@ -91,7 +91,7 @@ var HighlightsRU = []string{
 
 var HighlightsEN = []string{
 	"A new project in one sentence: \"create a repo and publish it to Home / github / work\" — folder, git, remote repo, push and a dashboard project",
-	"MCP now speaks hosted servers too: Add URL server → Sign in (OAuth + PKCE) — Suno and friends by link",
+	"MCP servers no longer leave stray processes: stopping a server kills the whole tree (node.exe and npx stay out of memory), npx runs through node directly, and a server that crashes on boot is not respawned on every step — growing backoff and an attempt limit",
 	"Fallback provider: on a long rate limit or an overload the run continues once on the backup instead of failing",
 	"Long-chat stability: trim oversized tool output and data: images on save, debounce writes, and cap rendered messages (with a show-earlier button)",
 	"Chat queue: Send appends your message to the running turn, Parallel starts a separate lane; agent questions now mark one option as recommended",

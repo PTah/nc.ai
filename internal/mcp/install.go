@@ -1,6 +1,8 @@
+// Edited by nc.ai 1.2.13 on Papasha 2026-11-14 22:55:00
 // Edited by nc.ai 0.8.5.1 on new-admin-pc 2026-10-12 17:50:30
 // Edited by nc.ai 0.8.5.3 on macbook 2026-10-12 21:47:34
 // Edited by nc.ai 0.8.5.4 on new-admin-pc 2026-10-13 10:04:42
+// Edited by nc.ai 1.2.12 on Papasha 2026-11-14 21:55:57
 package mcp
 
 import (
@@ -17,12 +19,12 @@ import (
 
 // InstallResult is returned after EnsureInstalled.
 type InstallResult struct {
-	PresetID string `json:"presetId"`
-	OK       bool   `json:"ok"`
-	Message  string `json:"message"`
-	Command  string `json:"command,omitempty"`
+	PresetID string   `json:"presetId"`
+	OK       bool     `json:"ok"`
+	Message  string   `json:"message"`
+	Command  string   `json:"command,omitempty"`
 	Args     []string `json:"args,omitempty"`
-	Already  bool   `json:"already,omitempty"`
+	Already  bool     `json:"already,omitempty"`
 }
 
 // EnsureInstalled downloads the preset package if needed and returns a ServerConfig
@@ -38,14 +40,27 @@ func EnsureInstalled(ctx context.Context, presetID string) (ServerConfig, Instal
 
 	switch strings.ToLower(p.Install.Kind) {
 	case "npx":
-		if _, err := lookPath("npx"); err != nil {
-			return cfg, res, fmt.Errorf("npx не найден — установите Node.js")
+		// npx alone is not enough: the direct `node <entry.js>` form (and the
+		// `node npx-cli.js` fallback) needs node itself.
+		if _, err := lookPath("node"); err != nil {
+			if _, err2 := lookPath("npx"); err2 != nil {
+				return cfg, res, fmt.Errorf("node/npx не найден — установите Node.js")
+			}
 		}
-		cfg.Command = "npx"
-		cfg.Args = []string{"-y", p.Install.Package}
+		// Resolve once, at install time, to a direct `node <entry.js>` so the
+		// persisted config never spawns an npx/cmd.exe wrapper at runtime.
+		// Offline (or unresolvable package) falls back to `node npx-cli.js`.
+		if bin, args, ok := resolveNpxToNode(ctx, p.Install.Package, true); ok {
+			cfg.Command = bin
+			cfg.Args = args
+			res.Message = "пакет " + p.Install.Package + " запускается напрямую: node " + strings.Join(args, " ")
+		} else {
+			cfg.Command = "npx"
+			cfg.Args = []string{"-y", p.Install.Package}
+			res.Message = "npx подтянет пакет при первом запуске: " + p.Install.Package
+		}
 		res.OK = true
 		res.Already = true
-		res.Message = "npx подтянет пакет при первом запуске: " + p.Install.Package
 		res.Command, res.Args = cfg.Command, cfg.Args
 		return cfg, res, nil
 
@@ -110,6 +125,7 @@ func EnsureInstalled(ctx context.Context, presetID string) (ServerConfig, Instal
 		if path, err := resolveBinary(bin); err == nil {
 			cfg.Command = path
 			cfg.Args = append([]string(nil), p.Install.ServeArgs...)
+			rewriteCommand(&cfg) // .cmd shim → direct node, no cmd.exe at runtime
 			res.OK = true
 			res.Already = true
 			res.Message = "уже установлено: " + path
@@ -131,6 +147,7 @@ func EnsureInstalled(ctx context.Context, presetID string) (ServerConfig, Instal
 			// npx fallback so the preset still works.
 			cfg.Command = "npx"
 			cfg.Args = []string{"-y", p.Install.Package}
+			rewriteCommand(&cfg)
 			res.OK = true
 			res.Message = "npm install прошёл, бинарь не в PATH — используем npx -y " + p.Install.Package
 			res.Command, res.Args = cfg.Command, cfg.Args
@@ -138,6 +155,7 @@ func EnsureInstalled(ctx context.Context, presetID string) (ServerConfig, Instal
 		}
 		cfg.Command = path
 		cfg.Args = append([]string(nil), p.Install.ServeArgs...)
+		rewriteCommand(&cfg)
 		res.OK = true
 		res.Message = "установлено через npm -g: " + path
 		res.Command, res.Args = cfg.Command, cfg.Args

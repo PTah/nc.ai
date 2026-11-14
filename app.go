@@ -1,3 +1,4 @@
+// Edited by nc.ai 1.2.13 on Papasha 2026-11-14 22:55:00
 // Edited by nc.ai 0.8.5.2 on macbook 2026-10-12 20:40:28
 // Edited by nc.ai 0.8.5.4 on new-admin-pc 2026-10-13 10:04:30
 // Edited by nc.ai 0.8.5.6 on macbook 2026-10-13 21:42:31
@@ -1082,6 +1083,8 @@ func (a *App) StartMCPServer(id string) (mcp.Status, error) {
 		return mcp.Status{}, fmt.Errorf("MCP is not configured")
 	}
 	a.syncMCPFromConfig()
+	// Explicit start from the UI: clear the crash-loop backoff, the human asked.
+	a.mcp.ResetBackoff(id)
 	return a.mcp.Start(a.ctx, id)
 }
 
