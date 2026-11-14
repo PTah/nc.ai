@@ -46,6 +46,9 @@ Streamable HTTP + OAuth — 1.1.16; очередь чата 0.9.4 («вслед/
 2. **Suno до конца** — discovery, DCR и authorize-ссылка проверены живьём (`go test -tags live ./internal/mcp -run LiveSuno`);
    остаётся ручное: согласие в браузере и трек из чата (нужен аккаунт Suno).
 3. **Отложено осознанно** (ждут внешнего события): DeepInfer (self-host), structured outputs / `seed`.
+4. **Перевод `/docs` на английский** — публичный `README.en.md` уже есть; ТЗ, архитектура, протоколы и
+   runbook пока на русском. Переводить по мере актуализации, начиная с `docs/architecture/overview.md`
+   и `docs/exchange-protocols/README.md`.
 
 ---
 
