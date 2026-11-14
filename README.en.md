@@ -12,7 +12,7 @@ The agent reads and edits files in your project, runs commands, commits and push
 Keychain / Windows Credential Manager), chat history stays local. The only outbound traffic is the
 request to the LLM provider you picked yourself.
 
-**Version:** `1.2.11` · **Output:** `build/bin/NotCursor.exe` (Windows) and `build/bin/NotCursor.app` (macOS)
+**Version:** `1.2.12` · **Output:** `build/bin/NotCursor.exe` (Windows) and `build/bin/NotCursor.app` (macOS)
 
 ## Quick start
 

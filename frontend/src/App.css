@@ -836,6 +836,19 @@ mark.nc-find-mark.nc-find-current {
   background: var(--accent);
   border: 2px solid var(--panel);
 }
+/* "Show earlier" pill at the top of a windowed transcript. */
+.nc-show-earlier {
+  align-self: center;
+  margin: 0.6rem auto 0.2rem;
+  padding: 0.28rem 0.85rem;
+  font-size: 0.82rem;
+  border-radius: 999px;
+  border: 1px dashed var(--border-strong);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.nc-show-earlier:hover { color: var(--text); border-color: var(--accent); }
 /* Pending questions: part of the chat column, glued above the input box. It sits
    in normal flow so the transcript above it is pushed up instead of covered. */
 .nc-queue-pending {

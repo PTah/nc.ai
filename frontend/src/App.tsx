@@ -1669,6 +1669,44 @@ function TodoPanel({todos, expand, busy, onContext}: {todos: TodoItem[]; expand?
   )
 }
 
+// Ограничивает размер одного элемента транскрипта перед сохранением на диск:
+// гигантские tool-выводы и data:-картинки раздувают файл чата до мегабайт и
+// тормозят сохранение/перерисовку. Полные данные остаются в agent.log и на диске,
+// а в сохранённой истории — усечённый фрагмент с пометкой.
+const MAX_ITEM_TEXT = 200_000
+const MAX_ATT_DATAURL = 200_000
+
+function clampText(s: string | undefined, max: number): string | undefined {
+  if (!s || s.length <= max) return s
+  return s.slice(0, max) + `\n… [сокращено при сохранении: ${s.length.toLocaleString('ru-RU')} символов]`
+}
+
+function shrinkItemsForStorage(list: ChatItem[]): ChatItem[] {
+  return list.map((it) => {
+    switch (it.kind) {
+      case 'user':
+        return {
+          ...it,
+          content: clampText(it.content, MAX_ITEM_TEXT) ?? it.content,
+          attachments: it.attachments?.map((a) => ({
+            ...a,
+            dataUrl: a.dataUrl && a.dataUrl.length > MAX_ATT_DATAURL ? undefined : a.dataUrl,
+          })),
+        }
+      case 'assistant':
+      case 'system':
+      case 'reasoning':
+      case 'progress':
+      case 'file':
+        return {...it, content: clampText(it.content, MAX_ITEM_TEXT) ?? it.content}
+      case 'tool':
+        return {...it, args: clampText(it.args, MAX_ITEM_TEXT) ?? it.args, result: clampText(it.result, MAX_ITEM_TEXT)}
+      default:
+        return it
+    }
+  })
+}
+
 /** Consecutive completed tools collapse into one summary group (both live and finished). */
 function buildDisplayRows(items: ChatItem[], compact = false, finalVisible = true, live = false): DisplayRow[] {
   const list = asList(items)
@@ -2498,8 +2536,11 @@ export default function App() {
     if (!sessionId) return Promise.resolve()
     const list = itemsBySessionRef.current[sessionId]
     if (!list || list.length === 0) return Promise.resolve()
-    return SaveChatSession(sessionId, JSON.stringify(list)).catch(() => undefined)
+    return SaveChatSession(sessionId, JSON.stringify(shrinkItemsForStorage(list))).catch(() => undefined)
   }, [])
+  // Сколько последних элементов ленты рендерим: очень длинные чаты (мегабайты
+  // текста/картинок) иначе создают тысячи DOM-узлов и подвешивают WebView2.
+  const [chatRenderWindow, setChatRenderWindow] = useState(400)
   const progressAskedRef = useRef<Record<string, boolean>>({})
   // lastOutputAt: when this session last produced a visible answer (delta/done).
   // silentNoticeRef: one "still working" card per silent stretch.
@@ -2800,15 +2841,23 @@ export default function App() {
   // а то и после ответа). Тогда финальный ответ оказывается в «голове», и его
   // нельзя прятать в «Промежуточные результаты» — иначе ответа в ленте не видно.
   const todoAt = typeof todoFlowAt === 'number' ? Math.min(todoFlowAt, items.length) : -1
-  const tailItems = todoAt >= 0 ? items.slice(todoAt) : []
-  const tailHasAnswer = tailItems.some((it) => it.kind === 'assistant' && String(it.content || '').trim() !== '')
-  const displayRows = useMemo(() => (todoAt >= 0
-    ? [
-        ...buildDisplayRows(items.slice(0, todoAt), true, !tailHasAnswer),
-        {key: '__todos', kind: 'todos'} as DisplayRow,
-        ...rekeyRows(buildDisplayRows(tailItems, !busy, true, busy), 'tail-'),
-      ]
-    : buildDisplayRows(items, !busy, true, busy)), [items, busy, todoAt, tailHasAnswer, tailItems])
+  // Ограничиваем число рендеримых сообщений: очень длинные чаты иначе создают
+  // тысячи DOM-узлов и подвешивают WebView2. Полная история остаётся на диске;
+  // лишнее можно догрузить кнопкой «Показать раньше».
+  const hiddenItems = Math.max(0, items.length - chatRenderWindow)
+  const displayRows = useMemo(() => {
+    const start = Math.max(0, items.length - chatRenderWindow)
+    const list = start > 0 ? items.slice(start) : items
+    const tAt = todoAt >= start ? todoAt - start : -1
+    const tail = tAt >= 0 ? list.slice(tAt) : []
+    const tailHasAnswer = tail.some((it) => it.kind === 'assistant' && String(it.content || '').trim() !== '')
+    if (tAt < 0) return buildDisplayRows(list, !busy, true, busy)
+    return [
+      ...buildDisplayRows(list.slice(0, tAt), true, !tailHasAnswer),
+      {key: '__todos', kind: 'todos'} as DisplayRow,
+      ...rekeyRows(buildDisplayRows(tail, !busy, true, busy), 'tail-'),
+    ]
+  }, [items, busy, todoAt, chatRenderWindow])
 
   const setInput = useCallback((value: string, sid = activeSessionRef.current) => {
     if (!sid) return
@@ -4389,7 +4438,7 @@ export default function App() {
     if (!sessions.some((s) => s.id === activeSessionId)) return
     const t = window.setTimeout(() => {
       void persistSession(activeSessionId)
-    }, 300)
+    }, 1500)
     return () => window.clearTimeout(t)
   }, [items, active, activeSessionId, sessions, persistSession])
 
@@ -7363,6 +7412,15 @@ async function refreshYandexModels(opts?: {applyPreferred?: boolean; notify?: bo
                   title="Изменить ширину чата"
                   onMouseDown={(e) => beginResize('chat', e, 'right')}
                 />
+                {hiddenItems > 0 && (
+                  <button
+                    type="button"
+                    className="nc-show-earlier"
+                    onClick={() => setChatRenderWindow((n) => n + 400)}
+                  >
+                    Показать раньше · ещё {hiddenItems.toLocaleString('ru-RU')} сообщ.
+                  </button>
+                )}
                 {displayRows.map((row, idx, all) => {
                   const isLastRow = idx === all.length - 1
                   if (row.kind === 'turn_steps') {
