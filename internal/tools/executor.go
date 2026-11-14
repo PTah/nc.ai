@@ -1,5 +1,6 @@
 // Edited by nc.ai 0.8.5.4 on new-admin-pc 2026-10-13 10:28:27
 // Edited by nc.ai 1.1.4 on macbook 2026-11-08 19:06:15
+// Edited by nc.ai 1.2.10 on Papasha 2026-11-14 11:17:08
 package tools
 
 import (
@@ -40,7 +41,7 @@ type Registry struct {
 	// switching projects mid-run cannot redirect file/command operations.
 	WSRoot string
 	// AskUser, when set, blocks until the user answers ask_user.
-	AskUser func(ctx context.Context, callID, question string, options []string) (string, error)
+	AskUser func(ctx context.Context, callID, question string, options []string, recommended int) (string, error)
 	// MCPCall routes mcp__<server>__<tool> to the MCP manager. nil = MCP disabled.
 	MCPCall func(ctx context.Context, prefixedName, argsJSON string) (string, error)
 	// Chats is the chat store; history_search reads past transcripts of the run's
@@ -545,7 +546,16 @@ func (r *Registry) Execute(ctx context.Context, call llm.ToolCall) (string, erro
 		if r.AskUser == nil {
 			return "", fmt.Errorf("ask_user is not available")
 		}
-		return r.AskUser(ctx, call.ID, q, opts)
+		// 0-based index of the option the agent recommends; -1 when it did not
+		// pick one (the UI then falls back to a «рекомендую» marker in the text).
+		recommended := -1
+		switch v := args["recommended"].(type) {
+		case float64:
+			recommended = int(v)
+		case int:
+			recommended = v
+		}
+		return r.AskUser(ctx, call.ID, q, opts, recommended)
 	case "switch_project":
 		name, _ := args["project"].(string)
 		handoff, _ := args["handoff"].(string)
@@ -1084,13 +1094,17 @@ func allToolSpecs() []llm.ToolSpec {
 			},
 			"required": []string{"todos"},
 		}),
-		fn("ask_user", "Ask the user a blocking question when a real decision is required. Prefer options. Do not use for facts you can look up in the repo.", map[string]any{
+		fn("ask_user", "Ask the user a blocking question when a real decision is required. Provide 2–4 options and ALWAYS mark exactly one as recommended via the `recommended` field (0-based index). Do not use for facts you can look up in the repo.", map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"question": map[string]any{"type": "string"},
 				"options": map[string]any{
 					"type":  "array",
 					"items": map[string]any{"type": "string"},
+				},
+				"recommended": map[string]any{
+					"type":        "integer",
+					"description": "0-based index of the recommended option in `options`. When options are provided, always set exactly one; the rest remain the operator's choice.",
 				},
 			},
 			"required": []string{"question"},

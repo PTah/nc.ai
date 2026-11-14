@@ -192,6 +192,7 @@ import {
   LoadChatTranscript,
   StartTerminal,
   StartupNotice,
+  SteerRun,
   StopAgentSession,
   ActiveRuns,
   StopTerminal,
@@ -1289,11 +1290,18 @@ function AskUserDialog({
 }) {
   let question = 'Вопрос агента'
   let options: string[] = []
+  let recommended = -1
   try {
-    const p = JSON.parse(args || '{}') as {question?: string; options?: string[]}
+    const p = JSON.parse(args || '{}') as {question?: string; options?: string[]; recommended?: number}
     if (p.question) question = p.question
     if (Array.isArray(p.options)) options = p.options.map(String).filter(Boolean)
+    if (typeof p.recommended === 'number') recommended = p.recommended
   } catch { /* raw */ }
+  // Если модель не выставила индекс, но пометила вариант словами «рекомендую»,
+  // подсвечиваем его: у оператора всегда должен быть один предложенный ответ.
+  if (recommended < 0 || recommended >= options.length) {
+    recommended = options.findIndex((o) => /рекоменд/i.test(o))
+  }
   function reply(text: string) {
     const t = text.trim()
     if (!t) return
@@ -1306,8 +1314,16 @@ function AskUserDialog({
       <p className="nc-help">Агенту нужно ваше решение, прежде чем продолжить.</p>
       {options.length > 0 && (
         <div className="nc-ask-opts">
-          {options.map((o) => (
-            <button key={o} type="button" onClick={() => reply(o)}>{o}</button>
+          {options.map((o, i) => (
+            <button
+              key={o}
+              type="button"
+              className={i === recommended ? 'recommended' : undefined}
+              onClick={() => reply(o)}
+            >
+              {o}
+              {i === recommended && <span className="nc-ask-rec">рекомендую</span>}
+            </button>
           ))}
         </div>
       )}
@@ -2439,9 +2455,6 @@ export default function App() {
   const activeSessionRef = useRef('')
   const restoreRetryRef = useRef(0)
   const noticeQueueRef = useRef<string[]>([])
-  // Сообщения очереди, про которые уже сказали «уйдёт после текущего ответа» —
-  // подсказка не должна повторяться на каждый клик.
-  const queueHintRef = useRef<Set<string>>(new Set())
   // Куда вернуть пользователя после ответа на вопрос агента (tool_ask из
   // другого проекта/чата переключает на себя — после ответа возвращаем назад).
   const askReturnRef = useRef<{project: string; session: string} | null>(null)
@@ -6473,6 +6486,34 @@ async function refreshYandexModels(opts?: {applyPreferred?: boolean; notify?: bo
     }
   }
 
+  /**
+   * «Вслед» идущему прогону: дописывает сообщение в его живую дорожку, не заводя
+   * новую и не прерывая прогон. Модель подхватывает сообщение между шагами.
+   */
+  async function steerIntoRun(sid: string, text: string): Promise<'started' | 'invalid' | 'error' | 'no-run'> {
+    if (!sid || sid !== activeSessionRef.current) return 'invalid'
+    if (!text) return 'invalid'
+    const laneIds = asList(runOrder[sid])
+    const runId = laneIds[laneIds.length - 1]
+    if (!runId) return 'no-run'
+    setRunLaneItems(sid, runId, (m) => [...m, makeUserItem(redactUserForDisplay(text), [])])
+    lastRequestRef.current = {text, atts: []}
+    setRetryVisible(false)
+    try {
+      const res = await SteerRun(sid, text)
+      if (res === 'ok') return 'started'
+      if (res === 'no-run') return 'no-run'
+      return 'error'
+    } catch (err) {
+      setSessionItems(sid, (m) => [...m, {kind: 'system', content: String(err)}])
+      return 'error'
+    }
+  }
+
+  /**
+   * «Параллельно» на карточке очереди: отдельная дорожка, текущий прогон не
+   * трогается. Агент работает и с предыдущим заданием, и с новым.
+   */
   async function sendQueuedNow(id: string) {
     const sid = activeSessionId
     if (!sid) return
@@ -6480,41 +6521,33 @@ async function refreshYandexModels(opts?: {applyPreferred?: boolean; notify?: bo
     if (!msg) return
     setQueue((q) => q.filter((x) => x.id !== id), sid)
     const res = await runAgent(sid, msg.text, msg.atts, false, true)
-    if (res === 'invalid') setQueue((q) => [...q, msg], sid)
+    if (res === 'invalid' || res === 'error') {
+      setQueue((q) => [msg, ...asList(q).filter((x) => x.id !== id)], sid)
+    }
   }
 
   /**
-   * «Отправить» на карточке очереди: запрос поднимается в начало очереди и уходит
-   * сразу, как только освободится чат (следующим его забирает flushQueue). Если
-   * чат уже свободен — отправляется немедленно. Параллельный запуск — отдельная
-   * кнопка, здесь он не подразумевается.
+   * «Отправить» на карточке очереди: если чат занят — сообщение уходит «вслед»
+   * текущему прогону (не прерывая его); если свободен — обычный прогон.
    */
   async function sendQueuedNext(id: string) {
     const sid = activeSessionId
     if (!sid) return
     const msg = queue.find((q) => q.id === id)
     if (!msg) return
-    setQueue((q) => [msg, ...asList(q).filter((x) => x.id !== id)], sid)
-    let res = await runAgent(sid, msg.text, msg.atts)
+    setQueue((q) => q.filter((x) => x.id !== id), sid)
+    let res: RunStartResult | 'no-run'
+    if (busyBySessionRef.current[sid]) {
+      res = await steerIntoRun(sid, msg.text)
+      if (res === 'no-run') {
+        // Прогон завершился между кликом и отправкой — обычный запуск.
+        res = await runAgent(sid, msg.text, msg.atts, false, false)
+      }
+    } else {
+      res = await runAgent(sid, msg.text, msg.atts, false, false)
+    }
     if (res !== 'started') {
-      // «Занято» могло остаться от потерянного события завершения: сверяемся с
-      // бэкендом и, если прогонов там уже нет, отправляем сразу — иначе клик по
-      // «Отправить» выглядел как кнопка, которая ничего не делает.
-      const fixed = await reconcileRuns(sid)
-      if (fixed) res = await runAgent(sid, msg.text, msg.atts)
-    }
-    if (res === 'started') {
-      setQueue((q) => q.filter((x) => x.id !== id), sid)
-      return
-    }
-    if (res === 'busy' && !queueHintRef.current.has(id)) {
-      // Чат действительно занят: сообщение уйдёт само, как только прогон
-      // закончится. Говорим об этом один раз, чтобы клик не был «в пустоту».
-      queueHintRef.current.add(id)
-      setSessionItems(sid, (m) => [...m, {
-        kind: 'system',
-        content: '⏳ Чат занят — вопрос поднят в начало очереди и уйдёт сразу после текущего ответа.',
-      }])
+      setQueue((q) => [msg, ...asList(q).filter((x) => x.id !== id)], sid)
     }
   }
 
@@ -7429,7 +7462,7 @@ async function refreshYandexModels(opts?: {applyPreferred?: boolean; notify?: bo
                     {active ? ` · ${active.name}` : ''}
                   </span>
                   <span className="nc-queue-hint">
-                    {busy ? 'уйдут после текущего ответа' : 'отправляю…'}
+                    {busy ? '«Отправить» — вслед текущему прогону, «Параллельно» — отдельной дорожкой' : 'отправляю…'}
                   </span>
                 </div>
                 <div className="nc-queue-list">
@@ -7442,7 +7475,7 @@ async function refreshYandexModels(opts?: {applyPreferred?: boolean; notify?: bo
                         <button
                           type="button"
                           className="nc-ghost"
-                          title="Отправить первым: уйдёт сразу, как только освободится чат (если чат свободен — немедленно)"
+                          title="Отправить вслед текущему прогону: агент подхватит между шагами, не прерываясь"
                           onClick={() => void sendQueuedNext(q.id)}
                         >
                           Отправить

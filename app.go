@@ -11,6 +11,7 @@
 // Edited by nc.ai 1.1.15 on macbook 2026-11-11 21:30:05
 // Edited by nc.ai 1.1.17 on new-admin-pc 2026-11-12 09:48:50
 // Edited by nc.ai 1.2.4 on macbook 2026-11-12 20:10:09
+// Edited by nc.ai 1.2.10 on Papasha 2026-11-14 11:17:59
 package main
 
 import (
@@ -93,6 +94,10 @@ type App struct {
 	// runProjects — проект прогона (key: sessionID+"/"+runID). Events несут его
 	// в UI, чтобы вопрос/ответ из другого проекта можно было показать в его чате.
 	runProjects map[string]string
+	// steerChans — канал «вслед» каждого активного прогона (key: sessionID+"/"+runID).
+	// lastRunKey — последний активный runKey по сессии: куда SteerRun шлёт сообщение.
+	steerChans map[string]chan llm.Message
+	lastRunKey map[string]string
 	// runActive is true while an agent run is in flight: the local health probe
 	// must not send its own generation and compete for the model slot.
 	runActive bool
@@ -165,6 +170,8 @@ func NewApp() *App {
 		cancels:            map[string]context.CancelFunc{},
 		runGens:            map[string]uint64{},
 		runProjects:        map[string]string{},
+		steerChans:         map[string]chan llm.Message{},
+		lastRunKey:         map[string]string{},
 		sessionStickyModel: map[string]string{},
 		pendingApprove:     map[string]chan bool{},
 		pendingApproveName: map[string]string{},
@@ -4876,6 +4883,30 @@ func (a *App) RunAgentWithAttachments(userMessage string, attachments []agent.At
 	return a.RunAgentInSession(sid, newRunID(), userMessage, attachments)
 }
 
+// SteerRun дописывает сообщение «вслед» в активный прогон сессии, не прерывая
+// его: луп прогона подхватит сообщение между шагами. Возвращает "ok", "no-run"
+// (нет активного прогона) или "timeout" (прогон завис и канал не разгружается).
+func (a *App) SteerRun(sessionID, userMessage string) (string, error) {
+	redact.Remember(redact.Secrets(userMessage)...)
+	sid := strings.TrimSpace(sessionID)
+	if sid == "" {
+		return "no-run", nil
+	}
+	a.mu.Lock()
+	runKey := a.lastRunKey[sid]
+	ch := a.steerChans[runKey]
+	a.mu.Unlock()
+	if ch == nil {
+		return "no-run", nil
+	}
+	select {
+	case ch <- llm.Message{Role: "user", Content: userMessage}:
+		return "ok", nil
+	case <-time.After(5 * time.Second):
+		return "timeout", nil
+	}
+}
+
 // RunAgentInSession запускает агента для конкретного чата. Прогон привязан к
 // паре (проект, сессия): свои события, свои инструменты, своё дерево файлов и
 // своя сохранённая история — даже если пользователь уже смотрит другой проект.
@@ -4947,6 +4978,7 @@ func (a *App) RunAgentInSession(sessionID, runID, userMessage string, attachment
 	}
 	_, _ = a.ws.ActiveRoot()
 
+	steer := make(chan llm.Message, 8)
 	a.mu.Lock()
 	// Параллельные запросы в одном чате живут под разными runKey; новый запрос
 	// не отменяет уже идущий (в отличие от прежнего «один чат — один прогон»).
@@ -4954,6 +4986,8 @@ func (a *App) RunAgentInSession(sessionID, runID, userMessage string, attachment
 	a.cancels[runKey] = cancel
 	a.runGens[runKey]++
 	gen := a.runGens[runKey]
+	a.steerChans[runKey] = steer
+	a.lastRunKey[sid] = runKey
 	a.mu.Unlock()
 	// Проект приколот к прогону: события несут его в UI, чтобы вопрос или ответ
 	// из другого проекта открывался в своём чате, а не поверх чужого разговора.
@@ -5143,6 +5177,9 @@ func (a *App) RunAgentInSession(sessionID, runID, userMessage string, attachment
 		SubagentsMaxPerRun:  a.cfg.SubagentsMaxPerRun(),
 		SubagentsParallel:   a.cfg.SubagentsParallel(),
 	}
+	// Канал «вслед»: SteerRun шлёт сюда сообщения, а луп прогона забирает их
+	// между шагами. Прогон при этом не прерывается.
+	runner.Steer = steer
 	// Резервный провайдер: один переход, когда основной упёрся в длинный лимит
 	// или перегружен. Тот же провайдер и Local с картинками в резерв не берём.
 	if fb := strings.TrimSpace(a.cfg.FallbackProvider()); fb != "" && fb != provider {
@@ -5227,8 +5264,8 @@ func (a *App) RunAgentInSession(sessionID, runID, userMessage string, attachment
 		return allow, err
 	}
 	if runTools != nil {
-		runTools.AskUser = func(ctx context.Context, callID, question string, options []string) (string, error) {
-			payload, _ := json.Marshal(map[string]any{"question": question, "options": options})
+		runTools.AskUser = func(ctx context.Context, callID, question string, options []string, recommended int) (string, error) {
+			payload, _ := json.Marshal(map[string]any{"question": question, "options": options, "recommended": recommended})
 			a.emitRun(sid, runID, agent.Event{Type: "tool_ask", Name: "ask_user", Content: string(payload), CallID: callID})
 			return a.waitUserAsk(ctx, sid, callID, question, options)
 		}
@@ -5343,6 +5380,10 @@ func (a *App) RunAgentInSession(sessionID, runID, userMessage string, attachment
 			}
 			delete(a.cancels, runKey)
 			delete(a.runProjects, runKey)
+			delete(a.steerChans, runKey)
+			if a.lastRunKey[sid] == runKey {
+				delete(a.lastRunKey, sid)
+			}
 		}
 		a.mu.Unlock()
 		if !current {

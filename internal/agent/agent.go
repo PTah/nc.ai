@@ -4,6 +4,7 @@
 // Edited by nc.ai 0.8.9.7 on new-admin-pc 2026-10-28 09:27:01
 // Edited by nc.ai 1.1.4 on macbook 2026-11-08 19:06:11
 // Edited by nc.ai 1.1.18 on new-admin-pc 2026-11-12 10:26:51
+// Edited by nc.ai 1.2.10 on Papasha 2026-11-14 11:17:11
 package agent
 
 import (
@@ -101,6 +102,7 @@ Tools:
 - If a long step is already running, give an interim line at least every couple of minutes:
   what is done, what is still running, what is expected next.
 - Prefer the API tool_calls channel. Do not paste tool JSON into message text when the API supports tools.
+- When you ask the user to choose (the ask_user tool with options): give 2–4 short options and set «recommended» to the 0-based index of exactly one of them. Never present a flat A/B/C list without a recommendation — the operator should see your suggested answer next to the other options.
 
 Shell:
 - cwd is the workspace root unless you pass cwd (relative). Do not cd inside the command.
@@ -154,7 +156,8 @@ CRITICAL: For any question about this project, code, files, versions, or "what d
 you MUST call tools first (glob, grep, list_dir, read_file, git_status). Never guess.
 Forbidden: answers built from "вероятно", "скорее всего", "возможно" without tool results.
 Do not invent paths or file contents. Prefer apply_patch over write_file for edits.
-Do not commit/push unless the user asked. After tools, always give a short final answer.`
+Do not commit/push unless the user asked. After tools, always give a short final answer.
+ask_user: give 2-4 short options and mark exactly one as recommended (recommended = 0-based index).`
 
 const PlanModePrompt = `You are in PLAN MODE.
 Explore the codebase with read-only tools and ask_user if a real decision is blocked.
@@ -213,6 +216,9 @@ type Attachment struct {
 type Runner struct {
 	Provider llm.Provider
 	Tools    *tools.Registry
+	// Steer — канал «вслед» идущему прогону: сообщения, пришедшие между шагами,
+	// дописываются в живой контекст (прогон не прерывается). nil — режим выключен.
+	Steer chan llm.Message
 	// MaxSteps: 0 = default, negative = no hard cap (warn-only), positive = cap.
 	MaxSteps int
 	// WarnSteps is the step count that triggers a "still working" notice
@@ -1287,6 +1293,23 @@ func (r *Runner) RunMessage(ctx context.Context, history []llm.Message, userMsg 
 			}
 			emit(Event{Type: "error", Content: runCtx.Err().Error()})
 			return messages, runCtx.Err()
+		}
+		// «Вслед» идущему прогону: сообщения, пришедшие между шагами, дописываем
+		// в живой контекст. Модель подхватит их на следующем шаге, не прерываясь.
+		if r.Steer != nil {
+			for drained := true; drained; {
+				select {
+				case m, ok := <-r.Steer:
+					if !ok {
+						// Канал закрыли — режим «вслед» выключен.
+						drained = false
+						continue
+					}
+					messages = append(messages, m)
+				default:
+					drained = false
+				}
+			}
 		}
 		// Long run: keep the user posted instead of silently grinding on.
 		if warnAt > 0 && step > 0 && step%warnAt == 0 {

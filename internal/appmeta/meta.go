@@ -36,7 +36,7 @@ import "time"
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "1.2.10"
+	Version = "1.2.11"
 )
 
 // DeepSeekProRetireRFC3339 is the announced V4 Pro retirement instant, empty
@@ -85,16 +85,16 @@ var HighlightsRU = []string{
 	"Новый проект одной фразой: «Создай репо и выложи на Home / на гитхаб / на work» — папка, git, репозиторий, push и проект в дашборде",
 	"MCP теперь и hosted: «Добавить URL-сервер» → «Войти» (OAuth с PKCE) — Suno и другие серверы по ссылке",
 	"Резервный провайдер: длинный лимит или перегрузка — прогон один раз продолжает на резерве, а не падает",
-	"Пресет «Semgrep (security review)»: статический анализ локально + чеклист ревью в docs/security-review.md",
-	"Лента чата: кнопка «вниз» с точкой нового сообщения и автодоскролл до конца ответа",
+	"migratechat: перенос чатов между проектами из CLI (-list, -from/-to, -move) вместе со счётчиками расхода",
+	"Очередь чата: «Отправить» дописывает запрос вслед идущему прогону, «Параллельно» — отдельной дорожкой; в вопросах агента один вариант помечен «рекомендую»",
 }
 
 var HighlightsEN = []string{
 	"A new project in one sentence: \"create a repo and publish it to Home / github / work\" — folder, git, remote repo, push and a dashboard project",
 	"MCP now speaks hosted servers too: Add URL server → Sign in (OAuth + PKCE) — Suno and friends by link",
 	"Fallback provider: on a long rate limit or an overload the run continues once on the backup instead of failing",
-	"Semgrep (security review) preset: local static analysis plus a review checklist in docs/security-review.md",
-	"Chat transcript: a “jump to latest” button with a new-message dot, plus auto-scroll to the end of the answer",
+	"migratechat: move chats between projects from the CLI (-list, -from/-to, -move) with usage counters",
+	"Chat queue: Send appends your message to the running turn, Parallel starts a separate lane; agent questions now mark one option as recommended",
 }
 
 // UICopy is localized chrome for the Welcome splash.
