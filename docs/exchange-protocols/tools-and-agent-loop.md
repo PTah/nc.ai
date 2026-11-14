@@ -1,4 +1,5 @@
 <!-- Edited by nc.ai 0.8.9.7 on new-admin-pc 2026-10-28 09:46:47 -->
+<!-- Edited by nc.ai 1.2.11 on Papasha 2026-11-14 11:52:18 -->
 # Tools и Agent Loop
 
 Это ядро агентного поведения NotCursor (как у Cursor / Cline).
@@ -23,6 +24,11 @@ User → [messages + tools] → Provider
                               ↓
                          final assistant text
 ```
+
+Между шагами луп проверяет канал `Runner.Steer`: сообщение, отправленное «вслед» (кнопка
+«Отправить» на карточке очереди во время прогона), дописывается как `user`-сообщение в живой
+контекст, и цикл продолжается без прерывания — уже сделанное (tool-результаты, правки) остаётся.
+«Параллельно» — это отдельный прогон со своим `runKey`, а не сообщение в текущий.
 
 ---
 
@@ -86,7 +92,7 @@ User → [messages + tools] → Provider
 | `run_terminal` | `command`, optional `cwd`, `timeout_sec`, `is_background`, `explanation` | HITL; фон → `command_status` |
 | `command_status` | `id`, optional `wait_sec` | статус фоновой команды |
 | `todo_write` | `todos[]`, `merge` | список в UI |
-| `ask_user` | `question`, optional `options[]` | блокирующий вопрос |
+| `ask_user` | `question`, optional `options[]`, `recommended` (0-based index) | блокирующий вопрос; рекомендованный вариант помечается «рекомендую» |
 | `read_lints` | `paths[]` | `go vet` для `.go` |
 | `web_search` | `query` | публичный поиск, SSRF-guard; движок — Settings → Agent («Веб-поиск и страницы»): DuckDuckGo (по умолчанию) или DeepSeek Search & Fetch с откатом на DuckDuckGo |
 | `fetch_url` | `url` | GET http(s), без LAN/loopback; в режиме DeepSeek — `/v1/tools/fetch` (Markdown от сервера), при ошибке — прямой GET |
