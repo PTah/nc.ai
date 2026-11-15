@@ -84,7 +84,13 @@ var (
 	seenSecret = map[string]bool{}
 
 	// userValueRe — слова, после которых идёт значение: «логин X», «пароль Y».
-	userValueRe = regexp.MustCompile(`(?i)^(?:логин\pL*|парол\pL*|токен\pL*|ключ\pL*|доступ\pL*|креды|login\pL*|logins|username|user|password\pL*|passwd|pass|pwd|token|secret|apikey|api[_-]?key|credential\pL*)$`)
+	// Голые user/login/pass здесь не участвуют: в обычной фразе это слишком
+	// общие слова, и в память уезжало всё подряд («user note», «--login-only»).
+	userValueRe = regexp.MustCompile(`(?i)^(?:логин\pL*|парол\pL*|токен\pL*|ключ\pL*|доступ\pL*|креды|username|password\pL*|passwd|passphrase|pwd|token|secret|apikey|api[_-]?key|credential\pL*)$`)
+	// valueStopRe — слова-ключи, которые не могут быть значением («внеси его в
+	// файл logins»): триггеры из userValueRe плюс голые user/login/pass, которые
+	// из триггеров убраны, но значением всё равно не являются.
+	valueStopRe = regexp.MustCompile(`(?i)^(?:логин\pL*|парол\pL*|токен\pL*|ключ\pL*|доступ\pL*|креды|login\pL*|logins|username|user|password\pL*|passwd|passphrase|pass|pwd|token|secret|apikey|api[_-]?key|credential\pL*)$`)
 	// connectorRe — связки и предлоги, которые значением не являются.
 	connectorRe = regexp.MustCompile(`(?i)^(?:и|или|and|or|же|то|это|там|туда|сюда|на|в|для|same|же)$`)
 	// cyrillicRe — токены с кириллицей не запоминаем: это слова инструкции.
@@ -129,11 +135,19 @@ func Secrets(s string) []string {
 		}
 		out = append(out, v)
 	}
-	for _, re := range []*regexp.Regexp{jsonKeyRe, envAssignRe, flagAssignRe} {
+	for _, re := range []*regexp.Regexp{jsonKeyRe, flagAssignRe} {
 		for _, m := range re.FindAllStringSubmatch(s, -1) {
 			if len(m) > 3 {
 				add(strings.Trim(m[3], `"'`))
 			}
+		}
+	}
+	// NAME=value запоминаем только когда имя похоже на секрет: иначе в память
+	// попадало любое присваивание из сообщения (--copy-to=D:\Share, cwd=/tmp)
+	// и потом вырезалось звёздочками в командах и прозе.
+	for _, m := range envAssignRe.FindAllStringSubmatch(s, -1) {
+		if len(m) > 3 && isSecretAssignment(m[1], strings.Trim(m[3], `"'`)) {
+			add(strings.Trim(m[3], `"'`))
 		}
 	}
 	for _, m := range skRe.FindAllStringSubmatch(s, -1) {
@@ -156,7 +170,8 @@ func Secrets(s string) []string {
 			if cand == "" || cyrillicRe.MatchString(cand) || connectorRe.MatchString(cand) {
 				continue
 			}
-			if userValueRe.MatchString(cand) {
+			if valueStopRe.MatchString(cand) {
+				// «logins», «user» и прочие слова-ключи — не значения.
 				continue
 			}
 			add(fields[j])
@@ -178,10 +193,44 @@ func maskRemembered(s string) string {
 	sort.SliceStable(vals, func(i, j int) bool { return len(vals[i]) > len(vals[j]) })
 	for _, v := range vals {
 		if v != "" {
-			s = strings.ReplaceAll(s, v, "***")
+			s = replaceToken(s, v, "***")
 		}
 	}
 	return s
+}
+
+// replaceToken заменяет вхождения v, которые не являются частью большего
+// токена: в `|papatramp|pass|` и `login=papatramp` значение маскируется, а в
+// `--papasha-only` и `mypapasha` — нет (там это другое слово, а не секрет).
+func replaceToken(s, v, repl string) string {
+	var b strings.Builder
+	for {
+		i := strings.Index(s, v)
+		if i < 0 {
+			b.WriteString(s)
+			return b.String()
+		}
+		b.WriteString(s[:i])
+		end := i + len(v)
+		if (i > 0 && tokenChar(s[i-1])) || (end < len(s) && tokenChar(s[end])) {
+			b.WriteString(v)
+		} else {
+			b.WriteString(repl)
+		}
+		s = s[end:]
+	}
+}
+
+// tokenChar сообщает, продолжает ли байт слово или составной токен: буква,
+// цифра, подчёркивание или дефис (дефис — чтобы не резать --flag-only).
+func tokenChar(c byte) bool {
+	switch {
+	case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
+		return true
+	case c == '_', c == '-':
+		return true
+	}
+	return false
 }
 
 // Display is a stronger mask used only for what the user sees in the chat.
@@ -207,17 +256,7 @@ func Display(s string) string {
 			return m
 		}
 		name, op, val := sub[1], sub[2], sub[3]
-		raw := strings.Trim(val, "\"'")
-		mask := false
-		switch {
-		case strings.HasPrefix(name, "$"): // $env:NAME= / $NAME= is always a command assignment
-			mask = true
-		case secretNameRe.MatchString(name):
-			mask = true
-		case envStyleName(name) && looksSecretishValue(raw): // ZP='[...]' style
-			mask = true
-		}
-		if mask {
+		if isSecretAssignment(name, strings.Trim(val, "\"'")) {
 			return name + op + maskValue(val)
 		}
 		return m
@@ -232,6 +271,22 @@ func Display(s string) string {
 	// Значения из окна ввода прячем в любом виде — даже если агент повторил их
 	// без имени, кавычек и флагов (см. Remember/Secrets).
 	return maskRemembered(out)
+}
+
+// isSecretAssignment reports whether NAME=value looks like a credential: the
+// name is a secret keyword, an env-style assignment (ALL_CAPS + secret-ish
+// value), or a $VAR/$env:VAR. Used both for showing (Display) and for
+// remembering values from the user's message (Secrets).
+func isSecretAssignment(name, raw string) bool {
+	switch {
+	case strings.HasPrefix(name, "$"): // $env:NAME= / $NAME= is always a command assignment
+		return true
+	case secretNameRe.MatchString(name):
+		return true
+	case envStyleName(name) && looksSecretishValue(raw): // ZP='[...]' style
+		return true
+	}
+	return false
 }
 
 // envStyleName reports whether name looks like an environment variable

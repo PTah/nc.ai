@@ -128,6 +128,53 @@ func TestSecretsIgnoresPlainRussian(t *testing.T) {
 	}
 }
 
+// Значение, совпавшее с флагом или внутри другого слова, — это не секрет:
+// маска не должна резать `--papasha-only` в `--***-only`.
+func TestMaskRememberedKeepsTokenBoundaries(t *testing.T) {
+	resetRemembered()
+	defer resetRemembered()
+
+	Remember("papasha")
+	cases := map[string]string{
+		"--papasha-only":      "--papasha-only",
+		"mypapasha":           "mypapasha",
+		"papasha-server":      "papasha-server",
+		"|papasha|secret123|": "|***|secret123|",
+		"connect papasha:22":  "connect ***:22",
+	}
+	for in, want := range cases {
+		if got := Display(in); got != want {
+			t.Fatalf("Display(%q)=%q, want %q", in, got, want)
+		}
+	}
+}
+
+// В память не должно попадать любое присваивание из сообщения: только
+// секретные имена, $env:-формы и ALL_CAPS со «секретным» значением.
+func TestSecretsSkipsNonSecretAssignments(t *testing.T) {
+	for _, msg := range []string{
+		`--copy-to=D:\Share`,
+		"cwd=/tmp branch=master",
+		"user Papasha",
+		"login vasya83",
+	} {
+		if got := Secrets(msg); len(got) != 0 {
+			t.Fatalf("Secrets(%q)=%v, ожидалось пусто", msg, got)
+		}
+	}
+	for in, want := range map[string]string{
+		"token=abc123":     "abc123",
+		`$env:ZP='[1,2]'`:  "[1,2]",
+		"username vasya83": "vasya83",
+		"пароль hunter2":   "hunter2",
+	} {
+		got := Secrets(in)
+		if len(got) != 1 || got[0] != want {
+			t.Fatalf("Secrets(%q)=%v, want [%s]", in, got, want)
+		}
+	}
+}
+
 // Главное требование: то, что пользователь прислал в окне ввода, не должно
 // появляться в переписке — даже если агент повторит значение без имени и флагов.
 func TestDisplayHidesValuesFromUserMessage(t *testing.T) {

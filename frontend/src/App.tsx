@@ -24,6 +24,7 @@
 // Edited by nc.ai 1.1.17 on new-admin-pc 2026-11-12 09:49:52
 // Edited by nc.ai 1.2.5 on macbook 2026-11-12 20:30:12
 // Edited by nc.ai 1.2.9 on Papasha 2026-11-13 21:45:22
+// Edited by nc.ai 1.2.14 on macbook 2026-11-15 00:24:27
 import {FormEvent, MouseEvent as ReactMouseEvent, useCallback, useEffect, useMemo, useRef, useState} from 'react'
 import {Terminal} from '@xterm/xterm'
 import {FitAddon} from '@xterm/addon-fit'
@@ -919,9 +920,10 @@ function makeUserItem(text: string, atts: PendingAtt[]): ChatItem {
 // EN/RU credential keys. RU stems cover cases like логином/паролем/пользователя.
 const USER_SECRET_ASSIGN =
   '(?:password|passwd|passphrase|pwd|secret|token|api[_-]?key|apikey|access[_-]?key|private[_-]?key|credential|bearer|session[_-]?id|cookie|login|username|user|парол[а-яё]*|логин[а-яё]*|пользовател[а-яё]*)'
-// Same, but without the very generic bare "user" for the "ключ значение" form.
+// Same, but without the very generic bare "user" for the "ключ значение" form,
+// и без голого "login": в обычной фразе это ловит следующее слово наугад.
 const USER_SECRET_SPACE =
-  '(?:password|passwd|passphrase|pwd|secret|token|api[_-]?key|apikey|access[_-]?key|private[_-]?key|credential|bearer|session[_-]?id|cookie|login|username|парол[а-яё]*|логин[а-яё]*|пользовател[а-яё]*)'
+  '(?:password|passwd|passphrase|pwd|secret|token|api[_-]?key|apikey|access[_-]?key|private[_-]?key|credential|bearer|session[_-]?id|cookie|username|парол[а-яё]*|логин[а-яё]*|пользовател[а-яё]*)'
 
 function maskUserValue(v: string): string {
   if (v.length >= 2 && (v[0] === '"' || v[0] === "'") && v[v.length - 1] === v[0]) {

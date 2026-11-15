@@ -1,4 +1,5 @@
 // Created by nc.ai 1.2.13 on Papasha 2026-11-14 22:20:00
+// Edited by nc.ai 1.2.13 on macbook 2026-11-14 22:29:35
 package mcp
 
 import (
@@ -21,6 +22,24 @@ const npxShimBody = "@ECHO off\r\n" +
 	"  SET \"_prog=node\"\r\n" +
 	")\r\n" +
 	"endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & \"%_prog%\"  \"%dp0%\\node_modules\\npm\\bin\\npx-cli.js\" %*\r\n"
+
+// npxShimUnixBody is the npm-generated npx shell shim on Unix (npm global bin):
+// the launcher is referenced via $basedir with forward slashes.
+const npxShimUnixBody = "#!/bin/sh\n" +
+	"basedir=$(dirname \"$0\")\n" +
+	"if [ -x \"$basedir/node\" ]; then\n" +
+	"  exec \"$basedir/node\" \"$basedir/node_modules/npm/bin/npx-cli.js\" \"$@\"\n" +
+	"else\n" +
+	"  exec node \"$basedir/node_modules/npm/bin/npx-cli.js\" \"$@\"\n" +
+	"fi\n"
+
+// shimBody returns the npm npx shim body for the current OS.
+func shimBody() string {
+	if runtime.GOOS == "windows" {
+		return npxShimBody
+	}
+	return npxShimUnixBody
+}
 
 func TestBinEntry(t *testing.T) {
 	if got := binEntry("./cli.js"); got != "./cli.js" {
@@ -65,7 +84,7 @@ func TestNpxCliFromShim(t *testing.T) {
 		t.Fatal(err)
 	}
 	shim := filepath.Join(dir, shimName("npx"))
-	if err := os.WriteFile(shim, []byte(npxShimBody), 0o755); err != nil {
+	if err := os.WriteFile(shim, []byte(shimBody()), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	got := npxCliFromShim(shim)
@@ -114,7 +133,7 @@ func TestRewriteCommandNpxToNode(t *testing.T) {
 		t.Fatal(err)
 	}
 	shim := filepath.Join(dir, shimName("npx"))
-	if err := os.WriteFile(shim, []byte(npxShimBody), 0o755); err != nil {
+	if err := os.WriteFile(shim, []byte(shimBody()), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
@@ -131,8 +150,31 @@ func TestRewriteCommandNpxToNode(t *testing.T) {
 	}
 }
 
+// The Unix shell-shim form must resolve on every OS, not just on the machine
+// where the shim was generated (text parsing + forward-slash paths).
+func TestNpxCliFromShimUnixBody(t *testing.T) {
+	dir := t.TempDir()
+	cli := filepath.Join(dir, "node_modules", "npm", "bin", "npx-cli.js")
+	if err := os.MkdirAll(filepath.Dir(cli), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cli, []byte("// npx entry\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	shim := filepath.Join(dir, "npx")
+	if err := os.WriteFile(shim, []byte(npxShimUnixBody), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := npxCliFromShim(shim); !samePath(got, cli) {
+		t.Fatalf("npxCliFromShim(unix)=%q want %q", got, cli)
+	}
+}
+
 // resolveCmdShim turns an npm .cmd launcher into `node <entry.js>`.
 func TestResolveCmdShim(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip(".cmd shims are Windows-only")
+	}
 	dir := t.TempDir()
 	entry := filepath.Join(dir, "bin", "server.js")
 	if err := os.MkdirAll(filepath.Dir(entry), 0o755); err != nil {

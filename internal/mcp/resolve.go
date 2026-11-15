@@ -1,4 +1,5 @@
 // Created by nc.ai 1.2.13 on Papasha 2026-11-14 21:55:48
+// Edited by nc.ai 1.2.13 on macbook 2026-11-14 22:29:28
 // Package mcp: command resolution so MCP stdio servers run directly instead of
 // through a cmd.exe/.cmd shim or an npx wrapper.
 package mcp
@@ -188,11 +189,13 @@ func extraNpxArgs(args []string) []string {
 
 var (
 	npxCliRe     = regexp.MustCompile(`(?i)["']?((?:%~dp0|%dp0%)\\[^"'\r\n]*npx-cli\.js)["']?`)
+	npxCliReSh   = regexp.MustCompile(`(?i)\$basedir/([^"'\r\n]*npx-cli\.js)`)
 	shimScriptRe = regexp.MustCompile(`(?i)(?:%~dp0|%dp0%)\\([^"%\r\n]+?\.(?:js|mjs|cjs))`)
 )
 
 // npxCliJS finds the real npx-cli.js entry next to the npm/npx shim, so we can
-// run it with node directly and avoid the cmd.exe wrapper on Windows.
+// run it with node directly and avoid the cmd.exe wrapper on Windows (and the
+// extra npx node process on Unix).
 func npxCliJS() string {
 	if p, err := resolveBinary("npx"); err == nil {
 		if cli := npxCliFromShim(p); cli != "" {
@@ -219,14 +222,32 @@ func npxCliFromShim(shim string) string {
 	if err != nil {
 		return ""
 	}
-	m := npxCliRe.FindSubmatch(data)
-	if len(m) < 2 {
-		return ""
+	dir := filepath.Dir(shim)
+
+	// Windows npm .cmd shim: the launcher is referenced via %~dp0 / %dp0%.
+	if m := npxCliRe.FindSubmatch(data); len(m) >= 2 {
+		rel := string(m[1])
+		rel = strings.ReplaceAll(rel, "%~dp0\\", "")
+		rel = strings.ReplaceAll(rel, "%dp0%\\", "")
+		if abs := joinShimPath(dir, rel); abs != "" {
+			return abs
+		}
 	}
-	rel := string(m[1])
-	rel = strings.ReplaceAll(rel, "%~dp0\\", "")
-	rel = strings.ReplaceAll(rel, "%dp0%\\", "")
-	abs := filepath.Join(filepath.Dir(shim), filepath.FromSlash(rel))
+
+	// Unix npm shell shim: `exec ... "$basedir/node_modules/.../npx-cli.js"`.
+	if m := npxCliReSh.FindSubmatch(data); len(m) >= 2 {
+		if abs := joinShimPath(dir, string(m[1])); abs != "" {
+			return abs
+		}
+	}
+	return ""
+}
+
+// joinShimPath resolves a launcher path written relative to the shim directory
+// (forward slashes on Unix, backslashes in a Windows .cmd shim) and returns it
+// only when the file actually exists.
+func joinShimPath(dir, rel string) string {
+	abs := filepath.Join(dir, filepath.FromSlash(rel))
 	if fileExists(abs) {
 		return abs
 	}
