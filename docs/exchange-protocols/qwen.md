@@ -10,8 +10,9 @@
 ## Endpoint
 
 ```
-Base URL (intl): https://dashscope-intl.aliyuncs.com/compatible-mode/v1
-Base URL (cn):   https://dashscope.aliyuncs.com/compatible-mode/v1
+Base URL (intl):       https://dashscope-intl.aliyuncs.com/compatible-mode/v1
+Base URL (cn):         https://dashscope.aliyuncs.com/compatible-mode/v1
+Base URL (token-plan): https://token-plan.maas.qwencloudapi.com/compatible-mode/v1
 POST /chat/completions
 GET  /models
 ```
@@ -19,9 +20,12 @@ GET  /models
 ### Headers
 
 ```
-Authorization: *** <DASHSCOPE_API_KEY>
+Authorization: *** <API_KEY>
 Content-Type: application/json
 ```
+
+Ключи: pay-as-you-go DashScope — `sk-…` / `sk-ws-…`; Token Plan (QwenCloud) — `sk-sp-…`.
+Ключ и endpoint должны совпадать, иначе 401.
 
 ---
 
@@ -29,15 +33,15 @@ Content-Type: application/json
 
 1. Полностью OpenAI-совместимый `compatible-mode` — тот же wire-format, что у DeepSeek/OpenRouter:
    `messages`, `tools`, `tool_calls`, `finish_reason`.
-2. Регион: `intl` (международный, по умолчанию) или `cn` (mainland China). Хранится в
-   `settings.json` как `qwenEndpoint`.
+2. Маршрут: `intl` (по умолчанию), `cn` (mainland) или `token-plan` (QwenCloud Token Plan).
+   Хранится в `settings.json` как `qwenEndpoint`.
 3. Tool calling работает «из коробки» — нужны модели с поддержкой tools (`qwen-max`, `qwen-plus`,
-   `qwen-turbo`, `qwen3-coder-*`).
+   `qwen-turbo`, `qwen3-coder-*`). На Token Plan — только модели из списка плана.
 4. Ответ **не содержит** `usage.cost` (в отличие от OpenRouter). Стоимость считаем по
-   собственному тарифу в `costing` (approx USD / 1M).
+   собственному тарифу в `costing` (approx USD / 1M); Token Plan списывает кредиты подписки.
 5. Streaming SSE: агент использует `stream: true` с `stream_options.include_usage`
    (usage приходит последним чанком).
-6. Баланса через API нет — смотреть консоль Model Studio.
+6. Баланса через API нет — смотреть консоль Model Studio / QwenCloud Token Plan.
 
 ### Рекомендуемые модели (tools)
 

@@ -24,6 +24,9 @@ const (
 	IntlBaseURL = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
 	// CnBaseURL is the mainland-China compatible-mode endpoint.
 	CnBaseURL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+	// TokenPlanBaseURL is QwenCloud Token Plan (subscription credits, sk-sp- keys).
+	// Region ap-southeast-1 MaaS; same OpenAI-compatible /chat/completions surface.
+	TokenPlanBaseURL = "https://token-plan.maas.qwencloudapi.com/compatible-mode/v1"
 	// DefaultBaseURL prefers the international endpoint (most users outside CN).
 	DefaultBaseURL = IntlBaseURL
 
@@ -38,9 +41,10 @@ const (
 	// VisionModel is multimodal (images + text).
 	VisionModel = "qwen-vl-max"
 
-	// EndpointIntl / EndpointCn select the stored DashScope region.
-	EndpointIntl = "intl"
-	EndpointCn   = "cn"
+	// EndpointIntl / EndpointCn / EndpointTokenPlan select the stored DashScope route.
+	EndpointIntl      = "intl"
+	EndpointCn        = "cn"
+	EndpointTokenPlan = "token-plan"
 )
 
 // CuratedModels are shown when GET /models is unavailable.
@@ -59,6 +63,8 @@ func BaseURLFor(endpoint string) string {
 	switch strings.TrimSpace(strings.ToLower(endpoint)) {
 	case EndpointCn:
 		return CnBaseURL
+	case EndpointTokenPlan:
+		return TokenPlanBaseURL
 	default:
 		return IntlBaseURL
 	}

@@ -59,25 +59,31 @@ type MCPServerSettings struct {
 
 // Qwen (DashScope) endpoints persisted in Settings.QwenEndpoint.
 const (
-	QwenEndpointIntl = "intl"
-	QwenEndpointCn   = "cn"
+	QwenEndpointIntl      = "intl"
+	QwenEndpointCn        = "cn"
+	QwenEndpointTokenPlan = "token-plan"
 )
 
 // DashScope OpenAI-compatible roots (kept in sync with internal/llm/providers/qwen).
 const (
-	QwenIntlBaseURL = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
-	QwenCnBaseURL   = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+	QwenIntlBaseURL      = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+	QwenCnBaseURL        = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+	QwenTokenPlanBaseURL = "https://token-plan.maas.qwencloudapi.com/compatible-mode/v1"
 )
 
 // DefaultQwenBaseURL is the international DashScope compatible-mode root.
 const DefaultQwenBaseURL = QwenIntlBaseURL
 
-// qwenBaseURLFor maps a stored region id to the compatible-mode root.
+// qwenBaseURLFor maps a stored endpoint id to the compatible-mode root.
 func qwenBaseURLFor(endpoint string) string {
-	if normalizeQwenEndpoint(endpoint) == QwenEndpointCn {
+	switch normalizeQwenEndpoint(endpoint) {
+	case QwenEndpointCn:
 		return QwenCnBaseURL
+	case QwenEndpointTokenPlan:
+		return QwenTokenPlanBaseURL
+	default:
+		return QwenIntlBaseURL
 	}
-	return QwenIntlBaseURL
 }
 
 // DefaultLocalBaseURL is the Ollama OpenAI-compatible root on localhost.
@@ -167,7 +173,7 @@ type Settings struct {
 
 	QwenAPIKey string `json:"qwenApiKey,omitempty"`
 	QwenModel  string `json:"qwenModel,omitempty"`
-	// QwenEndpoint: "intl" (international, default) or "cn" (mainland China).
+	// QwenEndpoint: "intl" (default), "cn" (mainland), or "token-plan" (QwenCloud Token Plan).
 	QwenEndpoint string `json:"qwenEndpoint,omitempty"`
 
 	KimiAPIKey string `json:"kimiApiKey,omitempty"`
@@ -691,14 +697,14 @@ func (s *Store) YandexFolderID() string {
 	return strings.TrimSpace(s.settings.YandexFolderID)
 }
 
-// QwenEndpoint returns the normalized stored DashScope region.
+// QwenEndpoint returns the normalized stored DashScope / Token Plan route.
 func (s *Store) QwenEndpoint() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return normalizeQwenEndpoint(s.settings.QwenEndpoint)
 }
 
-// QwenBaseURL returns the compatible-mode root for the stored region.
+// QwenBaseURL returns the compatible-mode root for the stored endpoint.
 func (s *Store) QwenBaseURL() string {
 	return qwenBaseURLFor(s.QwenEndpoint())
 }
@@ -707,6 +713,8 @@ func normalizeQwenEndpoint(endpoint string) string {
 	switch strings.TrimSpace(strings.ToLower(endpoint)) {
 	case QwenEndpointCn:
 		return QwenEndpointCn
+	case QwenEndpointTokenPlan:
+		return QwenEndpointTokenPlan
 	default:
 		return QwenEndpointIntl
 	}

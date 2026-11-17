@@ -58,7 +58,7 @@ type Provider interface {
 | DeepSeek | `https://api.deepseek.com` | `POST /chat/completions` | `Authorization: Bearer <key>` |
 | OpenAI | `https://api.openai.com/v1` | `POST /chat/completions` | `Authorization: Bearer <key>` |
 | OpenRouter | `https://openrouter.ai/api/v1` | `POST /chat/completions` | `Authorization: Bearer <key>` |
-| Qwen (DashScope) | `https://dashscope-intl.aliyuncs.com/compatible-mode/v1` | `POST /chat/completions` | `Authorization: Bearer <key>` |
+| Qwen (DashScope) | `…/compatible-mode/v1` (intl / cn / token-plan) | `POST /chat/completions` | `Authorization: Bearer <key>` |
 | Yandex AI Studio | `https://ai.api.cloud.yandex.net/v1` | `POST /chat/completions` | `Authorization: Api-Key <key>` + `x-folder-id` |
 | Anthropic | `https://api.anthropic.com` | `POST /v1/messages` | `x-api-key` + `anthropic-version` |
 | Z.ai | `https://open.bigmodel.cn/api/paas/v4` | `POST /chat/completions` | `Authorization: Bearer <key>` |

@@ -35,7 +35,7 @@ AI-агент для работы с кодом в отдельном окне: 
 Keychain / Windows Credential Manager), история чатов — локально. Наружу уходит только запрос к
 тому провайдеру LLM, которого вы выбрали сами.
 
-**Версия:** `1.2.15` · **На выходе:** `build/bin/NotCursor.exe` (Windows) и `build/bin/NotCursor.app` (macOS)
+**Версия:** `1.2.16` · **На выходе:** `build/bin/NotCursor.exe` (Windows) и `build/bin/NotCursor.app` (macOS)
 
 ## Быстрый старт
 
@@ -110,7 +110,7 @@ macOS (собирается только на macOS-хосте; скрипт с�
 | DeepSeek | `deepseek-flash` (default), `deepseek-v4-pro`; legacy `deepseek-v4-flash` / `…-vision-exp` → Flash | OpenAI-compatible API, авто-выбор модели |
 | Z.ai | `glm-4.5…5.3` (flash / pro / vision) | список моделей и баланс показываются прямо в Settings |
 | OpenRouter | любой `openrouter/…` | свой ключ и endpoint |
-| Qwen (DashScope) | `qwen-max` / `qwen-plus` / `qwen-turbo`, `qwen3-coder-*`, `qwen-vl-*` | Alibaba Cloud Model Studio, OpenAI-compatible; регион intl / cn |
+| Qwen (DashScope) | `qwen-max` / `qwen-plus` / `qwen-turbo`, `qwen3-coder-*`, `qwen-vl-*` | Model Studio / QwenCloud; endpoint intl / cn / Token Plan |
 | Yandex AI Studio | `yandexgpt` / `yandexgpt-lite`, `qwen3-235b-a22b-fp8`, `gpt-oss-120b` | API-ключ + folder id; URI `gpt://<folder>/<model>/latest` |
 | Local | всё, что вернёт `/models` — Ollama, LM Studio, vLLM, llama.cpp | по умолчанию `http://127.0.0.1:11434/v1`, ключ не обязателен |
 

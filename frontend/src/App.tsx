@@ -2317,7 +2317,7 @@ export default function App() {
   const [zaiModel, setZaiModel] = useState('glm-4.7-flash')
   const [openrouterModel, setOpenrouterModel] = useState('qwen/qwen3-coder-flash:floor')
   const [qwenModel, setQwenModel] = useState('qwen-plus')
-  const [qwenEndpoint, setQwenEndpoint] = useState<'intl' | 'cn'>('intl')
+  const [qwenEndpoint, setQwenEndpoint] = useState<'intl' | 'cn' | 'token-plan'>('intl')
   const [kimiModel, setKimiModel] = useState('kimi-k3.1-pro')
   const [kimiModels, setKimiModels] = useState<string[]>([...KIMI_MODELS_FALLBACK])
   const [kimiModelLabels, setKimiModelLabels] = useState<Record<string, string>>({})
@@ -3602,7 +3602,9 @@ export default function App() {
         if (typeof s.zaiModel === 'string' && s.zaiModel) setZaiModel(s.zaiModel)
         if (typeof s.openrouterModel === 'string' && s.openrouterModel) setOpenrouterModel(s.openrouterModel)
         if (typeof s.qwenModel === 'string' && s.qwenModel) setQwenModel(s.qwenModel)
-        if (s.qwenEndpoint === 'cn' || s.qwenEndpoint === 'intl') setQwenEndpoint(s.qwenEndpoint)
+        if (s.qwenEndpoint === 'cn' || s.qwenEndpoint === 'intl' || s.qwenEndpoint === 'token-plan') {
+          setQwenEndpoint(s.qwenEndpoint)
+        }
         if (typeof s.kimiModel === 'string' && s.kimiModel) setKimiModel(s.kimiModel)
         if (typeof s.yandexModel === 'string' && s.yandexModel) setYandexModel(s.yandexModel)
         if (typeof s.yandexFolderId === 'string') setYandexFolderId(s.yandexFolderId)
@@ -8231,23 +8233,30 @@ async function refreshYandexModels(opts?: {applyPreferred?: boolean; notify?: bo
               <>
                 <div className="nc-section-label">Qwen (DashScope)</div>
                 <p className="nc-help">
-                  Alibaba Cloud Model Studio. Ключ — в Model Studio (DashScope) → API-KEY.
-                  OpenAI-совместимый режим <code>/compatible-mode/v1</code>, tool calling из коробки.
+                  Alibaba Cloud Model Studio / QwenCloud. OpenAI-совместимый{' '}
+                  <code>/compatible-mode/v1</code>, tool calling из коробки.
                 </p>
                 <label>
                   Endpoint
                   <select
                     value={qwenEndpoint}
                     onChange={(e) => {
-                      const next = e.target.value === 'cn' ? 'cn' : 'intl'
+                      const v = e.target.value
+                      const next = v === 'cn' || v === 'token-plan' ? v : 'intl'
                       setQwenEndpoint(next)
                       void SaveQwenEndpoint(next)
                     }}
+                    title="intl/cn: DashScope pay-as-you-go · Token Plan: token-plan.maas.qwencloudapi.com"
                   >
                     <option value="intl">International (dashscope-intl)</option>
                     <option value="cn">China (dashscope)</option>
+                    <option value="token-plan">Token Plan (QwenCloud)</option>
                   </select>
                 </label>
+                <p className="nc-help">
+                  Pay-as-you-go (<code>intl</code>/<code>cn</code>): ключ <code>sk-…</code> / <code>sk-ws-…</code> из Model Studio.
+                  Token Plan: ключ <code>sk-sp-…</code> из QwenCloud → API Keys — только с этим endpoint.
+                </p>
                 <label>
                   Model
                   <select
@@ -8287,7 +8296,7 @@ async function refreshYandexModels(opts?: {applyPreferred?: boolean; notify?: bo
                     type="password"
                     value={qwenKey}
                     onChange={(e) => setQwenKey(e.target.value)}
-                    placeholder={qwenKeySet ? '•••• set' : 'sk-...'}
+                    placeholder={qwenKeySet ? '•••• set' : (qwenEndpoint === 'token-plan' ? 'sk-sp-...' : 'sk-...')}
                   />
                 </label>
                 <p className="nc-help">

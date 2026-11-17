@@ -12,7 +12,7 @@ The agent reads and edits files in your project, runs commands, commits and push
 Keychain / Windows Credential Manager), chat history stays local. The only outbound traffic is the
 request to the LLM provider you picked yourself.
 
-**Version:** `1.2.12` · **Output:** `build/bin/NotCursor.exe` (Windows) and `build/bin/NotCursor.app` (macOS)
+**Version:** `1.2.16` · **Output:** `build/bin/NotCursor.exe` (Windows) and `build/bin/NotCursor.app` (macOS)
 
 ## Quick start
 
@@ -86,7 +86,7 @@ Switching — **Settings → Provider**.
 | DeepSeek | `deepseek-flash` (default), `deepseek-v4-pro`; legacy `deepseek-v4-flash` / `…-vision-exp` → Flash | OpenAI-compatible API, automatic model choice |
 | Z.ai | `glm-4.5…5.3` (flash / pro / vision) | model list and balance are shown right in Settings |
 | OpenRouter | any `openrouter/…` | your own key and endpoint |
-| Qwen (DashScope) | `qwen-max` / `qwen-plus` / `qwen-turbo`, `qwen3-coder-*`, `qwen-vl-*` | Alibaba Cloud Model Studio, OpenAI-compatible; intl / cn region |
+| Qwen (DashScope) | `qwen-max` / `qwen-plus` / `qwen-turbo`, `qwen3-coder-*`, `qwen-vl-*` | Model Studio / QwenCloud; endpoint intl / cn / Token Plan |
 | Yandex AI Studio | `yandexgpt` / `yandexgpt-lite`, `qwen3-235b-a22b-fp8`, `gpt-oss-120b` | API key + folder id; URI `gpt://<folder>/<model>/latest` |
 | Local | anything `/models` returns — Ollama, LM Studio, vLLM, llama.cpp | defaults to `http://127.0.0.1:11434/v1`, key optional |
 

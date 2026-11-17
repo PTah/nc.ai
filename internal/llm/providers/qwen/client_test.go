@@ -60,6 +60,9 @@ func TestBaseURLFor(t *testing.T) {
 	if got := BaseURLFor("intl"); got != IntlBaseURL {
 		t.Fatalf("intl: got %q", got)
 	}
+	if got := BaseURLFor("token-plan"); got != TokenPlanBaseURL {
+		t.Fatalf("token-plan: got %q", got)
+	}
 	if got := BaseURLFor(""); got != IntlBaseURL {
 		t.Fatalf("default: got %q", got)
 	}
