@@ -30,6 +30,7 @@
 // Edited by nc.ai 1.1.3 on macbook 2026-11-08 18:54:24
 // Edited by nc.ai 1.2.9 on Papasha 2026-11-13 21:55:16
 // Edited by nc.ai 1.2.13 on macbook 2026-11-14 22:30:07
+// Edited by nc.ai 1.2.15 on Papasha 2026-11-21 11:17:55
 package appmeta
 
 import "time"
@@ -37,7 +38,7 @@ import "time"
 // App identity. Bump Version when you want the Welcome splash to appear again.
 const (
 	Name    = "NotCursor.ai"
-	Version = "1.2.16"
+	Version = "1.2.17"
 )
 
 // DeepSeekProRetireRFC3339 is the announced V4 Pro retirement instant, empty
@@ -83,19 +84,19 @@ func retiredAt(at time.Time, now time.Time) bool {
 // Highlights are author-written release notes for the Welcome splash (not git log).
 // Keep at most 5 items; update manually for each release.
 var HighlightsRU = []string{
-	"Qwen Token Plan: в Settings → Qwen третий endpoint рядом с intl/cn — ключ sk-sp-… и баланс подписки QwenCloud",
+	"Список проектов показывает состояние прогона: кольцо — идёт работа, галочка ✓ — прогон завершён (даже если открыт другой проект)",
 	"Новый проект одной фразой: «Создай репо и выложи на Home / на гитхаб / на work» — папка, git, репозиторий, push и проект в дашборде",
-	"MCP-серверы больше не оставляют висящих процессов: при остановке гасится всё дерево (node.exe и npx не остаются в памяти), npx запускается напрямую через node, а сервер, упавший на старте, не перезапускается на каждом шаге — растущий backoff и лимит попыток",
+	"MCP-серверы больше не оставляют висящих процессов: гасится всё дерево (node.exe, npx, установщики npm/pip), а сервер, упавший сам, забирает с собой потомков",
 	"Резервный провайдер: длинный лимит или перегрузка — прогон один раз продолжает на резерве, а не падает",
-	"Стабильность длинных чатов: обрезка огромных tool-выводов и data:-картинок при сохранении, дебаунс записи и лимит рендера ленты (кнопка «показать раньше»)",
+	"Чаты сами получают короткое имя по первому вопросу вместо «Chat 2» — как в Cursor",
 }
 
 var HighlightsEN = []string{
-	"Qwen Token Plan: Settings → Qwen gains a third endpoint beside intl/cn — sk-sp-… keys and QwenCloud subscription credits",
+	"The project list now shows run state: a ring while the agent works, a ✓ once the run is finished (even if another project is open)",
 	"A new project in one sentence: \"create a repo and publish it to Home / github / work\" — folder, git, remote repo, push and a dashboard project",
-	"MCP servers no longer leave stray processes: stopping a server kills the whole tree (node.exe and npx stay out of memory), npx runs through node directly, and a server that crashes on boot is not respawned on every step — growing backoff and an attempt limit",
+	"MCP servers no longer leave stray processes: the whole tree is killed (node.exe, npx, npm/pip installers), and a server that dies on its own takes its children with it",
 	"Fallback provider: on a long rate limit or an overload the run continues once on the backup instead of failing",
-	"Long-chat stability: trim oversized tool output and data: images on save, debounce writes, and cap rendered messages (with a show-earlier button)",
+	"Chats name themselves after the first question instead of staying \"Chat 2\" — the way Cursor does it",
 }
 
 // UICopy is localized chrome for the Welcome splash.

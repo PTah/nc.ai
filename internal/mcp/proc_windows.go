@@ -7,6 +7,7 @@ package mcp
 
 import (
 	"os/exec"
+	"sync"
 	"syscall"
 	"unsafe"
 
@@ -18,25 +19,6 @@ const (
 	createSuspended = 0x00000004
 )
 
-// configureProcess prevents a console window from popping up for child
-// processes. NotCursor is a GUI-subsystem binary with no console of its own, so
-// any console child (node.exe, or cmd.exe running a .cmd shim like npm.cmd)
-// would otherwise get a brand-new cmd window. Setting CREATE_NO_WINDOW +
-// HideWindow keeps MCP servers and installers in the background.
-//
-// It is used by package installers (runCmdOut); MCP stdio servers go through
-// newTreeGuard, which also sets these flags.
-func configureProcess(cmd *exec.Cmd) {
-	if cmd == nil {
-		return
-	}
-	if cmd.SysProcAttr == nil {
-		cmd.SysProcAttr = &syscall.SysProcAttr{}
-	}
-	cmd.SysProcAttr.HideWindow = true
-	cmd.SysProcAttr.CreationFlags |= createNoWindow
-}
-
 // treeGuard owns a Windows Job Object configured with
 // JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE: closing the handle (Close) terminates the
 // whole child tree. The process is started suspended, attached to the job, then
@@ -44,7 +26,13 @@ func configureProcess(cmd *exec.Cmd) {
 // AssignProcessToJobObject. Without this, Session.Close killed only the direct
 // child (npx-cli / cmd.exe) and left the real node/python server and its
 // conhost orphaned — the classic MCP process leak.
+//
+// It also hides the console window (CREATE_NO_WINDOW + HideWindow): NotCursor is
+// a GUI-subsystem binary with no console of its own, so every console child
+// (node.exe, or cmd.exe running a .cmd shim) would otherwise pop up a cmd window.
+// Package installers (runCmdOut) use the same guard.
 type treeGuard struct {
+	mu  sync.Mutex
 	job windows.Handle
 }
 
@@ -94,8 +82,15 @@ func (g *treeGuard) adopt(pid int) error {
 }
 
 // close destroys the job; KILL_ON_JOB_CLOSE terminates every process still in it.
+// Safe to call more than once and from several goroutines: the session releases
+// the job both on Close and when the server process dies on its own.
 func (g *treeGuard) close() {
-	if g == nil || g.job == 0 {
+	if g == nil {
+		return
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.job == 0 {
 		return
 	}
 	_ = windows.CloseHandle(g.job)

@@ -375,6 +375,12 @@ func (s *Session) readLoop() {
 				s.appendLog("stdout closed: " + err.Error())
 			}
 			s.failPending(err)
+			// The server process is gone. Destroy its job object / process
+			// group right away instead of waiting for Close: grandchildren that
+			// outlived the server (npx → node behind a wrapper) would otherwise
+			// keep running for the rest of the app's life, because nothing
+			// closes a dead session until it is restarted by hand.
+			s.releaseTree()
 			return
 		}
 		line = bytesTrimSpace(line)
@@ -447,6 +453,15 @@ func (s *Session) failPending(err error) {
 	}
 }
 
+// releaseTree destroys the job object / process group that owns the server
+// process and its descendants. Idempotent, so both Close and readLoop may call
+// it.
+func (s *Session) releaseTree() {
+	if s != nil && s.tree != nil {
+		s.tree.close()
+	}
+}
+
 // Close kills the server process and its whole child tree.
 func (s *Session) Close() {
 	if s == nil || !s.closed.CompareAndSwap(false, true) {
@@ -456,9 +471,7 @@ func (s *Session) Close() {
 	// Kill the tree first (Windows job / Unix process group), then reap the
 	// direct child. The order matters on Windows: closing the job terminates
 	// descendants that Process.Kill would otherwise miss.
-	if s.tree != nil {
-		s.tree.close()
-	}
+	s.releaseTree()
 	if s.cmd != nil && s.cmd.Process != nil {
 		_ = s.cmd.Process.Kill()
 		_, _ = s.cmd.Process.Wait()

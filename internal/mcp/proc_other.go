@@ -7,17 +7,16 @@ package mcp
 
 import (
 	"os/exec"
+	"sync"
 	"syscall"
 )
-
-// configureProcess is a no-op off Windows (no console-window problem there).
-func configureProcess(cmd *exec.Cmd) {}
 
 // treeGuard on Unix puts the child in its own process group (Setpgid) and, on
 // Close, signals the whole group with SIGKILL. Session.Close already kills the
 // direct child; the group kill catches grandchildren (e.g. an npx/uvx wrapper
 // that spawned the real server), which would otherwise outlive the session.
 type treeGuard struct {
+	mu  sync.Mutex
 	pid int
 }
 
@@ -30,12 +29,22 @@ func newTreeGuard(cmd *exec.Cmd) (*treeGuard, error) {
 }
 
 func (g *treeGuard) adopt(pid int) error {
+	g.mu.Lock()
 	g.pid = pid
+	g.mu.Unlock()
 	return nil
 }
 
+// close kills the whole process group. Safe to call more than once and from
+// several goroutines: the session releases the group both on Close and when the
+// server process dies on its own.
 func (g *treeGuard) close() {
-	if g == nil || g.pid <= 0 {
+	if g == nil {
+		return
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.pid <= 0 {
 		return
 	}
 	_ = syscall.Kill(-g.pid, syscall.SIGKILL)

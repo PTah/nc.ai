@@ -64,6 +64,11 @@ type Manager struct {
 	// startMu serializes Start so the background starter and lazy tool-call
 	// start cannot race and kill each other's session.
 	startMu sync.Mutex
+	// closed is set by CloseAll. A background EnsureStartedBackground goroutine
+	// may still be in StartStdio when the app shuts down; without this flag its
+	// freshly booted server would be stored in the map after CloseAll walked it
+	// and would keep running (and holding memory) as a live child.
+	closed bool
 	// OnEvent, если задан, вызывается для журнала: "started id=… tools=N",
 	// "start failed id=… err=…", "stopped id=…". Нужно, чтобы в agent.log было
 	// видно, когда и почему MCP-сервер поднялся или упал.
@@ -308,6 +313,10 @@ func (m *Manager) Start(ctx context.Context, id string) (Status, error) {
 		m.mu.Unlock()
 		return Status{}, fmt.Errorf("unknown MCP server %q", id)
 	}
+	if m.closed {
+		m.mu.Unlock()
+		return Status{}, fmt.Errorf("mcp manager is closed")
+	}
 	if s := m.sessions[cfg.ID]; s != nil && s.Alive() {
 		st := m.statusLocked(cfg)
 		m.mu.Unlock()
@@ -347,6 +356,12 @@ func (m *Manager) Start(ctx context.Context, id string) (Status, error) {
 		}
 		return m.statusLocked(cfg), err
 	}
+	if m.closed {
+		// Shutdown raced with this start: do not register a live child that
+		// CloseAll has already walked past.
+		sess.Close()
+		return m.statusLocked(cfg), fmt.Errorf("mcp manager is closed")
+	}
 	m.sessions[cfg.ID] = sess
 	m.states[cfg.ID] = "running"
 	m.errors[cfg.ID] = ""
@@ -375,6 +390,7 @@ func (m *Manager) Stop(id string) Status {
 func (m *Manager) CloseAll() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.closed = true
 	for id, s := range m.sessions {
 		s.Close()
 		delete(m.sessions, id)

@@ -25,6 +25,7 @@
 // Edited by nc.ai 1.2.5 on macbook 2026-11-12 20:30:12
 // Edited by nc.ai 1.2.9 on Papasha 2026-11-13 21:45:22
 // Edited by nc.ai 1.2.14 on macbook 2026-11-15 00:24:27
+// Edited by nc.ai 1.2.15 on Papasha 2026-11-21 11:15:34
 import {FormEvent, MouseEvent as ReactMouseEvent, useCallback, useEffect, useMemo, useRef, useState} from 'react'
 import {Terminal} from '@xterm/xterm'
 import {FitAddon} from '@xterm/addon-fit'
@@ -197,6 +198,7 @@ import {
   StopAgentSession,
   ActiveRuns,
   StopTerminal,
+  SuggestChatTitle,
   SwitchChatSession,
   TerminalResize,
   TerminalWrite,
@@ -2208,6 +2210,12 @@ export default function App() {
   const [runLanes, setRunLanes] = useState<Record<string, Record<string, ChatItem[]>>>({})
   const [runOrder, setRunOrder] = useState<Record<string, string[]>>({})
   const [runCountBySession, setRunCountBySession] = useState<Record<string, number>>({})
+  // Прогон завершился в проекте: держим галочку у названия, пока человек этот
+  // проект не откроет или не запустит в нём новую работу. Иначе при нескольких
+  // проектах не видно, где прогон закончился, а где его ещё не начинали.
+  const [runDoneByProject, setRunDoneByProject] = useState<Record<string, number>>({})
+  // Какие чаты уже получили автоимя: не гоняем генерацию повторно для одного чата.
+  const autoTitleRef = useRef<Record<string, boolean>>({})
   // «Занято» — производная от счётчика дорожек, а не отдельная карта: две карты
   // расходились, и чат оставался занятым навсегда. Тогда очередь не уходила
   // («Отправить» молча ничего не делал), а Stop было нечего останавливать.
@@ -3153,6 +3161,12 @@ export default function App() {
       setRunCountBySession((prev) => (prev[sid] ? {...prev, [sid]: 0} : prev))
     }
     if (remaining === 0) {
+      // Прогон в этом проекте закончился: ставим галочку у названия проекта, пока
+      // человек его не откроет. Прогон мог идти в фоне, пока на экране другой
+      // проект — именно там раньше и было не понять, где работа уже завершена.
+      const donePath = runProjectBySession[sid]
+        || (sid === activeSessionRef.current ? activeProjectRef.current?.path || '' : '')
+      if (donePath) setRunDoneByProject((prev) => ({...prev, [donePath]: Date.now()}))
       setProgressBySession((prev) => {
         if (!prev[sid]) return prev
         const next = {...prev}
@@ -3170,7 +3184,7 @@ export default function App() {
       // Прогон чужого (фонового) чата: сохраняем именно его транскрипт.
       window.setTimeout(() => { void persistSession(sid) }, 700)
     }
-  }, [finishRunLane, runCountBySession])
+  }, [finishRunLane, runCountBySession, runProjectBySession])
 
   // abandonRuns закрывает все дорожки сессии, когда бэкенд подтверждает, что
   // прогонов там уже нет. Потерянное событие завершения ('done'/'error') иначе
@@ -4650,6 +4664,34 @@ export default function App() {
     }
   }
 
+  /** Дефолтное имя чата («Chat», «Chat 7», пусто) — только такое заменяем сами. */
+  function isDefaultChatTitle(title: string): boolean {
+    const t = String(title || '').trim()
+    return t === '' || /^chat(\s+\d+)?$/i.test(t)
+  }
+
+  /**
+   * Короткое имя чата по первому вопросу, как в Cursor: «Chat 3» → «Разбор
+   * NDIS-портов». Ставим сразу, чтобы вкладка не ждала сохранения; бэкенд делает
+   * то же самое при старте прогона, поэтому имя не потеряется.
+   */
+  async function maybeAutoTitleChat(sid: string, text: string) {
+    if (!sid || !text.trim() || autoTitleRef.current[sid]) return
+    const cur = asList(sessions).find((s) => s.id === sid)
+    if (cur && !isDefaultChatTitle(cur.title)) return
+    autoTitleRef.current[sid] = true
+    try {
+      const title = String(await SuggestChatTitle(text) || '').trim()
+      if (!title) return
+      setSessions((prev) => prev.map((s) => (s.id === sid && isDefaultChatTitle(s.title) ? {...s, title} : s)))
+      await RenameChatSession(sid, title)
+    } catch {
+      /* имя чата — удобство: молчим, прогон важнее */
+    } finally {
+      delete autoTitleRef.current[sid]
+    }
+  }
+
   async function removeSession(id: string) {
     if (sessions.length <= 1) {
       // Do not silently wipe the last chat: this branch is unreachable from
@@ -5395,6 +5437,13 @@ export default function App() {
   }
 
   async function openProject(path: string) {
+    // Проект открыли — галочка «прогон завершён» своё отработала.
+    setRunDoneByProject((prev) => {
+      if (!(path in prev)) return prev
+      const next = {...prev}
+      delete next[path]
+      return next
+    })
     if (active && activeSessionId) {
       try { await persistSession(activeSessionId) } catch { /* ignore */ }
     }
@@ -6415,7 +6464,16 @@ async function refreshYandexModels(opts?: {applyPreferred?: boolean; notify?: bo
       return next
     })
     const runPath = activeProjectRef.current?.path || ''
-    if (runPath) setRunProjectBySession((p) => (p[sid] === runPath ? p : {...p, [sid]: runPath}))
+    if (runPath) {
+      setRunProjectBySession((p) => (p[sid] === runPath ? p : {...p, [sid]: runPath}))
+      // В проекте снова пошла работа — галочка «прогон завершён» больше не нужна.
+      setRunDoneByProject((prev) => {
+        if (!(runPath in prev)) return prev
+        const next = {...prev}
+        delete next[runPath]
+        return next
+      })
+    }
     try {
       // Прогон привязываем к чату и к конкретной «дорожке» runId: бэкенд больше
       // не угадывает сессию по своему «активному» состоянию, поэтому ответ не
@@ -6433,6 +6491,8 @@ async function refreshYandexModels(opts?: {applyPreferred?: boolean; notify?: bo
       setRetryVisible(true)
       return 'error'
     }
+    // Прогон пошёл: если чат ещё «Chat N», даём ему короткое имя по вопросу.
+    void maybeAutoTitleChat(sid, text)
     return 'started'
   }
   runAgentRef.current = runAgent
@@ -7056,6 +7116,7 @@ async function refreshYandexModels(opts?: {applyPreferred?: boolean; notify?: bo
             )}
             {asList(projects).map((p) => {
               const running = isProjectRunning(p.path)
+              const done = !running && Boolean(runDoneByProject[p.path])
               return (
               <li key={p.path} className={active?.path === p.path ? 'active' : ''}>
                 <button
@@ -7080,12 +7141,14 @@ async function refreshYandexModels(opts?: {applyPreferred?: boolean; notify?: bo
                     e.stopPropagation()
                     setProjectCtx({x: e.clientX, y: e.clientY, path: p.path, name: p.name, workspace: p.workspace})
                   }}
-                  title={`${p.workspace ? (p.roots ?? []).join('\n') : p.path}${running ? ' — идёт работа' : ''}`}
+                  title={`${p.workspace ? (p.roots ?? []).join('\n') : p.path}${running ? ' — идёт работа' : done ? ' — прогон завершён' : ''}`}
                 >
                   <ProjectIcon src={p.iconUrl} name={p.name} workspace={p.workspace} />
                   <span className="nc-project-name">
                     {running ? (
                       <span className="nc-spin" title="Идёт работа" aria-label="Идёт работа" />
+                    ) : done ? (
+                      <span className="nc-done" title="Прогон завершён — проект ещё не открывали" aria-label="Прогон завершён">✓</span>
                     ) : null}
                     {p.name}
                     {p.workspace ? (

@@ -4691,10 +4691,8 @@ func (a *App) SaveChat(itemsJSON string) error {
 	}
 	sess.ItemsJSON = itemsJSON
 	sess.History = hist
-	if sess.Title == "" || sess.Title == "Chat" || sess.Title == "Chat 1" {
-		if t := titleFromItemsJSON(itemsJSON); t != "" {
-			sess.Title = t
-		}
+	if t := titleFromItemsJSON(itemsJSON); t != "" && isDefaultChatTitle(sess.Title) {
+		sess.Title = t
 	}
 	return a.chats.SaveSession(a.projectKey(), sess)
 }
@@ -4741,7 +4739,7 @@ func (a *App) SaveChatSession(sessionID, itemsJSON string) error {
 		sess.History = append([]llm.Message{}, a.history...)
 	}
 	a.mu.Unlock()
-	if t := titleFromItemsJSON(itemsJSON); t != "" && (sess.Title == "" || sess.Title == "Chat" || sess.Title == "Chat 1") {
+	if t := titleFromItemsJSON(itemsJSON); t != "" && isDefaultChatTitle(sess.Title) {
 		sess.Title = t
 	}
 	return a.chats.SaveSession(proj, sess)
@@ -4793,6 +4791,7 @@ func truncateRunes(s string, n int) string {
 	return string(r[:n]) + "…"
 }
 
+// titleFromItemsJSON — короткое имя чата по первому вопросу в транскрипте.
 func titleFromItemsJSON(itemsJSON string) string {
 	type peek struct {
 		Kind    string `json:"kind"`
@@ -4803,12 +4802,8 @@ func titleFromItemsJSON(itemsJSON string) string {
 		return ""
 	}
 	for _, it := range items {
-		if it.Kind == "user" && it.Content != "" {
-			runes := []rune(it.Content)
-			if len(runes) > 40 {
-				return string(runes[:40]) + "…"
-			}
-			return string(runes)
+		if it.Kind == "user" && strings.TrimSpace(it.Content) != "" {
+			return ShortChatTitle(it.Content)
 		}
 	}
 	return ""
@@ -4980,6 +4975,10 @@ func (a *App) RunAgentInSession(sessionID, runID, userMessage string, attachment
 		return fmt.Errorf("проект на замке — снимите замок, чтобы писать в него")
 	}
 	_, _ = a.ws.ActiveRoot()
+	// Cursor-подобное имя чата: пока он «Chat N», берём короткое название из
+	// первого вопроса. Сохраняем здесь, чтобы имя пережило перезапуск и не
+	// зависело от того, успел ли UI перерисовать вкладку.
+	a.autoTitleSession(projKey, sid, userMessage)
 
 	steer := make(chan llm.Message, 8)
 	a.mu.Lock()

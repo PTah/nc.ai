@@ -255,9 +255,17 @@ func runCmd(ctx context.Context, bin string, args []string, env []string) error 
 	return err
 }
 
+// runCmdOut runs a package installer (npm/pip/uvx) and returns its combined
+// output. The command goes through newTreeGuard: `npm install -g` is
+// cmd.exe/node → node → postinstall scripts, and killing only the direct child
+// on timeout or cancel is exactly how orphaned node.exe are born.
 func runCmdOut(ctx context.Context, bin string, args []string, env []string) (string, error) {
 	cmd := exec.CommandContext(ctx, bin, args...)
-	configureProcess(cmd)
+	guard, err := newTreeGuard(cmd)
+	if err != nil {
+		return "", err
+	}
+	defer guard.close()
 	if len(env) > 0 {
 		cmd.Env = env
 	} else {
@@ -266,7 +274,16 @@ func runCmdOut(ctx context.Context, bin string, args []string, env []string) (st
 	var buf bytes.Buffer
 	cmd.Stdout = &buf
 	cmd.Stderr = &buf
-	err := cmd.Run()
+	if err := cmd.Start(); err != nil {
+		return "", err
+	}
+	if err := guard.adopt(cmd.Process.Pid); err != nil {
+		// Never run a process we cannot reap.
+		_ = cmd.Process.Kill()
+		_, _ = cmd.Process.Wait()
+		return "", fmt.Errorf("attach to job: %w", err)
+	}
+	err = cmd.Wait()
 	return buf.String(), err
 }
 

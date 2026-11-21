@@ -36,8 +36,85 @@ func TestTreeHelperProcess(t *testing.T) {
 		time.Sleep(2 * time.Minute)
 		os.Exit(0)
 	}
+	if mode == "exit" {
+		// Spawn a grandchild and die immediately: the session must release the
+		// job on stdout EOF, otherwise the grandchild lives on.
+		gc := exec.Command(os.Args[0], "-test.run=TestTreeHelperProcess")
+		gc.Env = append(os.Environ(), treeHelperEnv+"=grandchild")
+		if err := gc.Start(); err != nil {
+			os.Exit(3)
+		}
+		_, _ = os.Stdout.WriteString("GRANDCHILD " + strconv.Itoa(gc.Process.Pid) + "\n")
+		os.Exit(0)
+	}
 	time.Sleep(2 * time.Minute)
 	os.Exit(0)
+}
+
+// TestSessionReleasesTreeWhenServerDies covers the second half of the MCP leak:
+// when the server process exits on its own (crash, OOM, `npx` wrapper gone) the
+// job object used to stay open, so grandchildren kept running until someone
+// pressed Stop or the app exited. readLoop now releases the tree at EOF.
+func TestSessionReleasesTreeWhenServerDies(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "-test.run=TestTreeHelperProcess")
+	cmd.Env = append(os.Environ(), treeHelperEnv+"=exit")
+	guard, err := newTreeGuard(cmd)
+	if err != nil {
+		t.Fatalf("newTreeGuard: %v", err)
+	}
+	out, err := cmd.StdoutPipe()
+	if err != nil {
+		guard.close()
+		t.Fatalf("stdout pipe: %v", err)
+	}
+	if err := cmd.Start(); err != nil {
+		guard.close()
+		t.Fatalf("start: %v", err)
+	}
+	if err := guard.adopt(cmd.Process.Pid); err != nil {
+		_ = cmd.Process.Kill()
+		_, _ = cmd.Process.Wait()
+		guard.close()
+		t.Fatalf("adopt: %v", err)
+	}
+
+	s := &Session{
+		cmd:     cmd,
+		tree:    guard,
+		stdout:  bufio.NewReader(out),
+		pending: map[uint64]chan jsonRPCResponse{},
+	}
+	go s.readLoop()
+
+	pid := 0
+	deadline := time.Now().Add(30 * time.Second)
+	for pid <= 0 && time.Now().Before(deadline) {
+		s.logMu.Lock()
+		for _, line := range s.logs {
+			// readLoop logs unknown lines as `bad json: …`, so look inside.
+			if i := strings.Index(line, "GRANDCHILD "); i >= 0 {
+				pid, _ = strconv.Atoi(strings.TrimSpace(line[i+len("GRANDCHILD "):]))
+			}
+		}
+		s.logMu.Unlock()
+		if pid <= 0 {
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+	if pid <= 0 {
+		_ = cmd.Process.Kill()
+		_, _ = cmd.Process.Wait()
+		t.Fatal("child did not report its grandchild pid")
+	}
+
+	if !waitProcessGone(uint32(pid), 20*time.Second) {
+		if p, err := os.FindProcess(pid); err == nil {
+			_ = p.Kill()
+		}
+		_, _ = cmd.Process.Wait()
+		t.Fatalf("grandchild %d survived the server exit (process leak)", pid)
+	}
+	_, _ = cmd.Process.Wait()
 }
 
 // TestTreeGuardKillsGrandchildren is the regression test for the MCP process
